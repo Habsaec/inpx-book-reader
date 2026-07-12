@@ -1,0 +1,36 @@
+---
+description: Приложение разрабатывается исключительно для Android — другие системы не учитываем
+alwaysApply: true
+---
+
+# Только Android (без исключений)
+
+**inpx-book-reader** разрабатывается **исключительно для Android (APK)**.  
+iOS, Windows, macOS, Linux, PWA, браузер как продукт — **не учитываем и не поддерживаем**.
+
+## Что это значит
+
+- Целевая среда: **Capacitor 7 + Android WebView + нативные плагины** (SAF, BookStorage, FolderPicker, ReaderNative)
+- UI и UX — под **мобильный Android** (safe-area, жест «Назад», status bar, APK)
+- Файлы и офлайн — через **Storage Access Framework**, не через браузерные API
+- Тестирование — **только на Android** (`npm run build:android`, Android Studio, adb)
+- Браузер (`npm run dev`) — **временная отладка**, не целевая платформа; баги «только в браузере» не приоритет
+
+## Чего не делать
+
+- Не предлагать и не писать поддержку iOS / десктоп / веб-клиента
+- Не добавлять fallback: `showDirectoryPicker`, PWA, Safari-фиксы, responsive «для большого экрана»
+- Не усложнять код ветками «если не Android» ради других платформ
+- Не оптимизировать анимации/верстку под desktop-браузер — ориентир Android WebView
+- Не тратить время на кроссплатформенную совместимость
+
+## Android-специфика (учитывать всегда)
+
+- WebView может **не доигрывать CSS/JS-анимации** (`opacity: 0` → пустой экран) — `MotionConfig reducedMotion="always"`
+- Цепочка высот: `html`, `body`, `#root`, flex + `min-h-0`
+- `server.ts` / `/api/proxy` — только dev в браузере; в APK запросы напрямую через CapacitorHttp
+
+## Связанные документы
+
+- `AGENTS.md` — раздел «Только Android»
+- `.cursor/rules/unified-ecosystem.mdc` — экосистема с сервером

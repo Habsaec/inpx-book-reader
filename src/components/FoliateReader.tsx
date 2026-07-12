@@ -1,0 +1,420 @@
+import React from 'react';
+import { Capacitor } from '@capacitor/core';
+import { StatusBar } from '@capacitor/status-bar';
+import { readBinaryFileFromDirectory, arrayBufferToBase64 } from '../lib/bookStorage';
+import { debugSessionLog } from '../lib/debugSessionLog';
+import { ReaderNative } from '../lib/readerNative';
+import { getSafeAreaInsets, postSafeAreaToWindow, prepareReaderSafeArea, type SafeAreaInsets } from '../lib/safeArea';
+import { useBackHandler } from '../hooks/useBackHandler';
+import { theme } from '../lib/appTheme';
+import { applyReaderOrientationLock } from '../lib/readerOrientation';
+import { APP_SETTING_KEYS, getAppSettingJson } from '../lib/appSettings';
+import { applyIframeReaderStore, primeReaderLocalStorage, readOfflineReaderData } from '../lib/offlineReaderStore';
+import type { ReaderFontFamily } from './reader/readerTypes';
+
+interface ReaderPrefs {
+  orientationLock: 'auto' | 'portrait' | 'landscape';
+}
+
+function readReaderPrefs(): ReaderPrefs {
+  const p = getAppSettingJson<Partial<{ orientationLock?: string }>>(APP_SETTING_KEYS.readerPrefs, {});
+  const orientationLock =
+    p.orientationLock === 'portrait' || p.orientationLock === 'landscape' ? p.orientationLock : 'auto';
+  return { orientationLock };
+}
+
+export interface LocalBookFile {
+  storageUri: string;
+  localFileName: string;
+}
+
+export interface FoliateReaderConfig {
+  bookId: string;
+  bookExt?: string;
+  bookTitle?: string;
+  initialPosition?: string | null;
+  localFile: LocalBookFile;
+}
+
+interface FoliateReaderProps extends FoliateReaderConfig {
+  onClose: () => void;
+}
+
+export function readLocalReaderPosition(bookId: string): string | null {
+  const data = readOfflineReaderData(bookId);
+  return data.position ? String(data.position) : null;
+}
+
+/** @deprecated use readLocalReaderPosition */
+export const readOfflineReaderPosition = readLocalReaderPosition;
+
+export function writeFoliateReaderSession(config: FoliateReaderConfig) {
+  localStorage.setItem(
+    'INPX_READER_CONFIG',
+    JSON.stringify({
+      bookId: config.bookId,
+      bookExt: config.bookExt || 'fb2',
+      bookTitle: config.bookTitle || '',
+      initialPosition: config.initialPosition || null,
+      storageUri: config.localFile.storageUri,
+      localFileName: config.localFile.localFileName,
+    }),
+  );
+}
+
+export default function FoliateReader({
+  bookId,
+  bookExt = 'fb2',
+  bookTitle = 'Книга',
+  initialPosition,
+  localFile,
+  onClose,
+}: FoliateReaderProps) {
+  const iframeRef = React.useRef<HTMLIFrameElement>(null);
+  const flushAckRef = React.useRef<{
+    resolve: () => void;
+    timer: number;
+  } | null>(null);
+  const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState('');
+  const readerPrefsRef = React.useRef(readReaderPrefs());
+
+  React.useEffect(() => {
+    void applyReaderOrientationLock(readerPrefsRef.current.orientationLock);
+    return () => {
+      void applyReaderOrientationLock('auto');
+    };
+  }, []);
+
+  const safeAreaRef = React.useRef<SafeAreaInsets>({ top: 0, bottom: 0, left: 0, right: 0 });
+
+  const storageUri = localFile.storageUri;
+  const localFileName = localFile.localFileName;
+
+  React.useEffect(() => {
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
+
+    void ReaderNative.setSystemTextSelectionMenuEnabled({ enabled: false });
+    return () => {
+      void ReaderNative.setSystemTextSelectionMenuEnabled({ enabled: true });
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') return;
+
+    void (async () => {
+      try {
+        await StatusBar.setOverlaysWebView({ overlay: false });
+        await StatusBar.show();
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      void StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
+    };
+  }, []);
+
+  const flushReaderPositionAndWait = React.useCallback((timeoutMs = 2000): Promise<void> => {
+    return new Promise((resolve) => {
+      if (flushAckRef.current) {
+        clearTimeout(flushAckRef.current.timer);
+        flushAckRef.current.resolve();
+      }
+      const timer = window.setTimeout(() => {
+        flushAckRef.current = null;
+        resolve();
+      }, timeoutMs);
+      flushAckRef.current = { resolve, timer };
+      iframeRef.current?.contentWindow?.postMessage({ type: 'inpx-reader-flush-position' }, '*');
+    });
+  }, []);
+
+  const requestClose = React.useCallback(() => {
+    void flushReaderPositionAndWait().then(() => onClose());
+  }, [flushReaderPositionAndWait, onClose]);
+
+  const postReaderSeed = React.useCallback((win: Window | null) => {
+    if (!win || !bookId) return;
+    const data = readOfflineReaderData(bookId);
+    win.postMessage({
+      type: 'inpx-reader-seed-store',
+      bookId,
+      data,
+    }, '*');
+  }, [bookId]);
+
+  const postReaderChromeInsets = React.useCallback((target: Window | null) => {
+    postSafeAreaToWindow(target, safeAreaRef.current);
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      setLoadError('');
+
+      if (!localFileName || !storageUri) {
+        debugSessionLog('H1', 'FoliateReader:init', 'missing local file', {
+          bookId,
+          localFileName: Boolean(localFileName),
+          storageUri: Boolean(storageUri),
+        });
+        if (!cancelled) setLoadError('Книга не скачана на устройство');
+        return;
+      }
+
+      try {
+        debugSessionLog('H1', 'FoliateReader:init', 'start', { bookId, bookExt, localFileName });
+        safeAreaRef.current = await prepareReaderSafeArea();
+        if (cancelled) return;
+
+        writeFoliateReaderSession({
+          bookId,
+          bookExt,
+          bookTitle,
+          initialPosition,
+          localFile: { storageUri, localFileName },
+        });
+        if (cancelled) return;
+
+        primeReaderLocalStorage(bookId);
+        const readerData = readOfflineReaderData(bookId);
+        const query = new URLSearchParams({ bookId, ext: bookExt });
+        if (initialPosition) query.set('pos', initialPosition);
+        else {
+          const frac = readerData.fraction != null && Number.isFinite(Number(readerData.fraction))
+            ? Number(readerData.fraction)
+            : (Number(readerData.progress) || 0) / 100;
+          if (frac > 0.001) query.set('frac', String(frac));
+          if (readerData.fb2Href) query.set('fb2', String(readerData.fb2Href));
+        }
+        query.set('session', String(Date.now()));
+        setIframeSrc(`./inpx-reader/index.html?${query.toString()}`);
+        debugSessionLog('H1', 'FoliateReader:init', 'iframe src set', { bookId });
+      } catch (e: unknown) {
+        debugSessionLog('H1', 'FoliateReader:init', 'failed', {
+          msg: e instanceof Error ? e.message : String(e),
+        });
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : 'Не удалось открыть книгу');
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      void flushReaderPositionAndWait().then(() => {
+        setIframeSrc(null);
+      });
+    };
+  }, [bookId, bookExt, bookTitle, initialPosition, storageUri, localFileName, flushReaderPositionAndWait]);
+
+  React.useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== 'inpx-reader-request-book-file') return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
+
+      const target = event.source as Window;
+      const fileUri = String(event.data.storageUri || storageUri);
+      const filePath = String(event.data.localFileName || localFileName);
+      const requestId = event.data.requestId;
+
+      void (async () => {
+        debugSessionLog('H2', 'FoliateReader:fileRequest', 'start', { filePath, bookId });
+        try {
+          const buffer = await readBinaryFileFromDirectory({ uri: fileUri, label: '' }, filePath);
+          debugSessionLog('H2', 'FoliateReader:fileRequest', 'ok', {
+            bookId,
+            byteLength: buffer.byteLength,
+          });
+          const payload = {
+            type: 'inpx-reader-book-file',
+            requestId,
+          } as Record<string, unknown>;
+          if (Capacitor.getPlatform() === 'android') {
+            target.postMessage({ ...payload, data: arrayBufferToBase64(buffer) }, '*');
+          } else {
+            try {
+              target.postMessage({ ...payload, buffer }, '*', [buffer]);
+            } catch {
+              target.postMessage({ ...payload, data: arrayBufferToBase64(buffer) }, '*');
+            }
+          }
+        } catch (e: unknown) {
+          debugSessionLog('H2', 'FoliateReader:fileRequest', 'failed', {
+            msg: e instanceof Error ? e.message : String(e),
+            filePath,
+          });
+          target.postMessage({
+            type: 'inpx-reader-book-file',
+            requestId,
+            error: e instanceof Error ? e.message : 'Не удалось прочитать файл',
+          }, '*');
+        }
+      })();
+    };
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [storageUri, localFileName, bookId]);
+
+  React.useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    const onLoad = () => {
+      const win = iframe.contentWindow;
+      postReaderChromeInsets(win);
+      postReaderSeed(win);
+      win?.postMessage({
+        type: 'inpx-native-ready',
+        ready: Capacitor.isNativePlatform(),
+      }, '*');
+    };
+
+    iframe.addEventListener('load', onLoad);
+    return () => iframe.removeEventListener('load', onLoad);
+  }, [iframeSrc, postReaderChromeInsets, postReaderSeed]);
+
+  React.useEffect(() => {
+    void getSafeAreaInsets().then((insets) => {
+      safeAreaRef.current = insets;
+      postReaderChromeInsets(iframeRef.current?.contentWindow ?? null);
+    });
+  }, [iframeSrc, postReaderChromeInsets]);
+
+  React.useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'inpx-debug-log') {
+        debugSessionLog(
+          String(event.data.hypothesisId || 'H3'),
+          String(event.data.location || 'iframe'),
+          String(event.data.message || ''),
+          (event.data.data as Record<string, unknown>) || {},
+        );
+        return;
+      }
+
+      if (event.data?.type === 'inpx-reader-sync-store' && event.data.bookId === bookId) {
+        applyIframeReaderStore(bookId, event.data.data || {});
+        if (flushAckRef.current) {
+          clearTimeout(flushAckRef.current.timer);
+          const { resolve } = flushAckRef.current;
+          flushAckRef.current = null;
+          resolve();
+        }
+        return;
+      }
+
+      if (event.data?.type === 'inpx-reader-close') requestClose();
+
+      if (event.data?.type === 'inpx-native-call' && event.source === iframeRef.current?.contentWindow) {
+        void handleNativeCall(event.data.id, event.data.method, event.data.data, iframeRef.current?.contentWindow ?? null);
+      }
+    };
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [bookId, requestClose]);
+
+  React.useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const ttsEnd = ReaderNative.addListener('ttsEnd', (data) => {
+      iframeRef.current?.contentWindow?.postMessage({
+        type: 'inpx-native-event',
+        event: 'ttsEnd',
+        data,
+      }, '*');
+    });
+    const ttsStart = ReaderNative.addListener('ttsStart', (data) => {
+      iframeRef.current?.contentWindow?.postMessage({
+        type: 'inpx-native-event',
+        event: 'ttsStart',
+        data,
+      }, '*');
+    });
+    return () => {
+      void ttsEnd.then((h) => h.remove());
+      void ttsStart.then((h) => h.remove());
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const onVolumeKey = (e: Event) => {
+      const detail = (e as CustomEvent<{ direction: 'prev' | 'next' }>).detail;
+      iframeRef.current?.contentWindow?.postMessage({
+        type: 'reader-volume-key',
+        direction: detail?.direction,
+      }, '*');
+    };
+    window.addEventListener('reader-volume-key', onVolumeKey);
+    return () => window.removeEventListener('reader-volume-key', onVolumeKey);
+  }, []);
+
+  useBackHandler(() => {
+    iframeRef.current?.contentWindow?.postMessage({ type: 'inpx-reader-back' }, '*');
+    return true;
+  });
+
+  if (loadError) {
+    return (
+      <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-3 p-6 bg-[var(--app-bg)] text-[var(--app-text)]">
+        <p className="text-sm text-center">{loadError}</p>
+        <button type="button" className={`text-sm font-bold text-[var(--app-link)] px-3 py-2 rounded-lg ${theme.focusRing}`} onClick={onClose}>← Назад</button>
+      </div>
+    );
+  }
+
+  if (!iframeSrc) {
+    return (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[var(--app-bg)] text-[var(--app-text)]" role="status" aria-live="polite">
+        <p className="text-sm">Загрузка книги…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col min-h-0">
+      <iframe
+        ref={iframeRef}
+        title={bookTitle}
+        src={iframeSrc}
+        className="flex-1 w-full min-h-0 border-0 bg-[var(--app-surface)]"
+        allow="fullscreen"
+      />
+    </div>
+  );
+}
+
+async function handleNativeCall(
+  id: string,
+  method: string,
+  data: Record<string, unknown> | undefined,
+  target: Window | null,
+) {
+  const reply = (result?: unknown, error?: string) => {
+    target?.postMessage({ type: 'inpx-native-response', id, result, error }, '*');
+  };
+
+  if (!Capacitor.isNativePlatform()) {
+    reply(undefined, 'Native API unavailable');
+    return;
+  }
+
+  try {
+    const plugin = ReaderNative as unknown as Record<string, (opts?: Record<string, unknown>) => Promise<unknown>>;
+    const fn = plugin[method];
+    if (typeof fn !== 'function') {
+      reply(undefined, `Unknown method: ${method}`);
+      return;
+    }
+    const result = await fn(data);
+    reply(result);
+  } catch (e: unknown) {
+    reply(undefined, e instanceof Error ? e.message : 'Native call failed');
+  }
+}

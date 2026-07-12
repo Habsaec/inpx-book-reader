@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">INPX Reader</string>
+    <string name="title_activity_main">INPX Reader</string>
+    <string name="package_name">ru.inpx.bookreader</string>
+    <string name="custom_url_scheme">ru.inpx.bookreader</string>
+    <string name="shortcut_continue">Продолжить</string>
+    <string name="shortcut_continue_long">Продолжить чтение</string>
+</resources>

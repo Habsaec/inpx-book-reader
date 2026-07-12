@@ -1,0 +1,6 @@
+{
+  "name": "INPX Book Reader",
+  "description": "Мобильный клиент для чтения книг с INPX Library Server с синхронизацией прогресса и каталогом",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

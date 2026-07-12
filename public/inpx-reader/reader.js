@@ -1,0 +1,4797 @@
+import '/foliate/view.js?v=fb2seek4';
+import { createTOCView } from '/foliate/ui/tree.js?v=fb2seek4';
+import { Overlayer } from '/foliate/overlayer.js?v=fb2seek4';
+import {
+  FootnoteHandler,
+  footnoteTargetFragmentFromHref,
+  shouldTrySpineFootnoteClone,
+} from '/foliate/footnotes.js?v=fb2seek4';
+
+(function () {
+  'use strict';
+
+  const _nativeFetch = window.fetch.bind(window);
+  function readerCsrfToken() {
+    const m = document.querySelector('meta[name="csrf-token"]');
+    const t = m && m.getAttribute('content');
+    return t && String(t).trim() ? String(t).trim() : '';
+  }
+  window.fetch = function readerPatchedFetch(input, init) {
+    const opts = init === undefined ? {} : { ...init };
+    const method = String(opts.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      const token = readerCsrfToken();
+      if (token) {
+        const headers = new Headers(opts.headers);
+        if (!headers.has('X-CSRF-Token')) {
+          headers.set('X-CSRF-Token', token);
+        }
+        opts.headers = headers;
+      }
+    }
+    return _nativeFetch(input, opts);
+  };
+
+  let _readerI18n = { locale: 'ru', strings: {} };
+  try {
+    const el = document.getElementById('ui-i18n-json');
+    if (el && el.textContent && el.textContent.trim() !== '{"locale":"ru","strings":{}}') {
+      _readerI18n = JSON.parse(el.textContent);
+    }
+  } catch { /* */ }
+  async function ensureReaderI18n() {
+    if (_readerI18n.strings && Object.keys(_readerI18n.strings).length > 0) return;
+    try {
+      const r = await fetch('/inpx-reader/reader-i18n-ru.json');
+      if (r.ok) _readerI18n = await r.json();
+    } catch { /* */ }
+  }
+  function rt(key) {
+    const s = _readerI18n.strings;
+    if (!s || !Object.prototype.hasOwnProperty.call(s, key)) return key;
+    const v = s[key];
+    if (v === undefined || v === null) return key;
+    return v;
+  }
+  function rtp(key, vars = {}) {
+    let str = rt(key);
+    for (const [k, v] of Object.entries(vars)) str = str.split(`{{${k}}}`).join(String(v));
+    return str;
+  }
+  function rLocale() {
+    return _readerI18n.locale === 'en' ? 'en' : 'ru';
+  }
+  function rPlural(type, n) {
+    const lang = rLocale();
+    const v = Math.floor(Math.abs(Number(n) || 0));
+    if (lang === 'en') {
+      return rt(`plural.${type}.${v === 1 ? 'one' : 'other'}`);
+    }
+    const m10 = v % 10;
+    const m100 = v % 100;
+    let suf;
+    if (m100 >= 11 && m100 <= 14) suf = 'many';
+    else if (m10 === 1) suf = 'one';
+    else if (m10 >= 2 && m10 <= 4) suf = 'few';
+    else suf = 'many';
+    return rt(`plural.${type}.${suf}`);
+  }
+
+  /* ===== Constants & DOM refs ===== */
+  const bookId = window.__READER_BOOK_ID;
+  const bookExt = window.__READER_BOOK_EXT;
+  let effectiveBookExt = bookExt;
+  const READER_LITE = Boolean(window.__READER_LITE);
+  const SETTINGS_STORAGE_KEY = READER_LITE ? 'reader-settings-lite' : 'reader-settings';
+
+  function readerBookPagePath() {
+    if (window.__READER_BOOK_PAGE_PATH) return window.__READER_BOOK_PAGE_PATH;
+    return globalThis.bookPagePath ? globalThis.bookPagePath(bookId) : `/book/${encodeURIComponent(bookId)}`;
+  }
+  const $ = (s) => document.getElementById(s);
+  const readerBody = $('reader-body');
+  const toolbarChapter = $('toolbar-chapter');
+  const progressText = $('progress-text');
+  const panelKickerEl = $('panel-kicker');
+  const panelTitleEl = $('panel-title');
+  const seekBar = $('ft-seek');
+  const pctLabel = $('ft-pct');
+  const ftChapter = $('ft-chapter');
+  const tocSearchInput = $('toc-search-input');
+  const tocPrevBtn = $('toc-prev-chapter');
+  const tocNextBtn = $('toc-next-chapter');
+  const panelOverlay = $('panel-overlay');
+  const panelTabs = document.querySelectorAll('.panel-tab');
+  const panelBodies = document.querySelectorAll('[data-panel-tab]');
+  const toastEl = $('reader-toast');
+  const btnTts = $('btn-tts');
+  const btnTtsDock = $('btn-tts-dock');
+  const btnTtsStop = $('btn-tts-stop');
+  const btnTtsDockStop = $('btn-tts-dock-stop');
+  const ttsDockEl = $('reader-tts-dock');
+  const bookPagesEl = $('reader-book-pages');
+  const bookPageLeft = $('book-page-left');
+  const bookPageRight = $('book-page-right');
+
+  const isTouch = window.matchMedia('(pointer: coarse)');
+
+  /**
+   * ===== Screen Wake Lock =====
+   * Экран не гаснет во время чтения (Chrome/Android, Safari 16.4+, нужен HTTPS).
+   * Во время TTS удержание экрана ОБЯЗАТЕЛЬНО: на Android Chrome останавливает
+   * SpeechSynthesis на уровне платформы, как только у страницы пропадает видимое окно
+   * (TtsPlatformImpl в Chromium игнорирует речь фоновых/невидимых вкладок) — никакой
+   * аудио-keepalive или Media Session это не обходят. Поэтому пока идёт озвучка,
+   * держим wake lock, чтобы экран не гас сам по таймауту бездействия. Против ручной
+   * блокировки экрана (кнопка питания) Wake Lock API бессилен — это ограничение ОС/Chrome.
+   */
+  let wakeLock = null;
+  async function acquireReaderWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    if (wakeLock) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => {
+        wakeLock = null;
+        if (document.visibilityState === 'visible') void acquireReaderWakeLock();
+      });
+    } catch {
+      /* Нет активного жеста пользователя, запрет ОС (энергосбережение) или API недоступен */
+    }
+  }
+  function releaseReaderWakeLock() {
+    try {
+      wakeLock?.release();
+    } catch { /* */ }
+    wakeLock = null;
+  }
+  function clearTtsBackgroundMaintain() {
+    if (ttsBgMaintainTimer != null) {
+      clearInterval(ttsBgMaintainTimer);
+      ttsBgMaintainTimer = null;
+    }
+  }
+
+  /**
+   * Пока страница скрыта (ручная блокировка экрана / переход в другое приложение — Wake Lock
+   * это не предотвращает), синтез речи на Android всё равно не работает. Раньше здесь
+   * форсировался переход к следующему сегменту по таймауту простоя — из-за этого отменённая
+   * платформой фраза мгновенно дёргала onend/onerror и цепочка проматывала книгу вперёд
+   * (иногда на главы), пока не находилась в невидимой вкладке. Теперь просто поддерживаем
+   * keepalive/Media Session и ждём возврата видимости — сегмент, прерванный платформой,
+   * не пропускается (guard на document.visibilityState в onend/onerror), а повторяется.
+   */
+  function ttsCanAdvanceAfterUtterance() {
+    if (window.__INPX_USE_NATIVE_TTS) return true;
+    return document.visibilityState !== 'hidden';
+  }
+
+  function maintainTtsInBackground() {
+    clearTtsBackgroundMaintain();
+    if (!ttsChainActive || ttsPausedByUser) return;
+    const tick = () => {
+      if (!ttsChainActive || ttsPausedByUser || document.visibilityState === 'visible') {
+        clearTtsBackgroundMaintain();
+        return;
+      }
+      void startTtsKeepalivePlayback();
+      syncTtsMediaSessionPlayback();
+    };
+    tick();
+    ttsBgMaintainTimer = setInterval(tick, 2000);
+  }
+
+  /** Возврат из фона/разблокировка: если платформа прервала фразу без реальной озвучки — повторяем её, а не пропускаем. */
+  function resumeTtsAfterHidden() {
+    if (!ttsChainActive || ttsPausedByUser) return;
+    if (speechSynthesis.speaking || speechSynthesis.pending) return;
+    try { ttsKickSpeak?.(); } catch (e) { console.warn('[reader TTS resume]', e); }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      clearTtsBackgroundMaintain();
+      void acquireReaderWakeLock();
+      if (ttsChainActive && !ttsPausedByUser) {
+        void startTtsKeepalivePlayback();
+        try { speechSynthesis.resume(); } catch { /* */ }
+        resumeTtsAfterHidden();
+      }
+    } else if (ttsChainActive && !ttsPausedByUser) {
+      maintainTtsInBackground();
+    } else {
+      releaseReaderWakeLock();
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    if (ttsChainActive && !ttsPausedByUser) {
+      void startTtsKeepalivePlayback();
+      maintainTtsInBackground();
+    } else {
+      releaseReaderWakeLock();
+    }
+  });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) void acquireReaderWakeLock();
+  });
+  /* Панель/тулбар вне iframe — первый тап даёт жест для request() на мобильных. */
+  document.body.addEventListener(
+    'touchstart',
+    () => {
+      void acquireReaderWakeLock();
+    },
+    { capture: true, passive: true }
+  );
+
+  let view = null;
+  /** Цепочка озвучивания (Web Speech API); пауза только по кнопке. */
+  let ttsChainActive = false;
+  let ttsPausedByUser = false;
+  /** Не вызывать stopReaderTts при load iframe — переходим к следующей секции во время TTS. */
+  let ttsAdvancingSection = false;
+  /** Долгое нажатие на кнопку TTS — стоп (сенсорные устройства). */
+  let ttsStopLongPressTimer = null;
+  let ttsStopLongPressConsumeClick = false;
+  let ttsStopLongPressPt = null;
+  const TTS_STOP_LONG_PRESS_MS = 550;
+  const TTS_STOP_LONG_PRESS_SLOP_PX = 14;
+  /** Инвалидирует callbacks utterance при пропуске / стопе */
+  let ttsSpeakToken = 0;
+  const ttsNav = { skipBack() {}, skipForward() {} };
+  let ttsKeepaliveUrl = null;
+  let ttsKeepaliveEl = null;
+  let ttsMediaSessionHandlers = false;
+  let ttsBgMaintainTimer = null;
+  let ttsKickSpeak = null;
+  let lastTtsSpeechAt = 0;
+  let tocData = [];
+  let rawToc = null;
+  let tocView = null;
+  const calibreAnnotationsByValue = new Map();
+  let bookmarksData = [];
+  let annotationsData = [];
+  let annotationNavIndex = 0;
+  let readerSessionStartedAt = 0;
+  let chapterSessionStartedAt = 0;
+  let chapterStartFraction = 0;
+  let lastChapterKey = '';
+  let searchSeq = 0;
+  let searchDebounce = null;
+  const docIndexMap = new WeakMap();
+  let activeSel = null;
+  let chromeVisible = false;
+  let chromeTimer = null;
+  let activePanelTab = 'toc';
+
+  /**
+   * Едва слышимый зацикленный WAV (Blob URL), чтобы ОС считала вкладку «воспроизводящей медиа» —
+   * помогает пережить выключение экрана (Chrome/Android; на iOS не гарантировано).
+   * Важно: сэмплы НЕ должны быть полной цифровой тишиной (все нули) — Chrome/Android определяют
+   * «слышимость» по реальному уровню сигнала (RMS) и не выдают вкладке медиа-сессию/foreground-статус
+   * для абсолютно пустого потока, из-за чего страница всё равно замораживается при блокировке экрана.
+   * Поэтому пишем очень тихий низкочастотный тон (почти не воспроизводится динамиком телефона).
+   */
+  function createSilentWavKeepaliveUrl() {
+    const sampleRate = 8000;
+    const numSamples = Math.floor(sampleRate * 1);
+    const dataSize = numSamples * 2;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const v = new DataView(buffer);
+    let o = 0;
+    const wstr = (s) => {
+      for (let i = 0; i < s.length; i++) v.setUint8(o++, s.charCodeAt(i));
+    };
+    wstr('RIFF');
+    v.setUint32(o, 36 + dataSize, true);
+    o += 4;
+    wstr('WAVE');
+    wstr('fmt ');
+    v.setUint32(o, 16, true);
+    o += 4;
+    v.setUint16(o, 1, true);
+    o += 2;
+    v.setUint16(o, 1, true);
+    o += 2;
+    v.setUint32(o, sampleRate, true);
+    o += 4;
+    v.setUint32(o, sampleRate * 2, true);
+    o += 4;
+    v.setUint16(o, 2, true);
+    o += 2;
+    v.setUint16(o, 16, true);
+    o += 2;
+    wstr('data');
+    v.setUint32(o, dataSize, true);
+    o += 4;
+    /** ~-36 dBFS, 30 Гц: заметно выше типичного порога «тишины» у браузера, но ниже слышимого баса большинства динамиков. */
+    const amplitude = 500;
+    const freqHz = 30;
+    for (let i = 0; i < numSamples; i++) {
+      const sample = Math.round(amplitude * Math.sin((2 * Math.PI * freqHz * i) / sampleRate));
+      v.setInt16(o, sample, true);
+      o += 2;
+    }
+    return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+  }
+
+  function ensureTtsKeepaliveEl() {
+    if (ttsKeepaliveEl) return ttsKeepaliveEl;
+    if (!ttsKeepaliveUrl) ttsKeepaliveUrl = createSilentWavKeepaliveUrl();
+    const a = document.createElement('audio');
+    a.setAttribute('playsinline', '');
+    a.setAttribute('webkit-playsinline', 'true');
+    a.playsInline = true;
+    a.setAttribute('aria-hidden', 'true');
+    a.loop = true;
+    a.volume = 0.15;
+    a.src = ttsKeepaliveUrl;
+    a.preload = 'auto';
+    document.body.appendChild(a);
+    ttsKeepaliveEl = a;
+    return ttsKeepaliveEl;
+  }
+
+  function pauseTtsKeepalive() {
+    try {
+      ttsKeepaliveEl?.pause();
+    } catch { /* */ }
+  }
+
+  async function startTtsKeepalivePlayback() {
+    if (!ttsChainActive || ttsPausedByUser) return;
+    try {
+      const a = ensureTtsKeepaliveEl();
+      await a.play();
+    } catch (e) {
+      console.warn('[reader TTS keepalive]', e);
+    }
+  }
+
+  function syncTtsKeepaliveWithSpeech() {
+    if (!ttsChainActive || ttsPausedByUser) pauseTtsKeepalive();
+    else void startTtsKeepalivePlayback();
+  }
+
+  function syncTtsMediaSessionPlayback() {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      if (!ttsChainActive) {
+        navigator.mediaSession.playbackState = 'none';
+      } else {
+        navigator.mediaSession.playbackState = ttsPausedByUser ? 'paused' : 'playing';
+      }
+    } catch { /* */ }
+  }
+
+  function syncTtsMediaMetadata() {
+    if (!('mediaSession' in navigator) || !ttsChainActive) return;
+    try {
+      const title = document.querySelector('.tb-title')?.textContent?.trim() || '';
+      const kicker = document.querySelector('.tb-kicker')?.textContent?.trim() || '';
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title || document.title || 'Read aloud',
+        artist: kicker || '',
+      });
+    } catch { /* */ }
+  }
+
+  function initReaderMediaSessionHandlers() {
+    if (ttsMediaSessionHandlers || !('mediaSession' in navigator)) return;
+    ttsMediaSessionHandlers = true;
+    try {
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (ttsChainActive) {
+          if (ttsPausedByUser) toggleReaderTts();
+        } else {
+          void startReaderTts();
+        }
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        if (ttsChainActive && !ttsPausedByUser) toggleReaderTts();
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        if (ttsChainActive) ttsNav.skipBack();
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        if (ttsChainActive) ttsNav.skipForward();
+      });
+      navigator.mediaSession.setActionHandler('stop', () => {
+        stopReaderTts();
+      });
+    } catch (e) {
+      console.warn('[reader MediaSession]', e);
+    }
+  }
+
+  /** Индекс секции → число «экранов» (pages−2 у пагинатора); точные значения после прохода. */
+  const sectionPaginatorPages = new Map();
+  let bookPageLayoutKeyCached = '';
+
+  function bookPageLayoutKey() {
+    return [S.font, S.fontSize, S.fontWeight, S.lineHeight, S.maxWidth, S.maxBlockSize, S.pageMargin, S.verticalMargin, S.columnGap, layoutMode(), innerWidth, innerHeight].join('|');
+  }
+
+  function invalidateBookPageCache() {
+    sectionPaginatorPages.clear();
+    bookPageLayoutKeyCached = '';
+  }
+
+  function ensureBookPageLayoutKey() {
+    const k = bookPageLayoutKey();
+    if (k !== bookPageLayoutKeyCached) {
+      sectionPaginatorPages.clear();
+      bookPageLayoutKeyCached = k;
+    }
+  }
+
+  /* ===== Settings ===== */
+  const defaults = {
+    theme: 'sepia', font: 'serif', fontSize: 18, lineHeight: 1.6,
+    pageMargin: 32, verticalMargin: 32, columnGap: 7, maxWidth: 99999, maxBlockSize: 1440,
+    layout: 'paginated', textColor: '', bgColor: '', linkColor: '',
+    bgImage: '', bgImageFit: 'cover', bgImagePaper: 0.35,
+    justify: true, hyphenate: true,
+    usePublisherFont: false, fontWeight: 400,
+    letterSpacing: 0, paragraphSpacing: 0.4, textIndent: 0,
+    invert: false, enableFootnotes: true,
+    volumeKeys: 'normal',
+    customCss: '',
+    ttsRate: 1, ttsVoice: ''
+  };
+  const SYSTEM_FONTS = {
+    serif: { label: 'Georgia', stack: 'Georgia, "Times New Roman", serif' },
+    palatino: { label: 'Palatino', stack: '"Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif' },
+    times: { label: 'Times New Roman', stack: '"Times New Roman", Times, "Liberation Serif", "Noto Serif", serif' },
+    charter: { label: 'Charter', stack: 'Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif' },
+    sans: { label: 'System UI', stack: '-apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif' },
+    verdana: { label: 'Verdana', stack: 'Verdana, Geneva, "DejaVu Sans", sans-serif' },
+    arial: { label: 'Arial', stack: 'Arial, Helvetica, "Helvetica Neue", sans-serif' },
+    mono: { label: 'Monospace', stack: '"Cascadia Code", "Fira Code", Consolas, "Liberation Mono", monospace' },
+  };
+  const GOOGLE_FONTS = {
+    'gf-pt-serif': { label: 'PT Serif', family: 'PT Serif', weights: '400;700', stack: '"PT Serif", Georgia, serif' },
+    'gf-pt-sans': { label: 'PT Sans', family: 'PT Sans', weights: '400;700', stack: '"PT Sans", system-ui, sans-serif' },
+    'gf-literata': { label: 'Literata', family: 'Literata', weights: '400;700', stack: '"Literata", Georgia, serif' },
+    'gf-merriweather': { label: 'Merriweather', family: 'Merriweather', weights: '400;700', stack: '"Merriweather", Georgia, serif' },
+    'gf-noto-serif': { label: 'Noto Serif', family: 'Noto Serif', weights: '400;700', stack: '"Noto Serif", Georgia, serif' },
+    'gf-eb-garamond': { label: 'EB Garamond', family: 'EB Garamond', weights: '400;700', stack: '"EB Garamond", Georgia, serif' },
+    'gf-spectral': { label: 'Spectral', family: 'Spectral', weights: '400;700', stack: '"Spectral", Georgia, serif' },
+    'gf-ibm-plex-serif': { label: 'IBM Plex Serif', family: 'IBM Plex Serif', weights: '400;700', stack: '"IBM Plex Serif", Georgia, serif' },
+    'gf-roboto': { label: 'Roboto', family: 'Roboto', weights: '400;700', stack: '"Roboto", system-ui, sans-serif' },
+    'gf-fira-sans': { label: 'Fira Sans', family: 'Fira Sans', weights: '400;700', stack: '"Fira Sans", system-ui, sans-serif' },
+    'gf-ibm-plex-sans': { label: 'IBM Plex Sans', family: 'IBM Plex Sans', weights: '400;700', stack: '"IBM Plex Sans", system-ui, sans-serif' },
+    'gf-commissioner': { label: 'Commissioner', family: 'Commissioner', weights: '400;700', stack: '"Commissioner", system-ui, sans-serif' },
+  };
+  const fontMap = Object.fromEntries([
+    ...Object.entries(SYSTEM_FONTS).map(([k, v]) => [k, v.stack]),
+    ...Object.entries(GOOGLE_FONTS).map(([k, v]) => [k, v.stack]),
+  ]);
+  const loadedGoogleFonts = new Set();
+  function googleFontCssUrl(def) {
+    const family = def.family.trim().replace(/\s+/g, '+');
+    return `https://fonts.googleapis.com/css2?family=${family}:wght@${def.weights || '400;700'}&display=swap`;
+  }
+  function ensureGoogleFont(key) {
+    const def = GOOGLE_FONTS[key];
+    if (!def || loadedGoogleFonts.has(key)) return;
+    loadedGoogleFonts.add(key);
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = googleFontCssUrl(def);
+    document.head.appendChild(link);
+  }
+  function ensureGoogleFontInDoc(doc, key) {
+    const def = GOOGLE_FONTS[key];
+    if (!def || !doc?.head) return Promise.resolve();
+    const id = `reader-gf-${key}`;
+    const existing = doc.getElementById(id);
+    if (existing) {
+      return existing.dataset.loaded === '1'
+        ? (doc.fonts?.ready ?? Promise.resolve())
+        : new Promise(resolve => {
+          existing.addEventListener('load', () => resolve(doc.fonts?.ready), { once: true });
+          existing.addEventListener('error', () => resolve(), { once: true });
+        });
+    }
+    return new Promise(resolve => {
+      const link = doc.createElement('link');
+      link.id = id;
+      link.rel = 'stylesheet';
+      link.href = googleFontCssUrl(def);
+      link.addEventListener('load', () => {
+        link.dataset.loaded = '1';
+        resolve(doc.fonts?.ready);
+      }, { once: true });
+      link.addEventListener('error', () => resolve(), { once: true });
+      doc.head.appendChild(link);
+    });
+  }
+  function syncReaderGoogleFont(doc) {
+    const key = S.font;
+    if (!GOOGLE_FONTS[key]) return Promise.resolve();
+    ensureGoogleFont(key);
+    const bookDoc = doc || view?.renderer?.getContents?.()?.[0]?.doc;
+    if (!bookDoc) return Promise.resolve();
+    return ensureGoogleFontInDoc(bookDoc, key);
+  }
+  function populateFontSelect() {
+    const sel = $('rs-font-family');
+    if (!sel) return;
+    const cur = S.font;
+    sel.replaceChildren();
+    const addGroup = (label, entries) => {
+      const og = document.createElement('optgroup');
+      og.label = label;
+      for (const [key, def] of entries) {
+        const o = document.createElement('option');
+        o.value = key;
+        o.textContent = def.label;
+        og.appendChild(o);
+      }
+      sel.appendChild(og);
+    };
+    addGroup(rt('reader.fontSystem'), Object.entries(SYSTEM_FONTS));
+    addGroup(rt('reader.fontGoogle'), Object.entries(GOOGLE_FONTS));
+    if (!(cur in fontMap)) S.font = defaults.font;
+    sel.value = S.font;
+  }
+  function readerSideMarginPx() {
+    return Math.max(0, Math.min(80, Number(S.pageMargin) || 0));
+  }
+  function readerViewportWidth() {
+    if (view?.clientWidth > 0) return view.clientWidth;
+    return readerBody?.clientWidth ?? innerWidth;
+  }
+  function readerContentWidth() {
+    return Math.max(320, readerViewportWidth());
+  }
+  function resolveMaxInlineSizePx() {
+    const w = readerContentWidth();
+    if (layoutMode() === 'dual') return Math.floor(w / 2);
+    if (Number(S.maxWidth) >= 9000) return w;
+    return Math.max(320, Math.min(Number(S.maxWidth) || 720, w));
+  }
+  function layoutMode() {
+    if (S.layout === 'scrolled') return 'scrolled';
+    /* Телефон: всегда одна колонка — dual на узком экране ломает номера страниц при restore. */
+    if (mobileMq.matches) return 'paginated';
+    return S.layout;
+  }
+
+  function applyRendererLayout() {
+    if (!view?.renderer) return;
+    invalidateBookPageCache();
+    const side = readerSideMarginPx();
+    const gapPct = Math.max(0, Math.min(20, Number(S.columnGap) || 0));
+    const vert = Math.max(0, Math.min(96, Number(S.verticalMargin) || 0));
+    const mode = layoutMode();
+    view.style.boxSizing = 'border-box';
+    view.style.paddingInline = `${side}px`;
+    view.renderer.setAttribute('margin', `${vert}px`);
+    // В одноколоночном режиме gap paginator даёт доп. боковые поля (~7% по умолчанию).
+    // Горизонтальные поля — только через paddingInline (pageMargin).
+    view.renderer.setAttribute('gap', mode === 'dual' ? `${gapPct}%` : '0%');
+    view.renderer.setAttribute('max-inline-size', `${resolveMaxInlineSizePx()}px`);
+    view.renderer.setAttribute('max-column-count', mode === 'dual' ? '2' : '1');
+    view.renderer.setAttribute('flow', mode === 'scrolled' ? 'scrolled' : 'paginated');
+    if (mode === 'scrolled') {
+      view.renderer.setAttribute('max-block-size', `${Math.round(S.maxBlockSize || defaults.maxBlockSize)}px`);
+    } else {
+      view.renderer.removeAttribute('max-block-size');
+    }
+  }
+
+  function applyInvertFilter() {
+    if (!view) return;
+    view.style.filter = S.invert ? 'invert(1) hue-rotate(180deg)' : '';
+  }
+  function isFullWidth() {
+    return Number(S.maxWidth) >= 9000;
+  }
+  const mobileMq = window.matchMedia('(max-width: 640px)');
+  let S = {};
+  function loadSettings() {
+    try { S = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}'); } catch { S = {}; }
+    for (const k of Object.keys(defaults)) if (S[k] === undefined) S[k] = defaults[k];
+    if (READER_LITE) {
+      S.theme = 'eink';
+      S.textColor = '';
+      S.bgColor = '';
+      if (!localStorage.getItem(SETTINGS_STORAGE_KEY)) {
+        S.fontSize = 21;
+        S.lineHeight = 1.7;
+        S.pageMargin = 24;
+        S.font = 'serif';
+        S.layout = 'paginated';
+        S.textColor = '';
+        S.bgColor = '';
+      }
+    }
+    if (!['paginated', 'dual', 'scrolled'].includes(S.layout)) S.layout = defaults.layout;
+    if (mobileMq.matches && S.layout === 'dual') S.layout = 'paginated';
+    if (typeof S.justify !== 'boolean') S.justify = defaults.justify;
+    if (typeof S.hyphenate !== 'boolean') S.hyphenate = defaults.hyphenate;
+    if (typeof S.usePublisherFont !== 'boolean') S.usePublisherFont = defaults.usePublisherFont;
+    if (typeof S.invert !== 'boolean') S.invert = defaults.invert;
+    if (typeof S.enableFootnotes !== 'boolean') S.enableFootnotes = defaults.enableFootnotes;
+    if (typeof S.customCss !== 'string') S.customCss = defaults.customCss;
+    if (S.linkColor && !/^#[0-9A-Fa-f]{6}$/.test(String(S.linkColor).trim())) S.linkColor = '';
+    if (S.textColor && !/^#[0-9A-Fa-f]{6}$/.test(String(S.textColor).trim())) S.textColor = '';
+    if (S.bgColor && !/^#[0-9A-Fa-f]{6}$/.test(String(S.bgColor).trim())) S.bgColor = '';
+    if (typeof S.bgImage !== 'string') S.bgImage = defaults.bgImage;
+    if (!S.bgImage.startsWith('data:image/')) S.bgImage = '';
+    else if (S.bgImage.length > 900_000) S.bgImage = '';
+    if (!['cover', 'contain', 'tile'].includes(S.bgImageFit)) S.bgImageFit = defaults.bgImageFit;
+    const bp = Number(S.bgImagePaper);
+    S.bgImagePaper = Number.isFinite(bp) ? Math.min(1, Math.max(0, bp)) : defaults.bgImagePaper;
+    if (!(S.font in fontMap)) S.font = defaults.font;
+    const pm = Number(S.pageMargin);
+    S.pageMargin = Number.isFinite(pm) ? Math.min(80, Math.max(0, Math.round(pm))) : defaults.pageMargin;
+    const vm = Number(S.verticalMargin);
+    S.verticalMargin = Number.isFinite(vm) ? Math.min(96, Math.max(0, Math.round(vm))) : defaults.verticalMargin;
+    const cg = Number(S.columnGap);
+    S.columnGap = Number.isFinite(cg) ? Math.min(20, Math.max(0, Math.round(cg))) : defaults.columnGap;
+    const mw = Number(S.maxWidth);
+    S.maxWidth = Number.isFinite(mw) ? mw : defaults.maxWidth;
+    const mbs = Number(S.maxBlockSize);
+    S.maxBlockSize = Number.isFinite(mbs) ? Math.min(2400, Math.max(720, Math.round(mbs))) : defaults.maxBlockSize;
+    const fw = Number(S.fontWeight);
+    S.fontWeight = [400, 500, 600, 700].includes(fw) ? fw : defaults.fontWeight;
+    const ls = Number(S.letterSpacing);
+    S.letterSpacing = Number.isFinite(ls) ? Math.min(0.2, Math.max(-0.05, ls)) : defaults.letterSpacing;
+    const ps = Number(S.paragraphSpacing);
+    S.paragraphSpacing = Number.isFinite(ps) ? Math.min(1.5, Math.max(0, ps)) : defaults.paragraphSpacing;
+    const ti = Number(S.textIndent);
+    S.textIndent = Number.isFinite(ti) ? Math.min(3, Math.max(0, ti)) : defaults.textIndent;
+    const tr = Number(S.ttsRate);
+    S.ttsRate = Number.isFinite(tr) ? Math.min(2, Math.max(0.5, tr)) : defaults.ttsRate;
+    if (typeof S.ttsVoice !== 'string') S.ttsVoice = defaults.ttsVoice;
+    if (S.volumeKeys !== 'normal' && S.volumeKeys !== 'inverted') S.volumeKeys = defaults.volumeKeys;
+  }
+  function saveSettings() { localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(S)); }
+  loadSettings();
+  const bootTitle = String(window.__READER_BOOK_TITLE || '').trim();
+  if (bootTitle) {
+    const tbTitle = document.querySelector('.tb-title');
+    if (tbTitle) tbTitle.textContent = bootTitle;
+  }
+  const themeColors = {
+    dark:  { bg: '#1e1a16', fg: '#e8e0d4', link: '#d4ac5c' },
+    light: { bg: '#f5f1e8', fg: '#2e2418', link: '#8b5a12' },
+    sepia: { bg: '#f4ecd8', fg: '#463b2f', link: '#8b5a12' },
+    night: { bg: '#0d0b0a', fg: '#948b81', link: '#8a7a67' },
+    eink:  { bg: '#ffffff', fg: '#000000', link: '#000000' },
+  };
+  const presets = {
+    compact:  { fontSize: 16, lineHeight: 1.45, pageMargin: 20, maxWidth: 680, paragraphSpacing: 0.25 },
+    balanced: { fontSize: 18, lineHeight: 1.6,  pageMargin: 32, maxWidth: 720, paragraphSpacing: 0.4 },
+    relaxed:  { fontSize: 21, lineHeight: 1.8,  pageMargin: 48, maxWidth: 800, paragraphSpacing: 0.65 },
+  };
+
+  function getEffectiveTextColor() {
+    const c = themeColors[S.theme] || themeColors.dark;
+    const t = S.textColor && String(S.textColor).trim();
+    if (t && /^#[0-9A-Fa-f]{6}$/.test(t)) return t;
+    return c.fg;
+  }
+
+  function getEffectiveBgColor() {
+    const c = themeColors[S.theme] || themeColors.dark;
+    const t = S.bgColor && String(S.bgColor).trim();
+    if (t && /^#[0-9A-Fa-f]{6}$/.test(t)) return t;
+    return c.bg;
+  }
+
+  function hexToRgba(hex, alpha) {
+    const h = String(hex || '').replace('#', '');
+    if (h.length !== 6) return hex;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function getEffectiveBgImage() {
+    const img = String(S.bgImage || '').trim();
+    return img.startsWith('data:image/') ? img : '';
+  }
+
+  function getPageBackgroundCss() {
+    if (getEffectiveBgImage()) return 'transparent';
+    return getEffectiveBgColor();
+  }
+
+  function getBgImageLayerCss() {
+    const img = getEffectiveBgImage();
+    if (!img) return '';
+    const fit = S.bgImageFit || 'cover';
+    const repeat = fit === 'tile' ? 'repeat' : 'no-repeat';
+    const size = fit === 'tile' ? 'auto' : fit;
+    const paper = getEffectiveBgColor();
+    const op = Number(S.bgImagePaper);
+    const a = Number.isFinite(op) ? Math.min(1, Math.max(0, op)) : defaults.bgImagePaper;
+    const imageLayer = `url("${img}") center / ${size} ${repeat}`;
+    if (a <= 0.01) return imageLayer;
+    const overlay = hexToRgba(paper, a);
+    return `linear-gradient(${overlay}, ${overlay}), ${imageLayer}`;
+  }
+
+  function applyPaginatorWallpaper() {
+    const paginator = view?.renderer;
+    const root = paginator?.shadowRoot;
+    if (!root) return;
+    const bgEl = root.getElementById('background');
+    if (!bgEl) return;
+    const layer = getBgImageLayerCss();
+    const value = layer || getEffectiveBgColor();
+    bgEl.style.background = value;
+    for (const col of bgEl.children) {
+      if (col?.style) col.style.background = value;
+    }
+  }
+
+  function applyShellBackground() {
+    const color = getEffectiveBgColor();
+    const layer = getBgImageLayerCss();
+    document.body.style.background = layer || color;
+    if (!readerBody) return;
+    if (layer) {
+      readerBody.style.background = layer;
+    } else {
+      readerBody.style.background = color;
+      readerBody.style.backgroundImage = '';
+    }
+    if (view) view.style.background = layer ? 'transparent' : '';
+    applyPaginatorWallpaper();
+  }
+
+  function getEffectiveLinkColor() {
+    const c = themeColors[S.theme] || themeColors.dark;
+    const t = S.linkColor && String(S.linkColor).trim();
+    if (t && /^#[0-9A-Fa-f]{6}$/.test(t)) return t;
+    if (READER_LITE || S.theme === 'eink') return getEffectiveTextColor();
+    return c.link;
+  }
+
+  function getUserCssBlock() {
+    const raw = String(S.customCss || '').trim();
+    if (!raw) return '';
+    return raw.length > 32768 ? raw.slice(0, 32768) : raw;
+  }
+
+  function getBookCSS() {
+    const c = themeColors[S.theme] || themeColors.dark;
+    const fg = getEffectiveTextColor();
+    const bg = getPageBackgroundCss();
+    const link = getEffectiveLinkColor();
+    const ff = fontMap[S.font] || fontMap.serif;
+    const mono = fontMap.mono;
+    const align = S.justify !== false ? 'justify' : 'start';
+    const hyph = S.hyphenate !== false ? 'auto' : 'manual';
+    const pubFont = S.usePublisherFont === true;
+    const weight = Number(S.fontWeight) || 400;
+    const ls = Number(S.letterSpacing) || 0;
+    const ps = Number(S.paragraphSpacing) || 0;
+    const ti = Number(S.textIndent) || 0;
+    const fontFamilyRule = pubFont ? '' : `
+      body, p, div, span, li, td, th, h1, h2, h3, h4, h5, h6, blockquote, dd, dt, em, strong, i, b, u, a, section, article {
+        font-family: ${ff} !important;
+      }`;
+    const text = `
+      @namespace epub "http://www.idpf.org/2007/ops";
+      html { color: ${fg} !important; background: ${bg} !important; }
+      ${fontFamilyRule}
+      body { color: ${fg} !important; background: ${bg} !important; font-size: ${S.fontSize}px !important; font-weight: ${weight} !important; letter-spacing: ${ls}em !important; }
+      pre, code, kbd, samp { font-family: ${mono} !important; }
+      p,li,blockquote,dd,div { line-height: ${S.lineHeight} !important; }
+      p { margin-block-start: ${ps}em !important; margin-block-end: 0 !important; text-indent: ${ti}em !important; }
+      p:first-child, li p:first-child, blockquote p:first-child { margin-block-start: 0 !important; }
+      p,li,blockquote,dd { text-align: ${align}; hyphens: ${hyph}; -webkit-hyphens: ${hyph}; -webkit-hyphenate-limit-before: 3; -webkit-hyphenate-limit-after: 2; -webkit-hyphenate-limit-lines: 2; hanging-punctuation: allow-end last; widows: 2; }
+      [align="left"]{text-align:left} [align="right"]{text-align:right} [align="center"]{text-align:center} [align="justify"]{text-align:justify}
+      pre { white-space: pre-wrap !important; }
+      aside[epub|type~="endnote"],aside[epub|type~="footnote"],aside[epub|type~="note"],aside[epub|type~="rearnote"] { display: none; }
+      a { color: ${link} !important; }
+      ${READER_LITE ? 'img,svg image { filter: grayscale(100%) contrast(115%) !important; }' : ''}
+    `;
+    const parts = [];
+    const gf = GOOGLE_FONTS[S.font];
+    if (gf && !pubFont) parts.push(`@import url("${googleFontCssUrl(gf)}");`);
+    parts.push(text);
+    const userCss = getUserCssBlock();
+    if (userCss) parts.push(`/* user stylesheet */\n${userCss}`);
+    return parts.length === 1 ? parts[0] : parts;
+  }
+  function applyBookStyles() {
+    if (!view?.renderer) return;
+    view.renderer.setStyles?.(getBookCSS());
+    requestAnimationFrame(() => applyPaginatorWallpaper());
+  }
+
+  function isNightReaderTheme() {
+    return S.theme === 'dark' || S.theme === 'night';
+  }
+
+  function toggleDayNightTheme() {
+    S.theme = isNightReaderTheme() ? 'light' : 'dark';
+    applySettings();
+    refreshSettingsUI();
+    toast(isNightReaderTheme() ? rt('readerJs.nightOn') : rt('readerJs.dayOn'));
+  }
+
+  const svgMoon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
+  const svgSun = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
+
+  function updateDayNightButton() {
+    const btn = $('btn-day-night');
+    if (!btn) return;
+    const night = isNightReaderTheme();
+    btn.title = night ? rt('readerJs.dayModeBtn') : rt('readerJs.nightModeBtn');
+    btn.setAttribute('aria-label', night ? rt('readerJs.enableDayMode') : rt('readerJs.enableNightMode'));
+    btn.innerHTML = night ? svgSun : svgMoon;
+  }
+
+  /**
+   * Номера страниц по реальным экранам пагинатора Foliate (один шаг = один «лист» в одноколоннике
+   * или разворот в двухколоннике). Неоткрытые главы оцениваются по объёму текста и плотности уже известных секций.
+   */
+  function updateBookPageDisplay(loc) {
+    if (!bookPagesEl || !bookPageLeft || !bookPageRight) return;
+    if (!view || view.isFixedLayout) {
+      bookPagesEl.classList.add('is-hidden');
+      return;
+    }
+    const r = view.renderer;
+    if (!r || r.localName !== 'foliate-paginator') {
+      bookPagesEl.classList.add('is-hidden');
+      return;
+    }
+    if (r.scrolled) {
+      bookPagesEl.classList.add('is-hidden');
+      return;
+    }
+
+    const pages = r.pages;
+    const page = r.page;
+    if (pages == null || page == null || pages < 2) {
+      bookPagesEl.classList.add('is-hidden');
+      return;
+    }
+
+    const contents = r.getContents?.();
+    const index = contents?.[0]?.index ?? loc?.section?.current;
+    if (index == null || index < 0) {
+      bookPagesEl.classList.add('is-hidden');
+      return;
+    }
+
+    ensureBookPageLayoutKey();
+    const tp = Math.max(0, pages - 2);
+    const prevTp = sectionPaginatorPages.get(index) ?? 0;
+    sectionPaginatorPages.set(index, Math.max(prevTp, tp));
+
+    let screenInSection;
+    if (page <= 0) screenInSection = 0;
+    else if (page >= pages - 1) screenInSection = tp;
+    else screenInSection = Math.min(tp, page - 1);
+
+    const secs = view.book?.sections;
+    if (!secs?.length) {
+      bookPagesEl.classList.add('is-hidden');
+      return;
+    }
+
+    const secAt = secs[index];
+    const sizeCur = secAt?.size > 0 ? secAt.size : 0;
+
+    function charsPerScreenGuess() {
+      let sz = 0;
+      let pg = 0;
+      for (const [idx, tpp] of sectionPaginatorPages) {
+        const s = secs[idx];
+        if (!s || s.linear === 'no' || tpp <= 0) continue;
+        sz += s.size || 0;
+        pg += tpp;
+      }
+      if (pg > 0 && sz > 0) return sz / pg;
+      if (tp > 0 && sizeCur > 0) return sizeCur / tp;
+      return 2800;
+    }
+
+    function textPagesForSection(j) {
+      const s = secs[j];
+      if (!s || s.linear === 'no') return 0;
+      if (sectionPaginatorPages.has(j)) return sectionPaginatorPages.get(j);
+      const sz = s.size || 0;
+      if (sz <= 0) return 1;
+      const cps = charsPerScreenGuess();
+      return Math.max(1, Math.round(sz / cps));
+    }
+
+    function sumScreensUpTo(beforeIndex) {
+      let sum = 0;
+      for (let j = 0; j < beforeIndex; j++) sum += textPagesForSection(j);
+      return sum;
+    }
+
+    function totalScreensBook() {
+      let t = 0;
+      for (let j = 0; j < secs.length; j++) t += textPagesForSection(j);
+      return Math.max(1, t);
+    }
+
+    const globalScreen0 = sumScreensUpTo(index) + screenInSection;
+    const totalScreens = totalScreensBook();
+
+    bookPagesEl.classList.remove('is-hidden');
+    const rtl = view.language?.direction === 'rtl';
+    const dual = layoutMode() === 'dual';
+
+    let leftText;
+    let rightText;
+    if (dual) {
+      const totalDisp = Math.max(1, totalScreens * 2);
+      const leftP = 2 * globalScreen0 + 1;
+      const rightP = Math.min(totalDisp, 2 * globalScreen0 + 2);
+      leftText = String(leftP);
+      rightText = String(rightP);
+      if (rtl) [leftText, rightText] = [rightText, leftText];
+    } else {
+      leftText = String(globalScreen0 + 1);
+      rightText = String(totalScreens);
+      if (rtl) [leftText, rightText] = [rightText, leftText];
+    }
+    bookPageLeft.textContent = leftText;
+    bookPageRight.textContent = rightText;
+  }
+
+  function applySettings() {
+    const beforeLoc = view?.lastLocation;
+    if (READER_LITE) S.theme = 'eink';
+    document.documentElement.dataset.readerTheme = S.theme;
+    document.documentElement.dataset.eink = S.theme === 'eink' ? '1' : '';
+    document.body.dataset.readerTheme = S.theme;
+    applyShellBackground();
+    saveSettings();
+    if (view?.renderer) {
+      applyRendererLayout();
+      applyBookStyles();
+      applyInvertFilter();
+      syncReaderGoogleFont().then(() => applyBookStyles());
+    }
+    updateDayNightButton();
+    if (view?.lastLocation) updateBookPageDisplay(view.lastLocation);
+    scheduleApplyAnnotations();
+    if (beforeLoc) void preserveLocationAfterLayoutChange(beforeLoc);
+  }
+
+  let layoutRestoreToken = 0;
+
+  async function preserveLocationAfterLayoutChange(beforeLoc) {
+    if (!view || !beforeLoc) return;
+    const targetFrac = isFb2Active() && fb2FlatToc.length >= 2
+      ? displayFractionFromLocation(beforeLoc)
+      : normalizeFraction(beforeLoc.fraction ?? 0);
+    if (targetFrac < 0.01) return;
+    const fb2Href = resolveFb2Href(beforeLoc);
+    const cfi = String(beforeLoc.cfi || '').trim();
+    const token = ++layoutRestoreToken;
+    await waitForLayoutSettled(500);
+    if (token !== layoutRestoreToken || !view) return;
+    const currentFrac = isFb2Active() && fb2FlatToc.length >= 2
+      ? displayFractionFromLocation(view.lastLocation)
+      : normalizeFraction(view?.lastLocation?.fraction ?? 0);
+    if (Math.abs(currentFrac - targetFrac) <= 0.03) return;
+    try {
+      if (fb2Href && isFb2Href(fb2Href)) await view.goTo(fb2Href);
+      else if (isFb2Active() && fb2FlatToc.length >= 2) await seekReaderToFraction(targetFrac);
+      else if (cfi) await view.goTo(cfi);
+      else await view.goToFraction(targetFrac);
+    } catch { /* */ }
+  }
+
+  function applyPreset(name) {
+    const p = presets[name]; if (!p) return;
+    Object.assign(S, p);
+    applySettings(); refreshSettingsUI();
+  }
+
+  function resetSettings() {
+    S = { ...defaults };
+    applySettings(); refreshSettingsUI(); toast(rt('readerJs.settingsReset'));
+  }
+
+  function getActivePreset() {
+    return Object.entries(presets).find(([, p]) =>
+      S.fontSize === p.fontSize && Math.abs(S.lineHeight - p.lineHeight) < 0.05
+    )?.[0] || '';
+  }
+
+  /* ===== Utilities ===== */
+  function api(method, path, body) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    const base = globalThis.apiBookPath ? globalThis.apiBookPath(bookId) : `/api/books/${encodeURIComponent(bookId)}`;
+    return fetch(base + path, opts).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+  }
+  function esc(s) { const d = document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.innerHTML; }
+  let toastTimer = null;
+  function toast(msg) { if (!toastEl) return; toastEl.textContent = msg; toastEl.classList.add('is-visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('is-visible'), 2000); }
+  const bmDateFmt = new Intl.DateTimeFormat(rLocale() === 'en' ? 'en-US' : 'ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
+  function fmtDate(v) { if (!v) return ''; const d = new Date(String(v).replaceAll(' ', 'T') + (String(v).includes('Z') ? '' : 'Z')); return Number.isNaN(d.getTime()) ? String(v) : bmDateFmt.format(d); }
+
+  /* ===== Chrome (toolbar/footer) visibility =====
+   * Листание: края страницы; центр — переключить хром (тап мышью, пером или тачем).
+   * Горячие клавиши и кнопки в toolbar тоже открывают панели.
+   * scheduleChromeHide — продлевает автоскрытие, если chrome уже виден (и панель закрыта). */
+  const CHROME_AUTOHIDE_MS = () => (isTouch.matches ? 14000 : 9000);
+
+  function syncPanelMobileMode(tab = activePanelTab) {
+    if (!panelOverlay) return;
+    panelOverlay.classList.toggle('panel-mobile', mobileMq.matches);
+    panelOverlay.classList.toggle('panel-settings-mode', mobileMq.matches && tab === 'settings');
+  }
+
+  function touchToPageY(clientY, doc_) {
+    const iframe = doc_?.defaultView?.frameElement;
+    if (!iframe) return clientY;
+    return iframe.getBoundingClientRect().top + clientY;
+  }
+
+  function panelBlocksBookTap(pageY) {
+    if (!panelOverlay.classList.contains('is-open')) return false;
+    if (!mobileMq.matches) return false;
+    const panel = panelOverlay.querySelector('.panel');
+    if (!panel) return false;
+    return pageY >= panel.getBoundingClientRect().top - 8;
+  }
+
+  function syncPanelChrome(tab = activePanelTab) {
+    if (!panelOverlay.classList.contains('is-open')) return;
+    if (mobileMq.matches) {
+      setChromeVisible(false);
+      return;
+    }
+    setChromeVisible(true);
+  }
+
+  function setChromeVisible(show) {
+    chromeVisible = show;
+    const panelOpen = panelOverlay.classList.contains('is-open');
+    const settingsPreview = panelOpen && panelOverlay.classList.contains('panel-settings-mode');
+    const hideChrome = !(show || (panelOpen && !settingsPreview));
+    document.body.classList.toggle('chrome-hidden', hideChrome);
+  }
+  /** Сбросить таймер скрытия, не показывая панели силой (если уже скрыты — ничего не делаем). */
+  function scheduleChromeHide() {
+    clearTimeout(chromeTimer);
+    if (panelOverlay.classList.contains('is-open')) return;
+    if (!chromeVisible) return;
+    chromeTimer = setTimeout(() => setChromeVisible(false), CHROME_AUTOHIDE_MS());
+  }
+  /** Тап по центру поля: скрыто → показать и снова автоскрытие; уже видно → скрыть. */
+  function toggleChromeFromCenterTap() {
+    clearTimeout(chromeTimer);
+    if (panelOverlay.classList.contains('is-open')) return;
+    if (document.body.classList.contains('chrome-hidden')) {
+      setChromeVisible(true);
+      chromeTimer = setTimeout(() => setChromeVisible(false), CHROME_AUTOHIDE_MS());
+    } else {
+      setChromeVisible(false);
+    }
+  }
+
+  /* ===== Progress ===== */
+  let currentTocHref = '';
+  let currentFraction = 0;
+  let fb2FlatToc = [];
+  /** 0.0001% on 0–100 scale → fraction precision 1e-6 */
+  const READING_POSITION_SCALE = 1e6;
+  const PROGRESS_PERCENT_SCALE = 1e4;
+
+  function flattenTocForSeek(toc, out = []) {
+    for (const item of toc ?? []) {
+      if (item?.href != null && item.href !== '') out.push(item);
+      if (item?.subitems?.length) flattenTocForSeek(item.subitems, out);
+    }
+    return out;
+  }
+
+  function isFb2Active() {
+    if (view?.book?.isFB2) return true;
+    if (view?.book && !view.book.isFB2) return false;
+    const ext = String(effectiveBookExt || bookExt || '').toLowerCase().replace(/^\./, '').replace(/\.zip$/, '');
+    return ext === 'fb2' || ext === 'fbz';
+  }
+
+  function fractionFromFb2TocHref(href) {
+    if (!href || fb2FlatToc.length < 2) return null;
+    const idx = fb2FlatToc.findIndex((t) => t.href === href);
+    if (idx < 0) return null;
+    return normalizeFraction(idx / fb2FlatToc.length);
+  }
+
+  function displayFractionFromLocation(loc) {
+    const fromToc = fractionFromFb2TocHref(loc?.tocItem?.href);
+    if (fromToc != null) return fromToc;
+    return normalizeFraction(loc?.fraction ?? 0);
+  }
+
+  async function seekReaderToFraction(f) {
+    if (!view) return;
+    const frac = normalizeFraction(f);
+    if (isFb2Active() && fb2FlatToc.length >= 2) {
+      const idx = Math.min(
+        fb2FlatToc.length - 1,
+        Math.max(0, Math.floor(frac * fb2FlatToc.length)),
+      );
+      const href = fb2FlatToc[idx]?.href;
+      if (href) {
+        await view.goTo(href);
+        return;
+      }
+    }
+    await view.goToFraction(frac);
+  }
+
+  function normalizeFraction(fraction) {
+    const f = Math.max(0, Math.min(1, Number(fraction) || 0));
+    return Math.round(f * READING_POSITION_SCALE) / READING_POSITION_SCALE;
+  }
+  function fractionToProgress(fraction) {
+    return Math.round(normalizeFraction(fraction) * 100 * PROGRESS_PERCENT_SCALE) / PROGRESS_PERCENT_SCALE;
+  }
+  function progressToFraction(progress) {
+    return normalizeFraction(Number(progress) / 100);
+  }
+
+  function updateSeekbar() {
+    if (!seekBar) return;
+    seekBar.style.setProperty('--seek-pct', (currentFraction * 100).toFixed(4) + '%');
+  }
+
+  function setProgress(pct, tocItem) {
+    setProgressFromFraction(pct / 100, tocItem);
+  }
+  function setProgressFromFraction(fraction, tocItem) {
+    const f = normalizeFraction(fraction);
+    if (!seekBarUserActive) {
+      currentFraction = f;
+      const pctDisplay = fractionToProgress(f).toFixed(4);
+      if (seekBar) seekBar.value = f;
+      updateSeekbar();
+      if (pctLabel) pctLabel.textContent = pctDisplay + '%';
+      if (progressText) progressText.textContent = pctDisplay + '%';
+    }
+    if (tocItem?.label) {
+      if (ftChapter) ftChapter.textContent = tocItem.label;
+      if (toolbarChapter) toolbarChapter.textContent = tocItem.label;
+    }
+    currentTocHref = tocItem?.href || currentTocHref;
+    updateTocHighlight();
+    updateTocBtnState();
+    updateSeekbar();
+    if (activePanelTab === 'bookmarks' && panelOverlay.classList.contains('is-open')) updateBmCard();
+  }
+
+  function estimateRemainingChapterMinutes(fraction) {
+    if (!chapterSessionStartedAt) return null;
+    const readInChapter = Math.max(0, fraction - chapterStartFraction);
+    if (readInChapter < 0.005) return null;
+    const elapsedMs = Date.now() - chapterSessionStartedAt;
+    if (elapsedMs < 15_000) return null;
+    const assumedChapterSpan = 0.08;
+    const chapterProgress = Math.min(1, readInChapter / assumedChapterSpan);
+    if (chapterProgress >= 0.98) return null;
+    const totalMs = elapsedMs / chapterProgress;
+    return Math.max(1, Math.round((totalMs * (1 - chapterProgress)) / 60_000));
+  }
+
+  function estimateRemainingBookMinutes(fraction) {
+    const f = normalizeFraction(fraction);
+    if (f < 0.02 || f >= 0.995 || !readerSessionStartedAt) return null;
+    const elapsedMs = Date.now() - readerSessionStartedAt;
+    if (elapsedMs < 30_000) return null;
+    const totalMs = elapsedMs / f;
+    const remainingMs = totalMs * (1 - f);
+    return Math.max(1, Math.round(remainingMs / 60_000));
+  }
+
+  /* ===== Seekbar ===== */
+  let seekTimer = null;
+  let seekBarUserActive = false;
+  let seekNavToken = 0;
+
+  seekBar?.addEventListener('pointerdown', () => { seekBarUserActive = true; });
+  seekBar?.addEventListener('pointercancel', () => { seekBarUserActive = false; });
+
+  seekBar?.addEventListener('input', () => {
+    const f = parseFloat(seekBar.value);
+    if (pctLabel) pctLabel.textContent = fractionToProgress(f).toFixed(4) + '%';
+    seekBar.style.setProperty('--seek-pct', (f * 100).toFixed(4) + '%');
+    scheduleChromeHide();
+    clearTimeout(seekTimer);
+    const token = ++seekNavToken;
+    seekTimer = setTimeout(() => {
+      seekTimer = null;
+      void (async () => {
+        if (!view || isNaN(f)) {
+          seekBarUserActive = false;
+          return;
+        }
+        try {
+          await seekReaderToFraction(f);
+          await waitForLayoutSettled(800);
+        } catch { /* */ }
+        if (token !== seekNavToken) return;
+        seekBarUserActive = false;
+        const loc = view?.lastLocation;
+        if (loc) {
+          setProgressFromFraction(displayFractionFromLocation(loc), loc.tocItem);
+        }
+      })();
+    }, 150);
+  });
+
+  seekBar?.addEventListener('pointerup', () => {
+    window.setTimeout(() => {
+      if (!seekTimer) seekBarUserActive = false;
+    }, 250);
+  });
+
+  /* ===== Position sync ===== */
+  let syncTimer = null;
+  let autoReadToastShown = false;
+  let suppressPositionSave = false;
+  const pendingStyleDocs = new Set();
+
+  async function applySectionStyles(doc) {
+    if (!doc) return;
+    await syncReaderGoogleFont(doc);
+    applyBookStyles();
+    await waitForLayoutSettled(3000);
+  }
+
+  async function flushPendingSectionStyles() {
+    const docs = pendingStyleDocs.size
+      ? [...pendingStyleDocs]
+      : (getLoadedSectionDoc() ? [getLoadedSectionDoc()] : []);
+    pendingStyleDocs.clear();
+    for (const doc of docs) {
+      await applySectionStyles(doc);
+    }
+  }
+
+  function isFb2Href(href) {
+    const h = String(href || '').trim();
+    if (!h) return false;
+    const hashPos = h.indexOf('#');
+    const section = hashPos === -1 ? h : h.slice(0, hashPos);
+    const id = hashPos === -1 ? '' : h.slice(hashPos + 1);
+    if (!section || Number.isNaN(Number(section))) return false;
+    if (id !== '' && Number.isNaN(Number(id))) return false;
+    return true;
+  }
+
+  function isFb2Book() {
+    const ext = String(effectiveBookExt || bookExt || '').toLowerCase();
+    if (ext.includes('fb2') || ext === 'fbz') return true;
+    return Boolean(view?.book && !view.book.resolveCFI);
+  }
+
+  function foliateIdFromRange(range) {
+    if (!range) return '';
+    let node = range.startContainer;
+    if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    while (node && node !== node.ownerDocument?.documentElement) {
+      const id = node.getAttribute?.('data-foliate-id');
+      if (id != null && id !== '') return id;
+      node = node.parentElement;
+    }
+    return '';
+  }
+
+  function resolveFb2Href(loc) {
+    if (!isFb2Book()) return '';
+    const sectionIndex = loc?.section?.current;
+    if (!Number.isFinite(Number(sectionIndex))) return '';
+    const blockId = foliateIdFromRange(loc?.range);
+    if (blockId !== '') return `${sectionIndex}#${blockId}`;
+    const tocHref = String(loc?.tocItem?.href || '').trim();
+    if (tocHref && isFb2Href(tocHref)) return tocHref;
+    return String(sectionIndex);
+  }
+
+  function posLog(phase, data) {
+    try {
+      window.__DEBUG_LOG__?.('P1', `reader:pos:${phase}`, phase, {
+        bookId,
+        ...data,
+      });
+    } catch { /* */ }
+  }
+
+  function positionFromLocation(loc) {
+    const fraction = isFb2Active() && fb2FlatToc.length >= 2
+      ? displayFractionFromLocation(loc)
+      : normalizeFraction(loc?.fraction ?? 0);
+    const payload = {
+      // FB2: fake CFI из Foliate ненадёжен для restore — только href + fraction.
+      position: isFb2Active() ? '' : String(loc?.cfi || ''),
+      fraction,
+      progress: fractionToProgress(fraction),
+    };
+    const href = resolveFb2Href(loc);
+    if (href) payload.fb2Href = href;
+    return payload;
+  }
+
+  function savedFraction(saved) {
+    if (saved && Number.isFinite(Number(saved.fraction))) {
+      return normalizeFraction(saved.fraction);
+    }
+    const progress = Number(saved?.progress);
+    if (Number.isFinite(progress)) return progressToFraction(progress);
+    return 0;
+  }
+
+  function writePositionImmediate(payload) {
+    const reason = payload._reason || '';
+    const f = normalizeFraction(payload.fraction ?? 0);
+    const body = {
+      position: String(payload.position || ''),
+      progress: fractionToProgress(f),
+      fraction: f,
+      positionSaveReason: payload._reason || payload.positionSaveReason || '',
+    };
+    if (payload.fb2Href) body.fb2Href = payload.fb2Href;
+    posLog('save', {
+      reason,
+      fraction: body.fraction,
+      fb2Href: body.fb2Href ? String(body.fb2Href).slice(0, 40) : null,
+      hasCfi: Boolean(body.position),
+    });
+    if (typeof window.__READER_WRITE_POSITION__ === 'function') {
+      window.__READER_WRITE_POSITION__(body);
+      return;
+    }
+    void api('POST', '/position', body).catch(() => {});
+  }
+
+  function savePosition(payload, reason) {
+    if (suppressPositionSave) return;
+    clearTimeout(syncTimer);
+    const withReason = { ...payload, _reason: reason };
+    if (reason === 'page' || reason === 'snap' || reason === 'scroll' || reason === 'navigation') {
+      writePositionImmediate(withReason);
+      return;
+    }
+    syncTimer = setTimeout(() => writePositionImmediate(withReason), 3000);
+  }
+  function flushSavePosition() {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+    if (suppressPositionSave) return;
+    const loc = view?.lastLocation;
+    if (!loc) return;
+    const payload = positionFromLocation(loc);
+    if (!payload.position && payload.fraction <= 0) return;
+    posLog('flush', { fraction: payload.fraction });
+    writePositionImmediate({ ...payload, _reason: 'flush' });
+  }
+  window.__READER_FLUSH_POSITION__ = flushSavePosition;
+  window.addEventListener('pagehide', flushSavePosition);
+  window.addEventListener('message', (e) => {
+    if (e.data?.type === 'inpx-reader-flush-position') flushSavePosition();
+  });
+  async function loadSavedPosition() {
+    try {
+      const d = await api('GET', '/position');
+      const fb2Href = String(d?.fb2Href || '').trim();
+      if (fb2Href && isFb2Href(fb2Href)) {
+        posLog('load', { source: 'fb2Href', fraction: savedFraction(d), fb2Href: fb2Href.slice(0, 40) });
+        return d;
+      }
+      const frac = savedFraction(d);
+      if (frac > 0) {
+        posLog('load', { source: 'fraction', fraction: frac });
+        return d;
+      }
+      const pos = String(d?.position || '').trim();
+      if (pos && !isAppReaderPosition(pos)) {
+        posLog('load', { source: 'cfi', fraction: frac });
+        return d;
+      }
+      posLog('load', { source: 'none' });
+      return null;
+    } catch { return null; }
+  }
+
+  function isAppReaderPosition(pos) {
+    return /^(?:app:)?ch\d+:p\d+$/.test(String(pos || '').trim());
+  }
+
+  /** view.goTo(target) с повтором — WebView иногда не готов с первого раза. */
+  async function goToReaderTarget(target, opts = {}) {
+    if (!view || target == null) return false;
+    const retries = Math.max(1, Number(opts.retries) || 5);
+    for (let attempt = 0; attempt < retries; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 100 * attempt));
+      }
+      try {
+        const resolved = await view.goTo(target);
+        if (resolved) return true;
+      } catch {
+        /* retry */
+      }
+    }
+    return false;
+  }
+
+  function getLoadedSectionDoc() {
+    const contents = view?.renderer?.getContents?.() || [];
+    return contents[0]?.doc || null;
+  }
+
+  function waitForRelocateQuiet(quietMs = 400, maxMs = 3000) {
+    return new Promise((resolve) => {
+      let quietTimer = null;
+      const deadline = setTimeout(finish, maxMs);
+      function finish() {
+        clearTimeout(deadline);
+        clearTimeout(quietTimer);
+        view?.removeEventListener('relocate', onRelocate);
+        resolve();
+      }
+      function onRelocate() {
+        clearTimeout(quietTimer);
+        quietTimer = setTimeout(finish, quietMs);
+      }
+      view?.addEventListener('relocate', onRelocate);
+      quietTimer = setTimeout(finish, quietMs);
+    });
+  }
+
+  async function waitForFontsReady(doc, timeoutMs = 2000) {
+    if (!doc?.fonts?.ready) return;
+    try {
+      await Promise.race([
+        doc.fonts.ready,
+        new Promise((r) => setTimeout(r, timeoutMs)),
+      ]);
+    } catch { /* */ }
+  }
+
+  async function waitForLayoutSettled(timeoutMs = 3000) {
+    const doc = getLoadedSectionDoc();
+    await waitForFontsReady(doc, Math.min(2000, timeoutMs));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await waitForRelocateQuiet(Math.min(450, Math.max(200, timeoutMs / 5)), timeoutMs);
+  }
+
+  async function navigateToReaderPosition(pos, opts = {}) {
+    const { closePanelAfter = true, showToast = true, retries = 3 } = opts;
+    if (showToast) toast(rt('readerJs.navigating'));
+    const ok = await goToReaderTarget(pos, { retries });
+    if (ok && closePanelAfter) closePanel();
+    return ok;
+  }
+
+  async function restoreFb2ReadingPosition(fb2Href, frac) {
+    if (fb2Href && isFb2Href(fb2Href)) {
+      const ok = await goToReaderTarget(fb2Href, { retries: 8 });
+      if (ok) {
+        await waitForLayoutSettled(1000);
+        return 'fb2Href';
+      }
+    }
+    if (frac > 0 && fb2FlatToc.length >= 2) {
+      await seekReaderToFraction(frac);
+      await waitForLayoutSettled(1000);
+      return 'fb2FlatToc';
+    }
+    if (frac > 0) {
+      await seekReaderToFraction(frac);
+      await waitForLayoutSettled(1000);
+      return 'fraction';
+    }
+    return null;
+  }
+
+  /** Стандартный Foliate: view.init({ lastLocation }) с CFI, href или fraction. */
+  async function restoreReadingPosition(saved, urlPos) {
+    const urlFracRaw = new URLSearchParams(location.search).get('frac');
+    const urlFb2 = new URLSearchParams(location.search).get('fb2');
+    const urlFrac = urlFracRaw != null ? normalizeFraction(Number(urlFracRaw)) : 0;
+
+    if (urlPos) {
+      const ok = await goToReaderTarget(urlPos, { retries: 5 });
+      posLog('restore', { method: 'urlPos', ok });
+      if (!ok && saved) await restoreReadingPosition(saved, null);
+      return;
+    }
+
+    let effectiveSaved = saved ? { ...saved } : null;
+    if (effectiveSaved) {
+      const savedFrac = savedFraction(effectiveSaved);
+      if (urlFrac > savedFrac + 1e-5) {
+        effectiveSaved.fraction = urlFrac;
+        effectiveSaved.progress = fractionToProgress(urlFrac);
+      }
+      if (urlFb2 && isFb2Href(urlFb2)) {
+        effectiveSaved.fb2Href = urlFb2;
+      }
+    } else if (urlFrac > 0 || (urlFb2 && isFb2Href(urlFb2))) {
+      effectiveSaved = {
+        position: '',
+        progress: fractionToProgress(urlFrac),
+        fraction: urlFrac,
+        fb2Href: urlFb2 && isFb2Href(urlFb2) ? urlFb2 : null,
+      };
+    }
+
+    if (!effectiveSaved) {
+      await view.renderer.next();
+      posLog('restore', { method: 'next', ok: true });
+      return;
+    }
+    const cfi = String(effectiveSaved.position || '').trim();
+    const fb2Href = String(effectiveSaved.fb2Href || '').trim();
+    const frac = savedFraction(effectiveSaved);
+    let method = 'none';
+    try {
+      if (isFb2Active()) {
+        method = await restoreFb2ReadingPosition(fb2Href, frac) || 'none';
+        if (!method || method === 'none') {
+          if (cfi && !isAppReaderPosition(cfi)) {
+            const ok = await goToReaderTarget(cfi, { retries: 5 });
+            method = ok ? 'cfi-fallback' : 'next';
+            if (!ok) await view.renderer.next();
+          } else {
+            await view.renderer.next();
+            method = 'next';
+          }
+        }
+      } else if (cfi && !isAppReaderPosition(cfi)) {
+        await view.init({ lastLocation: cfi });
+        method = 'cfi';
+      } else if (fb2Href && isFb2Href(fb2Href)) {
+        await view.goTo(fb2Href);
+        method = 'fb2Href';
+      } else if (frac > 0 && fb2FlatToc.length >= 2) {
+        const idx = Math.min(
+          fb2FlatToc.length - 1,
+          Math.max(0, Math.floor(frac * fb2FlatToc.length)),
+        );
+        const href = fb2FlatToc[idx]?.href;
+        if (href) {
+          await view.goTo(href);
+          method = 'fb2FlatToc';
+        } else {
+          await view.init({ lastLocation: { fraction: frac } });
+          method = 'fraction';
+        }
+      } else if (frac > 0) {
+        await view.init({ lastLocation: { fraction: frac } });
+        method = 'fraction';
+      } else {
+        await view.renderer.next();
+        method = 'next';
+      }
+      let landed = isFb2Active() && fb2FlatToc.length >= 2
+        ? displayFractionFromLocation(view?.lastLocation)
+        : normalizeFraction(view?.lastLocation?.fraction ?? 0);
+      if (frac > 0 && Math.abs(landed - frac) > 0.03) {
+        if (isFb2Active()) {
+          const retry = await restoreFb2ReadingPosition(fb2Href, frac);
+          if (retry) method = `${retry}-retry`;
+        } else if (fb2Href && isFb2Href(fb2Href)) {
+          await view.goTo(fb2Href);
+          method = 'fb2Href-retry';
+        } else if (fb2FlatToc.length >= 2) {
+          await seekReaderToFraction(frac);
+          method = 'fb2FlatToc-retry';
+        } else {
+          await view.goToFraction(frac);
+          method = 'fraction-retry';
+        }
+        landed = isFb2Active() && fb2FlatToc.length >= 2
+          ? displayFractionFromLocation(view?.lastLocation)
+          : normalizeFraction(view?.lastLocation?.fraction ?? 0);
+      }
+      posLog('restore-done', {
+        method,
+        restored: true,
+        targetFraction: frac,
+        landedFraction: landed,
+      });
+      if (landed > 0) {
+        setProgressFromFraction(landed, view?.lastLocation?.tocItem);
+        updateBookPageDisplay(view.lastLocation);
+      }
+    } catch (e) {
+      try {
+        if (isFb2Active()) {
+          await restoreFb2ReadingPosition(fb2Href, frac);
+        } else if (fb2Href && isFb2Href(fb2Href)) {
+          await view.goTo(fb2Href);
+        } else if (frac > 0) {
+          await view.goToFraction(frac);
+        } else {
+          await view.renderer.next();
+        }
+        const landed = isFb2Active() && fb2FlatToc.length >= 2
+          ? displayFractionFromLocation(view?.lastLocation)
+          : normalizeFraction(view?.lastLocation?.fraction ?? 0);
+        if (landed > 0) {
+          setProgressFromFraction(landed, view?.lastLocation?.tocItem);
+          updateBookPageDisplay(view.lastLocation);
+        }
+        posLog('restore', { method: 'fallback-goto', ok: landed > 0, landedFraction: landed });
+      } catch {
+        await view.renderer.next();
+        posLog('restore', { method: 'fallback-next', ok: false, msg: e instanceof Error ? e.message : String(e) });
+      }
+    }
+  }
+
+  /* ===== Auto-mark as read when finished ===== */
+  // Handled server-side in position save endpoint when progress >= 95%
+
+  /* ===== Bookmarks ===== */
+  async function loadBookmarks() {
+    try { const d = await api('GET', '/bookmarks'); bookmarksData = Array.isArray(d) ? d : []; } catch { bookmarksData = []; }
+  }
+
+  function addBookmark() {
+    if (!view?.lastLocation) return;
+    const loc = view.lastLocation;
+    const pos = loc.cfi || '';
+    const title = loc.tocItem?.label || rtp('readerJs.positionPct', { n: Math.round((loc.fraction ?? 0) * 100) });
+    api('POST', '/bookmarks', { position: pos, title }).then(r => {
+      if (r.ok) { toast(rt('readerJs.bookmarkAdded')); loadBookmarks().then(renderBmTab); }
+    }).catch(() => {});
+  }
+
+  async function removeBookmark(id) {
+    const removed = bookmarksData.find(b => b.id === id);
+    bookmarksData = bookmarksData.filter(b => b.id !== id);
+    renderBmTab();
+    try {
+      await api('DELETE', '/bookmarks/' + id);
+    } catch {
+      if (removed) {
+        bookmarksData = [...bookmarksData, removed].sort((a, b) => (a.id || 0) - (b.id || 0));
+        renderBmTab();
+      }
+    }
+  }
+
+  function goToBookmark(bm) {
+    if (!view || !bm?.position) return;
+    void goToReaderTarget(bm.position);
+    closePanel();
+  }
+
+  function getSnapshot() {
+    const ch = (ftChapter?.textContent || toolbarChapter?.textContent || '').trim() || rt('readerJs.currentPos');
+    return { chapter: ch, percent: Math.round(currentFraction * 100) };
+  }
+
+  function updateBmCard() {
+    const c = $('bookmarks-content'); if (!c) return;
+    const s = getSnapshot();
+    const t = c.querySelector('.bm-current-title');
+    const m = c.querySelector('.bm-current-meta');
+    if (t) t.textContent = s.chapter;
+    if (m) m.textContent = rtp('readerJs.pctOfBook', { n: s.percent });
+  }
+
+  function renderBmTab() {
+    const c = $('bookmarks-content'); if (!c) return;
+    const s = getSnapshot();
+    let h = '<div class="bm-current-card"><div class="bm-current-kicker">' + esc(rt('readerJs.readingNow')) + '</div>' +
+      '<div class="bm-current-title">' + esc(s.chapter) + '</div>' +
+      '<div class="bm-current-meta">' + esc(rtp('readerJs.pctOfBook', { n: s.percent })) + '</div>' +
+      '<button class="bm-primary-btn" id="bm-add-btn" type="button">' + esc(rt('readerJs.addBmBtn')) + '</button></div>';
+    if (!bookmarksData.length) { h += '<div class="bm-empty">' + esc(rt('readerJs.noBookmarks')) + '</div>'; }
+    else {
+      const n = bookmarksData.length;
+      h += '<div class="bm-section-title">' + esc(rtp('readerJs.savedBookmarks', { n, word: rPlural('bookmark', n) })) + '</div>';
+      bookmarksData.forEach(bm => {
+        h += '<div class="bm-item"><button class="bm-item-body" type="button" data-bm-go="' + bm.id + '">' +
+          '<div class="bm-item-title">' + esc(bm.title || rt('readerJs.bookmarkFallback')) + '</div>' +
+          '<div class="bm-item-date">' + esc(fmtDate(bm.createdAt || bm.created_at)) + '</div></button>' +
+          '<button class="bm-item-del" type="button" data-bm-del="' + bm.id + '" title="' + esc(rt('readerJs.delete')) + '">&times;</button></div>';
+      });
+    }
+    c.innerHTML = h;
+    c.querySelectorAll('[data-bm-go]').forEach(el => el.addEventListener('click', () => { const bm = bookmarksData.find(b => b.id === Number(el.dataset.bmGo)); if (bm) goToBookmark(bm); }));
+    c.querySelectorAll('[data-bm-del]').forEach(el => el.addEventListener('click', () => removeBookmark(Number(el.dataset.bmDel))));
+    $('bm-add-btn')?.addEventListener('click', addBookmark);
+  }
+
+  /* ===== Book search (full-text) ===== */
+  function runBookSearch(query) {
+    const c = $('search-content');
+    if (!c) return;
+    const q = String(query || '').trim();
+    if (!view?.book) return;
+    if (q.length < 2) {
+      try { view.clearSearch?.(); } catch { /* */ }
+      c.innerHTML = '<div class="bm-empty">' + esc(q ? rt('readerJs.searchMinChars') : rt('readerJs.searchHint')) + '</div>';
+      return;
+    }
+    const seq = ++searchSeq;
+    c.innerHTML = '<div class="bm-empty">' + esc(rt('readerJs.searching')) + '</div>';
+    (async () => {
+      const groups = [];
+      let total = 0;
+      try {
+        for await (const r of view.search({ query: q })) {
+          if (seq !== searchSeq) return;
+          if (r === 'done') break;
+          if (r && r.subitems) {
+            groups.push(r);
+            total += r.subitems.length;
+            renderSearchResults(c, groups, total, seq, false);
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      if (seq !== searchSeq) return;
+      renderSearchResults(c, groups, total, seq, true);
+    })();
+  }
+
+  function renderExcerpt(ex) {
+    if (!ex) return '';
+    if (typeof ex === 'string') return esc(ex);
+    return '<span class="search-ctx">' + esc(ex.pre || '') + '</span>' +
+      '<mark>' + esc(ex.match || '') + '</mark>' +
+      '<span class="search-ctx">' + esc(ex.post || '') + '</span>';
+  }
+
+  function renderSearchResults(c, groups, total, seq, done) {
+    if (seq !== searchSeq || !c) return;
+    if (!total) {
+      c.innerHTML = '<div class="bm-empty">' + esc(done ? rt('readerJs.searchNoResults') : rt('readerJs.searching')) + '</div>';
+      return;
+    }
+    let h = '<div class="bm-section-title">' + esc(rtp('readerJs.searchResults', { n: total, word: rPlural('result', total) })) + '</div>';
+    groups.forEach(g => {
+      if (g.label) h += '<div class="search-group">' + esc(g.label) + '</div>';
+      (g.subitems || []).forEach(it => {
+        h += '<button class="search-item" type="button" data-search-cfi="' + esc(it.cfi) + '">' + renderExcerpt(it.excerpt) + '</button>';
+      });
+    });
+    c.innerHTML = h;
+    c.querySelectorAll('[data-search-cfi]').forEach(el => el.addEventListener('click', () => {
+      const cfi = el.dataset.searchCfi;
+      if (cfi) void navigateToReaderPosition(cfi);
+    }));
+  }
+
+  /* ===== Annotations (highlights & notes) ===== */
+  const HL_FILL = {
+    yellow: 'rgba(255,214,10,.45)',
+    green: 'rgba(52,211,153,.45)',
+    blue: 'rgba(96,165,250,.45)',
+    pink: 'rgba(244,114,182,.5)'
+  };
+  function hlFill(color) { return HL_FILL[color] || HL_FILL.yellow; }
+  let pendingNote = null;
+
+  async function loadAnnotations() {
+    try { const d = await api('GET', '/annotations'); annotationsData = Array.isArray(d) ? d : []; } catch { annotationsData = []; }
+  }
+
+  function drawAnnotation(a) {
+    if (!view || !a?.cfi) return;
+    try { view.addAnnotation({ value: a.cfi, color: a.color }); } catch { /* */ }
+  }
+  function applyAllAnnotations() { annotationsData.forEach(drawAnnotation); }
+  let overlayAnnTimer = null;
+  function scheduleApplyAnnotations() {
+    clearTimeout(overlayAnnTimer);
+    overlayAnnTimer = setTimeout(() => applyAllAnnotations(), 80);
+  }
+
+  function hideSelMenu() {
+    const m = $('reader-sel-menu');
+    if (m) { m.classList.remove('is-open'); m.setAttribute('aria-hidden', 'true'); }
+  }
+  function rectToPage(rect, doc) {
+    const win = doc?.defaultView;
+    const iframe = win?.frameElement;
+    if (!iframe || !rect) return { left: rect?.left || 0, top: rect?.top || 0, right: rect?.right || 0, bottom: rect?.bottom || 0, cx: (rect?.left || 0) + (rect?.width || 0) / 2 };
+    const fr = iframe.getBoundingClientRect();
+    return {
+      left: fr.left + rect.left, top: fr.top + rect.top,
+      right: fr.left + rect.right, bottom: fr.top + rect.bottom,
+      cx: fr.left + rect.left + rect.width / 2
+    };
+  }
+  function showSelMenuAt(pageRect, isExisting) {
+    const m = $('reader-sel-menu');
+    if (!m) return;
+    const rem = m.querySelector('#rsm-remove');
+    if (rem) rem.hidden = !isExisting;
+    m.classList.add('is-open');
+    m.setAttribute('aria-hidden', 'false');
+    const mw = m.offsetWidth || 240;
+    const mh = m.offsetHeight || 44;
+    const host = readerBody?.getBoundingClientRect?.();
+    const minX = (host?.left ?? 0) + 8;
+    const maxX = (host?.right ?? innerWidth) - mw - 8;
+    const minY = (host?.top ?? 0) + 8;
+    const maxY = (host?.bottom ?? innerHeight) - mh - 8;
+    let left = pageRect.cx - mw / 2;
+    left = Math.max(minX, Math.min(maxX, left));
+    let top = pageRect.bottom + 10;
+    if (top + mh > maxY) top = pageRect.top - mh - 10;
+    if (top < minY) top = Math.min(maxY, pageRect.bottom + 10);
+    m.style.left = left + 'px';
+    m.style.top = top + 'px';
+  }
+  function maybeShowSelMenu(doc) {
+    if (panelOverlay.classList.contains('is-open') || isFootnoteOverlayOpen()) { hideSelMenu(); return; }
+    const sel = doc.getSelection?.();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) {
+      if (!activeSel?.existing) { hideSelMenu(); activeSel = null; }
+      return;
+    }
+    const text = sel.toString().replace(/\s+/g, ' ').trim();
+    if (!text) { hideSelMenu(); return; }
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    if (!rect || (!rect.width && !rect.height)) { hideSelMenu(); return; }
+    const index = docIndexMap.get(doc);
+    if (index == null) { hideSelMenu(); return; }
+    activeSel = { doc, index, range: range.cloneRange(), text, existing: null };
+    showSelMenuAt(rectToPage(rect, doc), false);
+  }
+  function openSelMenuForExisting(a, range) {
+    if (panelOverlay.classList.contains('is-open')) return;
+    const doc = range?.startContainer?.ownerDocument || range?.commonAncestorContainer?.ownerDocument;
+    activeSel = { doc, index: doc ? docIndexMap.get(doc) : null, range, text: a.text, existing: a };
+    const rect = range?.getBoundingClientRect?.();
+    if (rect) showSelMenuAt(rectToPage(rect, doc), true);
+  }
+
+  async function createHighlightFromSel(color) {
+    if (!activeSel || !view) { hideSelMenu(); return; }
+    if (activeSel.existing) { recolorAnnotation(activeSel.existing, color); return; }
+    if (activeSel.index == null) { hideSelMenu(); return; }
+    const cfi = view.getCFI(activeSel.index, activeSel.range);
+    const text = activeSel.text;
+    if (!cfi) { hideSelMenu(); return; }
+    drawAnnotation({ cfi, color });
+    hideSelMenu();
+    try { view.deselect?.(); } catch { /* */ }
+    try {
+      const r = await api('POST', '/annotations', { cfi, text, color, note: '' });
+      annotationsData.push({ id: r.id, cfi, text, color, note: '', createdAt: new Date().toISOString() });
+      toast(rt('readerJs.highlightAdded'));
+      if (activePanelTab === 'notes') renderNotesTab();
+    } catch (e) { console.error(e); }
+    activeSel = null;
+  }
+  async function recolorAnnotation(a, color) {
+    a.color = color;
+    drawAnnotation(a);
+    hideSelMenu();
+    activeSel = null;
+    try { await api('PATCH', '/annotations/' + a.id, { color }); if (activePanelTab === 'notes') renderNotesTab(); } catch (e) { console.error(e); }
+  }
+  async function copySelText() {
+    const text = activeSel?.text || activeSel?.existing?.text || '';
+    hideSelMenu();
+    if (!text) return;
+    try { await navigator.clipboard.writeText(text); toast(rt('readerJs.copied')); }
+    catch { toast(rt('readerJs.copyFailed')); }
+  }
+  async function removeActiveAnnotation() {
+    const a = activeSel?.existing;
+    hideSelMenu();
+    activeSel = null;
+    if (!a) return;
+    try { view.deleteAnnotation?.({ value: a.cfi }); } catch { /* */ }
+    annotationsData = annotationsData.filter(x => x.id !== a.id);
+    if (activePanelTab === 'notes') renderNotesTab();
+    try { await api('DELETE', '/annotations/' + a.id); } catch (e) { console.error(e); }
+    toast(rt('readerJs.annotationRemoved'));
+  }
+
+  function openNoteEditor() {
+    const ed = $('reader-note-editor');
+    if (!ed || !activeSel) return;
+    if (activeSel.existing) {
+      pendingNote = { mode: 'existing', a: activeSel.existing };
+      $('rne-quote').textContent = activeSel.existing.text || '';
+      $('rne-text').value = activeSel.existing.note || '';
+    } else {
+      if (activeSel.index == null || !view) return;
+      const cfi = view.getCFI(activeSel.index, activeSel.range);
+      if (!cfi) return;
+      pendingNote = { mode: 'new', cfi, text: activeSel.text, color: 'yellow' };
+      $('rne-quote').textContent = activeSel.text || '';
+      $('rne-text').value = '';
+    }
+    hideSelMenu();
+    ed.classList.add('is-open');
+    ed.setAttribute('aria-hidden', 'false');
+    setTimeout(() => { try { $('rne-text').focus(); } catch { /* */ } }, 60);
+  }
+  function closeNoteEditor() {
+    const ed = $('reader-note-editor');
+    ed?.classList.remove('is-open');
+    ed?.setAttribute('aria-hidden', 'true');
+    pendingNote = null;
+  }
+  async function saveNoteEditor() {
+    if (!pendingNote) { closeNoteEditor(); return; }
+    const note = ($('rne-text')?.value || '').trim();
+    if (pendingNote.mode === 'new') {
+      const { cfi, text, color } = pendingNote;
+      drawAnnotation({ cfi, color });
+      try { view.deselect?.(); } catch { /* */ }
+      try {
+        const r = await api('POST', '/annotations', { cfi, text, color, note });
+        annotationsData.push({ id: r.id, cfi, text, color, note, createdAt: new Date().toISOString() });
+        toast(rt('readerJs.noteSaved'));
+      } catch (e) { console.error(e); }
+    } else {
+      const a = pendingNote.a;
+      a.note = note;
+      try { await api('PATCH', '/annotations/' + a.id, { note }); toast(rt('readerJs.noteSaved')); } catch (e) { console.error(e); }
+    }
+    activeSel = null;
+    closeNoteEditor();
+    if (activePanelTab === 'notes') renderNotesTab();
+  }
+
+  function renderNotesTab() {
+    const c = $('notes-content');
+    if (!c) return;
+    let h = '<div class="notes-io-bar">' +
+      '<button type="button" class="notes-io-btn" id="notes-export-btn">' + esc(rt('readerJs.notesExport')) + '</button>' +
+      '<button type="button" class="notes-io-btn" id="notes-import-btn">' + esc(rt('readerJs.notesImport')) + '</button>' +
+      '<input type="file" id="notes-import-file" accept="application/json,.json" hidden></div>';
+    if (!annotationsData.length) {
+      h += '<div class="bm-empty">' + esc(rt('readerJs.noNotes')) + '<div class="bm-empty-hint">' + esc(rt('readerJs.notesHint')) + '</div></div>';
+      c.innerHTML = h;
+      initNotesImportExport();
+      return;
+    }
+    const n = annotationsData.length;
+    h += '<div class="bm-section-title">' + esc(rtp('readerJs.savedNotes', { n, word: rPlural('note', n) })) + '</div>';
+    annotationsData.forEach(a => {
+      h += '<div class="note-item note-color-' + esc(a.color) + '">' +
+        '<button class="note-item-body" type="button" data-note-go="' + a.id + '">' +
+        '<div class="note-quote">' + esc(a.text || '') + '</div>' +
+        (a.note ? '<div class="note-text">' + esc(a.note) + '</div>' : '') +
+        '<div class="bm-item-date">' + esc(fmtDate(a.createdAt || a.created_at)) + '</div></button>' +
+        '<button class="bm-item-del" type="button" data-note-del="' + a.id + '" title="' + esc(rt('readerJs.delete')) + '">&times;</button></div>';
+    });
+    c.innerHTML = h;
+    c.querySelectorAll('[data-note-go]').forEach(el => el.addEventListener('click', () => {
+      const a = annotationsData.find(x => x.id === Number(el.dataset.noteGo));
+      if (a?.cfi && view) {
+        void goToReaderTarget(a.cfi);
+        closePanel();
+      }
+    }));
+    c.querySelectorAll('[data-note-del]').forEach(el => el.addEventListener('click', () => removeAnnotationById(Number(el.dataset.noteDel))));
+    initNotesImportExport();
+  }
+  async function removeAnnotationById(id) {
+    const a = annotationsData.find(x => x.id === id);
+    if (!a) return;
+    try { view.deleteAnnotation?.({ value: a.cfi }); } catch { /* */ }
+    annotationsData = annotationsData.filter(x => x.id !== id);
+    renderNotesTab();
+    try { await api('DELETE', '/annotations/' + id); } catch (e) { console.error(e); }
+  }
+
+  function initAnnotations() {
+    const m = $('reader-sel-menu');
+    m?.querySelectorAll('.rsm-color').forEach(b => b.addEventListener('click', () => createHighlightFromSel(b.dataset.color)));
+    $('rsm-note')?.addEventListener('click', openNoteEditor);
+    $('rsm-copy')?.addEventListener('click', copySelText);
+    $('rsm-remove')?.addEventListener('click', removeActiveAnnotation);
+    $('rne-cancel')?.addEventListener('click', closeNoteEditor);
+    $('rne-save')?.addEventListener('click', saveNoteEditor);
+    $('reader-note-editor')?.addEventListener('click', e => { if (e.target?.id === 'reader-note-editor') closeNoteEditor(); });
+    document.addEventListener('pointerdown', e => {
+      const sm = $('reader-sel-menu');
+      if (sm && sm.classList.contains('is-open') && !sm.contains(e.target)) { hideSelMenu(); if (!activeSel?.existing) activeSel = null; }
+    }, true);
+  }
+
+  let readerDictUiWired = false;
+  function initDictionaryUi() {
+    if (readerDictUiWired) return;
+    readerDictUiWired = true;
+    $('reader-dict-close')?.addEventListener('click', hideDictPopup);
+    document.addEventListener('pointerdown', (e) => {
+      const dp = $('reader-dict-popup');
+      if (dp?.classList.contains('is-open') && !dp.contains(e.target)) hideDictPopup();
+    }, true);
+  }
+
+  function wireViewAnnotations() {
+    if (!view) return;
+    view.addEventListener('draw-annotation', ({ detail }) => {
+      const color = detail?.annotation?.color;
+      if (color === 'underline') detail.draw(Overlayer.underline, { color: '#f43f5e' });
+      else detail.draw(Overlayer.highlight, { color: hlFill(color) });
+    });
+    view.addEventListener('show-annotation', ({ detail }) => {
+      const a = annotationsData.find(x => x.cfi === detail.value);
+      if (a) openSelMenuForExisting(a, detail.range);
+      else {
+        const calibreAnn = calibreAnnotationsByValue.get(detail.value);
+        if (calibreAnn?.note) toast(calibreAnn.note);
+      }
+    });
+    view.addEventListener('create-overlay', () => scheduleApplyAnnotations());
+  }
+
+  function wireSelection(doc) {
+    let selTimer = null;
+    doc.addEventListener('selectionchange', () => {
+      clearTimeout(selTimer);
+      selTimer = setTimeout(() => maybeShowSelMenu(doc), 250);
+    });
+  }
+
+  /* ===== TOC ===== */
+  function updateTocHighlight() {
+    const q = (tocSearchInput?.value || '').trim();
+    if (tocView?.setCurrentHref && currentTocHref && !q) {
+      try { tocView.setCurrentHref(currentTocHref); } catch { /* */ }
+    }
+    document.querySelectorAll('.toc-item').forEach(el => el.classList.toggle('is-active', !!currentTocHref && el.dataset.tocHref === currentTocHref));
+  }
+  function getTocIdx() { return tocData.findIndex(i => i.href === currentTocHref); }
+  function updateTocBtnState() { const i = getTocIdx(); if (tocPrevBtn) tocPrevBtn.disabled = i <= 0; if (tocNextBtn) tocNextBtn.disabled = i === -1 || i >= tocData.length - 1; }
+  function goTocIdx(i) { const item = tocData[i]; if (!item || !view) return; view.goTo(item.href).catch(console.error); if (panelOverlay.classList.contains('is-open') && activePanelTab === 'toc') closePanel(); }
+
+  function renderTocTab() {
+    const c = $('toc-content'); if (!c) return;
+    if (!rawToc?.length && !tocData.length) { c.innerHTML = '<div class="bm-empty">' + esc(rt('readerJs.tocNotFound')) + '</div>'; updateTocBtnState(); return; }
+    const q = (tocSearchInput?.value || '').trim().toLowerCase();
+    if (q) {
+      tocView = null;
+      const items = tocData.filter(i => (i.label || '').toLowerCase().includes(q));
+      if (!items.length) { c.innerHTML = '<div class="bm-empty">' + esc(rt('readerJs.tocEmpty')) + '</div>'; updateTocBtnState(); return; }
+      let h = '<ul class="toc-list">';
+      items.forEach(i => { h += '<li class="toc-item toc-item-depth-' + (i.depth || 1) + '" data-toc-href="' + esc(i.href) + '" tabindex="0" role="button">' + esc(i.label) + '</li>'; });
+      h += '</ul>';
+      c.innerHTML = h;
+      c.querySelectorAll('.toc-item').forEach(el => {
+        const go = () => { if (view) view.goTo(el.dataset.tocHref).catch(console.error); closePanel(); };
+        el.addEventListener('click', go);
+        el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      });
+    } else if (rawToc?.length) {
+      c.replaceChildren();
+      tocView = createTOCView(rawToc, href => {
+        if (view) view.goTo(href).catch(console.error);
+        closePanel();
+      });
+      tocView.element.classList.add('toc-tree');
+      c.append(tocView.element);
+      if (currentTocHref) {
+        try { tocView.setCurrentHref(currentTocHref); } catch { /* */ }
+      }
+    }
+    updateTocHighlight(); updateTocBtnState();
+  }
+
+  /* ===== Panel ===== */
+  function getPanelMeta(tab) {
+    return {
+      settings: { kicker: rt('readerJs.panelSettings'), title: rt('readerJs.panelSettingsTitle') },
+      toc: { kicker: rt('readerJs.panelTocKicker'), title: rt('readerJs.panelTocTitle') },
+      bookmarks: { kicker: rt('readerJs.panelBmKicker'), title: rt('readerJs.panelBmTitle') },
+      search: { kicker: rt('readerJs.panelSearchKicker'), title: rt('readerJs.panelSearchTitle') },
+      notes: { kicker: rt('readerJs.panelNotesKicker'), title: rt('readerJs.panelNotesTitle') }
+    }[tab] || { kicker: '', title: '' };
+  }
+  const triggerMap = { settings: $('btn-settings'), toc: $('btn-toc'), search: $('btn-search') };
+
+  function refreshTriggers() {
+    Object.entries(triggerMap).forEach(([k, el]) => {
+      if (!el) return;
+      const on = panelOverlay.classList.contains('is-open') && activePanelTab === k;
+      el.classList.toggle('is-active', on);
+    });
+  }
+  let panelHistoryPushed = false;
+  function openPanel(tab) {
+    const t = tab || 'toc';
+    hideSelMenu();
+    if (panelOverlay.classList.contains('is-open') && activePanelTab === t) { closePanel(); return; }
+    const wasOpen = panelOverlay.classList.contains('is-open');
+    panelOverlay.classList.add('is-open');
+    switchTab(t);
+    syncPanelChrome(t);
+    refreshTriggers();
+    if (!wasOpen && !panelHistoryPushed) { history.pushState({ readerPanel: true }, ''); panelHistoryPushed = true; }
+  }
+  function closePanelDirect() {
+    panelOverlay.classList.remove('is-open', 'panel-mobile', 'panel-settings-mode');
+    refreshTriggers();
+    clearTimeout(chromeTimer);
+    setChromeVisible(false);
+    if (activePanelTab === 'search') { try { view?.clearSearch?.(); } catch { /* */ } }
+  }
+  function closePanel() {
+    if (!panelOverlay.classList.contains('is-open')) return;
+    closePanelDirect();
+    if (panelHistoryPushed) { panelHistoryPushed = false; history.back(); }
+  }
+  function switchTab(tab) {
+    activePanelTab = tab;
+    syncPanelMobileMode(tab);
+    panelTabs.forEach(t => t.classList.toggle('is-active', t.dataset.tab === tab));
+    panelBodies.forEach(b => { b.hidden = b.dataset.panelTab !== tab; });
+    const pm = getPanelMeta(tab);
+    if (panelKickerEl) panelKickerEl.textContent = pm.kicker;
+    if (panelTitleEl) panelTitleEl.textContent = pm.title;
+    refreshTriggers();
+    syncPanelChrome(tab);
+    if (tab === 'settings') {
+      void ensureTtsVoices().then(() => {
+        try {
+          populateTtsVoiceList();
+        } catch (e) {
+          console.warn(e);
+        }
+      });
+    }
+    if (tab === 'notes') renderNotesTab();
+    if (tab === 'search') {
+      const inp = $('book-search-input');
+      if (inp) setTimeout(() => { try { inp.focus(); } catch { /* */ } }, 60);
+    }
+  }
+  panelOverlay.addEventListener('click', e => {
+    if (!mobileMq.matches && e.target === panelOverlay) closePanel();
+  });
+  $('panel-backdrop')?.addEventListener('click', closePanel);
+  $('panel-close')?.addEventListener('click', closePanel);
+  panelTabs.forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+  mobileMq.addEventListener('change', () => {
+    if (!panelOverlay.classList.contains('is-open')) return;
+    syncPanelMobileMode();
+    syncPanelChrome();
+  });
+
+  /* Back gesture / back button closes panel instead of leaving */
+  window.addEventListener('popstate', () => {
+    if (panelOverlay.classList.contains('is-open')) {
+      panelHistoryPushed = false;
+      closePanelDirect();
+    }
+  });
+
+  /* ===== Settings controls ===== */
+  function setRangeFromClientX(slider, clientX) {
+    const rect = slider.getBoundingClientRect();
+    if (!rect.width) return;
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const min = Number(slider.min);
+    const max = Number(slider.max);
+    const step = Number(slider.step) || 1;
+    let val = min + pct * (max - min);
+    val = min + Math.round((val - min) / step) * step;
+    val = Math.max(min, Math.min(max, val));
+    const stepText = String(step);
+    const decimals = stepText.includes('.') ? (stepText.split('.')[1]?.length || 0) : 0;
+    const str = decimals ? val.toFixed(decimals) : String(Math.round(val));
+    if (slider.value !== str) {
+      slider.value = str;
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  function guardRangeSliderTouchScroll(slider) {
+    if (!isTouch.matches || slider.dataset.scrollGuardWired) return;
+    slider.dataset.scrollGuardWired = '1';
+    let startX = 0;
+    let startY = 0;
+    let startVal = '';
+    let moved = false;
+    let mode = 'idle'; // idle | pending | scroll | slide
+
+    slider.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      startVal = slider.value;
+      moved = false;
+      mode = 'pending';
+    }, { passive: true });
+
+    slider.addEventListener('input', () => {
+      if (mode === 'pending' || mode === 'scroll') slider.value = startVal;
+    });
+
+    slider.addEventListener('touchmove', (e) => {
+      if (mode !== 'pending' && mode !== 'slide') return;
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const adx = Math.abs(t.clientX - startX);
+      const ady = Math.abs(t.clientY - startY);
+      if (adx > 4 || ady > 4) moved = true;
+      if (mode === 'pending') {
+        if (ady > 8 && ady > adx * 1.35) {
+          mode = 'scroll';
+          slider.value = startVal;
+          slider.style.pointerEvents = 'none';
+          return;
+        }
+        if (adx > 14 && adx >= ady * 1.2) mode = 'slide';
+        else return;
+      }
+      if (mode === 'slide') setRangeFromClientX(slider, t.clientX);
+    }, { passive: true });
+
+    const end = (e) => {
+      if (mode === 'slide') {
+        /* значение уже выставлено горизонтальным жестом */
+      } else {
+        slider.value = startVal;
+        if (mode === 'pending' && !moved && e.changedTouches?.[0]) {
+          const t = e.changedTouches[0];
+          if (Math.hypot(t.clientX - startX, t.clientY - startY) < 8) {
+            setRangeFromClientX(slider, t.clientX);
+          }
+        }
+      }
+      mode = 'idle';
+      slider.style.pointerEvents = '';
+    };
+    slider.addEventListener('touchend', end, { passive: true });
+    slider.addEventListener('touchcancel', end, { passive: true });
+  }
+
+  function bindSeg(sel, prop) {
+    document.querySelectorAll(sel).forEach(btn => btn.addEventListener('click', () => {
+      S[prop] = btn.dataset['set' + prop[0].toUpperCase() + prop.slice(1)];
+      applySettings(); refreshSettingsUI();
+    }));
+  }
+
+  function ensureExtendedReadingSettingsUi() {
+    const settingsPanel = document.querySelector('.panel-body[data-panel-tab="settings"]');
+    if (settingsPanel?.dataset.settingsLayout === 'v2') return;
+    if (document.getElementById('rs-justify')) return;
+    if (!settingsPanel) return;
+
+    const nightTheme = settingsPanel.querySelector('[data-set-theme="night"]');
+    if (nightTheme && !settingsPanel.querySelector('[data-set-theme="eink"]')) {
+      const eink = document.createElement('button');
+      eink.className = 'rs-theme-dot';
+      eink.type = 'button';
+      eink.dataset.setTheme = 'eink';
+      eink.innerHTML = '<span class="rs-dot-label">E-Ink</span>';
+      nightTheme.parentElement?.appendChild(eink);
+    }
+
+    const fontGroup = $('rs-font-family')?.closest('.rs-group');
+    if (fontGroup && !$('rs-publisher-font')) {
+      fontGroup.insertAdjacentHTML('beforeend',
+        '<label class="rs-check"><input type="checkbox" id="rs-publisher-font" name="readerPublisherFont"><span>Шрифт из книги</span></label>');
+      fontGroup.insertAdjacentHTML('afterend',
+        '<div class="rs-group"><div class="rs-label">Начертание</div>' +
+        '<select id="rs-font-weight" name="readerFontWeight" class="rs-select" aria-label="Начертание">' +
+        '<option value="400">Обычный</option><option value="500">Средний</option>' +
+        '<option value="600">Полужирный</option><option value="700">Жирный</option></select></div>');
+    }
+
+    const colorStack = settingsPanel.querySelector('.rs-color-stack');
+    if (colorStack && !$('rs-link-color')) {
+      colorStack.insertAdjacentHTML('beforeend',
+        '<div class="rs-color-line"><div class="rs-color-sub">Ссылки</div><div class="rs-color-row">' +
+        '<input type="color" id="rs-link-color" name="readerLinkColor" value="#8b5a12" aria-label="Ссылки" title="Цвет ссылок">' +
+        '<button type="button" class="rs-color-default" id="rs-link-color-default" title="Из темы">Из темы</button></div></div>');
+    }
+
+    const pageMarginGroup = $('rs-page-margin')?.closest('.rs-group');
+    if (pageMarginGroup && !$('rs-vertical-margin')) {
+      const label = pageMarginGroup.querySelector('.rs-label');
+      if (label) label.textContent = 'Боковые поля';
+      pageMarginGroup.insertAdjacentHTML('afterend',
+        '<div class="rs-group"><div class="rs-label">Вертикальные поля</div><div class="rs-slider">' +
+        '<span class="rs-icon" aria-hidden="true">—</span>' +
+        '<input type="range" id="rs-vertical-margin" name="readerVerticalMargin" min="0" max="96" step="4" aria-label="Вертикальные поля">' +
+        '<span class="rs-val" id="rs-vertical-margin-val">32 px</span><span class="rs-icon" aria-hidden="true">≡</span></div></div>' +
+        '<div class="rs-group"><div class="rs-label">Типографика</div>' +
+        '<label class="rs-check"><input type="checkbox" id="rs-justify" name="readerJustify" checked><span>Выравнивание по ширине</span></label>' +
+        '<label class="rs-check"><input type="checkbox" id="rs-hyphenate" name="readerHyphenate" checked><span>Переносы (дефисы)</span></label>' +
+        '<div class="rs-sublabel">Межбуквенный интервал</div><div class="rs-slider">' +
+        '<input type="range" id="rs-letter-spacing" name="readerLetterSpacing" min="-0.05" max="0.2" step="0.01" aria-label="Межбуквенный интервал">' +
+        '<span class="rs-val" id="rs-letter-spacing-val">0.00</span></div>' +
+        '<div class="rs-sublabel">Межабзацный интервал</div><div class="rs-slider">' +
+        '<input type="range" id="rs-paragraph-spacing" name="readerParagraphSpacing" min="0" max="1.5" step="0.05" aria-label="Межабзацный интервал">' +
+        '<span class="rs-val" id="rs-paragraph-spacing-val">0.40</span></div>' +
+        '<div class="rs-sublabel">Красная строка</div><div class="rs-slider">' +
+        '<input type="range" id="rs-text-indent" name="readerTextIndent" min="0" max="3" step="0.1" aria-label="Красная строка">' +
+        '<span class="rs-val" id="rs-text-indent-val">0.0 em</span></div></div>');
+    }
+
+    const layoutSeg = settingsPanel.querySelector('[data-set-layout="paginated"]')?.parentElement;
+    if (layoutSeg && !settingsPanel.querySelector('[data-set-layout="scrolled"]')) {
+      layoutSeg.insertAdjacentHTML('beforeend',
+        '<button type="button" data-set-layout="scrolled">Прокрутка</button>');
+    }
+
+    const dualGroup = $('rs-layout-dual');
+    if (dualGroup && !$('rs-layout-scrolled')) {
+      dualGroup.insertAdjacentHTML('afterend',
+        '<div class="rs-group" id="rs-layout-scrolled" hidden><div class="rs-label">Высота блока</div><div class="rs-slider">' +
+        '<input type="range" id="rs-max-block-size" name="readerMaxBlockSize" min="720" max="2400" step="40" aria-label="Высота блока">' +
+        '<span class="rs-val" id="rs-max-block-size-val">1440 px</span></div>' +
+        '<div class="rs-hint">Максимальная высота текста в режиме прокрутки</div></div>' +
+        '<div class="rs-group"><div class="rs-label">Отображение</div>' +
+        '<label class="rs-check"><input type="checkbox" id="rs-invert" name="readerInvert"><span>Инверсия цветов</span></label>' +
+        '<label class="rs-check"><input type="checkbox" id="rs-footnotes" name="readerFootnotes" checked><span>Всплывающие сноски</span></label></div>' +
+        '<div class="rs-group"><div class="rs-label">Свой CSS</div>' +
+        '<textarea id="rs-custom-css" class="rs-custom-css" name="readerCustomCss" rows="6" spellcheck="false" placeholder="/* Дополнительные стили для текста книги */"></textarea>' +
+        '<button type="button" class="rs-custom-css-clear" id="rs-custom-css-clear">Очистить CSS</button></div>');
+    }
+  }
+
+  function ensureAppVolumeKeysSettingsUi() {
+    if (document.documentElement.dataset.inpxApp !== '1') return;
+    if (document.getElementById('rs-volume-keys-group')) return;
+    const settingsPanel = document.querySelector('.panel-body[data-panel-tab="settings"]');
+    const slot = settingsPanel?.querySelector('#rs-volume-keys-slot');
+    const actions = settingsPanel?.querySelector('.rs-actions');
+    if (!settingsPanel || (!slot && !actions)) return;
+
+    const group = document.createElement('div');
+    group.className = 'rs-group';
+    group.id = 'rs-volume-keys-group';
+    group.innerHTML =
+      '<div class="rs-label">Кнопки громкости</div>' +
+      '<div class="rs-seg">' +
+      '<button type="button" data-set-volume-keys="normal">Vol+ вперёд</button>' +
+      '<button type="button" data-set-volume-keys="inverted">Vol+ назад</button>' +
+      '</div>' +
+      '<div class="rs-hint">Листание кнопками громкости (Android). Яркость — свайп у левого края.</div>';
+    if (slot) slot.appendChild(group);
+    else settingsPanel.insertBefore(group, actions);
+  }
+
+  function handleVolumePageTurn(direction) {
+    let mapped = direction === 'next' ? 'next' : 'prev';
+    if (S.volumeKeys === 'inverted') {
+      mapped = mapped === 'next' ? 'prev' : 'next';
+    }
+    if (mapped === 'next') view?.goRight();
+    else view?.goLeft();
+    scheduleChromeHide();
+  }
+
+  function initSettings() {
+    ensureExtendedReadingSettingsUi();
+    ensureAppVolumeKeysSettingsUi();
+    bindSeg('[data-set-theme]', 'theme');
+    bindSeg('[data-set-layout]', 'layout');
+    bindSeg('[data-set-volume-keys]', 'volumeKeys');
+    populateFontSelect();
+    const justifyEl = $('rs-justify');
+    const hyphenateEl = $('rs-hyphenate');
+    if (justifyEl) {
+      justifyEl.addEventListener('change', () => {
+        S.justify = justifyEl.checked;
+        applySettings();
+      });
+    }
+    if (hyphenateEl) {
+      hyphenateEl.addEventListener('change', () => {
+        S.hyphenate = hyphenateEl.checked;
+        applySettings();
+      });
+    }
+    const publisherFontEl = $('rs-publisher-font');
+    if (publisherFontEl) {
+      publisherFontEl.addEventListener('change', () => {
+        S.usePublisherFont = publisherFontEl.checked;
+        applySettings();
+      });
+    }
+    const invertEl = $('rs-invert');
+    if (invertEl) {
+      invertEl.addEventListener('change', () => {
+        S.invert = invertEl.checked;
+        applySettings();
+      });
+    }
+    const footnotesEl = $('rs-footnotes');
+    if (footnotesEl) {
+      footnotesEl.addEventListener('change', () => {
+        S.enableFootnotes = footnotesEl.checked;
+        saveSettings();
+      });
+    }
+    const customCssEl = $('rs-custom-css');
+    let customCssTimer = null;
+    if (customCssEl) {
+      customCssEl.addEventListener('input', () => {
+        S.customCss = customCssEl.value;
+        clearTimeout(customCssTimer);
+        customCssTimer = setTimeout(() => {
+          saveSettings();
+          applyBookStyles();
+        }, 400);
+      });
+    }
+    $('rs-custom-css-clear')?.addEventListener('click', () => {
+      S.customCss = '';
+      if (customCssEl) customCssEl.value = '';
+      saveSettings();
+      applyBookStyles();
+      toast('CSS очищен');
+    });
+    const fontWeightEl = $('rs-font-weight');
+    if (fontWeightEl) {
+      fontWeightEl.addEventListener('change', () => {
+        S.fontWeight = Number(fontWeightEl.value) || defaults.fontWeight;
+        applySettings();
+      });
+    }
+    const fontSel = $('rs-font-family');
+    if (fontSel) {
+      fontSel.addEventListener('change', () => {
+        S.font = fontSel.value;
+        if (!(S.font in fontMap)) S.font = defaults.font;
+        applySettings();
+        refreshSettingsUI();
+      });
+    }
+    document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
+    $('reader-reset-settings')?.addEventListener('click', resetSettings);
+
+    const textColorInput = $('rs-text-color');
+    const textColorDefaultBtn = $('rs-text-color-default');
+    if (textColorInput) {
+      textColorInput.addEventListener('input', () => {
+        S.textColor = textColorInput.value;
+        applySettings();
+      });
+    }
+    textColorDefaultBtn?.addEventListener('click', () => {
+      S.textColor = '';
+      applySettings();
+      refreshSettingsUI();
+    });
+
+    const bgColorInput = $('rs-bg-color');
+    const bgColorDefaultBtn = $('rs-bg-color-default');
+    if (bgColorInput) {
+      bgColorInput.addEventListener('input', () => {
+        S.bgColor = bgColorInput.value;
+        applySettings();
+      });
+    }
+    bgColorDefaultBtn?.addEventListener('click', () => {
+      S.bgColor = '';
+      applySettings();
+      refreshSettingsUI();
+    });
+
+    const linkColorInput = $('rs-link-color');
+    const linkColorDefaultBtn = $('rs-link-color-default');
+    if (linkColorInput) {
+      linkColorInput.addEventListener('input', () => {
+        S.linkColor = linkColorInput.value;
+        applySettings();
+      });
+    }
+    linkColorDefaultBtn?.addEventListener('click', () => {
+      S.linkColor = '';
+      applySettings();
+      refreshSettingsUI();
+    });
+
+    initBgImageSettings();
+
+    const wire = (id, valId, prop, fmt) => {
+      const sl = $(id), vl = $(valId); if (!sl) return;
+      sl.value = S[prop]; if (vl) vl.textContent = fmt ? fmt(S[prop]) : S[prop];
+      sl.addEventListener('input', () => { S[prop] = Number(fmt ? Number(sl.value).toFixed(1) : sl.value); if (vl) vl.textContent = fmt ? fmt(S[prop]) : S[prop]; applySettings(); });
+    };
+    wire('rs-font-size', 'rs-font-size-val', 'fontSize');
+    wire('rs-line-height', 'rs-line-height-val', 'lineHeight', v => Number(v).toFixed(1));
+    wire('rs-page-margin', 'rs-page-margin-val', 'pageMargin', v => `${Math.round(v)} px`);
+    wire('rs-vertical-margin', 'rs-vertical-margin-val', 'verticalMargin', v => `${Math.round(v)} px`);
+    wire('rs-column-gap', 'rs-column-gap-val', 'columnGap', v => `${Math.round(v)}%`);
+    wire('rs-column-width', 'rs-column-width-val', 'maxWidth', v => `${Math.round(v)} px`);
+    wire('rs-max-block-size', 'rs-max-block-size-val', 'maxBlockSize', v => `${Math.round(v)} px`);
+    wire('rs-letter-spacing', 'rs-letter-spacing-val', 'letterSpacing', v => Number(v).toFixed(2));
+    wire('rs-paragraph-spacing', 'rs-paragraph-spacing-val', 'paragraphSpacing', v => Number(v).toFixed(2));
+    wire('rs-text-indent', 'rs-text-indent-val', 'textIndent', v => `${Number(v).toFixed(1)} em`);
+
+    const fullWidthEl = $('rs-full-width');
+    if (fullWidthEl) {
+      fullWidthEl.addEventListener('change', () => {
+        if (fullWidthEl.checked) {
+          S.maxWidth = 99999;
+        } else if (isFullWidth()) {
+          S.maxWidth = 720;
+        }
+        applySettings();
+        refreshSettingsUI();
+      });
+    }
+
+    const ttsRateEl = $('rs-tts-rate');
+    const ttsRateVal = $('rs-tts-rate-val');
+    if (ttsRateEl) {
+      ttsRateEl.addEventListener('input', () => {
+        S.ttsRate = Number(ttsRateEl.value);
+        if (ttsRateVal) ttsRateVal.textContent = Number(S.ttsRate).toFixed(2);
+        saveSettings();
+      });
+    }
+    const ttsVoiceEl = $('rs-tts-voice');
+    if (ttsVoiceEl) {
+      ttsVoiceEl.addEventListener('change', () => {
+        S.ttsVoice = ttsVoiceEl.value || '';
+        saveSettings();
+      });
+    }
+    if (window.speechSynthesis) {
+      speechSynthesis.addEventListener('voiceschanged', () => {
+        if (activePanelTab === 'settings') {
+          try {
+            populateTtsVoiceList();
+          } catch { /* */ }
+        }
+      });
+    }
+
+    document.querySelectorAll('.panel-body input[type="range"]').forEach(guardRangeSliderTouchScroll);
+  }
+
+  async function compressBgImageFile(file) {
+    if (!file || !String(file.type || '').startsWith('image/')) throw new Error('not-image');
+    if (file.size > 15 * 1024 * 1024) throw new Error('too-large');
+    const bmp = await createImageBitmap(file);
+    const maxDim = 1600;
+    const maxBytes = 700_000;
+    let w = bmp.width;
+    let h = bmp.height;
+    if (w > maxDim || h > maxDim) {
+      if (w >= h) {
+        h = Math.round(h * maxDim / w);
+        w = maxDim;
+      } else {
+        w = Math.round(w * maxDim / h);
+        h = maxDim;
+      }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close();
+    let quality = 0.88;
+    let dataUrl = canvas.toDataURL('image/jpeg', quality);
+    while (dataUrl.length > maxBytes && quality > 0.45) {
+      quality -= 0.07;
+      dataUrl = canvas.toDataURL('image/jpeg', quality);
+    }
+    if (dataUrl.length > maxBytes) throw new Error('too-large');
+    return dataUrl;
+  }
+
+  function refreshBgImageUi() {
+    const img = getEffectiveBgImage();
+    const preview = $('rs-bg-image-preview');
+    const clearBtn = $('rs-bg-image-clear');
+    const paperWrap = $('rs-bg-image-paper-wrap');
+    const fit = S.bgImageFit || defaults.bgImageFit;
+    document.querySelectorAll('[data-bg-image-fit]').forEach((b) => {
+      b.classList.toggle('is-active', b.dataset.bgImageFit === fit);
+    });
+    if (preview) {
+      preview.style.backgroundImage = img ? `url("${img}")` : '';
+      preview.classList.toggle('has-image', Boolean(img));
+    }
+    if (clearBtn) clearBtn.hidden = !img;
+    if (paperWrap) paperWrap.hidden = !img;
+    const paper = Number(S.bgImagePaper);
+    const paperVal = Number.isFinite(paper) ? paper : defaults.bgImagePaper;
+    const paperSl = $('rs-bg-image-paper');
+    const paperVl = $('rs-bg-image-paper-val');
+    if (paperSl) paperSl.value = String(paperVal);
+    if (paperVl) paperVl.textContent = `${Math.round(paperVal * 100)}%`;
+  }
+
+  function initBgImageSettings() {
+    if (!$('rs-bg-image-file')) return;
+    const fileInput = $('rs-bg-image-file');
+    const clearBtn = $('rs-bg-image-clear');
+    fileInput?.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = '';
+      if (!file) return;
+      try {
+        S.bgImage = await compressBgImageFile(file);
+        applySettings();
+        refreshSettingsUI();
+        toast('Фоновое изображение установлено');
+      } catch {
+        toast('Не удалось загрузить изображение');
+      }
+    });
+    clearBtn?.addEventListener('click', () => {
+      S.bgImage = '';
+      applySettings();
+      refreshSettingsUI();
+    });
+    document.querySelectorAll('[data-bg-image-fit]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        S.bgImageFit = btn.dataset.bgImageFit || defaults.bgImageFit;
+        applySettings();
+        refreshSettingsUI();
+      });
+    });
+    const paperSl = $('rs-bg-image-paper');
+    const paperVl = $('rs-bg-image-paper-val');
+    if (paperSl) {
+      paperSl.addEventListener('input', () => {
+        S.bgImagePaper = Number(paperSl.value);
+        if (paperVl) paperVl.textContent = `${Math.round(S.bgImagePaper * 100)}%`;
+        applySettings();
+      });
+    }
+    refreshBgImageUi();
+  }
+
+  function refreshSettingsUI() {
+    const toggle = (sel, attr, val) => document.querySelectorAll(sel).forEach(b => b.classList.toggle('is-active', b.dataset[attr] === val));
+    toggle('[data-set-theme]', 'setTheme', S.theme);
+    toggle('[data-set-layout]', 'setLayout', S.layout);
+    toggle('[data-set-volume-keys]', 'setVolumeKeys', S.volumeKeys);
+    populateFontSelect();
+    const fs = $('rs-font-family');
+    if (fs) {
+      if (!(S.font in fontMap)) S.font = defaults.font;
+      fs.value = S.font;
+      fs.disabled = S.usePublisherFont === true;
+    }
+    const sync = (id, v) => { const el = $(id); if (el) el.value !== undefined ? el.value = v : el.textContent = v; };
+    sync('rs-font-size', S.fontSize); sync('rs-font-size-val', S.fontSize);
+    sync('rs-line-height', S.lineHeight); sync('rs-line-height-val', Number(S.lineHeight).toFixed(1));
+    sync('rs-page-margin', S.pageMargin);
+    sync('rs-page-margin-val', `${S.pageMargin} px`);
+    sync('rs-column-gap', S.columnGap);
+    sync('rs-column-gap-val', `${S.columnGap}%`);
+    const cwSlider = $('rs-column-width');
+    const cwVal = $('rs-column-width-val');
+    const fullW = isFullWidth();
+    if (cwSlider) {
+      cwSlider.disabled = fullW;
+      cwSlider.value = fullW ? 720 : Math.min(920, Math.max(480, Number(S.maxWidth) || 720));
+    }
+    if (cwVal) cwVal.textContent = fullW ? rt('reader.fullWidth') : `${Math.round(S.maxWidth)} px`;
+    const fullWidthEl = $('rs-full-width');
+    if (fullWidthEl) fullWidthEl.checked = fullW;
+    const pagGroup = $('rs-layout-paginated');
+    const dualGroup = $('rs-layout-dual');
+    const scrollGroup = $('rs-layout-scrolled');
+    const scrolled = S.layout === 'scrolled';
+    if (pagGroup) pagGroup.hidden = S.layout === 'dual' || scrolled;
+    if (dualGroup) dualGroup.hidden = S.layout !== 'dual';
+    if (scrollGroup) scrollGroup.hidden = !scrolled;
+    const justifyEl = $('rs-justify');
+    const hyphenateEl = $('rs-hyphenate');
+    if (justifyEl) justifyEl.checked = S.justify !== false;
+    if (hyphenateEl) hyphenateEl.checked = S.hyphenate !== false;
+    const publisherFontEl = $('rs-publisher-font');
+    if (publisherFontEl) publisherFontEl.checked = S.usePublisherFont === true;
+    const invertEl = $('rs-invert');
+    if (invertEl) invertEl.checked = S.invert === true;
+    const footnotesEl = $('rs-footnotes');
+    if (footnotesEl) footnotesEl.checked = S.enableFootnotes !== false;
+    const fontWeightEl = $('rs-font-weight');
+    if (fontWeightEl) fontWeightEl.value = String(S.fontWeight || 400);
+    const customCssEl = $('rs-custom-css');
+    if (customCssEl && customCssEl.value !== (S.customCss || '')) customCssEl.value = S.customCss || '';
+    sync('rs-vertical-margin', S.verticalMargin);
+    sync('rs-vertical-margin-val', `${S.verticalMargin} px`);
+    sync('rs-max-block-size', S.maxBlockSize);
+    sync('rs-max-block-size-val', `${Math.round(S.maxBlockSize)} px`);
+    sync('rs-letter-spacing', S.letterSpacing);
+    sync('rs-letter-spacing-val', Number(S.letterSpacing).toFixed(2));
+    sync('rs-paragraph-spacing', S.paragraphSpacing);
+    sync('rs-paragraph-spacing-val', Number(S.paragraphSpacing).toFixed(2));
+    sync('rs-text-indent', S.textIndent);
+    sync('rs-text-indent-val', `${Number(S.textIndent).toFixed(1)} em`);
+    const ap = getActivePreset();
+    document.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('is-active', b.dataset.preset === ap));
+    const tcEl = $('rs-text-color');
+    if (tcEl) {
+      const c = themeColors[S.theme] || themeColors.dark;
+      const v = (S.textColor && /^#[0-9A-Fa-f]{6}$/.test(String(S.textColor).trim())) ? S.textColor.trim() : c.fg;
+      if (tcEl.value !== v) tcEl.value = v;
+    }
+    const bgEl = $('rs-bg-color');
+    if (bgEl) {
+      const c = themeColors[S.theme] || themeColors.dark;
+      const v = (S.bgColor && /^#[0-9A-Fa-f]{6}$/.test(String(S.bgColor).trim())) ? S.bgColor.trim() : c.bg;
+      if (bgEl.value !== v) bgEl.value = v;
+    }
+    const linkEl = $('rs-link-color');
+    if (linkEl) {
+      const v = (S.linkColor && /^#[0-9A-Fa-f]{6}$/.test(String(S.linkColor).trim()))
+        ? S.linkColor.trim()
+        : getEffectiveLinkColor();
+      if (linkEl.value !== v) linkEl.value = v;
+    }
+    updateSeekbar();
+    updateDayNightButton();
+    const ttsR = $('rs-tts-rate');
+    const ttsRV = $('rs-tts-rate-val');
+    if (ttsR) {
+      const r = Number(S.ttsRate);
+      ttsR.value = String(Number.isFinite(r) ? Math.min(2, Math.max(0.5, r)) : 1);
+      if (ttsRV) ttsRV.textContent = Number(ttsR.value).toFixed(2);
+    }
+    const ttsV = $('rs-tts-voice');
+    if (ttsV && S.ttsVoice && [...ttsV.options].some(o => o.value === S.ttsVoice)) ttsV.value = S.ttsVoice;
+    else if (ttsV) ttsV.value = '';
+    refreshBgImageUi();
+  }
+
+  /* ===== TTS (read aloud) ===== */
+  function ssmlToPlain(ssmlStr) {
+    if (!ssmlStr || typeof ssmlStr !== 'string') return '';
+    try {
+      const d = new DOMParser().parseFromString(ssmlStr, 'application/xml');
+      if (d.querySelector('parsererror')) throw new Error('parse');
+      return (d.documentElement.textContent || '').replace(/\s+/g, ' ').trim();
+    } catch {
+      return String(ssmlStr).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+  }
+
+  /** Сегменты с mark → view.tts.setMark для подсветки (смысловые единицы из foliate). */
+  function parseTtsSsmlSegments(ssmlStr) {
+    if (!ssmlStr || typeof ssmlStr !== 'string') return [];
+    const d = new DOMParser().parseFromString(ssmlStr, 'application/xml');
+    if (d.querySelector('parsererror')) {
+      const plain = ssmlToPlain(ssmlStr);
+      return plain ? [{ mark: null, text: plain }] : [];
+    }
+    const root = d.documentElement;
+    if (!root) return [];
+    const parts = [];
+    let buf = '';
+    function markName(el) {
+      return el.getAttribute('name') || el.getAttributeNS('http://www.w3.org/2001/10/synthesis', 'name') || '';
+    }
+    function walk(node) {
+      for (const child of node.childNodes) {
+        if (child.nodeType === 3) buf += child.textContent;
+        else if (child.nodeType === 1) {
+          if (child.localName === 'mark') {
+            const name = markName(child);
+            const t = buf.replace(/\s+/g, ' ').trim();
+            buf = '';
+            if (t) parts.push({ mark: name || null, text: t });
+          } else walk(child);
+        }
+      }
+    }
+    walk(root);
+    const tail = buf.replace(/\s+/g, ' ').trim();
+    if (tail) parts.push({ mark: null, text: tail });
+    if (!parts.length) {
+      const plain = ssmlToPlain(ssmlStr);
+      if (plain) return [{ mark: null, text: plain }];
+    }
+    return parts;
+  }
+
+  function getReaderTtsLang() {
+    const c = view?.renderer?.getContents?.()?.[0];
+    const fromDoc = c?.doc?.documentElement?.lang;
+    const fromMeta = view?.language?.canonical;
+    const raw = (fromDoc || fromMeta || (rLocale() === 'en' ? 'en' : 'ru')).trim();
+    if (!raw) return rLocale() === 'en' ? 'en-US' : 'ru-RU';
+    if (raw.length === 2) return raw === 'en' ? 'en-US' : raw === 'ru' ? 'ru-RU' : raw;
+    return raw;
+  }
+
+  function populateTtsVoiceList() {
+    const sel = $('rs-tts-voice');
+    if (!sel || !window.speechSynthesis) return;
+    const voices = speechSynthesis.getVoices().slice();
+    const pref = getReaderTtsLang().toLowerCase().split(/[-_]/)[0] || '';
+    voices.sort((a, b) => {
+      const la = (a.lang || '').toLowerCase();
+      const lb = (b.lang || '').toLowerCase();
+      const as = la.startsWith(pref) ? 0 : 1;
+      const bs = lb.startsWith(pref) ? 0 : 1;
+      if (as !== bs) return as - bs;
+      if (a.localService !== b.localService) return a.localService ? -1 : 1;
+      return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+    });
+    const keep = S.ttsVoice || '';
+    sel.innerHTML = '';
+    const o0 = document.createElement('option');
+    o0.value = '';
+    o0.textContent = rt('reader.ttsVoiceDefault');
+    sel.appendChild(o0);
+    for (const v of voices) {
+      const o = document.createElement('option');
+      o.value = v.voiceURI;
+      o.textContent = `${v.name} (${v.lang || ''})`;
+      sel.appendChild(o);
+    }
+    if (keep && [...sel.options].some((x) => x.value === keep)) sel.value = keep;
+    else sel.value = '';
+  }
+
+  function applyTtsUtteranceSettings(u) {
+    const r = Number(S.ttsRate);
+    u.rate = Number.isFinite(r) ? Math.min(2, Math.max(0.5, r)) : 1;
+    const uri = S.ttsVoice && String(S.ttsVoice).trim();
+    if (uri && window.speechSynthesis) {
+      const v = speechSynthesis.getVoices().find((x) => x.voiceURI === uri);
+      if (v) u.voice = v;
+    }
+  }
+
+  function ensureTtsVoices() {
+    return new Promise((resolve) => {
+      try {
+        if (!window.speechSynthesis) {
+          resolve();
+          return;
+        }
+        if (speechSynthesis.getVoices().length) {
+          resolve();
+          return;
+        }
+        speechSynthesis.addEventListener('voiceschanged', () => resolve(), { once: true });
+        setTimeout(resolve, 400);
+      } catch {
+        resolve();
+      }
+    });
+  }
+
+  const TTS_PATH_PLAY = 'M8 5v14l11-7z';
+  const TTS_PATH_PAUSE = 'M6 5h4v14H6zM14 5h4v14h-4z';
+
+  /** Одна иконка в кнопке: только смена path (плей ↔ пауза). */
+  function syncTtsMainIcon(host, playing) {
+    if (!host) return;
+    const path = host.querySelector('.tts-main-path');
+    if (!path) return;
+    path.setAttribute('d', playing ? TTS_PATH_PAUSE : TTS_PATH_PLAY);
+  }
+
+  function updateTtsButtons() {
+    const playing = ttsChainActive && !ttsPausedByUser;
+    const mainLabel = playing ? rt('reader.ttsPause') : rt('reader.tts');
+    const mainTitle = playing ? rt('reader.ttsPause') : rt('reader.ttsPlay');
+    if (btnTts) {
+      btnTts.classList.toggle('is-active', playing);
+      btnTts.title = mainTitle;
+      btnTts.setAttribute('aria-label', mainLabel);
+      syncTtsMainIcon(btnTts, playing);
+    }
+    if (btnTtsDock) {
+      btnTtsDock.classList.toggle('is-active', playing);
+      btnTtsDock.title = mainTitle;
+      btnTtsDock.setAttribute('aria-label', mainLabel);
+      syncTtsMainIcon(btnTtsDock, playing);
+    }
+    document.querySelectorAll('.js-tts-prev, .js-tts-next').forEach((b) => {
+      b.disabled = !ttsChainActive;
+    });
+    [btnTtsStop, btnTtsDockStop].forEach((btn) => {
+      if (!btn) return;
+      btn.hidden = !ttsChainActive;
+    });
+    if (ttsDockEl) {
+      ttsDockEl.classList.toggle('is-visible', ttsChainActive);
+      ttsDockEl.setAttribute('aria-hidden', ttsChainActive ? 'false' : 'true');
+    }
+    document.body.classList.toggle('reader-tts-active', ttsChainActive);
+    if (!ttsChainActive) pauseTtsKeepalive();
+    syncTtsMediaSessionPlayback();
+    if (ttsChainActive) syncTtsMediaMetadata();
+    notifyParentTtsState();
+  }
+
+  function notifyParentTtsState() {
+    try {
+      window.parent.postMessage({
+        type: 'inpx-reader-tts-state',
+        active: ttsChainActive,
+        playing: ttsChainActive && !ttsPausedByUser,
+      }, '*');
+    } catch { /* cross-origin */ }
+  }
+
+  function stopReaderTts() {
+    ttsSpeakToken++;
+    clearTtsBackgroundMaintain();
+    ttsKickSpeak = null;
+    ttsNav.skipBack = () => {};
+    ttsNav.skipForward = () => {};
+    if (ttsStopLongPressTimer != null) {
+      clearTimeout(ttsStopLongPressTimer);
+      ttsStopLongPressTimer = null;
+    }
+    ttsStopLongPressPt = null;
+    try {
+      window.speechSynthesis?.cancel();
+    } catch { /* */ }
+    ttsChainActive = false;
+    ttsPausedByUser = false;
+    ttsAdvancingSection = false;
+    releaseReaderWakeLock();
+    updateTtsButtons();
+  }
+
+  /**
+   * После окончания текста в секции — перелистнуть и продолжить озвучку.
+   * @returns {Promise<boolean>} true если цепочка продолжена
+   */
+  async function advanceTtsToNextSection(depth) {
+    if (!ttsChainActive || !view || depth > 14) return false;
+    const prevCfi = view.lastLocation?.cfi;
+    ttsAdvancingSection = true;
+    try {
+      await view.goRight();
+    } catch (e) {
+      console.warn(e);
+      ttsAdvancingSection = false;
+      return false;
+    }
+    await new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(tid);
+        view.removeEventListener('load', onLoad);
+        resolve();
+      };
+      const onLoad = () => finish();
+      const tid = setTimeout(finish, 650);
+      view.addEventListener('load', onLoad, { once: true });
+    });
+    ttsAdvancingSection = false;
+    if (!ttsChainActive) return false;
+    if (!view.lastLocation || view.lastLocation.cfi === prevCfi) return false;
+    if (!view.renderer?.getContents?.()?.[0]?.doc?.body) return false;
+    try {
+      await view.initTTS('sentence', true);
+    } catch (e) {
+      console.warn(e);
+      return advanceTtsToNextSection(depth + 1);
+    }
+    if (!view.tts) return false;
+    let first;
+    try {
+      first = view.tts.start();
+    } catch (e) {
+      console.warn(e);
+      first = null;
+    }
+    if (!first) {
+      return advanceTtsToNextSection(depth + 1);
+    }
+    runTtsUtteranceChain(first);
+    return true;
+  }
+
+  function runTtsUtteranceChain(initialSsml) {
+    let parts = [];
+    let idx = 0;
+    let useInitialSsml = true;
+
+    function finishTtsChain() {
+      ttsChainActive = false;
+      ttsPausedByUser = false;
+      ttsKickSpeak = null;
+      if (window.__INPX_USE_NATIVE_TTS) window.__INPX_ttsKickSpeak = null;
+      clearTtsBackgroundMaintain();
+      ttsNav.skipBack = () => {};
+      ttsNav.skipForward = () => {};
+      releaseReaderWakeLock();
+      updateTtsButtons();
+    }
+
+    function ensureParts() {
+      if (idx < parts.length) return true;
+      const ssml = useInitialSsml ? (useInitialSsml = false, initialSsml) : view.tts.next();
+      if (!ssml) return false;
+      parts = parseTtsSsmlSegments(ssml);
+      idx = 0;
+      return true;
+    }
+
+    function speakStep() {
+      if (!ttsChainActive || !view?.tts) {
+        finishTtsChain();
+        return;
+      }
+      if (!ensureParts()) {
+        if (ttsChainActive) {
+          void advanceTtsToNextSection(0).then((cont) => {
+            if (!cont) finishTtsChain();
+          });
+        } else finishTtsChain();
+        return;
+      }
+      while (idx < parts.length && !(parts[idx].text && String(parts[idx].text).trim())) idx++;
+      if (idx >= parts.length) {
+        requestAnimationFrame(speakStep);
+        return;
+      }
+      const seg = parts[idx];
+      if (seg.mark != null && String(seg.mark).length) {
+        try {
+          view.tts.setMark(String(seg.mark));
+        } catch (e) {
+          console.warn(e);
+        }
+      }
+      const u = new SpeechSynthesisUtterance(seg.text);
+      u.lang = getReaderTtsLang();
+      applyTtsUtteranceSettings(u);
+      const token = ttsSpeakToken;
+      u.onstart = () => {
+        lastTtsSpeechAt = Date.now();
+        void startTtsKeepalivePlayback();
+      };
+      /**
+       * Пока страница скрыта, Chrome/Android отменяет фразу без реального произнесения, и
+       * onend/onerror всё равно срабатывают — если в этот момент продвинуть idx, цепочка
+       * молча проматывается вперёд (иногда на главы) пока не вернётся видимость. Поэтому в
+       * скрытом состоянии просто выходим без advance; resumeTtsAfterHidden() повторит этот
+       * же сегмент, когда страница снова станет видимой.
+       */
+      u.onend = () => {
+        lastTtsSpeechAt = Date.now();
+        if (!ttsChainActive || token !== ttsSpeakToken) return;
+        if (!ttsCanAdvanceAfterUtterance()) return;
+        idx++;
+        speakStep();
+      };
+      u.onerror = () => {
+        lastTtsSpeechAt = Date.now();
+        if (!ttsChainActive || token !== ttsSpeakToken) return;
+        if (!ttsCanAdvanceAfterUtterance()) return;
+        idx++;
+        speakStep();
+      };
+      try {
+        speechSynthesis.speak(u);
+      } catch (e) {
+        console.warn(e);
+        idx++;
+        speakStep();
+      }
+      updateTtsButtons();
+    }
+
+    ttsNav.skipForward = () => {
+      if (!ttsChainActive) return;
+      ttsSpeakToken++;
+      try {
+        speechSynthesis.cancel();
+      } catch { /* */ }
+      idx++;
+      requestAnimationFrame(speakStep);
+    };
+
+    ttsNav.skipBack = () => {
+      if (!ttsChainActive) return;
+      ttsSpeakToken++;
+      try {
+        speechSynthesis.cancel();
+      } catch { /* */ }
+      if (idx > 0) {
+        idx--;
+      } else {
+        let prevSsml;
+        try {
+          prevSsml = view.tts.prev(true);
+        } catch (e) {
+          console.warn(e);
+          prevSsml = null;
+        }
+        if (!prevSsml) {
+          toast(rt('reader.ttsNoPrev'));
+          requestAnimationFrame(speakStep);
+          return;
+        }
+        parts = parseTtsSsmlSegments(prevSsml);
+        idx = Math.max(0, parts.length - 1);
+        while (idx > 0 && !(parts[idx].text && String(parts[idx].text).trim())) idx--;
+      }
+      requestAnimationFrame(speakStep);
+    };
+
+    ttsKickSpeak = speakStep;
+    if (window.__INPX_USE_NATIVE_TTS) {
+      window.__INPX_ttsKickSpeak = speakStep;
+    }
+    speakStep();
+  }
+
+  async function startReaderTts() {
+    if (!view || view.isFixedLayout) {
+      toast(rt('reader.ttsFixedLayout'));
+      return;
+    }
+    if (!window.speechSynthesis) {
+      toast(rt('reader.ttsUnavailable'));
+      return;
+    }
+    const contents = view.renderer.getContents();
+    if (!contents?.length || !contents[0]?.doc?.body) {
+      toast(rt('reader.ttsNoText'));
+      return;
+    }
+    stopReaderTts();
+    await ensureTtsVoices();
+    try {
+      await view.initTTS('sentence', true);
+    } catch (e) {
+      console.warn(e);
+      toast(rt('reader.ttsNoText'));
+      return;
+    }
+    if (!view.tts) {
+      toast(rt('reader.ttsNoText'));
+      return;
+    }
+    let firstSsml;
+    try {
+      const loc = view.lastLocation;
+      if (loc?.range?.cloneRange) {
+        firstSsml = view.tts.from(loc.range.cloneRange());
+      } else {
+        firstSsml = view.tts.start();
+      }
+    } catch (e) {
+      console.warn(e);
+      try {
+        firstSsml = view.tts.start();
+      } catch (e2) {
+        console.warn(e2);
+        firstSsml = null;
+      }
+    }
+    if (!firstSsml) {
+      toast(rt('reader.ttsNoText'));
+      return;
+    }
+    initReaderMediaSessionHandlers();
+    ttsChainActive = true;
+    ttsPausedByUser = false;
+    lastTtsSpeechAt = Date.now();
+    void acquireReaderWakeLock();
+    setChromeVisible(true);
+    updateTtsButtons();
+    void startTtsKeepalivePlayback();
+    if (document.visibilityState === 'hidden') maintainTtsInBackground();
+    runTtsUtteranceChain(firstSsml);
+  }
+
+  function toggleReaderTts() {
+    if (!ttsChainActive) {
+      void startReaderTts();
+      return;
+    }
+    if (ttsPausedByUser) {
+      try {
+        speechSynthesis.resume();
+      } catch { /* */ }
+      ttsPausedByUser = false;
+      void acquireReaderWakeLock();
+    } else {
+      try {
+        speechSynthesis.pause();
+      } catch { /* */ }
+      ttsPausedByUser = true;
+      releaseReaderWakeLock();
+    }
+    syncTtsKeepaliveWithSpeech();
+    updateTtsButtons();
+  }
+
+  function clearTtsStopLongPressTimer() {
+    if (ttsStopLongPressTimer != null) {
+      clearTimeout(ttsStopLongPressTimer);
+      ttsStopLongPressTimer = null;
+    }
+    ttsStopLongPressPt = null;
+  }
+
+  function wireTtsPrimaryControl(el) {
+    if (!el) return;
+    el.addEventListener('pointerdown', (e) => {
+      if (!ttsChainActive || e.shiftKey) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      clearTtsStopLongPressTimer();
+      ttsStopLongPressPt = { x: e.clientX, y: e.clientY };
+      ttsStopLongPressTimer = window.setTimeout(() => {
+        ttsStopLongPressTimer = null;
+        ttsStopLongPressPt = null;
+        ttsStopLongPressConsumeClick = true;
+        stopReaderTts();
+        scheduleChromeHide();
+      }, TTS_STOP_LONG_PRESS_MS);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (ttsStopLongPressPt == null || ttsStopLongPressTimer == null) return;
+      const dx = e.clientX - ttsStopLongPressPt.x;
+      const dy = e.clientY - ttsStopLongPressPt.y;
+      if (dx * dx + dy * dy > TTS_STOP_LONG_PRESS_SLOP_PX * TTS_STOP_LONG_PRESS_SLOP_PX) {
+        clearTtsStopLongPressTimer();
+      }
+    });
+    el.addEventListener('pointerup', () => clearTtsStopLongPressTimer());
+    el.addEventListener('pointercancel', () => clearTtsStopLongPressTimer());
+    el.addEventListener('pointerleave', (e) => {
+      if (e.pointerType === 'mouse') clearTtsStopLongPressTimer();
+    });
+    el.addEventListener('contextmenu', (e) => {
+      if (ttsChainActive) e.preventDefault();
+    });
+    el.addEventListener('click', (ev) => {
+      if (ttsStopLongPressConsumeClick) {
+        ttsStopLongPressConsumeClick = false;
+        ev.preventDefault();
+        return;
+      }
+      if (ev.shiftKey && ttsChainActive) {
+        stopReaderTts();
+        scheduleChromeHide();
+        return;
+      }
+      toggleReaderTts();
+      scheduleChromeHide();
+    });
+  }
+  wireTtsPrimaryControl(btnTts);
+  wireTtsPrimaryControl(btnTtsDock);
+
+  document.querySelectorAll('.js-tts-stop').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      stopReaderTts();
+      scheduleChromeHide();
+    });
+  });
+
+  document.querySelectorAll('.js-tts-prev').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      ttsNav.skipBack();
+      scheduleChromeHide();
+    });
+  });
+  document.querySelectorAll('.js-tts-next').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      ttsNav.skipForward();
+      scheduleChromeHide();
+    });
+  });
+
+  /* ===== Toolbar buttons ===== */
+  const btnFullscreen = $('btn-fullscreen');
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.();
+    } else {
+      document.exitFullscreen?.();
+    }
+  }
+  function updateFullscreenIcon() {
+    if (!btnFullscreen) return;
+    const isFs = !!document.fullscreenElement;
+    btnFullscreen.innerHTML = isFs
+      ? '<svg viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>';
+    btnFullscreen.title = isFs ? rt('readerJs.fullscreenExit') : rt('readerJs.fullscreenEnter');
+  }
+  btnFullscreen?.addEventListener('click', toggleFullscreen);
+  document.addEventListener('fullscreenchange', updateFullscreenIcon);
+
+  $('btn-day-night')?.addEventListener('click', () => {
+    toggleDayNightTheme();
+    scheduleChromeHide();
+  });
+
+  $('btn-settings')?.addEventListener('click', () => openPanel('settings'));
+  $('btn-toc')?.addEventListener('click', () => openPanel('toc'));
+  $('btn-search')?.addEventListener('click', () => openPanel('search'));
+  $('btn-bookmark-add')?.addEventListener('click', addBookmark);
+  tocSearchInput?.addEventListener('input', renderTocTab);
+  tocPrevBtn?.addEventListener('click', () => goTocIdx(getTocIdx() - 1));
+  tocNextBtn?.addEventListener('click', () => goTocIdx(getTocIdx() + 1));
+  const bookSearchInput = $('book-search-input');
+  if (bookSearchInput) {
+    bookSearchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => runBookSearch(bookSearchInput.value), 350);
+    });
+    bookSearchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); clearTimeout(searchDebounce); runBookSearch(bookSearchInput.value); }
+    });
+  }
+  initAnnotations();
+  initDictionaryUi();
+  initSettings();
+  refreshSettingsUI();
+  refreshTriggers();
+  initReaderMediaSessionHandlers();
+
+  window.addEventListener('message', (e) => {
+    if (e.data?.type === 'reader-volume-key') {
+      handleVolumePageTurn(e.data.direction);
+      return;
+    }
+    if (e.data?.type === 'inpx-set-font-size' && Number.isFinite(Number(e.data.size))) {
+      S.fontSize = Math.min(28, Math.max(14, Number(e.data.size)));
+      applySettings();
+      refreshSettingsUI();
+      return;
+    }
+    if (e.data?.type === 'inpx-set-font' && typeof e.data.font === 'string') {
+      const f = e.data.font;
+      if (fontMap[f] || GOOGLE_FONTS[f]) {
+        S.font = f;
+        applySettings();
+        refreshSettingsUI();
+      }
+      return;
+    }
+    if (e.data?.type === 'inpx-set-line-height' && Number.isFinite(Number(e.data.lineHeight))) {
+      S.lineHeight = Math.min(2.2, Math.max(1.2, Number(e.data.lineHeight)));
+      applySettings();
+      refreshSettingsUI();
+      return;
+    }
+    if (e.data?.type === 'inpx-set-theme' && typeof e.data.theme === 'string') {
+      const t = e.data.theme;
+      if (['light', 'dark', 'sepia', 'night', 'eink'].includes(t)) {
+        S.theme = t;
+        applySettings();
+        refreshSettingsUI();
+      }
+      return;
+    }
+    if (e.data?.type === 'inpx-toggle-theme') {
+      toggleDayNightTheme();
+      return;
+    }
+    if (e.data?.type === 'inpx-set-layout' && typeof e.data.layout === 'string') {
+      const l = e.data.layout;
+      if (['paginated', 'scrolled', 'dual'].includes(l)) {
+        S.layout = l;
+        applySettings();
+        refreshSettingsUI();
+      }
+      return;
+    }
+    if (e.data?.type === 'inpx-show-settings') {
+      openPanel('settings');
+      return;
+    }
+    if (e.data?.type === 'inpx-show-toc') {
+      openPanel('toc');
+      return;
+    }
+    if (e.data?.type === 'inpx-show-bookmarks') {
+      openPanel('bookmarks');
+      return;
+    }
+    if (e.data?.type === 'inpx-show-search') {
+      openPanel('search');
+      return;
+    }
+    if (e.data?.type === 'inpx-show-notes') {
+      openPanel('notes');
+      return;
+    }
+    if (e.data?.type === 'inpx-set-page-margin' && Number.isFinite(Number(e.data.margin))) {
+      S.pageMargin = Math.min(80, Math.max(0, Math.round(Number(e.data.margin))));
+      applySettings();
+      refreshSettingsUI();
+      return;
+    }
+    if (e.data?.type === 'inpx-tts-toggle') {
+      toggleReaderTts();
+      return;
+    }
+    if (e.data?.type === 'inpx-tts-stop') {
+      stopReaderTts();
+      return;
+    }
+    if (e.data?.type === 'inpx-goto-annotation') {
+      const dir = e.data.direction === 'next' ? 1 : -1;
+      if (!annotationsData.length) return;
+      annotationNavIndex = (annotationNavIndex + dir + annotationsData.length) % annotationsData.length;
+      const a = annotationsData[annotationNavIndex];
+      if (a?.cfi) void goToReaderTarget(a.cfi, { retries: 8 });
+    }
+  });
+
+  /* ===== Keyboard ===== */
+  function handleKeydown(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (isFootnoteOverlayOpen()) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeReaderFootnote();
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      const ed = $('reader-note-editor');
+      if (ed && ed.classList.contains('is-open')) { closeNoteEditor(); return; }
+      const sm = $('reader-sel-menu');
+      if (sm && sm.classList.contains('is-open')) { hideSelMenu(); activeSel = null; return; }
+      closePanel();
+      return;
+    }
+    if (panelOverlay.classList.contains('is-open')) return;
+    const k = e.key;
+    if (k === 'd' || k === 'D') { toggleDayNightTheme(); return; }
+    if (k === 'b' || k === 'B') { addBookmark(); return; }
+    if (k === 'f' || k === 'F') { toggleFullscreen(); return; }
+    if (k === 's' || k === 'S') { openPanel('settings'); return; }
+    if (k === 't' || k === 'T') { openPanel('toc'); return; }
+    if (k === '/') { e.preventDefault(); openPanel('search'); return; }
+    if (k === 'v' || k === 'V') {
+      e.preventDefault();
+      if (e.shiftKey && ttsChainActive) {
+        stopReaderTts();
+        scheduleChromeHide();
+        return;
+      }
+      toggleReaderTts();
+      scheduleChromeHide();
+      return;
+    }
+    if (k === '[') {
+      e.preventDefault();
+      ttsNav.skipBack();
+      scheduleChromeHide();
+      return;
+    }
+    if (k === ']') {
+      e.preventDefault();
+      ttsNav.skipForward();
+      scheduleChromeHide();
+      return;
+    }
+    if (k === 'ArrowLeft' || k === 'h') { e.preventDefault(); view?.goLeft(); }
+    if (k === 'ArrowRight' || k === 'l' || k === ' ') { e.preventDefault(); view?.goRight(); }
+  }
+  document.addEventListener('keydown', handleKeydown);
+
+  /* ===== Iframe event wiring (foliate Shadow DOM) ===== */
+  /* ===== Сноски / примечания (как в Foliate: foliate-js FootnoteHandler) ===== */
+  let footnoteHandler = null;
+
+  function ensureFootnoteShell() {
+    let el = $('reader-footnote-overlay');
+    if (el) {
+      return {
+        overlay: el,
+        body: el.querySelector('.reader-footnote-body'),
+        closeBtn: el.querySelector('.reader-footnote-close'),
+      };
+    }
+    el = document.createElement('div');
+    el.id = 'reader-footnote-overlay';
+    el.className = 'reader-footnote-overlay';
+    el.hidden = true;
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-label', rt('readerJs.footnote'));
+    el.innerHTML =
+      '<div class="reader-footnote-backdrop" tabindex="-1"></div>' +
+      '<div class="reader-footnote-panel">' +
+      '<button type="button" class="reader-footnote-close" aria-label="' + esc(rt('readerJs.close')) + '">&times;</button>' +
+      '<div class="reader-footnote-body"></div>' +
+      '</div>';
+    document.body.appendChild(el);
+    const body = el.querySelector('.reader-footnote-body');
+    const closeBtn = el.querySelector('.reader-footnote-close');
+    const backdrop = el.querySelector('.reader-footnote-backdrop');
+    const close = () => closeReaderFootnote();
+    closeBtn.addEventListener('click', close);
+    backdrop.addEventListener('click', close);
+    return { overlay: el, body, closeBtn };
+  }
+
+  function closeReaderFootnote() {
+    const el = $('reader-footnote-overlay');
+    if (!el || el.hidden) return;
+    const body = el.querySelector('.reader-footnote-body');
+    if (body) body.replaceChildren();
+    el.hidden = true;
+    document.body.classList.remove('reader-footnote-open');
+  }
+
+  function isFootnoteOverlayOpen() {
+    const el = $('reader-footnote-overlay');
+    return el && !el.hidden;
+  }
+
+  function findFootnoteTargetEl(doc, id) {
+    if (!doc || !id) return null;
+    let el = doc.getElementById(id);
+    if (el) return el;
+    try {
+      el = doc.querySelector(`[name="${CSS.escape(id)}"]`);
+    } catch { /* */ }
+    if (el) return el;
+    try {
+      el = doc.querySelector(`[xml\\:id="${CSS.escape(id)}"]`);
+    } catch { /* */ }
+    return el || null;
+  }
+
+  function showFootnoteClonePopup(clonedNode) {
+    const shell = ensureFootnoteShell();
+    shell.body.replaceChildren();
+    const wrap = document.createElement('div');
+    wrap.className = 'reader-footnote-clone';
+    const fg = getEffectiveTextColor();
+    const ff = fontMap[S.font] || fontMap.serif;
+    wrap.style.cssText =
+      `color:${fg};background:transparent;font-family:${ff};font-size:${S.fontSize}px;line-height:${S.lineHeight};word-break:break-word;`;
+    wrap.appendChild(clonedNode);
+    shell.body.appendChild(wrap);
+    shell.overlay.hidden = false;
+    document.body.classList.add('reader-footnote-open');
+  }
+
+  /**
+   * Сноска в том же XHTML, что и ссылка: не трогаем spine/второй foliate-view.
+   * Срабатывает на href="#id" и на href="тот_же_файл.xhtml#id" в blob-документе.
+   */
+  function tryOpenSameDocumentFootnote(e) {
+    const book = view?.book;
+    const { a, href } = e.detail || {};
+    if (!book || !a?.ownerDocument) return false;
+    if (book.isExternal?.(href)) return false;
+    const raw = (a.getAttribute('href') || '').trim();
+    if (!raw) return false;
+
+    const doc = a.ownerDocument;
+    const docUrl = doc.documentURI || '';
+    let fragId = '';
+
+    if (raw.startsWith('#')) {
+      try {
+        fragId = decodeURIComponent(raw.slice(1));
+      } catch {
+        return false;
+      }
+    } else if (docUrl.startsWith('blob:')) {
+      try {
+        const abs = new URL(raw, docUrl);
+        const base = new URL(docUrl);
+        if (abs.origin !== base.origin || abs.pathname !== base.pathname || !abs.hash) return false;
+        fragId = decodeURIComponent(abs.hash.slice(1));
+      } catch {
+        return false;
+      }
+    } else {
+      return false;
+    }
+
+    if (!fragId) return false;
+    const footEl = findFootnoteTargetEl(doc, fragId);
+    if (!footEl || footEl === a || footEl.contains(a)) return false;
+
+    e.preventDefault();
+    showFootnoteClonePopup(footEl.cloneNode(true));
+    return true;
+  }
+
+  /**
+   * FB2 / EPUB: сноска в другой секции (другой blob). Второй foliate-view часто не в DOM
+   * до load — клонируем из createDocument() целевой секции (как Foliate-попап).
+   */
+  function tryOpenSpineFootnoteClone(e) {
+    const book = view?.book;
+    const { a, href } = e.detail || {};
+    if (!book?.resolveHref || !book.sections?.length || book.isExternal?.(href)) return false;
+    const frag = footnoteTargetFragmentFromHref(href || '');
+    if (!frag || !shouldTrySpineFootnoteClone(a, href)) return false;
+    const resolved = book.resolveHref(`#${frag}`);
+    if (!resolved) return false;
+    let doc;
+    try {
+      doc = book.sections[resolved.index]?.createDocument?.();
+    } catch {
+      return false;
+    }
+    if (!doc) return false;
+    let el = typeof resolved.anchor === 'function' ? resolved.anchor(doc) : null;
+    if (!el) el = findFootnoteTargetEl(doc, frag);
+    if (!el || el === a || el.contains?.(a)) return false;
+    e.preventDefault();
+    showFootnoteClonePopup(el.cloneNode(true));
+    return true;
+  }
+
+  function wireFootnotes() {
+    if (!view?.book) return;
+    footnoteHandler = new FootnoteHandler();
+    footnoteHandler.addEventListener('render', ({ detail }) => {
+      const fnView = detail.view;
+      if (!fnView) return;
+      const shell = ensureFootnoteShell();
+      shell.body.replaceChildren(fnView);
+      try {
+        fnView.renderer?.setAttribute?.('flow', 'scrolled');
+        syncReaderGoogleFont(fnView.renderer?.getContents?.()?.[0]?.doc).then(() => {
+          fnView.renderer?.setStyles?.(getBookCSS());
+        });
+      } catch (err) {
+        console.warn('[reader] footnote styles', err);
+      }
+      shell.overlay.hidden = false;
+      document.body.classList.add('reader-footnote-open');
+    });
+    view.addEventListener('link', (e) => {
+      if (S.enableFootnotes === false) return;
+      if (tryOpenSameDocumentFootnote(e)) return;
+      if (tryOpenSpineFootnoteClone(e)) return;
+      footnoteHandler.handle(view.book, e);
+    });
+  }
+
+  const readerWiredDocs = new WeakSet();
+
+  /* ===== Dictionary (long press) ===== */
+  let mediaOverlayPlaying = false;
+
+  function hideDictPopup() {
+    const el = $('reader-dict-popup');
+    if (el) {
+      el.classList.remove('is-open');
+      el.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  function showDictPopup(word, html) {
+    const el = $('reader-dict-popup');
+    if (!el) return;
+    const title = el.querySelector('.reader-dict-word');
+    const body = el.querySelector('.reader-dict-body');
+    if (title) title.textContent = word;
+    if (body) body.innerHTML = html;
+    el.classList.add('is-open');
+    el.setAttribute('aria-hidden', 'false');
+  }
+
+  async function lookupWordDefinition(word) {
+    const w = word.trim().replace(/^[^a-zA-Z\u0400-\u04FF0-9]+|[^a-zA-Z\u0400-\u04FF0-9]+$/g, '');
+    if (w.length < 2) return null;
+    const isCyrillic = /[\u0400-\u04FF]/.test(w);
+    try {
+      if (!isCyrillic && /^[a-zA-Z'-]+$/.test(w)) {
+        const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`);
+        if (r.ok) {
+          const data = await r.json();
+          const meanings = (data[0]?.meanings || []).slice(0, 3);
+          if (meanings.length) {
+            return meanings.map(m =>
+              `<div class="reader-dict-pos">${esc(m.partOfSpeech || '')}</div>` +
+              (m.definitions || []).slice(0, 2).map(d => `<div class="reader-dict-def">${esc(d.definition || '')}</div>`).join('')
+            ).join('');
+          }
+        }
+      }
+      const wiki = isCyrillic ? 'ru.wiktionary.org' : 'en.wiktionary.org';
+      const wr = await fetch(`https://${wiki}/w/api.php?action=query&titles=${encodeURIComponent(w)}&prop=extracts&exintro=1&explaintext=1&format=json&origin=*`);
+      if (wr.ok) {
+        const wd = await wr.json();
+        const pages = wd.query?.pages || {};
+        const page = Object.values(pages)[0];
+        const extract = page?.extract;
+        if (extract && !page?.missing) {
+          return `<div class="reader-dict-def">${esc(String(extract).slice(0, 600))}</div>`;
+        }
+      }
+    } catch {
+      return `<div class="reader-dict-def">${esc(rt('readerJs.dictNetworkError'))}</div>`;
+    }
+    return `<div class="reader-dict-def">${esc(rt('readerJs.dictNotFound'))}</div>`;
+  }
+
+  function wordAtPoint(doc, x, y) {
+    let range = null;
+    if (doc.caretRangeFromPoint) range = doc.caretRangeFromPoint(x, y);
+    else if (doc.caretPositionFromPoint) {
+      const pos = doc.caretPositionFromPoint(x, y);
+      if (pos) {
+        range = doc.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    if (!range) return '';
+    try { range.expand('word'); } catch { /* */ }
+    return (range.toString() || '').trim();
+  }
+
+  function wireDictionary(doc) {
+    let pressTimer = null;
+    let sx = 0;
+    let sy = 0;
+    doc.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      sx = e.clientX;
+      sy = e.clientY;
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(async () => {
+        const word = wordAtPoint(doc, sx, sy);
+        if (!word || word.length < 2) return;
+        hideSelMenu();
+        showDictPopup(word, `<div class="reader-dict-def">${esc(rt('readerJs.dictLoading'))}</div>`);
+        const html = await lookupWordDefinition(word);
+        showDictPopup(word, html || `<div class="reader-dict-def">${esc(rt('readerJs.dictNotFound'))}</div>`);
+      }, 520);
+    }, { passive: true });
+    doc.addEventListener('pointerup', () => clearTimeout(pressTimer));
+    doc.addEventListener('pointercancel', () => clearTimeout(pressTimer));
+    doc.addEventListener('pointermove', (e) => {
+      if (Math.hypot(e.clientX - sx, e.clientY - sy) > 14) clearTimeout(pressTimer);
+    }, { passive: true });
+  }
+
+  function setupMediaOverlayUi() {
+    const btn = $('btn-media-overlay');
+    if (!btn || !view?.mediaOverlay) {
+      if (btn) btn.hidden = true;
+      return;
+    }
+    btn.hidden = false;
+    btn.title = rt('readerJs.mediaOverlay');
+    btn.setAttribute('aria-label', rt('readerJs.mediaOverlay'));
+    btn.onclick = () => {
+      if (mediaOverlayPlaying) {
+        view.mediaOverlay.pause();
+        mediaOverlayPlaying = false;
+        btn.title = rt('readerJs.mediaOverlay');
+        return;
+      }
+      view.startMediaOverlay().then(() => {
+        mediaOverlayPlaying = true;
+        btn.title = rt('readerJs.mediaOverlayStop');
+      }).catch(console.error);
+    };
+    view.mediaOverlay.addEventListener('error', () => {
+      mediaOverlayPlaying = false;
+      btn.title = rt('readerJs.mediaOverlay');
+    });
+  }
+
+  async function exportReaderNotesJson() {
+    const saved = await loadSavedPosition();
+    const payload = {
+      version: 1,
+      bookId,
+      exportedAt: new Date().toISOString(),
+      position: saved?.position ?? null,
+      progress: saved?.progress ?? 0,
+      fraction: savedFraction(saved),
+      bookmarks: bookmarksData,
+      annotations: annotationsData,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(window.__READER_BOOK_TITLE || bookId).replace(/[^\w\s-]/g, '').slice(0, 40)}-notes.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importReaderNotesJson(file) {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (parsed.bookId && parsed.bookId !== bookId) {
+        toast(rt('readerJs.notesImportFail'));
+        return;
+      }
+      for (const bm of parsed.bookmarks || []) {
+        if (!bm.position) continue;
+        const exists = bookmarksData.some(b => b.position === bm.position);
+        if (!exists) {
+          try {
+            const r = await api('POST', '/bookmarks', { position: bm.position, title: bm.title || '' });
+            if (r?.id) bookmarksData.push({ ...bm, id: r.id });
+          } catch { /* */ }
+        }
+      }
+      for (const ann of parsed.annotations || []) {
+        if (!ann.cfi) continue;
+        const exists = annotationsData.some(a => a.cfi === ann.cfi);
+        if (!exists) {
+          try {
+            const r = await api('POST', '/annotations', {
+              cfi: ann.cfi,
+              text: ann.text || '',
+              note: ann.note || '',
+              color: ann.color || 'yellow',
+            });
+            if (r?.id) {
+              annotationsData.push({ ...ann, id: r.id });
+              drawAnnotation(ann);
+            }
+          } catch { /* */ }
+        }
+      }
+      if (savedFraction(parsed) > 0 || parsed.position) {
+        const f = savedFraction(parsed);
+        await api('POST', '/position', {
+          position: String(parsed.position || ''),
+          progress: Number(parsed.progress) || fractionToProgress(f),
+          fraction: f,
+        });
+      }
+      renderBmTab();
+      renderNotesTab();
+      applyAllAnnotations();
+      toast(rt('readerJs.notesImported'));
+    } catch {
+      toast(rt('readerJs.notesImportFail'));
+    }
+  }
+
+  function initNotesImportExport() {
+    const exportBtn = $('notes-export-btn');
+    const importBtn = $('notes-import-btn');
+    const importFile = $('notes-import-file');
+    if (exportBtn) exportBtn.onclick = () => exportReaderNotesJson();
+    if (importBtn) importBtn.onclick = () => importFile?.click();
+    if (importFile) importFile.onchange = (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (file) void importReaderNotesJson(file);
+    };
+  }
+
+  /* ===== Brightness: left-edge vertical swipe ===== */
+  const BRIGHTNESS_MIN = 0.05;
+  const BRIGHTNESS_MAX = 1;
+  const BRIGHTNESS_SWIPE_PX = 280;
+  let brightnessDrag = null;
+  let brightnessHudTimer = null;
+
+  function brightnessEdgeLimitPx() {
+    const host = view?.getBoundingClientRect?.();
+    const w = host?.width || innerWidth;
+    return Math.min(56, Math.max(36, w * 0.12));
+  }
+
+  function touchPageX(clientX, doc_) {
+    const iframe = doc_?.defaultView?.frameElement;
+    if (!iframe) return clientX;
+    return iframe.getBoundingClientRect().left + clientX;
+  }
+
+  function isLeftEdgeBrightnessZone(pageX) {
+    const host = view?.getBoundingClientRect?.();
+    if (!host?.width) return pageX <= brightnessEdgeLimitPx();
+    return pageX - host.left <= brightnessEdgeLimitPx();
+  }
+
+  function readBrightnessLevel() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+      const v = Number(raw.brightness);
+      return Number.isFinite(v) ? Math.min(BRIGHTNESS_MAX, Math.max(BRIGHTNESS_MIN, v)) : 1;
+    } catch {
+      return 1;
+    }
+  }
+
+  function persistBrightnessLevel(level) {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+      raw.brightness = level;
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(raw));
+    } catch { /* */ }
+  }
+
+  function syncBrightnessControls(level) {
+    const pct = `${Math.round(level * 100)}%`;
+    const slider = $('rs-brightness');
+    const val = $('rs-brightness-val');
+    if (slider) slider.value = String(level);
+    if (val) val.textContent = pct;
+    const fill = $('reader-brightness-hud-fill');
+    const hudVal = $('reader-brightness-hud-val');
+    if (fill) fill.style.height = `${Math.round(level * 100)}%`;
+    if (hudVal) hudVal.textContent = pct;
+  }
+
+  function applyBrightnessLevel(level, { persist = false } = {}) {
+    const clamped = Math.min(BRIGHTNESS_MAX, Math.max(BRIGHTNESS_MIN, level));
+    if (window.__INPX_NATIVE?.setBrightness) {
+      window.__INPX_NATIVE.setBrightness(clamped).catch(() => {});
+    } else if (readerBody) {
+      readerBody.style.filter = clamped < 0.999 ? `brightness(${clamped})` : '';
+    }
+    syncBrightnessControls(clamped);
+    if (persist) persistBrightnessLevel(clamped);
+    return clamped;
+  }
+
+  function ensureBrightnessHud() {
+    if ($('reader-brightness-hud')) return;
+    const hud = document.createElement('div');
+    hud.id = 'reader-brightness-hud';
+    hud.className = 'reader-brightness-hud';
+    hud.setAttribute('aria-hidden', 'true');
+    hud.innerHTML =
+      '<div class="reader-brightness-hud-icon" aria-hidden="true">' +
+      '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/>' +
+      '<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></div>' +
+      '<div class="reader-brightness-hud-track"><div class="reader-brightness-hud-fill" id="reader-brightness-hud-fill"></div></div>' +
+      '<div class="reader-brightness-hud-val" id="reader-brightness-hud-val">100%</div>';
+    document.body.appendChild(hud);
+    syncBrightnessControls(readBrightnessLevel());
+  }
+
+  function showBrightnessHud() {
+    ensureBrightnessHud();
+    const hud = $('reader-brightness-hud');
+    if (!hud) return;
+    hud.classList.add('is-visible');
+    hud.setAttribute('aria-hidden', 'false');
+    clearTimeout(brightnessHudTimer);
+  }
+
+  function hideBrightnessHudSoon() {
+    clearTimeout(brightnessHudTimer);
+    brightnessHudTimer = setTimeout(() => {
+      const hud = $('reader-brightness-hud');
+      if (!hud) return;
+      hud.classList.remove('is-visible');
+      hud.setAttribute('aria-hidden', 'true');
+    }, 700);
+  }
+
+  function brightnessGestureBlocked() {
+    return panelOverlay?.classList.contains('is-open') || isFootnoteOverlayOpen();
+  }
+
+  function onBrightnessTouchStart(e, doc_) {
+    if (!isTouch.matches || brightnessGestureBlocked()) return;
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    if (!isLeftEdgeBrightnessZone(touchPageX(t.clientX, doc_))) return;
+    brightnessDrag = {
+      doc: doc_ || null,
+      x0: t.clientX,
+      y0: t.clientY,
+      level0: readBrightnessLevel(),
+      active: false,
+    };
+  }
+
+  function onBrightnessTouchMove(e) {
+    if (!brightnessDrag || e.touches.length !== 1) return false;
+    const t = e.touches[0];
+    const dy = brightnessDrag.y0 - t.clientY;
+    const adx = Math.abs(t.clientX - brightnessDrag.x0);
+    const ady = Math.abs(dy);
+    if (!brightnessDrag.active) {
+      if (ady < 14) return false;
+      if (adx > ady * 0.85) {
+        brightnessDrag = null;
+        return false;
+      }
+      brightnessDrag.active = true;
+      showBrightnessHud();
+    }
+    const level = applyBrightnessLevel(brightnessDrag.level0 + dy / BRIGHTNESS_SWIPE_PX);
+    brightnessDrag.lastLevel = level;
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+  }
+
+  function onBrightnessTouchEnd(e) {
+    if (!brightnessDrag) return false;
+    const wasActive = brightnessDrag.active;
+    if (wasActive) {
+      applyBrightnessLevel(brightnessDrag.lastLevel ?? readBrightnessLevel(), { persist: true });
+      hideBrightnessHudSoon();
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    brightnessDrag = null;
+    return wasActive;
+  }
+
+  function wireBrightnessEdge(doc_) {
+    doc_.addEventListener('touchstart', (e) => onBrightnessTouchStart(e, doc_), { capture: true, passive: true });
+    doc_.addEventListener('touchmove', (e) => { onBrightnessTouchMove(e); }, { capture: true, passive: false });
+    doc_.addEventListener('touchend', (e) => { onBrightnessTouchEnd(e); }, { capture: true, passive: false });
+    doc_.addEventListener('touchcancel', () => { brightnessDrag = null; }, { capture: true, passive: true });
+  }
+
+  function initBrightnessGesture() {
+    ensureBrightnessHud();
+    window.__INPX_SET_BRIGHTNESS = (level, opts) => applyBrightnessLevel(level, opts || {});
+    applyBrightnessLevel(readBrightnessLevel());
+    if (window.__INPX_NATIVE?.getBrightness) {
+      window.__INPX_NATIVE.getBrightness().then((res) => {
+        const level = Number(res?.level);
+        if (Number.isFinite(level)) applyBrightnessLevel(level, { persist: true });
+      }).catch(() => {});
+    }
+    if (!readerBody || readerBody.dataset.brightnessEdgeWired) return;
+    readerBody.dataset.brightnessEdgeWired = '1';
+    wireBrightnessEdge(readerBody);
+  }
+
+  function wireDoc(doc) {
+    if (readerWiredDocs.has(doc)) return;
+    readerWiredDocs.add(doc);
+
+    wireBrightnessEdge(doc);
+    wireDictionary(doc);
+
+    doc.addEventListener('keydown', handleKeydown);
+
+    let pinchStartDist = 0;
+    let pinchStartSize = 0;
+    function touchDistPinch(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
+
+    /* Тап по ссылке в режиме колонок: foliate на touchmove/touchend листает страницу и
+     * перебивает клик; pointerup у нас срабатывает до click и зоны листания тоже мешают.
+     * Не вызывать preventDefault на touchmove — иначе WebKit часто шлёт touchcancel, touchend
+     * не обрабатывает жест, а synthetic click не вызывается. */
+    const LINK_TAP_SLOP = 28;
+    let linkTapTouch = null;
+    const isFlowPaginated = () => S.layout !== 'scrolled';
+
+    const TAP_EDGE = 0.22;
+    /** Макс. сдвиг пальца для «тапа»; Foliate на touchmove листает при меньшем dx — см. touchmove cancel. */
+    const TAP_SLOP_PX = 22;
+    const TAP_MAX_MS = 700;
+    /** Любой touchmove дальше — не тап (иначе после лёгкого drag Foliate touchend + наш тап = двойной сдвиг). */
+    const TAP_CANCEL_MOVE_PX = 10;
+    let screenTapTrack = null;
+
+    /**
+     * Зоны относительно видимого foliate-view на странице (как у экранного ридера), а не innerWidth iframe.
+     * В foliate-js reader.js зон на doc нет — листание делает paginator; у нас добавлены края/центр для UI.
+     * clientX/Y события в iframe — в системе вьюпорта iframe; переносим в координаты страницы через frameElement.
+     */
+    function tapZoneHost(clientX, clientY, doc_) {
+      const win = doc_?.defaultView;
+      const iframe = win?.frameElement;
+      const host = view?.getBoundingClientRect?.();
+      if (!iframe || !host?.width) return 'center';
+      const fr = iframe.getBoundingClientRect();
+      const px = fr.left + clientX;
+      const py = fr.top + clientY;
+      const rx = (px - host.left) / Math.max(1, host.width);
+      const ry = (py - host.top) / Math.max(1, host.height);
+      const fx = Math.max(0, Math.min(1, rx));
+      const fy = Math.max(0, Math.min(1, ry));
+      const el = doc_?.documentElement;
+      const wm = (el && win?.getComputedStyle(el).writingMode || 'horizontal-tb').toLowerCase();
+      if (wm.startsWith('vertical')) {
+        if (fy < TAP_EDGE) return 'left';
+        if (fy > 1 - TAP_EDGE) return 'right';
+        return 'center';
+      }
+      if (fx < TAP_EDGE) return 'left';
+      if (fx > 1 - TAP_EDGE) return 'right';
+      return 'center';
+    }
+
+    function slopOk(t) {
+      return Math.hypot(t.clientX - linkTapTouch.x, t.clientY - linkTapTouch.y) <= LINK_TAP_SLOP;
+    }
+
+    /* Любое касание по тексту = пользовательский жест; листание Foliate не всегда доходит до touchend с зонами. */
+    doc.addEventListener(
+      'touchstart',
+      () => {
+        void acquireReaderWakeLock();
+      },
+      { capture: true, passive: true }
+    );
+
+    function finishLinkTapFromTouch(e, a) {
+      linkTapTouch = null;
+      pinchStartDist = 0;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      queueMicrotask(() => {
+        if (a.isConnected) a.click();
+      });
+    }
+
+    doc.addEventListener('touchstart', e => {
+      if (!isFlowPaginated() || e.touches.length !== 1) {
+        linkTapTouch = null;
+        return;
+      }
+      const a = e.target.closest?.('a[href]');
+      if (!a) {
+        linkTapTouch = null;
+        return;
+      }
+      const t = e.touches[0];
+      linkTapTouch = { el: a, x: t.clientX, y: t.clientY };
+    }, { capture: true, passive: true });
+
+    doc.addEventListener('touchstart', e => {
+      if (isFlowPaginated() && e.touches.length === 1 && !e.target.closest?.('a[href]')) {
+        const t = e.touches[0];
+        screenTapTrack = { x: t.clientX, y: t.clientY, t: Date.now() };
+      } else {
+        screenTapTrack = null;
+      }
+    }, { capture: true, passive: true });
+
+    doc.addEventListener('touchmove', e => {
+      if (!isFlowPaginated() || !screenTapTrack || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - screenTapTrack.x, t.clientY - screenTapTrack.y) > TAP_CANCEL_MOVE_PX) {
+        screenTapTrack = null;
+      }
+    }, { capture: true, passive: true });
+
+    /* Короткий тап: только preventDefault — foliate-paginator #onTouchEnd всё равно вызывается и
+     * должен отработать (сброс #touchScrolled); при defaultPrevented foliate не делает snap().
+     * Нельзя stopImmediatePropagation — иначе #onTouchEnd не выполняется и состояние ломается. */
+    doc.addEventListener('touchend', e => {
+      if (linkTapTouch) return;
+      if (brightnessDrag?.active) return;
+      if (!isFlowPaginated()) return;
+      if (isFootnoteOverlayOpen()) return;
+      if (!screenTapTrack || e.changedTouches.length !== 1) return;
+      const t = e.changedTouches[0];
+      if (panelBlocksBookTap(touchToPageY(t.clientY, doc))) return;
+      const dt = Date.now() - screenTapTrack.t;
+      const adx = Math.abs(t.clientX - screenTapTrack.x);
+      const ady = Math.abs(t.clientY - screenTapTrack.y);
+      if (dt > TAP_MAX_MS || adx > TAP_SLOP_PX || ady > TAP_SLOP_PX) {
+        screenTapTrack = null;
+        return;
+      }
+      const z = tapZoneHost(t.clientX, t.clientY, doc);
+      screenTapTrack = null;
+      e.preventDefault();
+      void acquireReaderWakeLock();
+      if (z === 'center') toggleChromeFromCenterTap();
+      else if (z === 'left') view?.goLeft();
+      else view?.goRight();
+    }, { capture: true, passive: false });
+
+    doc.addEventListener('touchcancel', () => {
+      screenTapTrack = null;
+    }, { capture: true, passive: true });
+
+    doc.addEventListener('touchmove', e => {
+      if (!linkTapTouch) return;
+      if (e.touches.length !== 1) {
+        linkTapTouch = null;
+        return;
+      }
+      const t = e.touches[0];
+      if (!slopOk(t)) {
+        linkTapTouch = null;
+        return;
+      }
+      e.stopImmediatePropagation();
+    }, { capture: true, passive: false });
+
+    doc.addEventListener('touchend', e => {
+      if (!linkTapTouch) return;
+      if (e.changedTouches.length !== 1) {
+        linkTapTouch = null;
+        return;
+      }
+      const t = e.changedTouches[0];
+      if (!slopOk(t)) {
+        linkTapTouch = null;
+        return;
+      }
+      finishLinkTapFromTouch(e, linkTapTouch.el);
+    }, { capture: true, passive: false });
+
+    doc.addEventListener('touchcancel', e => {
+      if (!linkTapTouch || e.changedTouches.length !== 1) {
+        linkTapTouch = null;
+        return;
+      }
+      const t = e.changedTouches[0];
+      if (!slopOk(t)) {
+        linkTapTouch = null;
+        return;
+      }
+      finishLinkTapFromTouch(e, linkTapTouch.el);
+    }, { capture: true, passive: false });
+
+    let pStart = null;
+    let pointerDownOnLink = false;
+
+    doc.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      pointerDownOnLink = !!e.target.closest?.('a[href]');
+      pStart = { x: e.clientX, y: e.clientY, t: Date.now() };
+    });
+
+    doc.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        pinchStartDist = touchDistPinch(e.touches);
+        pinchStartSize = S.fontSize;
+      }
+    }, { passive: true });
+    doc.addEventListener('touchmove', e => {
+      if (e.touches.length !== 2 || !pinchStartDist) return;
+      e.preventDefault();
+      const ratio = touchDistPinch(e.touches) / pinchStartDist;
+      const dampened = 1 + (ratio - 1) * 0.35;
+      const newSize = Math.round(Math.min(32, Math.max(12, pinchStartSize * dampened)));
+      if (newSize !== S.fontSize) { S.fontSize = newSize; applySettings(); refreshSettingsUI(); }
+    }, { passive: false });
+    doc.addEventListener('touchend', () => { pinchStartDist = 0; }, { passive: true });
+
+    doc.addEventListener('pointerup', e => {
+      /* Тач: зоны только в capture-touchend (ниже). Иначе pointerup и touchend оба листают —
+       * порядок событий между ними не гарантирован (PE + Touch Events). */
+      if (e.pointerType === 'touch') {
+        pStart = null;
+        pointerDownOnLink = false;
+        return;
+      }
+      if (e.pointerType !== 'mouse' && e.pointerType !== 'pen') {
+        pStart = null;
+        pointerDownOnLink = false;
+        return;
+      }
+      if (!pStart || e.button !== 0) {
+        pointerDownOnLink = false;
+        return;
+      }
+      const fromLink = pointerDownOnLink;
+      pointerDownOnLink = false;
+      const startX = pStart.x, startY = pStart.y, startT = pStart.t;
+      const dx = e.clientX - startX, dy = e.clientY - startY, dt = Date.now() - startT;
+      pStart = null;
+
+      const adx = Math.abs(dx), ady = Math.abs(dy);
+      /* Мышь: горизонтальный свайп с любого места (как у многих десктоп-ридеров). Перо: только с края — иначе мешает выделению. */
+      if (adx > 30 && adx > ady * 2 && dt < 800) {
+        if (e.pointerType === 'mouse') {
+          if (dx < 0) view?.goRight(); else view?.goLeft();
+          void acquireReaderWakeLock();
+          return;
+        }
+        if (e.pointerType === 'pen') {
+          const zStart = tapZoneHost(startX, startY, doc);
+          if (zStart === 'left' || zStart === 'right') {
+            if (dx < 0) view?.goRight(); else view?.goLeft();
+            void acquireReaderWakeLock();
+            return;
+          }
+        }
+      }
+
+      if (dt > TAP_MAX_MS || adx > TAP_SLOP_PX || ady > TAP_SLOP_PX) return;
+      /* Не отсекаем по getSelection(): после relocate foliate может оставить несвёрнутый range —
+       * короткий тап с малым сдвигом уже отфильтрован выше. */
+      if (fromLink) return;
+
+      const z = tapZoneHost(e.clientX, e.clientY, doc);
+      if (z === 'left') {
+        view?.goLeft();
+        void acquireReaderWakeLock();
+      } else if (z === 'right') {
+        view?.goRight();
+        void acquireReaderWakeLock();
+      } else {
+        toggleChromeFromCenterTap();
+        void acquireReaderWakeLock();
+      }
+    });
+
+    const WHEEL_FLIP_PX = 28;
+    doc.addEventListener('wheel', e => {
+      if (S.layout === 'scrolled') return;
+      if (e.ctrlKey || e.metaKey) return;
+      const dy = e.deltaY;
+      const dx = e.deltaX;
+      const mag = Math.hypot(dx, dy);
+      if (e.deltaMode === 0 && mag < WHEEL_FLIP_PX) return;
+      e.preventDefault();
+      const dominant = Math.abs(dy) >= Math.abs(dx) ? dy : dx;
+      if (dominant > 0) view?.goRight();
+      else if (dominant < 0) view?.goLeft();
+      void acquireReaderWakeLock();
+    }, { passive: false });
+
+  }
+
+  /* ===== Book metadata (foliate sidebar parity) ===== */
+  function formatLanguageMap(x) {
+    if (!x) return '';
+    if (typeof x === 'string') return x;
+    const keys = Object.keys(x);
+    return keys.length ? x[keys[0]] : '';
+  }
+  function formatOneContributor(contributor) {
+    return typeof contributor === 'string' ? contributor : formatLanguageMap(contributor?.name);
+  }
+  function formatContributor(contributor) {
+    if (Array.isArray(contributor)) {
+      return contributor.map(formatOneContributor).filter(Boolean).join(', ');
+    }
+    return formatOneContributor(contributor);
+  }
+  function mapCalibreColor(which) {
+    const w = String(which || '').toLowerCase();
+    if (w.includes('green')) return 'green';
+    if (w.includes('blue')) return 'blue';
+    if (w.includes('pink') || w.includes('red')) return 'pink';
+    if (w.includes('underline')) return 'underline';
+    return 'yellow';
+  }
+  async function setBookChromeMetadata() {
+    const book = view?.book;
+    const configTitle = String(window.__READER_BOOK_TITLE || '').trim();
+    const title = formatLanguageMap(book?.metadata?.title) || configTitle || '';
+    const author = formatContributor(book?.metadata?.author) || '';
+    if (title) document.title = title;
+    const tbTitle = document.querySelector('.tb-title');
+    if (tbTitle) tbTitle.textContent = title;
+    const tbKicker = document.querySelector('.tb-kicker');
+    if (tbKicker) tbKicker.textContent = author || 'Чтение';
+    const header = $('toc-book-header');
+    const coverEl = $('toc-cover');
+    const tocTitle = $('toc-book-title');
+    const tocAuthor = $('toc-book-author');
+    if (title || author) {
+      if (header) header.hidden = false;
+      if (tocTitle) tocTitle.textContent = title;
+      if (tocAuthor) tocAuthor.textContent = author;
+    } else if (header) {
+      header.hidden = true;
+    }
+    if (coverEl && book?.getCover) {
+      try {
+        const blob = await book.getCover();
+        if (blob) coverEl.src = URL.createObjectURL(blob);
+      } catch { /* */ }
+    }
+  }
+  async function importCalibreHighlights() {
+    const book = view?.book;
+    if (!book?.getCalibreBookmarks) return;
+    let bookmarks;
+    try {
+      bookmarks = await book.getCalibreBookmarks();
+    } catch {
+      return;
+    }
+    if (!bookmarks?.length) return;
+    const { fromCalibreHighlight } = await import('/foliate/epubcfi.js');
+    const byIndex = new Map();
+    for (const obj of bookmarks) {
+      if (obj.type !== 'highlight') continue;
+      try {
+        const value = fromCalibreHighlight(obj);
+        const color = mapCalibreColor(obj.style?.which);
+        const note = obj.notes || '';
+        const annotation = { value, color, note };
+        calibreAnnotationsByValue.set(value, annotation);
+        const list = byIndex.get(obj.spine_index) || [];
+        list.push(annotation);
+        byIndex.set(obj.spine_index, list);
+      } catch (e) {
+        console.warn('[Calibre highlight]', e);
+      }
+    }
+    if (!byIndex.size) return;
+    view.addEventListener('create-overlay', ({ detail }) => {
+      const list = byIndex.get(detail.index);
+      if (!list) return;
+      for (const annotation of list) {
+        try { view.addAnnotation(annotation); } catch { /* */ }
+      }
+    });
+  }
+
+  /* ===== Build TOC ===== */
+  function buildToc(toc, depth) {
+    if (!toc) return;
+    for (const item of toc) {
+      tocData.push({ href: item.href, label: (item.label || '').trim(), depth });
+      if (item.subitems?.length) buildToc(item.subitems, depth + 1);
+    }
+  }
+
+  /* ===== Error ===== */
+  function hideReaderLoading() {
+    document.getElementById('reader-loading')?.remove();
+  }
+
+  function setRestoreVeil(on) {
+    document.documentElement.classList.toggle('is-restoring-position', Boolean(on));
+  }
+
+  function showError(msg) {
+    hideReaderLoading();
+    try {
+      window.__DEBUG_LOG__?.('H3', 'reader:showError', 'displayed', { msg: String(msg || '') });
+    } catch { /* */ }
+    let debugTail = '';
+    try {
+      const arr = JSON.parse(localStorage.getItem('debug_session_756f1e') || '[]');
+      const tail = arr.slice(-6).map((e) => `${e.location}: ${e.message}`).join(' | ');
+      if (tail) debugTail = '\n\n[debug] ' + tail;
+    } catch { /* */ }
+    bookPagesEl?.classList.add('is-hidden');
+    readerBody.innerHTML = '<div class="reader-error"><div class="reader-error-title">' + esc(rt('readerJs.errorTitle')) + '</div>' +
+      '<div class="reader-error-text">' + esc(msg) + esc(debugTail) + '</div>' +
+      '<a href="' + readerBookPagePath() + '" class="tb-btn" style="margin-top:12px;">' + esc(rt('readerJs.back')) + '</a></div>';
+  }
+
+  /* ===== Reader ext classifier (kept in sync with server utils/book-format.js) ===== */
+  function classifyExt(ext) {
+    // Strip trailing `.zip` so composite exts like `pdf.zip` / `djvu.zip`
+    // (Flibusta wrapper packs) classify as their underlying format.
+    const raw = String(ext || '').toLowerCase().replace(/^\./, '');
+    const e = raw.replace(/\.zip$/, '');
+    if (e === 'pdf') return 'pdf';
+    if (e === 'djvu' || e === 'djv') return 'djvu';
+    if (e === 'fb2' || e === 'fbz' || e === 'epub' || e === 'mobi' || e === 'azw3' || e === 'kf8' || e === 'cbz') return 'foliate';
+    return 'unsupported';
+  }
+
+  /**
+   * PDF/DJVU are not supported by foliate-js. For PDF we fall back to the
+   * browser's native PDF viewer (same-origin iframe, which Chrome/Edge/Firefox
+   * render via their built-in viewer). For DJVU — no browser has a native
+   * renderer, so we show a clear "download to read" banner instead of the
+   * cryptic "Failed to load container file" message from foliate-js.
+   */
+  function showUnsupportedBanner(kind) {
+    bookPagesEl?.classList.add('is-hidden');
+    const downloadHref = globalThis.downloadBookPath ? globalThis.downloadBookPath(bookId) : `/download/${encodeURIComponent(bookId)}`;
+    const title = kind === 'djvu' ? rt('readerJs.djvuUnsupportedTitle') : rt('readerJs.unsupportedTitle');
+    const text = kind === 'djvu' ? rt('readerJs.djvuUnsupportedText') : rt('readerJs.unsupportedText');
+    readerBody.innerHTML =
+      '<div class="reader-error">' +
+      '<div class="reader-error-title">' + esc(title) + '</div>' +
+      '<div class="reader-error-text">' + esc(text) + '</div>' +
+      '<div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">' +
+      '<a href="' + downloadHref + '" class="tb-btn" download>' + esc(rt('readerJs.download')) + '</a>' +
+      '<a href="' + readerBookPagePath() + '" class="tb-btn">' + esc(rt('readerJs.back')) + '</a>' +
+      '</div></div>';
+  }
+
+  function isZipMagic(h) {
+    return h[0] === 0x50 && h[1] === 0x4b && h[2] === 0x03 && h[3] === 0x04;
+  }
+
+  function isSevenZipMagic(h) {
+    return h[0] === 0x37 && h[1] === 0x7a && h[2] === 0xbc && h[3] === 0xaf;
+  }
+
+  async function inspectZipBookKind(buffer) {
+    try {
+      const { configure, ZipReader, BlobReader, TextWriter } = await import('/foliate/vendor/zip.js');
+      configure({ useWebWorkers: false });
+      const reader = new ZipReader(new BlobReader(new Blob([buffer])));
+      const entries = await reader.getEntries();
+      const mimeEntry = entries.find((entry) => {
+        const p = String(entry.filename || '').replace(/\\/g, '/').toLowerCase();
+        return p === 'mimetype' || p.endsWith('/mimetype');
+      });
+      if (mimeEntry) {
+        const mime = String(await mimeEntry.getData(new TextWriter())).trim();
+        if (mime === 'application/epub+zip') {
+          await reader.close();
+          return 'epub';
+        }
+      }
+      if (entries.some((entry) => /meta-inf\/container\.xml$/i.test(String(entry.filename || '').replace(/\\/g, '/')))) {
+        await reader.close();
+        return 'epub';
+      }
+      const fb2Entry = entries.find((entry) => /\.fb2$/i.test(String(entry.filename || '')));
+      if (fb2Entry) {
+        await reader.close();
+        return 'fb2';
+      }
+      await reader.close();
+    } catch {
+      /* fall through */
+    }
+    return null;
+  }
+
+  /** Определяет реальный формат по содержимому — важно, если ext в URL/профиле неверный. */
+  async function sniffBookExt(buffer, fallbackExt) {
+    const fb = String(fallbackExt || 'fb2').toLowerCase().replace(/^\./, '').replace(/\.zip$/, '');
+    if (!buffer || buffer.byteLength < 4) return fb || 'fb2';
+    const h = new Uint8Array(buffer);
+    if (h[0] === 0x25 && h[1] === 0x50 && h[2] === 0x44 && h[3] === 0x46) return 'pdf';
+    if (isSevenZipMagic(h)) {
+      if (fb.includes('epub')) {
+        throw new Error(
+          'EPUB сохранён в формате 7z. Удалите книгу с устройства и скачайте заново с сервера.',
+        );
+      }
+      return fb || 'fb2';
+    }
+    if (isZipMagic(h)) {
+      const zipKind = await inspectZipBookKind(buffer);
+      if (zipKind) return zipKind;
+      if (fb.includes('epub')) return 'epub';
+      if (fb === 'fb2' || fb === 'fbz') return 'fb2';
+      if (fb.includes('mobi') || fb.includes('azw')) return fb;
+      return 'epub';
+    }
+    const sample = new TextDecoder('utf-8', { fatal: false }).decode(buffer.slice(0, Math.min(buffer.byteLength, 512)));
+    if (sample.includes('FictionBook') || /<\?xml/i.test(sample)) return 'fb2';
+    return fb || 'fb2';
+  }
+
+  /* ===== Main ===== */
+  async function loadBook() {
+    try { window.__DEBUG_LOG__?.('H4', 'reader:loadBook', 'start', { bookId, bookExt }); } catch { /* */ }
+    readerSessionStartedAt = Date.now();
+    lastChapterKey = '';
+    chapterSessionStartedAt = 0;
+    chapterStartFraction = 0;
+    stopReaderTts();
+    invalidateBookPageCache();
+    bookPagesEl?.classList.add('is-hidden');
+    closeReaderFootnote();
+    footnoteHandler = null;
+
+    // Branch on book type: foliate-js doesn't handle PDF/DJVU. For PDF we let
+    // the browser's native PDF viewer render the file; for DJVU we surface a
+    // clear download prompt (no browser has a native DJVU renderer).
+    const kind = classifyExt(bookExt);
+    const contentSuffix = 'content';
+    const url = globalThis.apiBookPath
+      ? globalThis.apiBookPath(bookId, contentSuffix)
+      : `/api/books/${encodeURIComponent(bookId)}/${contentSuffix}`;
+
+    if (kind === 'pdf') {
+      const pdfUrl = globalThis.apiBookPath
+        ? globalThis.apiBookPath(bookId, 'content')
+        : `/api/books/${encodeURIComponent(bookId)}/content`;
+      readerBody.innerHTML = '<iframe class="reader-pdf-frame" src="' + pdfUrl + '" title="PDF"></iframe>';
+      return;
+    }
+    if (kind === 'djvu') {
+      showUnsupportedBanner('djvu');
+      return;
+    }
+    if (kind === 'unsupported') {
+      showUnsupportedBanner('generic');
+      return;
+    }
+
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error(rtp('readerJs.loadError', { status: res.status }));
+    const buffer = await res.arrayBuffer();
+    try {
+      window.__DEBUG_LOG__?.('H4', 'reader:loadBook', 'fetched', {
+        byteLength: buffer.byteLength,
+        url: String(url).slice(0, 80),
+      });
+    } catch { /* */ }
+    const effectiveExt = await sniffBookExt(buffer, bookExt);
+    effectiveBookExt = effectiveExt;
+    const file = new File([buffer], 'book.' + effectiveExt.toLowerCase());
+
+    const urlPos = new URLSearchParams(location.search).get('pos');
+    const urlFracRaw = new URLSearchParams(location.search).get('frac');
+    const urlFb2 = new URLSearchParams(location.search).get('fb2');
+    const urlFrac = urlFracRaw != null ? normalizeFraction(Number(urlFracRaw)) : 0;
+    const savedHint = await loadSavedPosition();
+    const needsRestore = Boolean(
+      urlPos
+      || savedHint
+      || urlFrac > 0.01
+      || (urlFb2 && isFb2Href(urlFb2)),
+    );
+    let openedView = false;
+    try {
+      if (needsRestore) {
+        suppressPositionSave = true;
+        setRestoreVeil(true);
+      }
+
+      view = document.createElement('foliate-view');
+      readerBody.replaceChildren(view);
+      if (!needsRestore) hideReaderLoading();
+      await view.open(file);
+      openedView = true;
+      try { window.__DEBUG_LOG__?.('H4', 'reader:loadBook', 'view.open ok', { effectiveExt }); } catch { /* */ }
+
+      fb2FlatToc = isFb2Active() ? flattenTocForSeek(view.book?.toc) : [];
+
+      applyRendererLayout();
+      await syncReaderGoogleFont();
+      applyBookStyles();
+      applyInvertFilter();
+      await setBookChromeMetadata();
+      await importCalibreHighlights();
+
+      view.addEventListener('load', ({ detail: { doc, index } }) => {
+        if (!ttsAdvancingSection) stopReaderTts();
+        if (doc && index != null) docIndexMap.set(doc, index);
+        void applySectionStyles(doc);
+        wireDoc(doc);
+        wireSelection(doc);
+      });
+
+      wireViewAnnotations();
+      wireFootnotes();
+
+      view.addEventListener('relocate', ({ detail }) => {
+        const loc = view.lastLocation || detail;
+        const payload = positionFromLocation(loc);
+        if (!seekBarUserActive) {
+          setProgressFromFraction(payload.fraction, loc.tocItem ?? detail.tocItem);
+        }
+        updateBookPageDisplay(loc);
+        if (document.documentElement.dataset.inpxApp === '1') {
+          const tocItem = loc.tocItem ?? detail.tocItem;
+          let chapterTitle = '';
+          try {
+            chapterTitle = tocItem?.label ? formatLanguageMap(tocItem.label) : '';
+          } catch { /* ignore */ }
+          const chapterKey = tocItem?.href || chapterTitle || '';
+          if (chapterKey && chapterKey !== lastChapterKey) {
+            lastChapterKey = chapterKey;
+            chapterSessionStartedAt = Date.now();
+            chapterStartFraction = payload.fraction;
+          }
+          try {
+            window.parent.postMessage({
+              type: 'inpx-reader-progress',
+              fraction: payload.fraction,
+              progress: payload.progress,
+              chapterTitle,
+              remainingBookMinutes: estimateRemainingBookMinutes(payload.fraction),
+              remainingChapterMinutes: estimateRemainingChapterMinutes(payload.fraction),
+            }, '*');
+          } catch { /* ignore */ }
+        }
+        const why = detail.reason || loc.reason;
+        if (!seekBarUserActive && (payload.position || payload.fraction > 0)) savePosition(payload, why);
+        if (why === 'snap' || why === 'page' || why === 'navigation') {
+          try { view.deselect?.(); } catch { /* */ }
+          hideSelMenu();
+          activeSel = null;
+        }
+      });
+
+      if (view.book?.toc) {
+        rawToc = view.book.toc;
+        tocData = [];
+        tocView = null;
+        buildToc(rawToc, 1);
+      } else {
+        rawToc = null;
+        tocData = [];
+        tocView = null;
+      }
+      renderTocTab(); updateTocBtnState();
+      setupMediaOverlayUi();
+
+      if (!needsRestore) {
+        await view.renderer.next();
+        await flushPendingSectionStyles();
+      } else {
+        const saved = await loadSavedPosition();
+        try {
+          await restoreReadingPosition(saved, urlPos);
+        } catch (e) {
+          posLog('restore-error', { msg: e instanceof Error ? e.message : String(e) });
+          console.warn('[reader] position restore', e);
+        }
+        await flushPendingSectionStyles();
+      }
+    } finally {
+      setRestoreVeil(false);
+      hideReaderLoading();
+      suppressPositionSave = false;
+      if (openedView) {
+        clearTimeout(chromeTimer);
+        setChromeVisible(false);
+        void acquireReaderWakeLock();
+        posLog('veil-off', { needsRestore, fraction: normalizeFraction(view?.lastLocation?.fraction ?? 0) });
+      }
+    }
+  }
+
+  /* Две колонки: при ресайзе окна пересчитать ширину колонки (без лишнего saveSettings). */
+  let resizeTimer = null;
+  function onViewportResize() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(async () => {
+      if (!view?.renderer) return;
+      const wasSuppressed = suppressPositionSave;
+      suppressPositionSave = true;
+      try {
+        applyRendererLayout();
+        if (view.lastLocation) updateBookPageDisplay(view.lastLocation);
+        await waitForLayoutSettled(1500);
+      } finally {
+        suppressPositionSave = wasSuppressed;
+      }
+    }, 120);
+  }
+  window.addEventListener('resize', onViewportResize);
+  window.visualViewport?.addEventListener('resize', onViewportResize);
+
+  /* ===== Boot ===== */
+  applySettings();
+  initBrightnessGesture();
+  (async () => {
+    try {
+      try { window.__DEBUG_LOG__?.('H3', 'reader:boot', 'start', { bookId, bookExt }); } catch { /* */ }
+      if (window.__READER_LOCAL_INIT__) {
+        await window.__READER_LOCAL_INIT__;
+        try { window.__DEBUG_LOG__?.('H2', 'reader:boot', 'LOCAL_INIT ok', {}); } catch { /* */ }
+      }
+      if (window.__READER_BOOT_ERROR) {
+        throw new Error(String(window.__READER_BOOT_ERROR));
+      }
+      await ensureReaderI18n();
+      await loadBookmarks(); renderBmTab();
+      await loadAnnotations();
+      await loadBook();
+      try { window.__DEBUG_LOG__?.('H4', 'reader:boot', 'loadBook done', {}); } catch { /* */ }
+      applyAllAnnotations();
+    } catch (e) {
+      try {
+        window.__DEBUG_LOG__?.('H3', 'reader:boot', 'catch', {
+          msg: e instanceof Error ? e.message : String(e),
+        });
+      } catch { /* */ }
+      console.error(e);
+      showError(e.message || rt('readerJs.loadBookFail'));
+    }
+  })();
+})();

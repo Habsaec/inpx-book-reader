@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="continue_reading"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_continue"
+        android:shortcutLongLabel="@string/shortcut_continue_long">
+        <intent
+            android:action="ru.inpx.bookreader.action.CONTINUE_READING"
+            android:targetPackage="ru.inpx.bookreader"
+            android:targetClass="ru.inpx.bookreader.MainActivity" />
+    </shortcut>
+</shortcuts>

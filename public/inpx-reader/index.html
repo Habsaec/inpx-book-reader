@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+
+<title>Читалка</title>
+
+
+<link rel="stylesheet" href="/inpx-reader/reader.css?v=1">
+<script>try{var _t=JSON.parse(localStorage.getItem('reader-settings')||'{}').theme||'sepia';document.documentElement.dataset.readerTheme=_t}catch(e){document.documentElement.dataset.readerTheme='sepia'}</script>
+</head>
+<body class="chrome-hidden">
+<script type="application/json" id="ui-i18n-json">{"locale":"ru","strings":{}}</script>
+
+<div class="reader-toolbar reader-chrome" id="toolbar">
+  <div class="tb-left">
+    <button type="button" class="tb-btn" id="btn-app-back" title="Назад" aria-label="Назад" aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="tb-meta">
+      <span class="tb-kicker">Чтение</span>
+      <span class="tb-title"></span>
+    </div>
+  </div>
+  <div class="tb-center tb-hide-m">
+    <span class="tb-progress" id="progress-text">0%</span>
+    <span class="tb-sep"></span>
+    <span class="tb-chapter" id="toolbar-chapter">Загрузка…</span>
+  </div>
+  <div class="tb-right">
+    <div class="tb-tts-wrap" role="group" aria-label="Озвучка">
+      <button class="tb-btn tb-tts-skip js-tts-prev" type="button" id="btn-tts-prev" disabled title="Назад" aria-label="Назад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6V5zm3.6 7L18 5v14L9.6 12z" fill="currentColor"/></svg></button>
+      <button class="tb-btn" type="button" id="btn-tts" title="Читать" aria-label=""><svg class="tts-main-icon" viewBox="0 0 24 24" aria-hidden="true"><path class="tts-main-path" fill="currentColor" d="M8 5v14l11-7z"/></svg></button>
+      <button class="tb-btn tb-tts-stop js-tts-stop" type="button" id="btn-tts-stop" hidden title="Стоп" aria-label="Стоп"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" fill="currentColor"/></svg></button>
+      <button class="tb-btn tb-tts-skip js-tts-next" type="button" id="btn-tts-next" disabled title="Вперёд" aria-label="Вперёд"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5h2v14h-2V5zm-2.4 7L8 5v14l7.6-7z" fill="currentColor"/></svg></button>
+    </div>
+    <button class="tb-btn" type="button" id="btn-fullscreen" title="Полный экран" aria-label="Полный экран"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg></button>
+    <button class="tb-btn tb-hide-mobile" type="button" id="btn-day-night" title="Ночь" aria-label="День/ночь"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+    <button class="tb-btn" type="button" id="btn-bookmark-add" title="Закладка" aria-label="Добавить закладку"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg></button>
+    <button class="tb-btn" type="button" id="btn-search" title="Поиск" aria-label="Поиск по книге"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></button>
+    <button class="tb-btn" type="button" id="btn-toc" title="Оглавление" aria-label="Оглавление"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>
+    <button class="tb-btn" type="button" id="btn-settings" title="Настройки" aria-label="Настройки чтения"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
+  </div>
+</div>
+
+<div id="reader-body">
+  <div class="reader-loading" id="reader-loading">
+    <div class="reader-spinner"></div>
+    <div class="reader-loading-text">Загрузка книги…</div>
+  </div>
+</div>
+
+<div class="reader-footer reader-chrome" id="reader-footer">
+  <span class="ft-chapter" id="ft-chapter"></span>
+  <div class="ft-seek-wrap">
+    <input type="range" class="ft-seek" id="ft-seek" name="readerSeek" min="0" max="1" step="0.001" value="0">
+  </div>
+  <span class="ft-pct" id="ft-pct">0%</span>
+</div>
+
+<div class="reader-tts-dock" id="reader-tts-dock" role="region" aria-hidden="true" aria-label="Озвучка">
+  <div class="reader-tts-dock-inner">
+    <button type="button" class="reader-tts-dock-btn tb-btn js-tts-prev" id="btn-tts-dock-prev" disabled title="Назад" aria-label="Назад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6V5zm3.6 7L18 5v14L9.6 12z" fill="currentColor"/></svg></button>
+    <button type="button" class="reader-tts-dock-btn tb-btn reader-tts-dock-main" id="btn-tts-dock" title="Читать" aria-label=""><svg class="tts-main-icon" viewBox="0 0 24 24" aria-hidden="true"><path class="tts-main-path" fill="currentColor" d="M8 5v14l11-7z"/></svg></button>
+    <button type="button" class="reader-tts-dock-btn tb-btn js-tts-stop" id="btn-tts-dock-stop" hidden title="Стоп" aria-label="Стоп"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" fill="currentColor"/></svg></button>
+    <button type="button" class="reader-tts-dock-btn tb-btn js-tts-next" id="btn-tts-dock-next" disabled title="Вперёд" aria-label="Вперёд"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5h2v14h-2V5zm-2.4 7L8 5v14l7.6-7z" fill="currentColor"/></svg></button>
+  </div>
+</div>
+
+<div class="reader-book-pages" id="reader-book-pages" aria-hidden="true">
+  <span class="book-page-num" id="book-page-left"></span>
+  <span class="book-page-num" id="book-page-right"></span>
+</div>
+
+<div class="reader-sel-menu" id="reader-sel-menu" role="menu" aria-hidden="true">
+  <div class="rsm-colors">
+    <button type="button" class="rsm-color" data-color="yellow" title="Выделить" aria-label="Выделить"></button>
+    <button type="button" class="rsm-color" data-color="green" title="Выделить" aria-label="Выделить"></button>
+    <button type="button" class="rsm-color" data-color="blue" title="Выделить" aria-label="Выделить"></button>
+    <button type="button" class="rsm-color" data-color="pink" title="Выделить" aria-label="Выделить"></button>
+  </div>
+  <span class="rsm-sep"></span>
+  <button type="button" class="rsm-btn" id="rsm-note" title="Заметка">Заметка</button>
+  <button type="button" class="rsm-btn" id="rsm-copy" title="Копировать">Копировать</button>
+  <button type="button" class="rsm-btn rsm-btn-danger" id="rsm-remove" title="Удалить" hidden>Удалить</button>
+</div>
+
+<div class="reader-note-editor" id="reader-note-editor" aria-hidden="true">
+  <div class="rne-card">
+    <div class="rne-quote" id="rne-quote"></div>
+    <textarea id="rne-text" class="rne-text" rows="4" placeholder="Ваша заметка…"></textarea>
+    <div class="rne-actions">
+      <button type="button" class="rne-btn" id="rne-cancel">Отмена</button>
+      <button type="button" class="rne-btn rne-btn-primary" id="rne-save">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel-overlay" id="panel-overlay">
+  <button type="button" class="panel-backdrop" id="panel-backdrop" tabindex="-1" aria-label="Закрыть"></button>
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-heading">
+        <div class="panel-kicker" id="panel-kicker">Навигация</div>
+        <div class="panel-title" id="panel-title">Оглавление</div>
+      </div>
+      <button type="button" class="panel-close" id="panel-close" title="Закрыть" aria-label="Закрыть">&times;</button>
+    </div>
+    <div class="panel-tabs">
+      <button class="panel-tab is-active" data-tab="toc">Оглавление</button>
+      <button class="panel-tab" data-tab="search">Поиск</button>
+      <button class="panel-tab" data-tab="bookmarks">Закладки</button>
+      <button class="panel-tab" data-tab="notes">Заметки</button>
+      <button class="panel-tab" data-tab="settings">Настройки</button>
+    </div>
+    <div class="panel-body" data-panel-tab="toc">
+      <div class="toc-tools">
+        <input type="search" id="toc-search-input" name="tocSearch" class="toc-search-input" placeholder="Найти главу" autocomplete="off">
+        <div class="toc-actions">
+          <button type="button" class="toc-action-btn" id="toc-prev-chapter">Пред. глава</button>
+          <button type="button" class="toc-action-btn" id="toc-next-chapter">След. глава</button>
+        </div>
+      </div>
+      <div id="toc-content"><div class="bm-empty">Загрузка…</div></div>
+    </div>
+    <div class="panel-body" data-panel-tab="search" hidden>
+      <div class="toc-tools">
+        <input type="search" id="book-search-input" name="bookSearch" class="toc-search-input" placeholder="Поиск по тексту" autocomplete="off" enterkeyhint="search">
+      </div>
+      <div id="search-content"><div class="bm-empty">Введите запрос</div></div>
+    </div>
+    <div class="panel-body" data-panel-tab="bookmarks" hidden>
+      <div id="bookmarks-content"><div class="bm-empty">Загрузка…</div></div>
+    </div>
+    <div class="panel-body" data-panel-tab="notes" hidden>
+      <div id="notes-content"><div class="bm-empty">Загрузка…</div></div>
+    </div>
+    <div class="panel-body" data-panel-tab="settings" data-settings-layout="v2" hidden>
+      <section class="rs-section" data-rs-section="presets">
+        <h3 class="rs-section-title">Пресеты</h3>
+        <div class="rs-group">
+          <div class="rs-seg rs-preset-seg">
+            <button type="button" data-preset="compact">Компакт</button>
+            <button type="button" data-preset="balanced">Баланс</button>
+            <button type="button" data-preset="relaxed">Простор</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="rs-section" data-rs-section="appearance">
+        <h3 class="rs-section-title">Оформление</h3>
+        <div class="rs-group">
+          <div class="rs-label">Тема</div>
+          <div class="rs-themes">
+            <button class="rs-theme-dot" type="button" data-set-theme="dark"><span class="rs-dot-label">Тёмная</span></button>
+            <button class="rs-theme-dot" type="button" data-set-theme="light"><span class="rs-dot-label">Светлая</span></button>
+            <button class="rs-theme-dot" type="button" data-set-theme="sepia"><span class="rs-dot-label">Сепия</span></button>
+            <button class="rs-theme-dot" type="button" data-set-theme="night"><span class="rs-dot-label">Ночь</span></button>
+            <button class="rs-theme-dot" type="button" data-set-theme="eink"><span class="rs-dot-label">E-Ink</span></button>
+          </div>
+        </div>
+        <div class="rs-group">
+          <div class="rs-label">Цвета</div>
+          <div class="rs-color-stack">
+            <div class="rs-color-line">
+              <div class="rs-color-sub">Текст</div>
+              <div class="rs-color-row">
+                <input type="color" id="rs-text-color" name="readerTextColor" value="#3d3121" aria-label="Текст" title="Цвет текста">
+                <button type="button" class="rs-color-default" id="rs-text-color-default" title="Из темы">Из темы</button>
+              </div>
+            </div>
+            <div class="rs-color-line">
+              <div class="rs-color-sub">Фон</div>
+              <div class="rs-color-row">
+                <input type="color" id="rs-bg-color" name="readerBgColor" value="#f4edd5" aria-label="Фон" title="Цвет фона">
+                <button type="button" class="rs-color-default" id="rs-bg-color-default" title="Из темы">Из темы</button>
+              </div>
+            </div>
+            <div class="rs-color-line">
+              <div class="rs-color-sub">Ссылки</div>
+              <div class="rs-color-row">
+                <input type="color" id="rs-link-color" name="readerLinkColor" value="#8b5a12" aria-label="Ссылки" title="Цвет ссылок">
+                <button type="button" class="rs-color-default" id="rs-link-color-default" title="Из темы">Из темы</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="rs-group" id="rs-bg-image-group">
+          <div class="rs-label">Фоновое изображение</div>
+          <div class="rs-bg-image-row">
+            <div class="rs-bg-image-preview" id="rs-bg-image-preview" aria-hidden="true"></div>
+            <div class="rs-bg-image-actions">
+              <label class="rs-file-btn">
+                Выбрать
+                <input type="file" id="rs-bg-image-file" accept="image/*" hidden>
+              </label>
+              <button type="button" class="rs-bg-image-clear" id="rs-bg-image-clear" hidden>Убрать</button>
+            </div>
+          </div>
+          <div class="rs-sublabel">Масштаб</div>
+          <div class="rs-seg">
+            <button type="button" data-bg-image-fit="cover">Заполнить</button>
+            <button type="button" data-bg-image-fit="contain">Вписать</button>
+            <button type="button" data-bg-image-fit="tile">Плитка</button>
+          </div>
+          <div id="rs-bg-image-paper-wrap" hidden>
+            <div class="rs-sublabel">Затемнение поверх картинки</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-bg-image-paper" min="0" max="1" step="0.02" aria-label="Затемнение поверх картинки">
+              <span class="rs-val" id="rs-bg-image-paper-val">35%</span>
+            </div>
+            <div class="rs-hint">0% — только картинка, 100% — сплошной цвет темы</div>
+          </div>
+        </div>
+        <div class="rs-group">
+          <label class="rs-check">
+            <input type="checkbox" id="rs-invert" name="readerInvert">
+            <span>Инверсия цветов</span>
+          </label>
+        </div>
+        <div id="rs-brightness-slot"></div>
+      </section>
+
+      <section class="rs-section" data-rs-section="font">
+        <h3 class="rs-section-title">Шрифт</h3>
+        <div class="rs-group">
+          <div class="rs-label">Гарнитура</div>
+          <select id="rs-font-family" name="readerFontFamily" class="rs-select" aria-label="Шрифт"></select>
+          <label class="rs-check">
+            <input type="checkbox" id="rs-publisher-font" name="readerPublisherFont">
+            <span>Шрифт из книги</span>
+          </label>
+        </div>
+        <div class="rs-group">
+          <div class="rs-label">Начертание</div>
+          <select id="rs-font-weight" name="readerFontWeight" class="rs-select" aria-label="Начертание">
+            <option value="400">Обычный</option>
+            <option value="500">Средний</option>
+            <option value="600">Полужирный</option>
+            <option value="700">Жирный</option>
+          </select>
+        </div>
+        <div class="rs-group">
+          <div class="rs-label">Размер</div>
+          <div class="rs-slider">
+            <span class="rs-icon">A</span>
+            <input type="range" id="rs-font-size" name="readerFontSize" min="12" max="32" step="1">
+            <span class="rs-val" id="rs-font-size-val">18</span>
+            <span class="rs-icon rs-icon-lg">A</span>
+          </div>
+        </div>
+        <div class="rs-group">
+          <div class="rs-label">Межстрочный интервал</div>
+          <div class="rs-slider">
+            <span class="rs-icon">&equiv;</span>
+            <input type="range" id="rs-line-height" name="readerLineHeight" min="1.2" max="2.4" step="0.1">
+            <span class="rs-val" id="rs-line-height-val">1.6</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="rs-section" data-rs-section="layout">
+        <h3 class="rs-section-title">Макет</h3>
+        <div class="rs-group">
+          <div class="rs-label">Режим</div>
+          <div class="rs-seg">
+            <button type="button" data-set-layout="paginated">Страницы</button>
+            <button type="button" data-set-layout="dual" class="rs-layout-dual-btn">Разворот</button>
+            <button type="button" data-set-layout="scrolled">Прокрутка</button>
+          </div>
+        </div>
+        <div class="rs-group" id="rs-layout-paginated">
+          <div class="rs-label">Ширина колонки</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-column-width" name="readerColumnWidth" min="480" max="920" step="20" aria-label="Ширина колонки">
+            <span class="rs-val" id="rs-column-width-val">720 px</span>
+          </div>
+          <label class="rs-check">
+            <input type="checkbox" id="rs-full-width" name="readerFullWidth">
+            <span>На всю ширину</span>
+          </label>
+        </div>
+        <div class="rs-group" id="rs-layout-dual" hidden>
+          <div class="rs-label">Зазор между колонками</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-column-gap" name="readerColumnGap" min="4" max="16" step="1" aria-label="Зазор">
+            <span class="rs-val" id="rs-column-gap-val">7%</span>
+          </div>
+        </div>
+        <div class="rs-group" id="rs-layout-scrolled" hidden>
+          <div class="rs-label">Высота блока</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-max-block-size" name="readerMaxBlockSize" min="720" max="2400" step="40" aria-label="Высота блока">
+            <span class="rs-val" id="rs-max-block-size-val">1440 px</span>
+          </div>
+          <div class="rs-hint">Максимальная высота текста в режиме прокрутки</div>
+        </div>
+        <div class="rs-group">
+          <div class="rs-label">Поля</div>
+          <div class="rs-sublabel">Боковые</div>
+          <div class="rs-slider">
+            <span class="rs-icon" aria-hidden="true">|</span>
+            <input type="range" id="rs-page-margin" name="readerPageMargin" min="0" max="72" step="4" aria-label="Боковые поля">
+            <span class="rs-val" id="rs-page-margin-val">32 px</span>
+            <span class="rs-icon" aria-hidden="true">|&nbsp;|</span>
+          </div>
+          <div class="rs-sublabel">Вертикальные</div>
+          <div class="rs-slider">
+            <span class="rs-icon" aria-hidden="true">—</span>
+            <input type="range" id="rs-vertical-margin" name="readerVerticalMargin" min="0" max="96" step="4" aria-label="Вертикальные поля">
+            <span class="rs-val" id="rs-vertical-margin-val">32 px</span>
+            <span class="rs-icon" aria-hidden="true">≡</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="rs-section" data-rs-section="typography">
+        <h3 class="rs-section-title">Типографика</h3>
+        <div class="rs-group">
+          <label class="rs-check">
+            <input type="checkbox" id="rs-justify" name="readerJustify" checked>
+            <span>Выравнивание по ширине</span>
+          </label>
+          <label class="rs-check">
+            <input type="checkbox" id="rs-hyphenate" name="readerHyphenate" checked>
+            <span>Переносы (дефисы)</span>
+          </label>
+        </div>
+        <div class="rs-group">
+          <div class="rs-sublabel">Межбуквенный интервал</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-letter-spacing" name="readerLetterSpacing" min="-0.05" max="0.2" step="0.01" aria-label="Межбуквенный интервал">
+            <span class="rs-val" id="rs-letter-spacing-val">0.00</span>
+          </div>
+          <div class="rs-sublabel">Межабзацный интервал</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-paragraph-spacing" name="readerParagraphSpacing" min="0" max="1.5" step="0.05" aria-label="Межабзацный интервал">
+            <span class="rs-val" id="rs-paragraph-spacing-val">0.40</span>
+          </div>
+          <div class="rs-sublabel">Красная строка</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-text-indent" name="readerTextIndent" min="0" max="3" step="0.1" aria-label="Красная строка">
+            <span class="rs-val" id="rs-text-indent-val">0.0 em</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="rs-section" data-rs-section="extra">
+        <h3 class="rs-section-title">Дополнительно</h3>
+        <div class="rs-group">
+          <label class="rs-check">
+            <input type="checkbox" id="rs-footnotes" name="readerFootnotes" checked>
+            <span>Всплывающие сноски</span>
+          </label>
+        </div>
+        <div id="rs-volume-keys-slot"></div>
+        <div class="rs-group">
+          <div class="rs-label">Свой CSS</div>
+          <textarea id="rs-custom-css" class="rs-custom-css" name="readerCustomCss" rows="5" spellcheck="false" placeholder="/* Дополнительные стили для текста книги */"></textarea>
+          <button type="button" class="rs-custom-css-clear" id="rs-custom-css-clear">Очистить CSS</button>
+        </div>
+      </section>
+
+      <section class="rs-section" data-rs-section="tts">
+        <h3 class="rs-section-title">Озвучка</h3>
+        <div class="rs-group">
+          <div class="rs-sublabel">Скорость</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-tts-rate" name="readerTtsRate" min="0.5" max="2" step="0.05" aria-label="Скорость">
+            <span class="rs-val" id="rs-tts-rate-val">1.00</span>
+          </div>
+          <div class="rs-sublabel">Голос</div>
+          <select id="rs-tts-voice" name="readerTtsVoice" class="rs-select" aria-label="Голос">
+            <option value="">Системный</option>
+          </select>
+        </div>
+      </section>
+
+      <div class="rs-actions">
+        <button type="button" class="rs-reset" id="reader-reset-settings">Сброс</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="reader-toast" id="reader-toast"></div>
+
+<script src="/inpx-reader/bootstrap.js"></script>
+<script src="/inpx-reader/reader-native-bridge.js"></script>
+<script type="module" src="/inpx-reader/reader.js"></script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+/** Design tokens — единая типографика и отступы для Android UI. */
+
+export const textStyles = {
+  /** 11px — микротекст, бейджи, chips (минимум для читаемости) */
+  micro: 'text-[11px] leading-snug',
+  microBold: 'text-[11px] font-bold leading-snug',
+  microCaps: 'text-[11px] font-black uppercase tracking-wider leading-snug',
+  /** 11px — подписи в каталоге, табы */
+  label: 'text-[11px] leading-snug',
+  labelBold: 'text-[11px] font-bold leading-snug',
+  labelCaps: 'text-[11px] font-black uppercase tracking-wider leading-snug',
+  /** 14px — минимальный основной текст */
+  body: 'text-sm leading-snug',
+  bodyBold: 'text-sm font-semibold leading-snug',
+  /** 12px — вторичный текст, метки */
+  caption: 'text-xs leading-snug',
+  captionBold: 'text-xs font-bold leading-snug',
+  /** 16px — заголовки секций */
+  title: 'text-base font-bold leading-tight',
+  /** 20px — hero / continue reading */
+  display: 'text-xl font-black leading-tight tracking-tight',
+  /** Serif — названия книг в списках */
+  bookTitle: 'font-serif text-base font-semibold leading-snug',
+  /** Serif — hero «Продолжить чтение» */
+  bookTitleHero: 'font-serif text-2xl font-bold leading-tight',
+  /** Заголовки секций (Недавно, Новинки…) */
+  sectionLabel: 'text-xs font-bold uppercase tracking-wider leading-snug',
+  /** Числа в статистике профиля */
+  statNumber: 'font-serif text-2xl font-bold leading-tight tabular-nums',
+} as const;
+
+export const spacing = {
+  xs: 'p-1',
+  sm: 'p-2',
+  md: 'p-3',
+  lg: 'p-4',
+  xl: 'p-6',
+  gapSm: 'gap-2',
+  gapMd: 'gap-3',
+  gapLg: 'gap-4',
+} as const;
+
+export const radii = {
+  sm: 'rounded-lg',
+  md: 'rounded-xl',
+  lg: 'rounded-2xl',
+  full: 'rounded-full',
+} as const;
+
+/** Minimum touch target 48dp (12 × 4px) */
+export const touchMin = 'min-w-12 min-h-12';
+
+export const motion = {
+  colors: 'transition-colors duration-200 ease-out',
+  press: 'transition-transform duration-150 ease-out active:scale-[0.98]',
+} as const;
+
+export const semantic = {
+  success: 'text-[var(--app-success)]',
+  successBg: 'bg-[color-mix(in_srgb,var(--app-success)_12%,transparent)] text-[var(--app-success)]',
+  warning: 'text-[var(--app-warning)]',
+  warningBg: 'bg-[color-mix(in_srgb,var(--app-warning)_12%,transparent)] text-[var(--app-warning)]',
+  error: 'text-[var(--app-danger)]',
+  errorBg: 'bg-[color-mix(in_srgb,var(--app-danger)_12%,transparent)] text-[var(--app-danger)]',
+  offline: 'text-[var(--app-offline)]',
+} as const;
+
+export const elevation = {
+  card: 'shadow-sm',
+  hero: 'shadow-lg',
+  sheet: 'shadow-lg',
+  menu: 'shadow-md',
+} as const;

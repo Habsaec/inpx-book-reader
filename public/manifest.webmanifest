@@ -1,0 +1,25 @@
+{
+  "name": "INPX Book Reader",
+  "short_name": "INPX Reader",
+  "description": "Мобильная читалка для INPX Library Server",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1e1a16",
+  "theme_color": "#1e1a16",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "/brand/app-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
