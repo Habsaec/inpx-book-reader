@@ -19,3 +19,4 @@ android/.idea/
 
 # Local scratch / fixtures
 .tmp-grand/
+release/
