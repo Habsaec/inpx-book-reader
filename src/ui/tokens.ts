@@ -1,14 +1,14 @@
 /** Design tokens — единая типографика и отступы для Android UI. */
 
 export const textStyles = {
-  /** 11px — микротекст, бейджи, chips (минимум для читаемости) */
-  micro: 'text-[11px] leading-snug',
-  microBold: 'text-[11px] font-bold leading-snug',
-  microCaps: 'text-[11px] font-black uppercase tracking-wider leading-snug',
-  /** 11px — подписи в каталоге, табы */
-  label: 'text-[11px] leading-snug',
-  labelBold: 'text-[11px] font-bold leading-snug',
-  labelCaps: 'text-[11px] font-black uppercase tracking-wider leading-snug',
+  /** 12px — микротекст, бейджи, chips (минимум для читаемости) */
+  micro: 'text-xs leading-snug',
+  microBold: 'text-xs font-bold leading-snug',
+  microCaps: 'text-xs font-black uppercase tracking-wider leading-snug',
+  /** 12px — подписи в каталоге, табы */
+  label: 'text-xs leading-snug',
+  labelBold: 'text-xs font-bold leading-snug',
+  labelCaps: 'text-xs font-black uppercase tracking-wider leading-snug',
   /** 14px — минимальный основной текст */
   body: 'text-sm leading-snug',
   bodyBold: 'text-sm font-semibold leading-snug',

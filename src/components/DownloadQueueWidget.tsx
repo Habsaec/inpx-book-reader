@@ -59,14 +59,19 @@ export default function DownloadQueueWidget({ compact }: DownloadQueueWidgetProp
               </IconButton>
             )}
             {job.status === 'error' && (
-              <IconButton label="Повторить" onClick={() => downloadQueue.retry(job.id)}>
-                <RotateCcw className="w-4 h-4" />
-              </IconButton>
+              <>
+                <IconButton label="Повторить" onClick={() => downloadQueue.retry(job.id)}>
+                  <RotateCcw className="w-4 h-4" />
+                </IconButton>
+                <IconButton label="Убрать" onClick={() => downloadQueue.remove(job.id)}>
+                  <X className="w-4 h-4" />
+                </IconButton>
+              </>
             )}
           </div>
         ))}
       </div>
-      {!compact && recent.some((j) => j.status === 'saved') && (
+      {(active.some((j) => j.status === 'error') || (!compact && recent.some((j) => j.status === 'saved' || j.status === 'error'))) && (
         <button
           type="button"
           className={`${textStyles.caption} ${theme.accentText}`}

@@ -1074,6 +1074,8 @@ export class Paginator extends HTMLElement {
         }
         if (this.atStart) return
         const page = this.page - 1
+        // Skip empty sentinel page 0 when a previous section exists (FB2 one-section-per-chapter).
+        if (page <= 0 && this.#adjacentIndex(-1) != null) return Promise.resolve(true)
         return this.#scrollToPage(page, 'page', true).then(() => page <= 0)
     }
     #scrollNext(distance) {
@@ -1086,6 +1088,9 @@ export class Paginator extends HTMLElement {
         if (this.atEnd) return
         const page = this.page + 1
         const pages = this.pages
+        // Skip empty trailing sentinel when the next section exists; otherwise chapter
+        // boundaries (each FB2 chapter = section) show a blank page between chapters.
+        if (page >= pages - 1 && this.#adjacentIndex(1) != null) return Promise.resolve(true)
         return this.#scrollToPage(page, 'page', true).then(() => page >= pages - 1)
     }
     get atStart() {

@@ -28,7 +28,7 @@ import { insecureHttpWarning } from '../lib/serverUrl';
 import { clearServerCredentials } from '../lib/secureServerConfig';
 import type { AppThemeMode } from '../lib/serverTheme';
 import DiagnosticsTab from './DiagnosticsTab';
-import { textStyles } from '../ui/tokens';
+import { textStyles, semantic } from '../ui/tokens';
 import Button from '../ui/Button';
 import { useSnackbar } from '../ui/Snackbar';
 
@@ -156,9 +156,9 @@ export default function SyncSettingsTab({
               <span className={`${textStyles.captionBold} uppercase tracking-wider ${theme.textMuted}`}>Сервер INPX</span>
             </div>
             <span className={`${textStyles.caption} font-bold px-2 py-0.5 rounded uppercase ${
-              serverConfig.connectionStatus === 'testing' ? 'bg-amber-500/10 text-amber-500 animate-pulse' :
-              serverConfig.connectionStatus === 'connected' ? 'bg-emerald-500/10 text-emerald-500' :
-              'bg-stone-500/10 text-stone-500'
+              serverConfig.connectionStatus === 'testing' ? `${semantic.warningBg} animate-pulse` :
+              serverConfig.connectionStatus === 'connected' ? semantic.successBg :
+              `${theme.chip} ${theme.textMuted}`
             }`}>
               {serverConfig.connectionStatus === 'testing' && 'Тест...'}
               {serverConfig.connectionStatus === 'connected' ? 'Подключен' : 'Отключен'}
@@ -166,9 +166,9 @@ export default function SyncSettingsTab({
           </div>
 
           {httpWarning && (
-            <div className="flex gap-2 rounded-lg px-3 py-2.5 bg-amber-500/10 border border-amber-500/20" role="alert">
-              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" aria-hidden />
-              <p className={`${textStyles.caption} text-amber-800 dark:text-amber-200 leading-relaxed`}>{httpWarning}</p>
+            <div className={`flex gap-2 rounded-lg px-3 py-2.5 border border-[color-mix(in_srgb,var(--app-warning)_25%,transparent)] ${semantic.warningBg}`} role="alert">
+              <AlertTriangle className={`w-4 h-4 shrink-0 ${semantic.warning}`} aria-hidden />
+              <p className={`${textStyles.caption} ${semantic.warning} leading-relaxed`}>{httpWarning}</p>
             </div>
           )}
 
@@ -255,7 +255,7 @@ export default function SyncSettingsTab({
                   type="button"
                   onClick={() => onChangeTheme(item.id)}
                   aria-pressed={isSel}
-                  className={`py-2.5 px-1 rounded-xl border flex flex-col items-center gap-1 ${textStyles.captionBold} ${theme.focusRing} ${
+                  className={`min-h-12 py-2.5 px-1 rounded-xl border flex flex-col items-center justify-center gap-1 ${textStyles.captionBold} ${theme.focusRing} ${
                     isSel ? `${theme.accentBg} border-transparent` : `${theme.input} ${theme.textMuted}`
                   }`}
                 >

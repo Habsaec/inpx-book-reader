@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
+import androidx.annotation.RequiresApi;
 import androidx.documentfile.provider.DocumentFile;
 import java.io.BufferedReader;
 import java.io.File;
@@ -48,6 +49,11 @@ public final class BookStorageAccess {
         return new File(downloads, "INPXLibraryReader");
     }
 
+    private static boolean canUseDownloadsVolume(String storageUri) {
+        return isDownloadsUri(storageUri) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
     private static void ensureDownloadsPlaceholder(Context context, String folderName) throws Exception {
         String relativePath = Environment.DIRECTORY_DOWNLOADS + "/" + folderName + "/";
         ContentResolver resolver = context.getContentResolver();
@@ -82,7 +88,7 @@ public final class BookStorageAccess {
 
     public static boolean fileExists(Context context, String storageUri, String path) {
         try {
-            if (isDownloadsUri(storageUri)) {
+            if (canUseDownloadsVolume(storageUri)) {
                 return findDownloadsUri(context, baseFolder(storageUri), path) != null;
             }
             if (isFileUri(storageUri)) {
@@ -99,7 +105,7 @@ public final class BookStorageAccess {
 
     public static void writeBinaryFile(Context context, String storageUri, String path, byte[] bytes)
         throws Exception {
-        if (isDownloadsUri(storageUri)) {
+        if (canUseDownloadsVolume(storageUri)) {
             writeDownloadsFile(context, baseFolder(storageUri), path, bytes, "application/octet-stream");
             return;
         }
@@ -113,7 +119,7 @@ public final class BookStorageAccess {
     public static void writeTextFile(Context context, String storageUri, String path, String content)
         throws Exception {
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
-        if (isDownloadsUri(storageUri)) {
+        if (canUseDownloadsVolume(storageUri)) {
             writeDownloadsFile(context, baseFolder(storageUri), path, bytes, "application/json");
             return;
         }
@@ -125,7 +131,7 @@ public final class BookStorageAccess {
     }
 
     public static String readTextFile(Context context, String storageUri, String path) throws Exception {
-        if (isDownloadsUri(storageUri)) {
+        if (canUseDownloadsVolume(storageUri)) {
             return readDownloadsText(context, baseFolder(storageUri), path);
         }
         if (isFileUri(storageUri)) {
@@ -135,7 +141,7 @@ public final class BookStorageAccess {
     }
 
     public static byte[] readBinaryFile(Context context, String storageUri, String path) throws Exception {
-        if (isDownloadsUri(storageUri)) {
+        if (canUseDownloadsVolume(storageUri)) {
             return readDownloadsBinary(context, baseFolder(storageUri), path);
         }
         if (isFileUri(storageUri)) {
@@ -145,7 +151,7 @@ public final class BookStorageAccess {
     }
 
     public static void deleteFile(Context context, String storageUri, String path) throws Exception {
-        if (isDownloadsUri(storageUri)) {
+        if (canUseDownloadsVolume(storageUri)) {
             deleteDownloadsFile(context, baseFolder(storageUri), path);
             return;
         }
@@ -187,6 +193,7 @@ public final class BookStorageAccess {
         return relativePath.split("/");
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private static Uri findDownloadsUri(Context context, String baseFolder, String relativePath) {
         ContentResolver resolver = context.getContentResolver();
         String relativeDir = downloadsRelativeDir(baseFolder, relativePath);
@@ -211,6 +218,7 @@ public final class BookStorageAccess {
         return null;
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private static void writeDownloadsFile(
         Context context,
         String baseFolder,
@@ -251,6 +259,7 @@ public final class BookStorageAccess {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private static String readDownloadsText(Context context, String baseFolder, String relativePath)
         throws Exception {
         Uri uri = findDownloadsUri(context, baseFolder, relativePath);
@@ -292,6 +301,7 @@ public final class BookStorageAccess {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private static byte[] readDownloadsBinary(Context context, String baseFolder, String relativePath)
         throws Exception {
         Uri uri = findDownloadsUri(context, baseFolder, relativePath);
@@ -324,6 +334,7 @@ public final class BookStorageAccess {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private static void deleteDownloadsFile(Context context, String baseFolder, String relativePath) {
         Uri uri = findDownloadsUri(context, baseFolder, relativePath);
         if (uri != null) {

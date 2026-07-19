@@ -1,6 +1,8 @@
 import React from 'react';
 import { BookDown } from 'lucide-react';
 import { theme } from '../lib/appTheme';
+import { useOverlayBackHandler } from '../hooks/useBackHandler';
+import { touchMin } from '../ui/tokens';
 
 type Props = {
   title: string;
@@ -8,12 +10,15 @@ type Props = {
 };
 
 export function MissingLocalBookFallback({ title, onBack }: Props) {
+  useOverlayBackHandler(true, onBack);
+
   return (
     <div className={`fixed inset-0 z-[200] flex flex-col p-4 ${theme.bg} ${theme.text}`}>
       <button
         type="button"
+        aria-label="Назад"
         onClick={onBack}
-        className={`self-start text-sm font-bold py-2 px-1 ${theme.accentText} ${theme.focusRing}`}
+        className={`self-start ${touchMin} inline-flex items-center px-3 text-sm font-bold ${theme.accentText} ${theme.focusRing}`}
       >
         ← Назад
       </button>

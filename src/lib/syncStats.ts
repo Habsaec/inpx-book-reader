@@ -25,6 +25,10 @@ export function syncOpLabel(opType: string): string {
 
 function hasPendingPosition(bookId: string): boolean {
   const data = readOfflineReaderData(bookId);
+  if (data.positionDirty) return true;
+  const base = data.baseRevision ?? 0;
+  const server = data.serverRevision ?? 0;
+  if (base < server) return true;
   if (!data.positionChangedAt) return false;
   if (!data.serverPositionUpdatedAt) return true;
   return data.positionChangedAt > data.serverPositionUpdatedAt;

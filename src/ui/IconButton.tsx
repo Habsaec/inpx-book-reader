@@ -23,6 +23,7 @@ export default function IconButton({
         sizeClass,
         radii.md,
         'inline-flex items-center justify-center transition-colors cursor-pointer',
+        'disabled:opacity-50 disabled:pointer-events-none',
         theme.focusRing,
         'hover:bg-[var(--app-surface-hover)] active:scale-[0.97]',
         className,

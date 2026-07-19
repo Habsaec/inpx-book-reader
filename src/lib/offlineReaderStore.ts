@@ -25,6 +25,16 @@ export interface OfflineReaderAnnotation {
 }
 
 export interface OfflineReaderData {
+  /** Local position schema. Version 4 adds exact, layout-independent text anchors. */
+  positionVersion?: number;
+  /** Last server revision observed by this client. */
+  serverRevision?: number;
+  /** Server revision on which the current local position is based. */
+  baseRevision?: number;
+  /** True after a local position mutation not yet accepted by the server. */
+  positionDirty?: boolean;
+  /** Server revision explicitly declined while preserving local coordinates. */
+  dismissedServerRevision?: number | null;
   position: string | null;
   /** Book-wide progress 0–100 (derived from fraction, 0.0001% precision). */
   progress: number;
@@ -34,6 +44,12 @@ export interface OfflineReaderData {
   fb2Href?: string | null;
   /** Paginator section index when position was saved. */
   sectionIndex?: number | null;
+  /** Normalized character offset within the current section. */
+  textOffset?: number | null;
+  /** Text following textOffset, used to relocate an anchor after small content drift. */
+  textQuote?: string | null;
+  /** Normalized section text length when the anchor was captured. */
+  textSectionLength?: number | null;
   /** Page fraction within section (0–1) in paginated mode. */
   sectionPageFraction?: number | null;
   /** 1-based page index in paginated layout when position was saved. */
@@ -62,9 +78,30 @@ export interface OfflineReaderData {
   serverBookmarksRev?: string | null;
   serverAnnotationsRev?: string | null;
   serverPositionUpdatedAt?: string | null;
+  /** Server position snapshot declined on open — skip re-prompt until server changes. */
+  dismissedServerPositionUpdatedAt?: string | null;
   serverBookmarkCount?: number;
   serverAnnotationCount?: number;
   serverPositionProgress?: number;
+  /** Last known server fraction snapshot (0–1), for sync drift detection. */
+  serverPositionFraction?: number;
+  /** Server CFI/position snapshot for deferred cross-device prompt. */
+  serverPosition?: string | null;
+  /** Defer cross-device dialog until reader shows local position. */
+  pendingCrossDevicePrompt?: boolean;
+  /** Server fb2Href snapshot for cross-device prompt (not resume anchor). */
+  serverFb2Href?: string | null;
+  /** Server paginator/section snapshot for deferred cross-device accept (EPUB). */
+  serverSectionIndex?: number | null;
+  serverTextOffset?: number | null;
+  serverTextQuote?: string | null;
+  serverTextSectionLength?: number | null;
+  serverSectionPageFraction?: number | null;
+  serverPaginatorPage?: number | null;
+  serverPaginatorPages?: number | null;
+  serverLayoutMode?: string | null;
+  /** Cross-device prompt already handled in React before iframe mount — skip bootstrap duplicate. */
+  crossDeviceResolvedAt?: string | null;
   updatedAt?: string;
 }
 
@@ -84,12 +121,40 @@ function nullableFiniteNumber(value: unknown): number | null {
 }
 
 function normalizeOfflineReaderData(data: Partial<OfflineReaderData>): OfflineReaderData {
+  const serverRevision = Number.isInteger(Number(data.serverRevision)) && Number(data.serverRevision) >= 0
+    ? Number(data.serverRevision)
+    : 0;
+  const inferredBaseRevision = data.pendingCrossDevicePrompt
+    ? 0
+    : serverRevision;
+  const dismissedRevision =
+    Number.isInteger(Number(data.dismissedServerRevision)) && Number(data.dismissedServerRevision) >= 0
+      ? Number(data.dismissedServerRevision)
+      : null;
+  const resolvedBaseRevision = Number.isInteger(Number(data.baseRevision)) && Number(data.baseRevision) >= 0
+    ? Number(data.baseRevision)
+    : dismissedRevision != null
+      ? Math.max(dismissedRevision, serverRevision)
+      : inferredBaseRevision;
   return {
+    positionVersion: Number.isInteger(Number(data.positionVersion))
+      ? Number(data.positionVersion)
+      : 1,
+    serverRevision,
+    baseRevision: resolvedBaseRevision,
+    positionDirty: Boolean(data.positionDirty),
+    dismissedServerRevision:
+      Number.isInteger(Number(data.dismissedServerRevision)) && Number(data.dismissedServerRevision) >= 0
+        ? Number(data.dismissedServerRevision)
+        : null,
     position: data.position ?? null,
     progress: Number(data.progress) || 0,
     fraction: nullableFiniteNumber(data.fraction),
     fb2Href: typeof data.fb2Href === 'string' ? data.fb2Href : null,
     sectionIndex: nullableFiniteNumber(data.sectionIndex),
+    textOffset: nullableFiniteNumber(data.textOffset),
+    textQuote: typeof data.textQuote === 'string' ? data.textQuote : null,
+    textSectionLength: nullableFiniteNumber(data.textSectionLength),
     sectionPageFraction: nullableFiniteNumber(data.sectionPageFraction),
     paginatorPage: nullableFiniteNumber(data.paginatorPage),
     paginatorPages: nullableFiniteNumber(data.paginatorPages),
@@ -108,6 +173,7 @@ function normalizeOfflineReaderData(data: Partial<OfflineReaderData>): OfflineRe
     serverBookmarksRev: data.serverBookmarksRev ?? null,
     serverAnnotationsRev: data.serverAnnotationsRev ?? null,
     serverPositionUpdatedAt: data.serverPositionUpdatedAt ?? null,
+    dismissedServerPositionUpdatedAt: data.dismissedServerPositionUpdatedAt ?? null,
     serverBookmarkCount: Number.isFinite(Number(data.serverBookmarkCount))
       ? Number(data.serverBookmarkCount)
       : -1,
@@ -117,12 +183,32 @@ function normalizeOfflineReaderData(data: Partial<OfflineReaderData>): OfflineRe
     serverPositionProgress: Number.isFinite(Number(data.serverPositionProgress))
       ? Number(data.serverPositionProgress)
       : -1,
+    serverPositionFraction: Number.isFinite(Number(data.serverPositionFraction))
+      ? Number(data.serverPositionFraction)
+      : -1,
+    serverPosition: typeof data.serverPosition === 'string' ? data.serverPosition : null,
+    pendingCrossDevicePrompt: Boolean(data.pendingCrossDevicePrompt),
+    serverFb2Href: typeof data.serverFb2Href === 'string' ? data.serverFb2Href : null,
+    serverSectionIndex: nullableFiniteNumber(data.serverSectionIndex),
+    serverTextOffset: nullableFiniteNumber(data.serverTextOffset),
+    serverTextQuote: typeof data.serverTextQuote === 'string' ? data.serverTextQuote : null,
+    serverTextSectionLength: nullableFiniteNumber(data.serverTextSectionLength),
+    serverSectionPageFraction: nullableFiniteNumber(data.serverSectionPageFraction),
+    serverPaginatorPage: nullableFiniteNumber(data.serverPaginatorPage),
+    serverPaginatorPages: nullableFiniteNumber(data.serverPaginatorPages),
+    serverLayoutMode: typeof data.serverLayoutMode === 'string' ? data.serverLayoutMode : null,
+    crossDeviceResolvedAt: data.crossDeviceResolvedAt ?? null,
     updatedAt: data.updatedAt,
   };
 }
 
 function emptyReaderData(): OfflineReaderData {
   return {
+    positionVersion: 4,
+    serverRevision: 0,
+    baseRevision: 0,
+    positionDirty: false,
+    dismissedServerRevision: null,
     position: null,
     progress: 0,
     bookmarks: [],
@@ -160,6 +246,9 @@ function positionFieldsFrom(data: OfflineReaderData): Pick<
   | 'fraction'
   | 'fb2Href'
   | 'sectionIndex'
+  | 'textOffset'
+  | 'textQuote'
+  | 'textSectionLength'
   | 'sectionPageFraction'
   | 'paginatorPage'
   | 'paginatorPages'
@@ -172,6 +261,9 @@ function positionFieldsFrom(data: OfflineReaderData): Pick<
     fraction: data.fraction,
     fb2Href: data.fb2Href,
     sectionIndex: data.sectionIndex,
+    textOffset: data.textOffset,
+    textQuote: data.textQuote,
+    textSectionLength: data.textSectionLength,
     sectionPageFraction: data.sectionPageFraction,
     paginatorPage: data.paginatorPage,
     paginatorPages: data.paginatorPages,
@@ -180,39 +272,19 @@ function positionFieldsFrom(data: OfflineReaderData): Pick<
   };
 }
 
-function isFlushLikeRegression(
-  prev: OfflineReaderData,
-  incoming: OfflineReaderData,
-  saveReason?: string | null,
-): boolean {
-  if (saveReason !== 'flush') return false;
-  const prevFrac = readerDataFraction(prev);
-  const incomingFrac = readerDataFraction(incoming);
-  return incomingFrac + 0.02 < prevFrac;
-}
-
 function pickBestPositionFields(
   prev: OfflineReaderData,
   incoming: OfflineReaderData,
-  saveReason?: string | null,
 ): ReturnType<typeof positionFieldsFrom> {
-  if (isSpuriousPositionReset(prev, incoming) || isFlushLikeRegression(prev, incoming, saveReason)) {
+  if (isSpuriousPositionReset(prev, incoming)) {
     return positionFieldsFrom(prev);
   }
-  const prevFrac = readerDataFraction(prev);
-  const incomingFrac = readerDataFraction(incoming);
   const prevTs = readerDataTimestamp(prev);
   const incomingTs = readerDataTimestamp(incoming);
   if (!hasOfflineReadingProgress(prev)) {
     return positionFieldsFrom(incoming);
   }
-  if (incomingTs > prevTs) {
-    return positionFieldsFrom(incoming);
-  }
-  if (incomingFrac > prevFrac + 1e-5) {
-    return positionFieldsFrom(incoming);
-  }
-  if (incomingTs >= prevTs && Math.abs(incomingFrac - prevFrac) <= 1e-5) {
+  if (incomingTs >= prevTs) {
     return positionFieldsFrom(incoming);
   }
   return positionFieldsFrom(prev);
@@ -223,6 +295,14 @@ export function hasOfflineReadingProgress(data: OfflineReaderData): boolean {
   if ((data.fraction ?? 0) > 0) return true;
   if ((data.progress ?? 0) > 0) return true;
   if (data.fb2Href?.trim()) return true;
+  if (
+    data.sectionIndex != null
+    && Number.isFinite(Number(data.sectionIndex))
+    && data.textOffset != null
+    && Number.isFinite(Number(data.textOffset))
+  ) {
+    return true;
+  }
   if (data.paginatorPage != null && Number.isFinite(Number(data.paginatorPage))) return true;
   if (
     data.sectionIndex != null
@@ -254,9 +334,15 @@ export function applyIframeReaderStore(
   payload: Partial<OfflineReaderData> & { positionSaveReason?: string | null },
 ): void {
   const prev = readOfflineReaderData(bookId);
-  const saveReason = payload.positionSaveReason ?? null;
-  const incoming = normalizeOfflineReaderData({ ...emptyReaderData(), ...payload });
-  const positionFields = pickBestPositionFields(prev, incoming, saveReason);
+  const incoming = normalizeOfflineReaderData({ ...prev, ...payload });
+  const positionFields = pickBestPositionFields(prev, incoming);
+  const iframeChangedPosition = Boolean(
+    payload.positionDirty
+    || (
+      payload.positionChangedAt
+      && payload.positionChangedAt !== prev.positionChangedAt
+    )
+  );
   const next = {
     ...prev,
     ...incoming,
@@ -275,11 +361,83 @@ export function applyIframeReaderStore(
       : prev.deletedAnnotationCfis,
     bookmarksChangedAt: incoming.bookmarksChangedAt ?? prev.bookmarksChangedAt,
     annotationsChangedAt: incoming.annotationsChangedAt ?? prev.annotationsChangedAt,
+    positionVersion: 4,
+    serverRevision: payload.serverRevision !== undefined
+      ? incoming.serverRevision
+      : (prev.serverRevision ?? 0),
+    baseRevision: payload.baseRevision !== undefined
+      ? incoming.baseRevision
+      : (prev.baseRevision ?? 0),
+    positionDirty: iframeChangedPosition
+      ? true
+      : (payload.positionDirty !== undefined ? Boolean(payload.positionDirty) : Boolean(prev.positionDirty)),
+    dismissedServerRevision: iframeChangedPosition
+      ? null
+      : incoming.dismissedServerRevision,
   };
   writeOfflineReaderData(bookId, next);
   if (hasOfflineReaderChanges(next)) {
     primeReaderLocalStorage(bookId);
   }
+}
+
+/** Upgrade legacy local positions once the downloaded book format is known. */
+export function migrateOfflineReaderPositionForFormat(bookId: string, format: string): boolean {
+  const data = readOfflineReaderData(bookId);
+  if ((data.positionVersion ?? 1) >= 4) return false;
+  const ext = String(format || '').replace(/^\./, '').toLowerCase();
+  const reset = ext === 'fb2' || ext === 'fbz';
+  const compatiblePosition = reset ? null : (data.position?.trim() || null);
+  const migrated: OfflineReaderData = {
+    ...data,
+    positionVersion: 4,
+    serverRevision: 0,
+    baseRevision: 0,
+    positionDirty: Boolean(compatiblePosition),
+    dismissedServerRevision: null,
+    position: compatiblePosition,
+    progress: 0,
+    fraction: null,
+    fb2Href: null,
+    sectionIndex: null,
+    textOffset: null,
+    textQuote: null,
+    textSectionLength: null,
+    sectionPageFraction: null,
+    paginatorPage: null,
+    paginatorPages: null,
+    layoutMode: null,
+    anchorOffset: null,
+    anchorWord: '',
+    positionChangedAt: reset ? null : data.positionChangedAt,
+    pendingCrossDevicePrompt: false,
+    serverPosition: null,
+    serverPositionUpdatedAt: null,
+    serverPositionProgress: -1,
+    serverPositionFraction: -1,
+    serverFb2Href: null,
+    serverSectionIndex: null,
+    serverTextOffset: null,
+    serverTextQuote: null,
+    serverTextSectionLength: null,
+    serverSectionPageFraction: null,
+    serverPaginatorPage: null,
+    serverPaginatorPages: null,
+    serverLayoutMode: null,
+    dismissedServerPositionUpdatedAt: null,
+    crossDeviceResolvedAt: null,
+  };
+  writeOfflineReaderData(bookId, migrated);
+  if (reset) {
+    try {
+      localStorage.removeItem(offlineReaderStorageKey(bookId));
+    } catch {
+      /* SQLite cache remains authoritative. */
+    }
+  } else {
+    primeReaderLocalStorage(bookId);
+  }
+  return true;
 }
 
 /** Позиция для возобновления чтения (явная → SQLite/localStorage). */
@@ -313,7 +471,12 @@ export function applyNewerLocalPositionIfNeeded(bookId: string, draft: OfflineRe
   const freshTs = readerDataTimestamp(fresh);
   const draftTs = readerDataTimestamp(draft);
   if (freshTs > draftTs && hasOfflineReadingProgress(fresh)) {
-    return { ...draft, ...positionFieldsFrom(fresh) };
+    return {
+      ...draft,
+      ...positionFieldsFrom(fresh),
+      positionDirty: true,
+      dismissedServerRevision: null,
+    };
   }
   return draft;
 }
@@ -553,11 +716,16 @@ export function clearOfflineReadingHistory(bookId: string): void {
     fraction: 0,
     fb2Href: null,
     sectionIndex: null,
+    textOffset: null,
+    textQuote: null,
+    textSectionLength: null,
     sectionPageFraction: null,
     paginatorPage: null,
     paginatorPages: null,
     layoutMode: null,
     positionChangedAt: nowIso(),
+    positionVersion: 4,
+    positionDirty: true,
   });
 }
 
@@ -571,6 +739,8 @@ export function clearOfflineReadMark(bookId: string): void {
     progress: 94,
     fraction: Math.min(fraction, 0.94),
     positionChangedAt: nowIso(),
+    positionVersion: 4,
+    positionDirty: true,
   });
 }
 
@@ -644,6 +814,9 @@ export interface OfflineReaderExport {
   progress: number;
   fraction?: number | null;
   sectionIndex?: number | null;
+  textOffset?: number | null;
+  textQuote?: string | null;
+  textSectionLength?: number | null;
   anchorOffset?: number | null;
   anchorWord?: string;
   bookmarks: OfflineReaderBookmark[];
@@ -660,6 +833,9 @@ export function exportOfflineReaderJson(bookId: string): string {
     progress: data.progress,
     fraction: data.fraction,
     sectionIndex: data.sectionIndex,
+    textOffset: data.textOffset,
+    textQuote: data.textQuote,
+    textSectionLength: data.textSectionLength,
     anchorOffset: data.anchorOffset,
     anchorWord: data.anchorWord,
     bookmarks: data.bookmarks,
@@ -701,6 +877,15 @@ export function importOfflineReaderJson(bookId: string, json: string): { ok: boo
       sectionIndex: useImported
         ? (nullableFiniteNumber(parsed.sectionIndex) ?? current.sectionIndex ?? null)
         : (current.sectionIndex ?? null),
+      textOffset: useImported
+        ? (nullableFiniteNumber(parsed.textOffset) ?? current.textOffset ?? null)
+        : (current.textOffset ?? null),
+      textQuote: useImported
+        ? (typeof parsed.textQuote === 'string' ? parsed.textQuote : current.textQuote ?? null)
+        : (current.textQuote ?? null),
+      textSectionLength: useImported
+        ? (nullableFiniteNumber(parsed.textSectionLength) ?? current.textSectionLength ?? null)
+        : (current.textSectionLength ?? null),
       anchorOffset: useImported
         ? (nullableFiniteNumber(parsed.anchorOffset) ?? current.anchorOffset ?? null)
         : (current.anchorOffset ?? null),
@@ -712,6 +897,8 @@ export function importOfflineReaderJson(bookId: string, json: string): { ok: boo
       bookmarksChangedAt: nowIso(),
       annotationsChangedAt: nowIso(),
       positionChangedAt: useImported ? nowIso() : current.positionChangedAt,
+      positionVersion: 4,
+      positionDirty: useImported ? true : current.positionDirty,
     });
     return { ok: true };
   } catch {

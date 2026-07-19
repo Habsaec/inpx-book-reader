@@ -54,6 +54,15 @@ export function useAppSync(opts: {
     };
   }, [canReadOnline, serverConfig, downloadedBooksWithFile, activeReaderRef]);
 
+  React.useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const onVisibilityChange = () => {
+      if (document.hidden) void flushOfflineReaderStore();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
+
   const prevConnectionStatusRef = React.useRef(connectionStatus);
   React.useEffect(() => {
     const prev = prevConnectionStatusRef.current;

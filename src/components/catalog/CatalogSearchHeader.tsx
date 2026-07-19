@@ -16,7 +16,7 @@ import {
 } from '../../lib/inpxClient';
 import { formatSuggestCount } from '../../lib/catalogBookPool';
 import { theme } from '../../lib/appTheme';
-import { textStyles, motion } from '../../ui/tokens';
+import { textStyles, motion, touchMin } from '../../ui/tokens';
 import type { CatalogSubTab as SubTab } from './catalogTypes';
 
 export type SuggestFlatItem =
@@ -125,16 +125,16 @@ export default function CatalogSearchHeader({
           <div className={`absolute left-0 right-0 top-full mt-1 z-30 border rounded-xl shadow-lg overflow-hidden ${theme.dropdown}`} data-swipe-lock>
             <div className={`px-3 py-1.5 flex items-center justify-between ${textStyles.labelCaps} ${theme.textMuted} bg-[var(--app-panel-soft)]`}>
               <span>Недавние запросы</span>
-              <button type="button" onClick={onClearSearchHistory} className={`${textStyles.microBold} ${theme.accentText} ${theme.focusRing}`}>
+              <button type="button" onClick={onClearSearchHistory} className={`${touchMin} inline-flex items-center px-2 ${textStyles.microBold} ${theme.accentText} rounded-lg ${theme.chipButton} ${theme.focusRing}`}>
                 Очистить
               </button>
             </div>
             {searchHistory.map((query) => (
               <div key={query} className={`flex items-center border-b border-[color:var(--app-border)] ${theme.dropdownItem}`}>
-                <button type="button" onClick={() => onSelectHistoryQuery(query)} className={`flex-1 text-left px-3 py-2 text-xs ${theme.focusRing}`}>
+                <button type="button" onClick={() => onSelectHistoryQuery(query)} className={`flex-1 text-left px-3 min-h-12 flex items-center text-xs ${theme.focusRing}`}>
                   {query}
                 </button>
-                <button type="button" aria-label={`Удалить запрос ${query}`} onClick={() => onRemoveHistoryQuery(query)} className={`px-2 py-2 ${theme.focusRing}`}>
+                <button type="button" aria-label={`Удалить запрос ${query}`} onClick={() => onRemoveHistoryQuery(query)} className={`${touchMin} inline-flex items-center justify-center shrink-0 ${theme.chipButton} ${theme.focusRing}`}>
                   <X className="w-3.5 h-3.5" aria-hidden />
                 </button>
               </div>
@@ -272,7 +272,7 @@ export default function CatalogSearchHeader({
         </div>
       )}
 
-      <div className="flex mt-3 pt-1 landscape:max-[500px]:mt-1 landscape:max-[500px]:pt-0">
+      <div className="flex mt-3 pt-1 landscape:max-[500px]:mt-1 landscape:max-[500px]:pt-0" role="tablist" aria-label="Раздел каталога">
         {(
           [
             { id: 'books' as const, label: 'Книги', icon: BookMarked },
@@ -287,16 +287,17 @@ export default function CatalogSearchHeader({
             <button
               key={tab.id}
               type="button"
+              role="tab"
               aria-selected={isActive}
               onClick={() => {
                 onSubTabChange(tab.id);
                 onClearDrilldown();
               }}
-              className={`flex-1 py-1 landscape:max-[500px]:py-0.5 flex flex-col items-center gap-0.5 ${textStyles.labelBold} landscape:max-[500px]:text-[11px] border-b-2 ${motion.colors} ${motion.press} ${theme.focusRing} ${
+              className={`flex-1 min-h-12 py-2 landscape:max-[500px]:py-1.5 flex flex-col items-center justify-center gap-0.5 ${textStyles.labelBold} border-b-2 ${motion.colors} ${motion.press} ${theme.focusRing} ${
                 isActive ? theme.accentBorder : `border-transparent ${theme.textMuted} hover:text-[var(--app-link)]`
               }`}
             >
-              <Icon className="w-3.5 h-3.5 landscape:max-[500px]:w-3 landscape:max-[500px]:h-3" aria-hidden />
+              <Icon className="w-4 h-4 landscape:max-[500px]:w-3.5 landscape:max-[500px]:h-3.5" aria-hidden />
               <span className="landscape:max-[500px]:hidden">{tab.label}</span>
             </button>
           );

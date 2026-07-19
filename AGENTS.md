@@ -47,10 +47,10 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 
 **Ключевые принципы:**
 
-1. **Единый UI/UX** — стили, цвета, шрифты, терминология должны соответствовать веб-интерфейсу сервера
-2. **Полная совместимость API** — использование всех endpoint'ов сервера (`/api/profile`, `/api/library/*`, `/api/catalog`, и т.д.)
+1. **Единый API и данные** — те же endpoint'ы, sync, метаданные через `/api/*`
+2. **Полная совместимость API** — использование endpoint'ов сервера (`/api/profile`, `/api/library/*`, `/api/catalog`, и т.д.)
 3. **Синхронизация данных** — прогресс чтения, закладки, заметки, избранное синхронизируются с сервером
-4. **Одинаковая функциональность** — читалка должна предоставлять те же возможности, что и веб-версия
+4. **Самостоятельный Android UI** — мобильный интерфейс проектируется под Android; **не привязан** к `/lite/` или веб-вёрстке сервера
 
 ---
 
@@ -94,6 +94,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 #### Книги и контент
 - `GET /api/books/:id/meta` — метаданные из INPX-индекса (`seriesList`, автор, жанры) — **источник правды для скачивания и путей на диске**
 - `GET /api/books/:id/content` — скачать книгу
+  - ID с NUL/control-символами (Flibusta): путь `/api/books/b64/<base64url>/content` (см. `bookRef.ts` / серверный `book-ref.js`), иначе HTTP 400
 - `GET /api/books/:id/cover` — обложка (full)
 - `GET /api/books/:id/cover-thumb` — обложка (миниатюра)
 - `GET /api/books/:id/details` — детали книги
@@ -104,14 +105,34 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/bookmarks` — список закладок
 - `POST /api/bookmarks/:id` — добавить/удалить закладку
 - `POST /api/read/:id` — отметить книгу как прочитанную
-- `GET /api/books/:id/position` — позиция чтения (`position`, `progress`, `fraction`, `fb2Href`, `sectionIndex`, `sectionPageFraction`, `paginatorPage`, `paginatorPages`, `layoutMode`, `updatedAt`)
-- `POST /api/books/:id/position` — сохранить позицию (те же поля в теле запроса)
+- `GET /api/books/:id/position` — позиция чтения (`position`, `progress`, `fraction`, `fb2Href`, `sectionIndex`, `textOffset`, `textQuote`, `textSectionLength`, `sectionPageFraction`, `paginatorPage`, `paginatorPages`, `layoutMode`, `updatedAt`, `positionVersion`, `revision`)
+- `GET /api/books/:id/reader-sync-meta` — ревизии закладок/заметок и метка позиции для sync
+- `POST /api/books/:id/position` — CAS-сохранение позиции: обязательны `positionVersion: 4` и `baseRevision`; ответ включает новую `revision`, конфликт — `409 { current }`, устаревший клиент получает `428`; ставит «прочитано» при 99% и снимает отметку при повторном чтении ниже 95%
 - `GET /api/books/:id/bookmarks` — закладки книги
 - `POST /api/books/:id/bookmarks` — добавить закладку
 - `DELETE /api/books/:id/bookmarks/:bmId` — удалить закладку
 - `GET /api/books/:id/annotations` — заметки книги
 - `POST /api/books/:id/annotations` — добавить заметку
 - `DELETE /api/books/:id/annotations/:aid` — удалить заметку
+
+#### История и activity sync
+- `GET /api/reader-activity-sync-meta` — ревизии «прочитано» и истории чтения
+- `POST /api/reading-history/:id` — отметить открытие книги (`lastOpenedAt`)
+- `DELETE /api/reading-history/:id` — удалить запись из истории чтения
+
+#### Контракт позиции чтения (Foliate glue)
+
+Общая логика: `public/inpx-reader/position-sync.js` (копия серверного `public/position-sync.js` через `scripts/sync-shared-reader.mjs`).
+
+| Поле | Правило |
+|------|---------|
+| `fraction` | Основной якорь — из Foliate `loc.fraction`, **не** % по оглавлению |
+| `progress` | Процент для UI, вычисляется из `fraction` |
+| `fb2Href` | Грубый fallback FB2 (`раздел` или `раздел#блок`); не отменяет различие точных `fraction` |
+| `textOffset` / `textQuote` / `textSectionLength` | Точный, независимый от вёрстки FB2-якорь внутри `sectionIndex`; имеет приоритет над `fraction` и `fb2Href` |
+| `position` | CFI / paginator для EPUB; для FB2 пустой при наличии `fb2Href` |
+| `positionVersion` | Версия координат; при миграции `< 4` FB2/FBZ сбрасывают все координаты, EPUB сохраняет только CFI |
+| `revision` / `baseRevision` | Серверный CAS: запись принимается только от известной текущей ревизии; конфликт `409` уходит в диалог |
 
 #### Полки (Shelves)
 - `GET /api/shelves` — список полок
@@ -125,40 +146,26 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/settings/ui` — UI настройки (название, логотип)
 - `GET /health` — проверка доступности сервера
 
-### UI/UX соответствие
+### Android UI (независимый от сервера)
 
-Приложение должно придерживаться тех же принципов UI/UX, что и веб-интерфейс сервера:
+Android-приложение имеет **собственный мобильный UX** — не копирует `/lite/` и не повторяет веб-layout сервера.
 
-#### Цветовая схема
-- Использовать CSS переменные из `public/styles.css` сервера
-- **Тёмная тема** (по умолчанию в сервере):
-  - `--bg: #1e1a16` → `--app-bg`
-  - `--text: #e8e0d4` → `--app-text`
-  - `--link: #d4ac5c` → `--app-link`
-  - `--accent-hover: #a1671b` → `--app-accent-hover`
-  - `--surface: #1a1612` → `--app-surface`
-  - `--border: rgba(145, 109, 43, 0.14)` → `--app-border`
-  - `--topbar-bg: rgba(24,20,16,0.92)` → `--app-topbar-bg`
-  - `--panel-soft-bg: rgba(180,145,80,0.09)` → `--app-panel-soft`
-  - `--card-bg: rgba(180,145,80,0.025)` → `--app-card-bg`
-- **Светлая тема**:
-  - `--bg: #f5f1e8`, `--text: #2e2418`, `--link: #8b5a12`, и т.д.
-- **Синхронизация тем**: При смене темы на сервере, читалка должна автоматически подстраиваться
+**Общее с сервером (данные, не экраны):**
+- Те же API и sync по `bookId`
+- Доменная терминология в текстах ошибок и подписях к данным («Полки», «Закладки», …)
+- Брендинг библиотеки через `GET /api/settings/ui` (название, логотип) — опционально
 
-#### Терминология
-- Использовать те же термины: «Профиль», «Каталог», «Закладки», «Заметки», «Полки»
-- Те же формулировки в сообщениях об ошибках
-- Единообразие в названиях разделов
+**Своё в приложении:**
+- Навигация, табы, жесты, safe-area, кнопка «Назад»
+- Layout списков и карточек — под Android WebView
+- Анимации с учётом WebView (`reducedMotion="always"`)
 
-#### Функциональность
-- Все функции читалки должны соответствовать возможностям веб-версии
-- Те же настройки отображения (темы, шрифты, размеры)
-- Те же возможности работы с закладками и заметками
+**Функциональность:** доступ к тем же возможностям через API (каталог, чтение, sync, полки, …), но реализация UI — мобильная.
 
 ### Синхронизация данных
 
 Приложение синхронизирует с сервером:
-- ✅ Прогресс чтения (позиция, процент)
+- ✅ Прогресс чтения (позиция, процент) — **LWW по `updatedAt`**; при открытии книги диалог, если на другом устройстве сохранена более новая другая позиция
 - ✅ Закладки (bookmarks)
 - ✅ Заметки (annotations)
 - ✅ Избранные авторы и серии
@@ -294,7 +301,7 @@ npm run lint
 ### 1. Интеграция с INPX Library Server
 - **Полная совместимость API** — все endpoint'ы сервера должны работать в читалке
 - **Синхронизация данных** — прогресс, закладки, заметки, избранное
-- **UI/UX соответствие** — цвета, шрифты, термины как в веб-версии
+- **UI/UX** — самостоятельный мобильный интерфейс; API и sync — как на сервере
 - **Обработка ошибок** — те же сообщения об ошибках, что и на сервере
 
 ### 2. Стабильность чтения книг
@@ -334,15 +341,10 @@ npm run lint
 
 ## 🔄 Поддержание единой экосистемы с сервером
 
-### При изменении CSS переменных на сервере
+### Брендинг библиотеки (опционально)
 
-1. **Проверить `D:\inpx-library-server\public\styles.css`**
-   - Найти изменения в `:root` (тёмная тема) и `html[data-theme="light"]`
-2. **Обновить `src/index.css`** в читалке
-   - Синхронизировать значения `--app-*` с серверными `--*`
-   - Пример: `--bg` (сервер) → `--app-bg` (читалка)
-3. **Проверить `src/lib/appTheme.ts`**
-   - Убедиться, что все Tailwind-классы используют актуальные переменные
+Если нужно подтянуть название/логотип с сервера — `GET /api/settings/ui`.  
+Синхронизация палитры с `styles.css` сервера **не обязательна**; Android-тема живёт в `src/index.css` и `src/lib/appTheme.ts` независимо от `/lite/`.
 
 ### При добавлении нового API endpoint на сервере
 
@@ -366,7 +368,7 @@ npm run lint
 
 ### Проверка перед релизом
 
-- [ ] Цвета UI совпадают с веб-версией (тёмная и светлая темы)
+- [ ] API и sync работают с сервером
 - [ ] Все API endpoint'ы работают корректно
 - [ ] Терминология единообразна
 - [ ] Сообщения об ошибках совпадают

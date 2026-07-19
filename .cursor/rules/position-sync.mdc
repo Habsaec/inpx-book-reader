@@ -1,0 +1,41 @@
+---
+description: Контракт position-sync — общая логика reader и server
+globs: "**/position-sync.js,**/syncMerge.ts,**/syncConflicts.ts,**/positionRevision.ts"
+alwaysApply: false
+---
+
+# Position Sync Contract
+
+**Источник правды:** `D:\inpx-library-server\public\position-sync.js`  
+**Копия в reader:** `public/inpx-reader/position-sync.js` (через `scripts/sync-shared-reader.mjs`)
+
+## Правило изменений
+
+1. Менять **сначала на сервере** (`public/position-sync.js`)
+2. Скопировать: `node scripts/sync-shared-reader.mjs` (из reader)
+3. Проверить: `node scripts/verify-position-sync.mjs`
+4. Обновить тесты в обоих репо
+5. Обновить таблицу полей в обоих `AGENTS.md`
+
+## Ключевые поля (v4)
+
+| Поле | Назначение |
+|------|------------|
+| `textOffset`, `textQuote`, `textSectionLength` | Точный текстовый якорь |
+| `fraction` | Книжная координата, fallback (не точный якорь) |
+| `progress` | Процент из `fraction` |
+| `fb2Href` | Грубый FB2 fallback |
+| `position` | EPUB CFI |
+| `positionVersion: 4` | Версия контракта |
+| `revision` / `baseRevision` | CAS на сервере |
+
+## CAS на сервере
+
+- `POST /api/books/:id/position` — `baseRevision` обязателен
+- Конфликт → `409 { current }`; legacy → `428`
+
+## Не делать
+
+- Не править `public/inpx-reader/position-sync.js` напрямую без sync с сервером
+- Не использовать `fraction` как точный текстовый якорь
+- Не синхронизировать по пути файла на диске — только `bookId`

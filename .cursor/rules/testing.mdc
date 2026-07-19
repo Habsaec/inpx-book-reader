@@ -1,0 +1,36 @@
+---
+description: Тестирование — Vitest и verify-скрипты
+globs: "**/*.{test.ts,test.tsx}"
+alwaysApply: false
+---
+
+# Testing (reader)
+
+## Runner
+
+```bash
+npm test          # vitest run
+npm run lint      # tsc --noEmit
+npm run build:app # включает verify-position-sync
+```
+
+## Где тесты
+
+- `src/lib/__tests__/` — основная логика (sync, client, storage)
+- `src/ui/__tests__/` — UI-компоненты
+
+## Стиль
+
+- Чистая логика без DOM где возможно (vitest env: `node`)
+- `@testing-library/react` + `happy-dom` для UI
+- Тестировать поведение, не implementation details
+
+## При изменении sync/API
+
+- Обновить тесты в `syncMerge.test.ts`, `inpxClient` tests
+- Прогнать `npm test` перед завершением
+
+## E2E
+
+- `npm run test:e2e` — smoke (Playwright-core, dev server)
+- Не заменяет unit-тесты sync-логики

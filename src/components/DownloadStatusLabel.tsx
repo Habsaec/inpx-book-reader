@@ -1,6 +1,6 @@
 import React from 'react';
 import { theme } from '../lib/appTheme';
-import { textStyles } from '../ui/tokens';
+import { textStyles, semantic } from '../ui/tokens';
 import { Cloud, HardDrive } from 'lucide-react';
 
 interface DownloadStatusLabelProps {
@@ -17,7 +17,7 @@ export default function DownloadStatusLabel({
   if (isDownloaded) {
     return (
       <span
-        className={`inline-flex items-center gap-1 ${textStyles.microBold} text-emerald-600 dark:text-emerald-400 ${className}`}
+        className={`inline-flex items-center gap-1 ${textStyles.microBold} ${semantic.success} ${className}`}
       >
         <HardDrive className="w-3 h-3 shrink-0 opacity-80" aria-hidden />
         На устройстве

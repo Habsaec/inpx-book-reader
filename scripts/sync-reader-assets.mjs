@@ -17,7 +17,8 @@ function copyDir(src, dest) {
 }
 
 copyDir(path.join(serverRoot, 'public/foliate'), path.join(publicDir, 'foliate'));
-fs.copyFileSync(path.join(serverRoot, 'public/reader.js'), path.join(publicDir, 'inpx-reader/reader.js'));
+// Do NOT copy server reader.js — app reader has Android-specific code and a distinct
+// positionFromLocation wrapper; blind copy reintroduces stack overflow (shadowed import).
 fs.copyFileSync(path.join(serverRoot, 'public/reader.css'), path.join(publicDir, 'inpx-reader/reader.css'));
 
 const { renderReader } = await import(pathToFileURL(path.join(serverRoot, 'src/templates/library.js')).href);

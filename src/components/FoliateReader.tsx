@@ -7,9 +7,17 @@ import { ReaderNative } from '../lib/readerNative';
 import { getSafeAreaInsets, postSafeAreaToWindow, prepareReaderSafeArea, type SafeAreaInsets } from '../lib/safeArea';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { theme } from '../lib/appTheme';
+import { ScreenLoader } from '../ui/Skeleton';
 import { applyReaderOrientationLock } from '../lib/readerOrientation';
 import { APP_SETTING_KEYS, getAppSettingJson } from '../lib/appSettings';
 import { applyIframeReaderStore, primeReaderLocalStorage, readOfflineReaderData } from '../lib/offlineReaderStore';
+import {
+  CROSS_DEVICE_POSITION_ACCEPT,
+  CROSS_DEVICE_POSITION_DECLINE,
+  formatPositionProgressLabel,
+  resolvePositionDisplayMeta,
+} from '../lib/syncMerge';
+import { useDialog } from '../ui/Dialog';
 import type { ReaderFontFamily } from './reader/readerTypes';
 
 interface ReaderPrefs {
@@ -70,7 +78,11 @@ export default function FoliateReader({
   localFile,
   onClose,
 }: FoliateReaderProps) {
+  const dialog = useDialog();
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
+  const positionPromptRef = React.useRef<string | null>(null);
+  const positionPromptBusyRef = React.useRef(false);
+  const positionPromptQueueRef = React.useRef<MessageEvent[]>([]);
   const flushAckRef = React.useRef<{
     resolve: () => void;
     timer: number;
@@ -78,6 +90,109 @@ export default function FoliateReader({
   const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState('');
   const readerPrefsRef = React.useRef(readReaderPrefs());
+  const iframeOriginRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (!iframeSrc) {
+      iframeOriginRef.current = null;
+      return;
+    }
+    try {
+      iframeOriginRef.current = new URL(iframeSrc, window.location.href).origin;
+    } catch {
+      iframeOriginRef.current = window.location.origin;
+    }
+  }, [iframeSrc]);
+
+  const isTrustedReaderMessage = React.useCallback((event: MessageEvent): boolean => {
+    if (event.source !== iframeRef.current?.contentWindow) return false;
+    const expected = iframeOriginRef.current;
+    if (expected && event.origin !== expected && event.origin !== 'null') return false;
+    return true;
+  }, []);
+
+  const runPositionPrompt = React.useCallback(async (event: MessageEvent) => {
+    const requestId = String(event.data.requestId || '');
+    const source = event.source as Window;
+    const flatToc = Array.isArray(event.data.flatToc) ? event.data.flatToc : null;
+    try {
+      const localLine = formatPositionProgressLabel(
+        Number(event.data.localFraction) || 0,
+        Number(event.data.localProgress) || 0,
+        resolvePositionDisplayMeta({
+          fraction: Number(event.data.localFraction) || 0,
+          progress: Number(event.data.localProgress) || 0,
+          fb2Href: event.data.localFb2Href,
+          position: event.data.localPosition,
+          paginatorPage: event.data.localPaginatorPage,
+          paginatorPages: event.data.localPaginatorPages,
+          sectionIndex: event.data.localSectionIndex,
+          textOffset: event.data.localTextOffset,
+          textQuote: event.data.localTextQuote,
+          textSectionLength: event.data.localTextSectionLength,
+        }, flatToc),
+      );
+      const serverLine = formatPositionProgressLabel(
+        Number(event.data.serverFraction) || 0,
+        Number(event.data.serverProgress) || 0,
+        resolvePositionDisplayMeta({
+          fraction: Number(event.data.serverFraction) || 0,
+          progress: Number(event.data.serverProgress) || 0,
+          fb2Href: event.data.serverFb2Href,
+          position: event.data.serverPosition,
+          paginatorPage: event.data.serverPaginatorPage,
+          paginatorPages: event.data.serverPaginatorPages,
+          sectionIndex: event.data.serverSectionIndex,
+          textOffset: event.data.serverTextOffset,
+          textQuote: event.data.serverTextQuote,
+          textSectionLength: event.data.serverTextSectionLength,
+        }, flatToc),
+      );
+      const accepted = await dialog.confirm({
+        title: 'Позиция чтения',
+        message: String(event.data.message || 'Ранее вы уже читали эту книгу на другом устройстве. Перейти на сохранённую позицию?'),
+        positionCompare: {
+          localLabel: 'Сейчас',
+          localValue: localLine,
+          serverLabel: 'На другом устройстве',
+          serverValue: serverLine,
+        },
+        confirmLabel: CROSS_DEVICE_POSITION_ACCEPT,
+        cancelLabel: CROSS_DEVICE_POSITION_DECLINE,
+      });
+      source.postMessage({
+        type: 'inpx-reader-position-prompt-response',
+        requestId,
+        accepted,
+      }, '*');
+    } finally {
+      positionPromptBusyRef.current = false;
+      if (positionPromptRef.current === requestId) positionPromptRef.current = null;
+      const next = positionPromptQueueRef.current.shift();
+      if (next) {
+        const nextId = String(next.data.requestId || '');
+        if (nextId) {
+          positionPromptRef.current = nextId;
+          positionPromptBusyRef.current = true;
+          void runPositionPrompt(next);
+        }
+      }
+    }
+  }, [dialog]);
+
+  const enqueuePositionPrompt = React.useCallback((event: MessageEvent) => {
+    const requestId = String(event.data.requestId || '');
+    if (!requestId || positionPromptRef.current === requestId) return;
+    if (positionPromptBusyRef.current) {
+      if (!positionPromptQueueRef.current.some((queued) => String(queued.data.requestId || '') === requestId)) {
+        positionPromptQueueRef.current.push(event);
+      }
+      return;
+    }
+    positionPromptRef.current = requestId;
+    positionPromptBusyRef.current = true;
+    void runPositionPrompt(event);
+  }, [runPositionPrompt]);
 
   React.useEffect(() => {
     void applyReaderOrientationLock(readerPrefsRef.current.orientationLock);
@@ -113,7 +228,15 @@ export default function FoliateReader({
     })();
 
     return () => {
-      void StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
+      void ReaderNative.setBrightness({ level: -1 }).catch(() => {});
+      void (async () => {
+        try {
+          await StatusBar.show();
+          await StatusBar.setOverlaysWebView({ overlay: true });
+        } catch {
+          // ignore
+        }
+      })();
     };
   }, []);
 
@@ -299,6 +422,7 @@ export default function FoliateReader({
       }
 
       if (event.data?.type === 'inpx-reader-sync-store' && event.data.bookId === bookId) {
+        if (!isTrustedReaderMessage(event)) return;
         applyIframeReaderStore(bookId, event.data.data || {});
         if (flushAckRef.current) {
           clearTimeout(flushAckRef.current.timer);
@@ -309,7 +433,50 @@ export default function FoliateReader({
         return;
       }
 
+      if (
+        event.data?.type === 'inpx-reader-position-prompt-request'
+        && event.data?.bookId === bookId
+        && isTrustedReaderMessage(event)
+      ) {
+        enqueuePositionPrompt(event);
+        return;
+      }
+
       if (event.data?.type === 'inpx-reader-close') requestClose();
+
+      if (
+        event.data?.type === 'inpx-reader-immersive'
+        && event.source === iframeRef.current?.contentWindow
+      ) {
+        const enabled = Boolean(event.data.enabled);
+        if (Capacitor.getPlatform() === 'android') {
+          void (async () => {
+            try {
+              if (enabled) {
+                await StatusBar.setOverlaysWebView({ overlay: true });
+                await StatusBar.hide();
+              } else {
+                await StatusBar.show();
+                await StatusBar.setOverlaysWebView({ overlay: false });
+              }
+            } catch {
+              // ignore
+            }
+          })();
+        }
+        return;
+      }
+
+      if (
+        event.data?.type === 'inpx-reader-native-handshake'
+        && event.source === iframeRef.current?.contentWindow
+      ) {
+        (event.source as Window).postMessage({
+          type: 'inpx-native-ready',
+          ready: Capacitor.isNativePlatform(),
+        }, '*');
+        return;
+      }
 
       if (event.data?.type === 'inpx-native-call' && event.source === iframeRef.current?.contentWindow) {
         void handleNativeCall(event.data.id, event.data.method, event.data.data, iframeRef.current?.contentWindow ?? null);
@@ -318,7 +485,7 @@ export default function FoliateReader({
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [bookId, requestClose]);
+  }, [bookId, enqueuePositionPrompt, isTrustedReaderMessage, requestClose]);
 
   React.useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -371,8 +538,8 @@ export default function FoliateReader({
 
   if (!iframeSrc) {
     return (
-      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[var(--app-bg)] text-[var(--app-text)]" role="status" aria-live="polite">
-        <p className="text-sm">Загрузка книги…</p>
+      <div className="fixed inset-0 z-[200] flex flex-col bg-[var(--app-bg)] text-[var(--app-text)]">
+        <ScreenLoader label="Загрузка книги…" />
       </div>
     );
   }

@@ -18,7 +18,7 @@ export function upsertProgressFromLocalReader(
   const pct = Math.round(data.progress);
   if (pct <= 0 && !data.position) return progressList;
 
-  const lastRead = data.updatedAt ? Date.parse(data.updatedAt) : Date.now();
+  const lastRead = Date.parse(data.positionChangedAt || data.updatedAt || '') || Date.now();
   if (!Number.isFinite(lastRead)) return progressList;
 
   const finished = pct >= 95;
@@ -32,7 +32,7 @@ export function upsertProgressFromLocalReader(
             bookTitle: book.title || p.bookTitle,
             authorName: book.author || p.authorName,
             percentage: pct,
-            finished: finished || p.finished,
+            finished,
             lastRead: Math.max(p.lastRead, lastRead),
           }
         : p,
@@ -71,14 +71,14 @@ export function buildLocalRecentReading(books: Book[]): LocalRecentReadingItem[]
     .map((book) => {
       const data = readOfflineReaderData(book.id);
       const progress = Math.round(data.progress);
-      if (progress <= 0 || !data.updatedAt) return null;
+      if (progress <= 0 || !(data.positionChangedAt || data.updatedAt)) return null;
       const item: LocalRecentReadingItem = {
         id: book.id,
         title: book.title,
         authorsDisplay: book.author,
         ext: (book.ext || 'fb2').replace(/^\./, ''),
         readProgress: progress,
-        lastOpenedAt: data.updatedAt,
+        lastOpenedAt: data.positionChangedAt || data.updatedAt || '',
         series: book.series,
         seriesNo: book.seriesNo,
       };
@@ -106,10 +106,12 @@ export function mergeRecentReadingLists(
     }
     const localTs = Date.parse(local.lastOpenedAt);
     const serverTs = Date.parse(existing.lastOpenedAt);
+    const useLocal = Number.isFinite(localTs) && (!Number.isFinite(serverTs) || localTs >= serverTs);
     byId.set(local.id, {
       ...existing,
-      readProgress: Math.max(existing.readProgress, local.readProgress),
-      lastOpenedAt: localTs > serverTs ? local.lastOpenedAt : existing.lastOpenedAt,
+      ...(useLocal ? local : {}),
+      readProgress: useLocal ? local.readProgress : existing.readProgress,
+      lastOpenedAt: useLocal ? local.lastOpenedAt : existing.lastOpenedAt,
     });
   }
 

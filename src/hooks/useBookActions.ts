@@ -2,7 +2,7 @@ import React from 'react';
 import { Book, Bookmark, Highlight, ReadingProgress, ServerConfig, Shelf } from '../types';
 import { debugSessionLog } from '../lib/debugSessionLog';
 import { extFromStoragePath, removeBookFromDirectory } from '../lib/bookStorage';
-import { resolveLocalBookFile } from '../lib/localBookAccess';
+import { resolveLocalBookFile, clearLocalFileMeta } from '../lib/localBookAccess';
 import { writeStoredStorageDirectory } from '../lib/storageDirectory';
 import { removeCoverFromDirectory } from '../lib/coverCache';
 import {
@@ -14,6 +14,7 @@ import {
   listLocalReaderAnnotations,
   listLocalReaderBookmarks,
   readOfflineReaderData,
+  migrateOfflineReaderPositionForFormat,
   hasOfflineReadingProgress,
   primeReaderLocalStorage,
   flushOfflineReaderStore,
@@ -24,7 +25,9 @@ import {
   type OfflineReaderAnnotation,
   type OfflineReaderBookmark,
 } from '../lib/offlineReaderStore';
-import { finalizeReadingPositionSync, pullServerPositionIfAhead, syncOfflineReaderForBook } from '../lib/offlineSync';
+import { useDialog } from '../ui/Dialog';
+import { finalizeReadingPositionSync, syncOfflineReaderForBook } from '../lib/offlineSync';
+import { runBookOpenOnlineSync } from '../lib/bookOpenSync';
 import {
   applyServerActivitySyncMeta,
   buildSyncActivityOptions,
@@ -41,7 +44,6 @@ import { fetchReaderActivitySyncMeta, recordReadingHistory } from '../lib/inpxCl
 import { downloadQueue } from '../lib/downloadQueue';
 import { enqueueSyncOp } from '../lib/localDb';
 import type { StorageDirectory } from '../lib/storageDirectory';
-import { useDialog } from '../ui/Dialog';
 import { useSnackbar } from '../ui/Snackbar';
 import type { useInpxServer } from './useInpxServer';
 
@@ -195,6 +197,9 @@ export function useBookActions(opts: {
           localFileName: resolved.localFileName,
           storageUri: storageDirectory?.uri,
         });
+        setDownloadedBooks((prev) =>
+          prev.map((b) => (b.id === resolved.id ? clearLocalFileMeta(b) : b)),
+        );
         snackbar.show(
           'Файл книги не найден на устройстве. Проверьте папку хранения в профиле или скачайте заново.',
           undefined,
@@ -211,17 +216,38 @@ export function useBookActions(opts: {
         localFile: loc.localFileName,
         storageUri: loc.storageUri,
       });
-      await hydrateOfflineReaderStore();
-      await flushOfflineReaderStore();
-      let pulled = false;
+      try {
+        await hydrateOfflineReaderStore();
+        await flushOfflineReaderStore();
+      } catch {
+        /* открыть с локальными данными */
+      }
+      const resolvedExt = (resolved.ext || extFromStoragePath(loc.localFileName) || 'fb2').replace(/^\./, '');
+      migrateOfflineReaderPositionForFormat(resolved.id, resolvedExt);
       if (canReadOnline) {
-        pulled = await pullServerPositionIfAhead(serverConfig, resolved.id);
-        await syncBookReaderData(resolved.id, { includePosition: true, neverPushPosition: true });
+        const { positionChoice } = await runBookOpenOnlineSync(
+          canReadOnline,
+          serverConfig,
+          resolved.id,
+          initialPosition,
+          {
+            syncReaderData: (bookId) => syncBookReaderData(bookId, { includePosition: false }),
+            yieldForUi: () =>
+              new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve());
+              }),
+          },
+        );
+        if (positionChoice) {
+          debugSessionLog('P5', 'App:handleOpenBook', 'position on open', {
+            bookId: resolved.id,
+            positionChoice,
+          });
+        }
       }
       const localAfterSync = readOfflineReaderData(resolved.id);
       debugSessionLog('P5', 'App:handleOpenBook', 'synced before open', {
         bookId: resolved.id,
-        pulled,
         fraction: localAfterSync.fraction ?? null,
         progress: localAfterSync.progress,
         fb2Href: localAfterSync.fb2Href ? String(localAfterSync.fb2Href).slice(0, 40) : null,
@@ -232,12 +258,12 @@ export function useBookActions(opts: {
       setActiveReader({
         bookId: resolved.id,
         title: resolved.title,
-        ext: (resolved.ext || extFromStoragePath(loc.localFileName) || 'fb2').replace(/^\./, ''),
+        ext: resolvedExt,
         initialPosition: explicitPos,
         localFile: { storageUri: loc.storageUri, localFileName: loc.localFileName },
       });
     },
-    [canReadOnline, enrichBookMeta, onStorageDirectoryResolved, promptDownloadBook, serverConfig, setProgressList, snackbar, storageDirectory, syncBookReaderData],
+    [canReadOnline, dialog, enrichBookMeta, onStorageDirectoryResolved, promptDownloadBook, serverConfig, setDownloadedBooks, setProgressList, snackbar, storageDirectory, syncBookReaderData],
   );
 
   const handleOpenBook = React.useCallback(
@@ -437,15 +463,17 @@ export function useBookActions(opts: {
     });
 
     for (const [bookId, pct] of Object.entries(localByBook)) {
-      out[bookId] = Math.max(out[bookId] ?? 0, pct);
+      out[bookId] = pct;
     }
 
     if (isOnline) {
       inpxServer.readingProgress.forEach((pct, bookId) => {
-        out[bookId] = Math.max(out[bookId] ?? 0, pct);
+        if (!Object.prototype.hasOwnProperty.call(localByBook, bookId)) {
+          out[bookId] = pct;
+        }
       });
       inpxServer.readIds.forEach((bookId) => {
-        out[bookId] = 100;
+        if (out[bookId] == null) out[bookId] = 100;
       });
     }
     return out;

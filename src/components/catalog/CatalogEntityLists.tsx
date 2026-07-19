@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronRight, ChevronDown, Tag, Library } from 'lucide-react';
+import { ChevronRight, ChevronDown, Tag, Library, User } from 'lucide-react';
 import { ServerConfig } from '../../types';
 import { theme } from '../../lib/appTheme';
 import LiteEntityRow from '../LiteEntityRow';
@@ -136,17 +136,15 @@ export default function CatalogEntityLists({
                 onClick={() => onOpenAuthor(authorKey)}
               />
             ) : (
-              <div
+              <button
+                type="button"
                 key={author.name}
-                role="button"
-                tabIndex={0}
                 onClick={() => onOpenAuthor(author.name)}
-                onKeyDown={(e) => e.key === 'Enter' && onOpenAuthor(author.name)}
-                className={`border-b last:border-b-0 py-3 flex items-center justify-between cursor-pointer ${theme.rowPress} ${theme.divider} ${theme.focusRing}`}
+                className={`w-full border-b last:border-b-0 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.divider} ${theme.focusRing}`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center border text-sm shrink-0 ${theme.iconBg}`}>
-                    👤
+                    <User className={`w-4 h-4 ${theme.accentText}`} aria-hidden />
                   </div>
                   <div className="min-w-0">
                     <h3 className="text-xs font-black truncate">{author.name}</h3>
@@ -157,9 +155,9 @@ export default function CatalogEntityLists({
                 </div>
                 <div className={`flex items-center gap-1.5 shrink-0 font-mono ${textStyles.micro} ${theme.accentText} font-bold`}>
                   ★ {author.avgRating}
-                  <ChevronRight className={`w-3.5 h-3.5 ${theme.textMuted}`} />
+                  <ChevronRight className={`w-3.5 h-3.5 ${theme.textMuted}`} aria-hidden />
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -240,15 +238,14 @@ export default function CatalogEntityLists({
           const subgenresList = Object.values(genreItem.subgenres);
           return (
             <div key={genreItem.name} className={`border rounded-2xl overflow-hidden ${themeCardSecondary}`}>
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 onClick={() => onToggleGenreExpand(genreItem.name)}
-                onKeyDown={(e) => e.key === 'Enter' && onToggleGenreExpand(genreItem.name)}
-                className={`px-4 py-3 flex items-center justify-between cursor-pointer border-b transition-colors ${theme.panel} ${theme.chipHover}`}
+                aria-expanded={isExpanded}
+                className={`w-full px-4 py-3 flex items-center justify-between text-left border-b transition-colors ${theme.panel} ${theme.chipHover} ${theme.focusRing}`}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <Tag className={`w-4 h-4 ${themeAccentText}`} />
+                  <Tag className={`w-4 h-4 ${themeAccentText}`} aria-hidden />
                   <div>
                     <h3 className="text-xs font-black">{genreItem.name}</h3>
                     <p className={`${textStyles.micro} ${theme.textMuted} mt-0.5`}>
@@ -261,12 +258,12 @@ export default function CatalogEntityLists({
                     ★ {genreItem.avgRating}
                   </span>
                   {isExpanded ? (
-                    <ChevronDown className={`w-4 h-4 ${theme.textMuted}`} />
+                    <ChevronDown className={`w-4 h-4 ${theme.textMuted}`} aria-hidden />
                   ) : (
-                    <ChevronRight className={`w-4 h-4 ${theme.textMuted}`} />
+                    <ChevronRight className={`w-4 h-4 ${theme.textMuted}`} aria-hidden />
                   )}
                 </div>
-              </div>
+              </button>
               <AnimatePresence initial={false}>
                 {isExpanded && (
                   <motion.div
@@ -276,13 +273,11 @@ export default function CatalogEntityLists({
                     className="overflow-hidden divide-y bg-black/5 divide-[color:var(--app-border)]"
                   >
                     {subgenresList.map((sub) => (
-                      <div
+                      <button
+                        type="button"
                         key={sub.name}
-                        role="button"
-                        tabIndex={0}
                         onClick={() => onSelectSubgenre(genreItem.name, sub.name)}
-                        onKeyDown={(e) => e.key === 'Enter' && onSelectSubgenre(genreItem.name, sub.name)}
-                        className={`px-4 py-2.5 pl-8 flex items-center justify-between text-xs cursor-pointer ${theme.rowPress} ${theme.focusRing}`}
+                        className={`w-full px-4 py-2.5 pl-8 flex items-center justify-between text-left text-xs ${theme.rowPress} ${theme.focusRing}`}
                       >
                         <div>
                           <span className="font-bold">{sub.name}</span>
@@ -290,9 +285,9 @@ export default function CatalogEntityLists({
                         </div>
                         <div className={`flex items-center gap-1.5 ${textStyles.microBold} ${theme.accentText}`}>
                           ★ {sub.avgRating}
-                          <ChevronRight className={`w-3.5 h-3.5 ${theme.textMuted}/40`} />
+                          <ChevronRight className={`w-3.5 h-3.5 ${theme.textMuted}/40`} aria-hidden />
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </motion.div>
                 )}

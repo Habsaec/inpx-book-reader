@@ -11,9 +11,12 @@ import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
 import java.util.Locale;
 import java.util.Set;
-import java.util.function.BiConsumer;
 
 public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
+
+    public interface UtteranceCallback {
+        void onEvent(String type, String utteranceId);
+    }
 
     private static TtsPlaybackManager instance;
 
@@ -30,7 +33,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
     private String lastSpokenText = "";
     private String lastUtteranceId = "";
     private Runnable pendingStopService;
-    private BiConsumer<String, String> utteranceCallback;
+    private UtteranceCallback utteranceCallback;
 
     private TtsPlaybackManager(Context context) {
         appContext = context.getApplicationContext();
@@ -44,7 +47,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
         return instance;
     }
 
-    public void setUtteranceCallback(BiConsumer<String, String> callback) {
+    public void setUtteranceCallback(UtteranceCallback callback) {
         utteranceCallback = callback;
     }
 
@@ -201,7 +204,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
 
     private void emitEvent(String type, String utteranceId) {
         if (utteranceCallback == null) return;
-        utteranceCallback.accept(type, utteranceId);
+        utteranceCallback.onEvent(type, utteranceId);
     }
 
     private void startForegroundService() {

@@ -1,0 +1,26 @@
+---
+description: Vitest testing conventions for the reader app
+globs: "**/*.{test,spec}.{ts,tsx}"
+alwaysApply: false
+---
+
+# Vitest (Reader)
+
+## Run
+
+```bash
+npm run lint    # tsc --noEmit
+npm test        # vitest run
+```
+
+## Style
+
+- Pure logic tests in `src/lib/__tests__/` — no DOM unless needed
+- Test behavior: sync merge, conflict resolution, API parsing, storage paths
+- Name: `should_<behavior>_when_<condition>`
+
+## When to Add Tests
+
+- Sync/position logic changes — required
+- New `inpxClient` parsing — required
+- UI-only changes — only if requested

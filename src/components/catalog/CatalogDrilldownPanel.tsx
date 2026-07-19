@@ -154,13 +154,13 @@ export default function CatalogDrilldownPanel({
             <button
               type="button"
               onClick={() => onToggleFavoriteAuthor(selectedAuthor)}
-              className={`p-2 rounded-xl border flex items-center gap-1 ${textStyles.micro} font-bold cursor-pointer transition-all shrink-0 ${
+              className={`min-h-12 px-3 rounded-xl border flex items-center gap-1 ${textStyles.micro} font-bold cursor-pointer transition-all shrink-0 ${theme.focusRing} ${
                 favoriteAuthors.includes(selectedAuthor)
-                  ? 'bg-rose-500/10 border-rose-500 text-rose-500'
+                  ? 'bg-[color-mix(in_srgb,var(--app-danger)_12%,transparent)] border-[var(--app-danger)] text-[var(--app-danger)]'
                   : `${theme.input} ${theme.textMuted} hover:text-[var(--app-text)]`
               }`}
             >
-              <Heart className={`w-3.5 h-3.5 ${favoriteAuthors.includes(selectedAuthor) ? 'fill-rose-500' : ''}`} aria-hidden />
+              <Heart className={`w-3.5 h-3.5 ${favoriteAuthors.includes(selectedAuthor) ? 'fill-[var(--app-danger)]' : ''}`} aria-hidden />
               {favoriteAuthors.includes(selectedAuthor) ? 'В избранном' : 'В избранное'}
             </button>
           </div>
@@ -197,13 +197,13 @@ export default function CatalogDrilldownPanel({
           <button
             type="button"
             onClick={() => onToggleFavoriteSeries(selectedSeries)}
-            className={`p-2 rounded-xl border flex items-center gap-1 ${textStyles.micro} font-bold cursor-pointer transition-all ${
+            className={`min-h-12 px-3 rounded-xl border flex items-center gap-1 ${textStyles.micro} font-bold cursor-pointer transition-all ${theme.focusRing} ${
               favoriteSeries.includes(selectedSeries)
-                ? 'bg-amber-500/15 border-amber-500 text-amber-500'
+                ? 'bg-[color-mix(in_srgb,var(--app-warning)_15%,transparent)] border-[var(--app-warning)] text-[var(--app-warning)]'
                 : `${theme.input} ${theme.textMuted} hover:text-[var(--app-text)]`
             }`}
           >
-            <Star className={`w-3.5 h-3.5 ${favoriteSeries.includes(selectedSeries) ? 'fill-amber-500' : ''}`} aria-hidden />
+            <Star className={`w-3.5 h-3.5 ${favoriteSeries.includes(selectedSeries) ? 'fill-[var(--app-warning)]' : ''}`} aria-hidden />
             {favoriteSeries.includes(selectedSeries) ? 'Избранная серия' : 'В избранное'}
           </button>
         </motion.div>

@@ -14,7 +14,7 @@ alwaysApply: true
 1. **Только Android** — UI, хранилище, жесты, WebView-ограничения; не проектировать под другие ОС.
 2. **API — источник правды** — серия, автор, жанры, прогресс, закладки, заметки берутся с сервера (`/api/*`), не парсятся из FB2/EPUB и не выдумываются локально.
 3. **Сначала сервер, потом клиент** — нет endpoint → добавить на сервере (минимальный diff), перезапустить сервер, затем `inpxClient.ts` и UI.
-4. **Один контракт** — те же поля (`bookId`, `series`, `seriesList`), те же endpoint'ы, та же семантика ошибок, что в веб `/lite/`.
+4. **Один контракт** — те же поля (`bookId`, `series`, `seriesList`), те же endpoint'ы, та же семантика ошибок API.
 5. **Sync по `bookId`** — позиция, закладки, аннотации синхронизируются с сервером; путь файла на диске — snapshot при скачивании, не sync-поле.
 6. **Изменения в паре** — правка API на сервере без клиента (или наоборот) = незавершённая работа.
 
@@ -37,3 +37,9 @@ alwaysApply: true
 |-------------|------|
 | `D:\inpx-library-server` | API, индекс INPX, веб-UI, хранение прогресса |
 | `D:\inpx-book-reader` | Android-клиент, офлайн-файлы, Foliate |
+
+## Cursor config
+
+- Skills: `inpx-ecosystem`, `position-sync-change`
+- Hooks: auto-remind on sync/client edits + verify on stop
+- Commands: `/sync`, `/api-check`

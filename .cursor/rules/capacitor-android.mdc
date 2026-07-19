@@ -1,0 +1,49 @@
+---
+description: Capacitor 7 и нативные Android-плагины inpx-book-reader
+globs: "android/**/*.java,src/lib/bookStorage.ts,src/lib/storageDirectory.ts,src/lib/readerNative.ts,src/lib/importExternalBook.ts"
+alwaysApply: false
+---
+
+# Capacitor / Android Native
+
+## Плагины (Java)
+
+Регистрация в `MainActivity.onCreate()` **до** `super.onCreate()`:
+
+| Plugin | Назначение |
+|--------|------------|
+| `BookStoragePlugin` | SAF: запись/чтение файлов книг |
+| `FolderPickerPlugin` | Выбор папки хранения |
+| `ReaderNativePlugin` | TTS, ориентация, выделение текста |
+| `SecureCredentialsPlugin` | Хранение credentials |
+| `DownloadNotificationPlugin` | Foreground download |
+| `LaunchIntentPlugin` | Deep links |
+
+Путь: `android/app/src/main/java/ru/inpx/bookreader/`
+
+## TypeScript bridge
+
+- `registerPlugin<T>('Name')` в `src/lib/` — типы методов обязательны
+- Бизнес-логика в TS, I/O на диске — только через плагины
+- Не использовать `showDirectoryPicker`, `File System Access API`, IndexedDB для production-файлов
+
+## SAF / пути книг
+
+- Метаданные пути: `GET /api/books/:id/meta` → `seriesList` → `bookStorage.ts`
+- Не парсить FB2 для серии/автора
+- `treeUri` + `relativePath` — единственный способ доступа к файлам
+
+## WebView
+
+- `ReaderCapacitorWebView` — кастомный WebView для читалки
+- Splash: `window.__INPX_APP_READY__ === true`
+- Анимации: `MotionConfig reducedMotion="always"`
+
+## После изменений Java
+
+```bash
+npm run android:sync
+# Сборка: npm run build:android или Android Studio
+```
+
+Тестировать на **реальном Android**, не только в browser dev.

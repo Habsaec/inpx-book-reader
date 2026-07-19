@@ -28,3 +28,14 @@ export function useBackHandler(handler: () => boolean, enabled = true) {
     };
   }, [enabled]);
 }
+
+/** Закрыть оверлей/шит по Android Back. */
+export function useOverlayBackHandler(open: boolean, onClose: () => void) {
+  const onCloseRef = React.useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useBackHandler(() => {
+    onCloseRef.current();
+    return true;
+  }, open);
+}

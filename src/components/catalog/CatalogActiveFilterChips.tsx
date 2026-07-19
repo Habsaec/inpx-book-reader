@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
+import { touchMin } from '../../ui/tokens';
 import type { CatalogFormatFilter } from './catalogTypes';
 
 interface CatalogActiveFilterChipsProps {
@@ -31,7 +32,7 @@ function Chip({
         type="button"
         aria-label={`Убрать фильтр ${label}`}
         onClick={onRemove}
-        className={`p-0.5 rounded-full ${theme.focusRing}`}
+        className={`${touchMin} inline-flex items-center justify-center -m-2 rounded-full ${theme.focusRing}`}
       >
         <X className="w-3 h-3" aria-hidden />
       </button>
@@ -80,7 +81,7 @@ export default function CatalogActiveFilterChips({
       <button
         type="button"
         onClick={onClearAll}
-        className={`text-xs font-bold px-2 py-1 rounded-lg ${theme.textMuted} hover:opacity-80 ${theme.focusRing}`}
+        className={`min-h-12 px-3 text-xs font-bold rounded-lg ${theme.textMuted} hover:opacity-80 ${theme.focusRing}`}
       >
         Сбросить всё
       </button>

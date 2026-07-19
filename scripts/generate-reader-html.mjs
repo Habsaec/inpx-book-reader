@@ -115,7 +115,7 @@ const replacements = [
   [/\$\{readerBackClick\}/g, ''],
   [/<script src="\/book-ref\.js[^"]*" defer><\/script>\s*/g, ''],
   [/<script>window\.__READER_BOOK_ID=[\s\S]*?<\/script>\s*<script type="module" src="\/reader\.js[^"]*"><\/script>/,
-    '<script src="/inpx-reader/bootstrap.js"></script>\n<script src="/inpx-reader/reader-native-bridge.js"></script>\n<script type="module" src="/inpx-reader/reader.js"></script>'],
+    '<script>window.__READER_APP=1;</script>\n<script type="module" src="/inpx-reader/bootstrap.js"></script>\n<script src="/inpx-reader/reader-native-bridge.js"></script>\n<script type="module" src="/inpx-reader/reader.js"></script>'],
   [/href="\/reader\.css/g, 'href="/inpx-reader/reader.css'],
   [/<a href="#" class="tb-btn"([^>]*)><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"\/><\/svg><\/a>/,
     '<button type="button" class="tb-btn" id="btn-app-back"$1 aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>'],
@@ -336,6 +336,49 @@ function composeReaderSettingsPanel(html) {
         </div>
       </section>
 
+      <section class="rs-section" data-rs-section="controls">
+        <h3 class="rs-section-title">Управление</h3>
+        <div class="rs-group">
+          <div class="rs-label">Зоны экрана</div>
+          <div class="rs-seg rs-tap-mode-seg">
+            <button type="button" data-tap-edit="short" class="is-active">Короткий тап</button>
+            <button type="button" data-tap-edit="long">Долгий тап</button>
+          </div>
+          <div class="rs-tap-grid" id="rs-tap-grid" role="group" aria-label="Зоны экрана"></div>
+          <select id="rs-tap-action" class="rs-select" aria-label="Действие зоны" hidden></select>
+          <div class="rs-hint" id="rs-tap-hint">Выберите клетку, затем действие</div>
+          <button type="button" class="rs-tap-reset" id="rs-tap-reset">Сброс зон</button>
+        </div>
+        <div class="rs-group">
+          <div class="rs-label">Автоперелистывание</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-auto-flip" name="readerAutoFlip" min="0" max="30" step="1" aria-label="Интервал автоперелистывания">
+            <span class="rs-val" id="rs-auto-flip-val">Выкл</span>
+          </div>
+          <div class="rs-hint">0 — выкл. Работает только в режиме страниц, пауза при меню и озвучке.</div>
+        </div>
+        <div id="rs-volume-keys-slot"></div>
+      </section>
+
+      <section class="rs-section" data-rs-section="status">
+        <h3 class="rs-section-title">Строка состояния</h3>
+        <div class="rs-group">
+          <div class="rs-label">Видимость</div>
+          <div class="rs-seg">
+            <button type="button" data-set-status-mode="withChrome">С панелью</button>
+            <button type="button" data-set-status-mode="always">Всегда</button>
+            <button type="button" data-set-status-mode="hidden">Скрыта</button>
+          </div>
+        </div>
+        <div class="rs-group">
+          <label class="rs-check"><input type="checkbox" id="rs-status-chapter" name="statusChapter" checked><span>Глава</span></label>
+          <label class="rs-check"><input type="checkbox" id="rs-status-pct" name="statusPct" checked><span>Процент</span></label>
+          <label class="rs-check"><input type="checkbox" id="rs-status-page" name="statusPage" checked><span>Страница N / M</span></label>
+          <label class="rs-check"><input type="checkbox" id="rs-status-chapter-left" name="statusChapterLeft"><span>Осталось в главе</span></label>
+          <label class="rs-check"><input type="checkbox" id="rs-status-clock" name="statusClock"><span>Часы</span></label>
+        </div>
+      </section>
+
       <section class="rs-section" data-rs-section="extra">
         <h3 class="rs-section-title">Дополнительно</h3>
         <div class="rs-group">
@@ -344,7 +387,6 @@ function composeReaderSettingsPanel(html) {
             <span>Всплывающие сноски</span>
           </label>
         </div>
-        <div id="rs-volume-keys-slot"></div>
         <div class="rs-group">
           <div class="rs-label">Свой CSS</div>
           <textarea id="rs-custom-css" class="rs-custom-css" name="readerCustomCss" rows="5" spellcheck="false" placeholder="/* Дополнительные стили для текста книги */"></textarea>
@@ -378,7 +420,80 @@ function extendReaderSettingsHtml(source) {
   return composeReaderSettingsPanel(source);
 }
 
+/** AlReaderX-пакет: статус, goto, chrome footer — вне settings panel. */
+function injectAlReaderChrome(source) {
+  let out = source;
+
+  // Idempotent cleanup if a previous broken inject left junk inside footer.
+  out = out.replace(/\s*<div class="reader-status-strip"[\s\S]*?<\/div>\s*<div class="reader-autoflip-hud"[\s\S]*?<\/div>\s*/g, '\n');
+  out = out.replace(/\s*<button type="button" class="ft-goto-btn" id="ft-goto"[^>]*>.*?<\/button>\s*/g, '\n  ');
+  out = out.replace(/\s*<div class="reader-goto" id="reader-goto"[\s\S]*?<\/div>\s*<\/div>\s*/g, '\n');
+
+  if (!out.includes('id="ft-goto"')) {
+    out = out.replace(
+      /(<span class="ft-pct" id="ft-pct">)/,
+      '<button type="button" class="ft-goto-btn" id="ft-goto" title="Перейти…" aria-label="Перейти к позиции">⋯</button>\n  $1',
+    );
+  }
+
+  if (!out.includes('id="reader-status-strip"')) {
+    out = out.replace(
+      /(<\/div>\s*\n)(<div class="reader-tts-dock")/,
+      `$1
+<div class="reader-status-strip" id="reader-status-strip" aria-hidden="true">
+  <div class="rss-side rss-left">
+    <span class="rss-item rss-chapter" id="rss-chapter" hidden></span>
+  </div>
+  <div class="rss-mid">
+    <span class="rss-item rss-page" id="rss-page" hidden></span>
+    <span class="rss-item rss-chapter-left" id="rss-chapter-left" hidden></span>
+    <span class="rss-item rss-pct" id="rss-pct" hidden></span>
+  </div>
+  <div class="rss-side rss-right">
+    <span class="rss-item rss-clock" id="rss-clock" hidden></span>
+  </div>
+</div>
+
+<div class="reader-autoflip-hud" id="reader-autoflip-hud" hidden aria-hidden="true">Авто</div>
+
+$2`,
+    );
+  }
+
+  if (!out.includes('id="reader-goto"')) {
+    out = out.replace(
+      /(<div class="reader-note-editor" id="reader-note-editor" aria-hidden="true">\s*<div class="rne-card">[\s\S]*?<\/div>\s*<\/div>\s*)(\n*<div class="panel-overlay")/,
+      `$1
+<div class="reader-goto" id="reader-goto" aria-hidden="true">
+  <div class="rg-card">
+    <div class="rg-title">Перейти к…</div>
+    <label class="rg-label" for="rg-pct">Процент</label>
+    <div class="rg-row">
+      <input type="range" id="rg-pct" name="gotoPct" min="0" max="100" step="0.1" value="0">
+      <input type="number" id="rg-pct-num" name="gotoPctNum" min="0" max="100" step="0.1" value="0" inputmode="decimal">
+      <span class="rg-unit">%</span>
+    </div>
+    <label class="rg-label" for="rg-page">Страница</label>
+    <div class="rg-row">
+      <input type="number" id="rg-page" name="gotoPage" min="1" step="1" value="1" inputmode="numeric">
+      <span class="rg-unit" id="rg-page-total">из —</span>
+    </div>
+    <div class="rg-hint" id="rg-page-hint">Номер экрана в текущей вёрстке</div>
+    <div class="rne-actions">
+      <button type="button" class="rne-btn" id="rg-cancel">Отмена</button>
+      <button type="button" class="rne-btn rne-btn-primary" id="rg-go">Перейти</button>
+    </div>
+  </div>
+</div>
+$2`,
+    );
+  }
+
+  return out;
+}
+
 html = extendReaderSettingsHtml(html);
+html = injectAlReaderChrome(html);
 
 // Strip any remaining template expressions
 html = html.replace(/\$\{[^}]+\}/g, '');
@@ -386,3 +501,7 @@ html = html.replace(/\$\{[^}]+\}/g, '');
 const out = path.join(root, 'public/inpx-reader/index.html');
 fs.writeFileSync(out, html);
 console.log('Wrote', out, html.length, 'bytes');
+if (!html.includes('id="rs-tap-grid"') || !html.includes('id="reader-goto"') || !html.includes('id="ft-goto"')) {
+  console.error('AlReaderX chrome markup missing after generate-reader-html');
+  process.exit(1);
+}

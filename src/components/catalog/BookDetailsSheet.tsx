@@ -4,10 +4,13 @@ import { motion, AnimatePresence, type DragControls } from 'motion/react';
 import { BookOpen, Download, Check, Heart, MessageSquare, CloudUpload } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles, semantic } from '../../ui/tokens';
+import Button from '../../ui/Button';
+import { TextBlockSkeleton } from '../../ui/Skeleton';
 import { Book, ServerConfig } from '../../types';
 import { fetchBookDetails, fetchBookReviewHtml } from '../../lib/inpxClient';
 import BookCover from '../BookCover';
 import DownloadStatusLabel from '../DownloadStatusLabel';
+import { useOverlayBackHandler } from '../../hooks/useBackHandler';
 
 export interface BookDetailsSheetProps {
   book: Book | null;
@@ -84,6 +87,8 @@ export default function BookDetailsSheet({
     return () => { cancelled = true; };
   }, [book?.id, isServerConnected, serverConfig]);
 
+  useOverlayBackHandler(!!book, onClose);
+
   if (typeof document === 'undefined' || !book) return null;
 
   const description = annotation ?? book.description;
@@ -159,7 +164,7 @@ export default function BookDetailsSheet({
                           aria-label={bookmarkIds?.has(book.id) ? 'Убрать из избранного' : 'В избранное'}
                           aria-pressed={bookmarkIds?.has(book.id)}
                           onClick={() => onToggleBookBookmark(book.id)}
-                          className={`inline-flex items-center justify-center w-10 h-10 rounded-xl border transition-colors cursor-pointer ${theme.focusRing} ${
+                          className={`inline-flex items-center justify-center w-12 h-12 rounded-xl border transition-colors cursor-pointer ${theme.focusRing} ${
                             bookmarkIds?.has(book.id)
                               ? 'bg-[color-mix(in_srgb,var(--app-danger)_15%,transparent)] border-[var(--app-danger)] text-[var(--app-danger)]'
                               : `border-[color:var(--app-border)] ${theme.textMuted} hover:text-[var(--app-danger)] hover:border-[color-mix(in_srgb,var(--app-danger)_40%,var(--app-border))] active:scale-[0.98]`
@@ -178,7 +183,7 @@ export default function BookDetailsSheet({
                           aria-label={readIds?.has(book.id) ? 'Снять отметку прочитано' : 'Отметить прочитанным'}
                           aria-pressed={readIds?.has(book.id)}
                           onClick={() => onToggleRead(book.id)}
-                          className={`inline-flex items-center justify-center w-10 h-10 rounded-xl border transition-colors cursor-pointer ${theme.focusRing} ${
+                          className={`inline-flex items-center justify-center w-12 h-12 rounded-xl border transition-colors cursor-pointer ${theme.focusRing} ${
                             readIds?.has(book.id)
                               ? 'bg-[color-mix(in_srgb,var(--app-success)_15%,transparent)] border-[var(--app-success)] text-[var(--app-success)]'
                               : `border-[color:var(--app-border)] ${theme.textMuted} hover:text-[var(--app-success)] hover:border-[color-mix(in_srgb,var(--app-success)_40%,var(--app-border))] active:scale-[0.98]`
@@ -260,18 +265,18 @@ export default function BookDetailsSheet({
               </div>
 
               <div className="space-y-1">
-                <span className={`text-xs ${theme.textMuted} uppercase tracking-wider font-extrabold`}>Аннотация</span>
+                <span className={`${textStyles.sectionLabel} ${theme.textMuted}`}>Аннотация</span>
                 <p className={`${textStyles.caption} leading-relaxed opacity-90 pr-1 select-text`}>
                   {description || 'Аннотация отсутствует.'}
                 </p>
               </div>
 
               <div className="space-y-3 pt-1 border-t border-[color:var(--app-border)]/15">
-                <h4 className={`text-xs uppercase tracking-wider ${theme.textMuted} font-extrabold flex items-center gap-1`}>
+                <h4 className={`${textStyles.sectionLabel} ${theme.textMuted} flex items-center gap-1`}>
                   <MessageSquare className="w-3.5 h-3.5" aria-hidden /> Рецензия
                 </h4>
                 {bookReviewLoading ? (
-                  <p className={`text-xs ${theme.textMuted} italic text-center py-4`}>Загрузка…</p>
+                  <TextBlockSkeleton lines={4} />
                 ) : bookReviewHtml ? (
                   <div
                     className={`text-xs leading-relaxed max-h-48 overflow-y-auto prose prose-sm ${isAppDark ? 'prose-invert' : ''}`}
@@ -285,45 +290,24 @@ export default function BookDetailsSheet({
 
             <div className={`shrink-0 px-5 pt-3 pb-4 border-t ${themeSheetFooter}`}>
               {downloadError && (
-                <p className={`text-xs mb-2 text-center ${themeTextMuted}`} role="alert">{downloadError}</p>
+                <p className={`${textStyles.caption} mb-2 text-center ${semantic.error}`} role="alert">{downloadError}</p>
               )}
               {downloadedBookIds.includes(book.id) ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenBook(book);
-                    onClose();
-                  }}
-                  className={`w-full font-extrabold text-sm py-3.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer text-white active:scale-[0.99] transition-transform ${themeAccentBg} ${theme.focusRing}`}
-                >
+                <Button fullWidth onClick={() => { onOpenBook(book); onClose(); }}>
                   <BookOpen className="w-4 h-4" aria-hidden /> Читать
-                </button>
+                </Button>
               ) : downloadingId === book.id ? (
-                <button
-                  type="button"
-                  disabled
-                  aria-busy="true"
-                  className="w-full font-extrabold text-sm py-3.5 rounded-xl flex items-center justify-center gap-2 text-white bg-[var(--app-muted)] cursor-not-allowed opacity-80"
-                >
-                  <span className="w-2 h-2 bg-white rounded-full animate-ping" aria-hidden />
+                <Button fullWidth loading disabled>
                   Загрузка…
-                </button>
+                </Button>
               ) : queuedBookIds?.has(book.id) ? (
-                <button
-                  type="button"
-                  disabled
-                  className="w-full font-extrabold text-sm py-3.5 rounded-xl flex items-center justify-center gap-2 text-white bg-[var(--app-muted)] cursor-not-allowed opacity-70"
-                >
+                <Button fullWidth disabled>
                   В очереди
-                </button>
+                </Button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => onDownload(book)}
-                  className={`w-full font-extrabold text-sm py-3.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer text-white active:scale-[0.99] transition-transform ${themeAccentBg} ${theme.focusRing}`}
-                >
+                <Button fullWidth onClick={() => onDownload(book)}>
                   <Download className="w-4 h-4" aria-hidden /> Скачать
-                </button>
+                </Button>
               )}
             </div>
           </motion.div>

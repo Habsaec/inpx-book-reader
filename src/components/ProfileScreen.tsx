@@ -6,7 +6,7 @@ import { ServerConfig } from '../types';
 import SyncSettingsTab from './SyncSettingsTab';
 import type { AppThemeMode } from '../lib/serverTheme';
 import type { StorageDirectory } from '../lib/storageDirectory';
-import { textStyles } from '../ui/tokens';
+import { textStyles, semantic } from '../ui/tokens';
 import { BookListSkeleton } from '../ui/Skeleton';
 
 interface ProfileScreenProps {
@@ -75,6 +75,10 @@ export default function ProfileScreen({
         <div className="px-4 py-4">
           <BookListSkeleton count={2} />
         </div>
+      ) : error && isOnline && !loading ? (
+        <p className={`mx-4 mt-3 px-3 py-2 rounded-xl ${semantic.errorBg} ${textStyles.caption}`} role="alert">
+          {error}
+        </p>
       ) : error && !isOnline ? (
         <p className={`mx-4 mt-3 ${textStyles.caption} ${theme.textMuted}`}>Офлайн — настройки и локальные книги доступны</p>
       ) : null}

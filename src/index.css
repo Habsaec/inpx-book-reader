@@ -1,12 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,600;0,800;1,400&family=Space+Grotesk:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Lora", ui-serif, Georgia, Cambria, serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --font-grotesk: "Space Grotesk", sans-serif;
-  --font-playfair: "Playfair Display", serif;
+  --font-mono: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 /* Full-height app shell (Android WebView needs explicit height chain) */
@@ -65,6 +63,7 @@ html[data-theme="dark"] {
   --app-success: #2d8a4e;
   --app-warning: #b45309;
   --app-offline: #b45309;
+  --app-tab-bar-height: calc(3rem + max(0.5rem, env(safe-area-inset-bottom)));
 }
 
 html[data-theme="light"] {

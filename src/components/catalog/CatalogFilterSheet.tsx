@@ -2,8 +2,10 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, Filter } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
-import { textStyles, radii } from '../../ui/tokens';
+import { SheetDragHandle, sheetBackdropClass, sheetPanelClass, sheetPanelStyle } from '../../ui/SheetChrome';
+import { textStyles, touchMin } from '../../ui/tokens';
 import Button from '../../ui/Button';
+import { useOverlayBackHandler } from '../../hooks/useBackHandler';
 import type { CatalogFormatFilter, DemoBookSort } from './catalogTypes';
 
 interface CatalogFilterSheetProps {
@@ -29,24 +31,42 @@ export default function CatalogFilterSheet({
   onSortByChange,
   onReset,
 }: CatalogFilterSheetProps) {
+  const closeRef = React.useRef<HTMLButtonElement>(null);
+
+  useOverlayBackHandler(open, onClose);
+
+  React.useEffect(() => {
+    if (!open) return;
+    closeRef.current?.focus();
+  }, [open]);
+
   if (!open) return null;
 
   const hasActive = minRating > 0 || formatFilter !== 'all';
 
   return createPortal(
-    <div className="fixed inset-0 z-[350] flex flex-col justify-end bg-black/40" onClick={onClose}>
+    <div className={`${sheetBackdropClass} z-[350]`} onClick={onClose}>
       <div
-        className={`${radii.lg} rounded-b-none border-t ${theme.sheet} p-5 max-h-[80vh] overflow-y-auto`}
+        className={`${sheetPanelClass} px-5 pt-0 max-h-[80vh]`}
+        style={sheetPanelStyle()}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label="Фильтры каталога"
+        aria-modal="true"
+        aria-labelledby="catalog-filter-title"
       >
+        <SheetDragHandle />
         <div className="flex items-center justify-between mb-4">
-          <h2 className={`${textStyles.title} flex items-center gap-2`}>
+          <h2 id="catalog-filter-title" className={`${textStyles.title} flex items-center gap-2`}>
             <Filter className="w-5 h-5" aria-hidden />
             Фильтры
           </h2>
-          <button type="button" aria-label="Закрыть" onClick={onClose} className={`p-2 ${theme.focusRing}`}>
+          <button
+            ref={closeRef}
+            type="button"
+            aria-label="Закрыть"
+            onClick={onClose}
+            className={`${touchMin} inline-flex items-center justify-center rounded-lg ${theme.chipButton} ${theme.focusRing}`}
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -59,13 +79,13 @@ export default function CatalogFilterSheet({
             <select
               value={sortBy}
               onChange={(e) => onSortByChange(e.target.value as DemoBookSort)}
-              className={`w-full border rounded-xl px-3 py-2.5 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
+              className={`w-full border rounded-xl px-3 py-2.5 min-h-12 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
             >
-              <option value="rating">★ Рейтинг</option>
-              <option value="downloads">⚡ Популярность</option>
-              <option value="title">А-Я Название</option>
-              <option value="year">📅 Год издания</option>
-              <option value="size">💾 Размер</option>
+              <option value="rating">Рейтинг</option>
+              <option value="downloads">Популярность</option>
+              <option value="title">Название</option>
+              <option value="year">Год издания</option>
+              <option value="size">Размер</option>
             </select>
           </div>
 
@@ -79,13 +99,13 @@ export default function CatalogFilterSheet({
                   key={ratingVal}
                   type="button"
                   onClick={() => onMinRatingChange(ratingVal)}
-                  className={`flex-1 py-2.5 rounded-xl ${textStyles.captionBold} border transition-all ${theme.focusRing} ${
+                  className={`flex-1 min-h-12 py-2.5 rounded-xl ${textStyles.captionBold} border transition-all ${theme.focusRing} ${
                     minRating === ratingVal
                       ? theme.accentActive
                       : `${theme.chip} border-[color:var(--app-border)] ${theme.chipHover}`
                   }`}
                 >
-                  {ratingVal === 0 ? 'Все' : `★ ${ratingVal}+`}
+                  {ratingVal === 0 ? 'Все' : `${ratingVal}+`}
                 </button>
               ))}
             </div>
@@ -101,7 +121,7 @@ export default function CatalogFilterSheet({
                   key={fmt}
                   type="button"
                   onClick={() => onFormatFilterChange(fmt)}
-                  className={`flex-1 py-2.5 rounded-xl ${textStyles.captionBold} border uppercase transition-all ${theme.focusRing} ${
+                  className={`flex-1 min-h-12 py-2.5 rounded-xl ${textStyles.captionBold} border uppercase transition-all ${theme.focusRing} ${
                     formatFilter === fmt
                       ? theme.accentActive
                       : `${theme.chip} border-[color:var(--app-border)] ${theme.chipHover}`

@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- Библиотека, SQLite, файлы книг и секреты — не в облачный backup -->
-    <exclude domain="database" path="." />
-    <exclude domain="file" path="." />
-    <exclude domain="sharedpref" path="inpx_reader_secure_credentials.xml" />
-    <exclude domain="sharedpref" path="SecureCredentials.xml" />
-    <!-- Только несекретные prefs моста Capacitor (URL сервера, флаги UI) -->
+    <!-- Whitelist: при наличии include бэкапятся только перечисленные файлы.
+         Database, internal files, книги и секретные prefs не попадают в облако. -->
     <include domain="sharedpref" path="CapacitorStorage.xml" />
 </full-backup-content>

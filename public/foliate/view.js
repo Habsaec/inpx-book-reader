@@ -1,7 +1,100 @@
 import * as CFI from './epubcfi.js'
-import { TOCProgress, SectionProgress, EqualSectionProgress, TocFlatProgress, flattenToc } from './progress.js'
+import { TOCProgress, SectionProgress } from './progress.js'
 import { Overlayer } from './overlayer.js'
 import { textWalker } from './text-walker.js'
+
+const normalizedTextLength = value => String(value ?? '')
+    .replace(/[\t\n\f\r ]+/g, ' ')
+    .trim().length
+
+const sectionTextNodes = doc => {
+    const root = doc?.body ?? doc?.documentElement
+    if (!root) return []
+    const win = doc.defaultView ?? globalThis
+    const walker = doc.createTreeWalker(root, win.NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            const parent = node.parentElement?.tagName?.toLowerCase()
+            return parent === 'script' || parent === 'style'
+                ? win.NodeFilter.FILTER_REJECT
+                : win.NodeFilter.FILTER_ACCEPT
+        },
+    })
+    const nodes = []
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node)
+    return nodes
+}
+
+const normalizedSectionText = doc => {
+    const root = doc?.body ?? doc?.documentElement
+    return root ? String(root.textContent ?? '').replace(/[\t\n\f\r ]+/g, ' ').trim() : ''
+}
+
+// Layout-independent offset of the first visible character. Paginator's numeric
+// `fraction` is page/column based and changes with font, viewport and column count.
+const textAnchorFromRange = (doc, range) => {
+    if (!doc || !range) return null
+    const root = doc.body ?? doc.documentElement
+    if (!root?.contains(range.startContainer)) return null
+    const prefix = doc.createRange()
+    prefix.selectNodeContents(root)
+    try {
+        prefix.setEnd(range.startContainer, range.startOffset)
+    } catch {
+        return null
+    }
+    const text = normalizedSectionText(doc)
+    const textOffset = Math.max(0, Math.min(text.length, normalizedTextLength(prefix.toString())))
+    return {
+        textOffset,
+        textQuote: text.slice(textOffset, textOffset + 96),
+        textSectionLength: text.length,
+        sectionTextFraction: text.length ? textOffset / text.length : 0,
+    }
+}
+
+const rangeFromTextOffset = (doc, requestedOffset, quote = '') => {
+    const nodes = sectionTextNodes(doc)
+    if (!nodes.length) return 0
+    const chars = []
+    const points = []
+    let pendingSpace = null
+    for (const node of nodes) {
+        const value = node.nodeValue ?? ''
+        for (let offset = 0; offset < value.length; offset += 1) {
+            const char = value[offset]
+            if (/[\t\n\f\r ]/.test(char)) {
+                if (chars.length && pendingSpace == null) pendingSpace = { node, offset }
+                continue
+            }
+            if (pendingSpace) {
+                chars.push(' ')
+                points.push(pendingSpace)
+                pendingSpace = null
+            }
+            chars.push(char)
+            points.push({ node, offset })
+        }
+    }
+    const normalized = chars.join('')
+    let textOffset = Math.max(0, Math.min(normalized.length, Math.round(Number(requestedOffset) || 0)))
+    const normalizedQuote = String(quote ?? '').replace(/[\t\n\f\r ]+/g, ' ').trim()
+    if (normalizedQuote && normalized.slice(textOffset, textOffset + normalizedQuote.length) !== normalizedQuote) {
+        const from = Math.max(0, textOffset - 2000)
+        const nearby = normalized.indexOf(normalizedQuote, from)
+        if (nearby >= 0 && nearby <= textOffset + 2000) textOffset = nearby
+    }
+    const point = points[Math.min(textOffset, points.length - 1)]
+    if (!point) return 0
+    const range = doc.createRange()
+    range.setStart(point.node, point.offset)
+    range.collapse(true)
+    return range
+}
+
+const rangeFromTextFraction = (doc, fraction) => {
+    const length = normalizedSectionText(doc).length
+    return rangeFromTextOffset(doc, Math.max(0, Math.min(1, Number(fraction) || 0)) * length)
+}
 
 const SEARCH_PREFIX = 'foliate-search:'
 
@@ -202,7 +295,6 @@ const languageInfo = lang => {
 export class View extends HTMLElement {
     #root = this.attachShadow({ mode: 'closed' })
     #sectionProgress
-    #tocFlat
     #tocProgress
     #pageProgress
     #searchResults = new Map()
@@ -231,17 +323,11 @@ export class View extends HTMLElement {
             const getFragment = book.getTOCFragment.bind(book)
             const sizePerLoc = 1500
             const sizePerTimeUnit = 1600
-            if (book.isFB2) {
-                this.#tocFlat = flattenToc(book.toc ?? [])
-                this.#sectionProgress = this.#tocFlat.length >= 2
-                    ? new TocFlatProgress(
-                        this.#tocFlat, book.sections, splitHref, sizePerLoc, sizePerTimeUnit,
-                        getFragment)
-                    : new EqualSectionProgress(book.sections, sizePerLoc, sizePerTimeUnit)
-            } else {
-                this.#tocFlat = null
-                this.#sectionProgress = new SectionProgress(book.sections, sizePerLoc, sizePerTimeUnit)
-            }
+            // `fraction` имеет одну семантику для всех форматов: доля по объёму текста.
+            // TOC-индексная шкала FB2 давала одинаковый процент разным главам и не
+            // позволяла точно восстановить позицию внутри главы.
+            this.#sectionProgress = new SectionProgress(
+                book.sections, sizePerLoc, sizePerTimeUnit)
             this.#tocProgress = new TOCProgress()
             await this.#tocProgress.init({
                 toc: book.toc ?? [], ids, splitHref, getFragment })
@@ -301,7 +387,6 @@ export class View extends HTMLElement {
         this.renderer?.destroy()
         this.renderer?.remove()
         this.#sectionProgress = null
-        this.#tocFlat = null
         this.#tocProgress = null
         this.#pageProgress = null
         this.#searchResults = new Map()
@@ -332,11 +417,22 @@ export class View extends HTMLElement {
     }
     #onRelocate({ reason, range, index, fraction, size }) {
         const tocItem = this.#tocProgress?.getProgress(index, range)
+        const doc = range?.startContainer?.ownerDocument
+        const textAnchor = textAnchorFromRange(doc, range)
         const progress = this.#sectionProgress?.getProgress(
-            index, fraction, size, tocItem, range) ?? {}
+            index, textAnchor?.sectionTextFraction ?? fraction, textAnchor == null ? size : 0,
+            tocItem, range) ?? {}
         const pageItem = this.#pageProgress?.getProgress(index, range)
         const cfi = this.getCFI(index, range)
-        this.lastLocation = { ...progress, tocItem, pageItem, cfi, range, reason }
+        this.lastLocation = {
+            ...progress,
+            ...(textAnchor ?? {}),
+            tocItem,
+            pageItem,
+            cfi,
+            range,
+            reason,
+        }
         if (reason === 'snap' || reason === 'page' || reason === 'scroll')
             this.history.replaceState(cfi)
         this.#emit('relocate', this.lastLocation)
@@ -484,19 +580,18 @@ export class View extends HTMLElement {
         }
     }
     async goToFraction(frac) {
-        if (this.book?.isFB2 && this.#tocFlat?.length >= 2) {
-            const slot = Math.max(0, Math.min(this.#tocFlat.length, frac * this.#tocFlat.length))
-            const idx = Math.min(this.#tocFlat.length - 1, Math.floor(slot))
-            const item = this.#tocFlat[idx]
-            if (item?.href) {
-                await this.goTo(item.href)
-                this.history.pushState({ fraction: frac })
-                return
-            }
-        }
         const [index, anchor] = this.#sectionProgress.getSection(frac)
-        await this.renderer.goTo({ index, anchor })
+        await this.renderer.goTo({
+            index,
+            anchor: doc => rangeFromTextFraction(doc, anchor),
+        })
         this.history.pushState({ fraction: frac })
+    }
+    async goToTextAnchor(index, textOffset, textQuote = '') {
+        await this.renderer.goTo({
+            index,
+            anchor: doc => rangeFromTextOffset(doc, textOffset, textQuote),
+        })
     }
     async select(target) {
         try {

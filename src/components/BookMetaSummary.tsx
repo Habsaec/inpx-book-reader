@@ -2,7 +2,7 @@ import React from 'react';
 import { Star } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import type { Book } from '../types';
-import { textStyles } from '../ui/tokens';
+import { textStyles, semantic } from '../ui/tokens';
 
 interface BookMetaSummaryProps {
   book: Book;
@@ -49,7 +49,7 @@ export default function BookMetaSummary({ book, compact = false, showDescription
       )}
       <span className="flex flex-wrap items-center gap-1 mt-1">
         {rating > 0 && (
-          <span className="inline-flex items-center gap-0.5 text-amber-500" aria-label={`Рейтинг ${rating} из 5`}>
+          <span className={`inline-flex items-center gap-0.5 ${semantic.warning}`} aria-label={`Рейтинг ${rating} из 5`}>
             <Star className="w-3 h-3 fill-current" aria-hidden />
             <span className={textStyles.microBold}>{rating}</span>
           </span>

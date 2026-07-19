@@ -1,0 +1,34 @@
+---
+description: Изменения API-клиента inpxClient.ts
+globs: "**/inpxClient.ts"
+alwaysApply: false
+---
+
+# inpxClient.ts
+
+Единственная точка HTTP-клиента к INPX Library Server.
+
+## Перед изменением
+
+1. Найти endpoint на сервере: `D:\inpx-library-server\src\routes/`
+2. Сверить формат запроса/ответа с серверной реализацией
+
+## При добавлении endpoint
+
+- [ ] Типы request/response в `inpxClient.ts` или `types.ts`
+- [ ] Dev: proxy через `server.ts` (`/api/proxy`)
+- [ ] APK: прямой `fetch` / CapacitorHttp
+- [ ] Обновить `AGENTS.md` в **обоих** репо
+- [ ] Тест в `src/lib/__tests__/`
+
+## Transport
+
+| Среда | Как |
+|-------|-----|
+| Browser dev (:3100) | `/api/proxy?url=...` |
+| Android APK | Прямой URL сервера |
+
+## Не делать
+
+- Не добавлять параллельные fetch-вызовы в компонентах
+- Не парсить метаданные из FB2/EPUB — только `/api/books/:id/meta`

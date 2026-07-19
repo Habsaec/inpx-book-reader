@@ -14,7 +14,7 @@ export const theme = {
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] focus-visible:ring-offset-1',
   focusRing:
     'focus:outline-none focus-visible:outline-2 focus-visible:outline-[var(--app-link)] focus-visible:outline-offset-2',
-  touchTarget: 'min-w-11 min-h-11',
+  touchTarget: 'min-w-12 min-h-12',
   interactive:
     'cursor-pointer transition-colors duration-200 focus:outline-none focus-visible:outline-2 focus-visible:outline-[var(--app-link)] focus-visible:outline-offset-2 active:scale-[0.98]',
   rowPress:

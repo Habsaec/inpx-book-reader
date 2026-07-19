@@ -12,6 +12,12 @@ import { ServerConfig } from '../types';
 import { arrayBufferToBase64 } from './bookStorage';
 import { isNativeApp } from './platform';
 import { getDebugRequestId } from './debugSessionLog';
+import {
+  apiBookPath,
+  apiBookmarkPath,
+  apiReadPath,
+  apiReadingHistoryPath,
+} from './bookRef';
 
 export interface InpxProfile {
   user: { username: string; role: string };
@@ -305,12 +311,12 @@ export async function fetchLibraryView(
 }
 
 export async function toggleBookBookmark(config: ServerConfig, bookId: string): Promise<boolean> {
-  const data = await apiPostJson<{ bookmarked: boolean }>(config, `/api/bookmarks/${encodeURIComponent(bookId)}`);
+  const data = await apiPostJson<{ bookmarked: boolean }>(config, apiBookmarkPath(bookId));
   return data.bookmarked;
 }
 
 export async function toggleBookRead(config: ServerConfig, bookId: string): Promise<boolean> {
-  const data = await apiPostJson<{ read: boolean }>(config, `/api/read/${encodeURIComponent(bookId)}`);
+  const data = await apiPostJson<{ read: boolean }>(config, apiReadPath(bookId));
   return data.read;
 }
 
@@ -363,16 +369,45 @@ export interface ServerReadingPosition {
   fraction?: number | null;
   fb2Href?: string | null;
   sectionIndex?: number | null;
+  textOffset?: number | null;
+  textQuote?: string | null;
+  textSectionLength?: number | null;
   sectionPageFraction?: number | null;
   paginatorPage?: number | null;
   paginatorPages?: number | null;
   layoutMode?: string | null;
   updatedAt?: string | null;
+  positionVersion?: number;
+  revision?: number;
+}
+
+export class ReadingPositionConflictError extends Error {
+  readonly current: ServerReadingPosition;
+
+  constructor(current: ServerReadingPosition) {
+    super('Reading position revision conflict');
+    this.name = 'ReadingPositionConflictError';
+    this.current = current;
+  }
+}
+
+export class ReadingPositionProtocolError extends Error {
+  constructor() {
+    super('Reading position protocol upgrade required');
+    this.name = 'ReadingPositionProtocolError';
+  }
 }
 
 export type ReadingPositionAnchors = Pick<
   ServerReadingPosition,
-  'sectionIndex' | 'sectionPageFraction' | 'paginatorPage' | 'paginatorPages' | 'layoutMode'
+  | 'sectionIndex'
+  | 'textOffset'
+  | 'textQuote'
+  | 'textSectionLength'
+  | 'sectionPageFraction'
+  | 'paginatorPage'
+  | 'paginatorPages'
+  | 'layoutMode'
 >;
 
 function appendReadingPositionAnchors(
@@ -380,7 +415,16 @@ function appendReadingPositionAnchors(
   anchors?: ReadingPositionAnchors | null,
 ): void {
   if (!anchors) return;
-  if (Number.isFinite(Number(anchors.sectionIndex))) body.sectionIndex = Number(anchors.sectionIndex);
+  if (anchors.sectionIndex != null && Number.isFinite(Number(anchors.sectionIndex))) {
+    body.sectionIndex = Number(anchors.sectionIndex);
+  }
+  if (anchors.textOffset != null && Number.isFinite(Number(anchors.textOffset))) {
+    body.textOffset = Number(anchors.textOffset);
+  }
+  if (typeof anchors.textQuote === 'string') body.textQuote = anchors.textQuote.slice(0, 256);
+  if (anchors.textSectionLength != null && Number.isFinite(Number(anchors.textSectionLength))) {
+    body.textSectionLength = Number(anchors.textSectionLength);
+  }
   if (Number.isFinite(Number(anchors.sectionPageFraction))) {
     body.sectionPageFraction = Number(anchors.sectionPageFraction);
   }
@@ -392,7 +436,7 @@ function appendReadingPositionAnchors(
 }
 
 export async function fetchReadingPosition(config: ServerConfig, bookId: string): Promise<ServerReadingPosition> {
-  return apiJson(config, `/api/books/${encodeURIComponent(bookId)}/position`);
+  return apiJson(config, apiBookPath(bookId, 'position'));
 }
 
 export interface ReaderBookSyncMeta {
@@ -411,7 +455,7 @@ export async function fetchReaderBookSyncMeta(
   try {
     return await apiJson<ReaderBookSyncMeta>(
       config,
-      `/api/books/${encodeURIComponent(bookId)}/reader-sync-meta`,
+      apiBookPath(bookId, 'reader-sync-meta'),
     );
   } catch {
     return null;
@@ -443,8 +487,20 @@ export async function saveReadingPosition(
   fraction?: number | null,
   fb2Href?: string | null,
   anchors?: ReadingPositionAnchors | null,
-): Promise<{ markedRead?: boolean }> {
-  const body: Record<string, unknown> = { position, progress };
+  baseRevision = 0,
+): Promise<{
+  markedRead?: boolean;
+  unmarkedRead?: boolean;
+  updatedAt?: string | null;
+  positionVersion: number;
+  revision: number;
+}> {
+  const body: Record<string, unknown> = {
+    position,
+    progress,
+    positionVersion: 4,
+    baseRevision,
+  };
   if (Number.isFinite(Number(fraction))) {
     body.fraction = Number(fraction);
   }
@@ -452,17 +508,33 @@ export async function saveReadingPosition(
     body.fb2Href = String(fb2Href).trim();
   }
   appendReadingPositionAnchors(body, anchors);
-  return apiPostJson(config, `/api/books/${encodeURIComponent(bookId)}/position`, body);
+  const response = await apiFetch(config, apiBookPath(bookId, 'position'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 409) {
+    const payload = await response.json().catch(() => null) as { current?: ServerReadingPosition } | null;
+    if (payload?.current) throw new ReadingPositionConflictError(payload.current);
+  }
+  if (response.status === 428) {
+    throw new ReadingPositionProtocolError();
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `HTTP ${response.status}`);
+  }
+  return response.json();
 }
 
 export async function recordReadingHistory(config: ServerConfig, bookId: string): Promise<void> {
-  await apiPostJson(config, `/api/reading-history/${encodeURIComponent(bookId)}`, {
+  await apiPostJson(config, apiReadingHistoryPath(bookId), {
     lastOpenedAt: new Date().toISOString(),
   });
 }
 
 export async function deleteReadingHistoryApi(config: ServerConfig, bookId: string): Promise<void> {
-  await apiDelete(config, `/api/reading-history/${encodeURIComponent(bookId)}`);
+  await apiDelete(config, apiReadingHistoryPath(bookId));
 }
 
 export interface ServerReaderBookmark {
@@ -473,7 +545,7 @@ export interface ServerReaderBookmark {
 }
 
 export async function fetchReaderBookmarks(config: ServerConfig, bookId: string): Promise<ServerReaderBookmark[]> {
-  return apiJson(config, `/api/books/${encodeURIComponent(bookId)}/bookmarks`);
+  return apiJson(config, apiBookPath(bookId, 'bookmarks'));
 }
 
 export async function addReaderBookmarkApi(
@@ -482,7 +554,7 @@ export async function addReaderBookmarkApi(
   position: string,
   title: string
 ): Promise<number> {
-  const data = await apiPostJson<{ id: number }>(config, `/api/books/${encodeURIComponent(bookId)}/bookmarks`, {
+  const data = await apiPostJson<{ id: number }>(config, apiBookPath(bookId, 'bookmarks'), {
     position,
     title,
   });
@@ -490,7 +562,7 @@ export async function addReaderBookmarkApi(
 }
 
 export async function deleteReaderBookmarkApi(config: ServerConfig, bookId: string, bmId: number): Promise<void> {
-  await apiDelete(config, `/api/books/${encodeURIComponent(bookId)}/bookmarks/${bmId}`);
+  await apiDelete(config, apiBookPath(bookId, `bookmarks/${bmId}`));
 }
 
 export interface ServerAnnotation {
@@ -503,7 +575,7 @@ export interface ServerAnnotation {
 }
 
 export async function fetchReaderAnnotations(config: ServerConfig, bookId: string): Promise<ServerAnnotation[]> {
-  return apiJson(config, `/api/books/${encodeURIComponent(bookId)}/annotations`);
+  return apiJson(config, apiBookPath(bookId, 'annotations'));
 }
 
 export async function addReaderAnnotationApi(
@@ -514,7 +586,7 @@ export async function addReaderAnnotationApi(
   note: string,
   color: string
 ): Promise<number> {
-  const data = await apiPostJson<{ id: number }>(config, `/api/books/${encodeURIComponent(bookId)}/annotations`, {
+  const data = await apiPostJson<{ id: number }>(config, apiBookPath(bookId, 'annotations'), {
     cfi,
     text,
     note,
@@ -524,7 +596,7 @@ export async function addReaderAnnotationApi(
 }
 
 export async function deleteReaderAnnotationApi(config: ServerConfig, bookId: string, aid: number): Promise<void> {
-  await apiDelete(config, `/api/books/${encodeURIComponent(bookId)}/annotations/${aid}`);
+  await apiDelete(config, apiBookPath(bookId, `annotations/${aid}`));
 }
 
 export async function patchReaderAnnotationApi(
@@ -535,7 +607,7 @@ export async function patchReaderAnnotationApi(
 ): Promise<void> {
   const res = await apiFetch(
     config,
-    `/api/books/${encodeURIComponent(bookId)}/annotations/${aid}`,
+    apiBookPath(bookId, `annotations/${aid}`),
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -569,7 +641,7 @@ export function isEpubCfiPosition(pos: string): boolean {
 }
 
 export async function fetchBookReviewHtml(config: ServerConfig, bookId: string): Promise<string> {
-  const data = await apiJson<{ html?: string }>(config, `/api/books/${encodeURIComponent(bookId)}/review`);
+  const data = await apiJson<{ html?: string }>(config, apiBookPath(bookId, 'review'));
   return data.html || '';
 }
 
@@ -724,14 +796,14 @@ export async function fetchAuthorGrouped(
 }
 
 export async function fetchBookDetails(config: ServerConfig, bookId: string): Promise<{ annotation?: string; title?: string }> {
-  const res = await apiFetch(config, `/api/books/${encodeURIComponent(bookId)}/details`);
+  const res = await apiFetch(config, apiBookPath(bookId, 'details'));
   if (!res.ok) return {};
   return res.json();
 }
 
 /** Полные метаданные книги с серии из INPX (getBookById + book_series). */
 export async function fetchBookMeta(config: ServerConfig, bookId: string): Promise<InpxBookItem | null> {
-  const res = await apiFetch(config, `/api/books/${encodeURIComponent(bookId)}/meta`);
+  const res = await apiFetch(config, apiBookPath(bookId, 'meta'));
   if (!res.ok) return null;
   return res.json();
 }
@@ -741,8 +813,14 @@ export async function downloadBookBinary(
   bookId: string,
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<ArrayBuffer> {
-  const res = await apiFetch(config, `/api/books/${encodeURIComponent(bookId)}/content`);
-  if (!res.ok) throw new Error(`Загрузка: HTTP ${res.status}`);
+  const res = await apiFetch(config, apiBookPath(bookId, 'content'), {
+    headers: { Accept: '*/*' },
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    const hint = detail.trim().slice(0, 120);
+    throw new Error(hint ? `Загрузка: HTTP ${res.status} — ${hint}` : `Загрузка: HTTP ${res.status}`);
+  }
   const totalHeader = res.headers.get('content-length');
   const total = totalHeader ? Number(totalHeader) : 0;
   const body = res.body;
@@ -770,7 +848,7 @@ export async function downloadBookBinary(
 export function coverUrl(config: ServerConfig, bookId: string, variant: 'thumb' | 'full' = 'thumb'): string {
   const base = normalizeBaseUrl(config.url);
   const suffix = variant === 'full' ? 'cover' : 'cover-thumb';
-  return `${base}/api/books/${encodeURIComponent(bookId)}/${suffix}`;
+  return `${base}${apiBookPath(bookId, suffix)}`;
 }
 
 export function displayCoverUrl(config: ServerConfig, bookId: string, variant: 'thumb' | 'full' = 'thumb'): string {
@@ -786,7 +864,7 @@ export async function fetchCoverBlob(
   variant: 'thumb' | 'full' = 'thumb'
 ): Promise<Blob | null> {
   const suffix = variant === 'full' ? 'cover' : 'cover-thumb';
-  const res = await apiFetch(config, `/api/books/${encodeURIComponent(bookId)}/${suffix}`, {
+  const res = await apiFetch(config, apiBookPath(bookId, suffix), {
     headers: { Accept: 'image/*' },
   });
   if (!res.ok) return null;
@@ -795,7 +873,7 @@ export async function fetchCoverBlob(
 
 export function bookContentUrl(config: ServerConfig, bookId: string): string {
   const base = normalizeBaseUrl(config.url);
-  return `${base}/api/books/${encodeURIComponent(bookId)}/content`;
+  return `${base}${apiBookPath(bookId, 'content')}`;
 }
 
 /** Одно ФИО: «Фамилия, Имя, Отчество» → «Фамилия Имя Отчество». */

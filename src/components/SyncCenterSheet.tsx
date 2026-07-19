@@ -2,12 +2,13 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, RefreshCw, AlertCircle, CheckCircle2, Clock, BookOpen, Bookmark, Highlighter } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { textStyles, radii, semantic } from '../ui/tokens';
+import { textStyles, semantic, touchMin, motion } from '../ui/tokens';
 import Button from '../ui/Button';
-import { getSyncPendingBreakdown, syncOpLabel, bookHasPendingSync, type SyncPendingBreakdown } from '../lib/syncStats';
-import { getSyncConflicts, resolveSyncConflictKeepLocal, resolveSyncConflictUseServer } from '../lib/syncConflicts';
+import { SheetDragHandle, sheetBackdropClass, sheetPanelClass, sheetPanelStyle } from '../ui/SheetChrome';
+import { getSyncPendingBreakdown, syncOpLabel, type SyncPendingBreakdown } from '../lib/syncStats';
 import { removeSyncOp } from '../lib/localDb';
 import type { ServerConfig } from '../types';
+import { useOverlayBackHandler } from '../hooks/useBackHandler';
 
 interface SyncCenterSheetProps {
   open: boolean;
@@ -35,11 +36,9 @@ export default function SyncCenterSheet({
   serverConfig,
 }: SyncCenterSheetProps) {
   const [breakdown, setBreakdown] = React.useState<SyncPendingBreakdown | null>(null);
-  const [conflicts, setConflicts] = React.useState<Awaited<ReturnType<typeof getSyncConflicts>>>([]);
 
   const reload = React.useCallback(() => {
     void getSyncPendingBreakdown(downloadedBookIds).then(setBreakdown);
-    void getSyncConflicts().then(setConflicts);
   }, [downloadedBookIds]);
 
   React.useEffect(() => {
@@ -47,16 +46,21 @@ export default function SyncCenterSheet({
     reload();
   }, [open, syncing, downloadedBookIds, reload]);
 
+  useOverlayBackHandler(open, onClose);
+
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[400] flex flex-col justify-end bg-black/40" onClick={onClose}>
+    <div className={sheetBackdropClass} onClick={onClose}>
       <div
-        className={`${radii.lg} rounded-b-none border-t ${theme.sheet} p-5 max-h-[85vh] overflow-y-auto`}
+        className={`${sheetPanelClass} px-5 pt-0`}
+        style={sheetPanelStyle()}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
+        aria-modal="true"
         aria-labelledby="sync-center-title"
       >
+        <SheetDragHandle />
         <div className="flex items-center justify-between mb-4">
           <h2 id="sync-center-title" className={textStyles.title}>Синхронизация</h2>
           <button type="button" aria-label="Закрыть" onClick={onClose} className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-lg ${theme.chipButton} ${theme.focusRing}`}>
@@ -114,43 +118,6 @@ export default function SyncCenterSheet({
             <p className={`${textStyles.caption} ${theme.textMuted}`}>Все изменения синхронизированы</p>
           )}
 
-          {conflicts.length > 0 && (
-            <div className={`px-3 py-2.5 rounded-xl border ${semantic.errorBg} space-y-2`}>
-              <p className={`${textStyles.captionBold}`}>
-                Конфликты ({conflicts.length})
-              </p>
-              {conflicts.map((c) => (
-                <div key={c.id} className="space-y-1">
-                  <p className={`${textStyles.caption} ${theme.textMuted}`}>
-                    {c.conflictType === 'position' ? 'Прогресс' : c.conflictType} · {c.bookId.slice(0, 8)}…
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="secondary"
-                      disabled={!serverConfig || !isOnline}
-                      onClick={() => {
-                        if (!serverConfig) return;
-                        void resolveSyncConflictUseServer(serverConfig, c).then(reload);
-                      }}
-                    >
-                      Сервер
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      disabled={!serverConfig || !isOnline}
-                      onClick={() => {
-                        if (!serverConfig) return;
-                        void resolveSyncConflictKeepLocal(serverConfig, c).then(reload);
-                      }}
-                    >
-                      Локально
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
           {breakdown && breakdown.failedOps.length > 0 && (
             <div className={`px-3 py-2.5 rounded-xl border ${semantic.warningBg} space-y-2`}>
               <p className={`${textStyles.captionBold}`}>
@@ -166,7 +133,7 @@ export default function SyncCenterSheet({
                     <span className="flex gap-1">
                       <button
                         type="button"
-                        className={`${textStyles.microBold} ${theme.accentText}`}
+                        className={`${touchMin} inline-flex items-center px-3 ${textStyles.microBold} ${theme.accentText} rounded-lg ${theme.chipButton} ${motion.press} ${theme.focusRing}`}
                         onClick={() => void removeSyncOp(op.id).then(reload)}
                       >
                         Отбросить

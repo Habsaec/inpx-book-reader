@@ -206,7 +206,10 @@ export class SectionProgress {
         const remainingTotal = sizeTotal - size
         const remainingSection = (1 - fractionInSection) * sizeInSection
         return {
-            fraction: nextSize / sizeTotal,
+            // Resume anchor is the start of the currently visible page/viewport.
+            // `nextSize` is only for location.next; persisting it as `fraction`
+            // restores one page ahead and may cross a chapter boundary.
+            fraction: size / sizeTotal,
             section: {
                 current: index,
                 total: sizes.length,

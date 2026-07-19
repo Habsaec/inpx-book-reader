@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Folder, CheckCircle2, Library } from 'lucide-react';
+import { Heart, Folder, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
@@ -10,7 +10,8 @@ import LiteBookRow from './LiteBookRow';
 import LiteEntityRow from './LiteEntityRow';
 import { BookListSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
-import { textStyles } from '../ui/tokens';
+import { textStyles, touchMin } from '../ui/tokens';
+import { useOverlayBackHandler } from '../hooks/useBackHandler';
 import { bookHasPendingSync } from '../lib/syncStats';
 import { useHorizontalTabSwipe } from '../hooks/useHorizontalTabSwipe';
 import PullToRefresh from './PullToRefresh';
@@ -156,6 +157,11 @@ export default function MyBooksTab({
     }
   }, [tab, fetchSectionBooks, serverConfig, activeShelfId, loadShelfBooks]);
 
+  const inShelfDrilldown = tab === 'shelves' && activeShelfId != null;
+  const activeShelfName = shelves.find((s) => s.id === activeShelfId)?.name;
+
+  useOverlayBackHandler(inShelfDrilldown, () => setActiveShelfId(null));
+
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <div className={`px-4 py-3 shrink-0 border-b ${theme.header}`}>
@@ -241,6 +247,20 @@ export default function MyBooksTab({
                 <BookListSkeleton />
               ) : (
                 <div>
+                  <div className={`border rounded-xl p-3 mb-3.5 flex items-center justify-between shadow-xs ${theme.cardSecondary}`}>
+                    <div className="min-w-0">
+                      <button
+                        type="button"
+                        aria-label="Назад к списку полок"
+                        onClick={() => setActiveShelfId(null)}
+                        className={`${touchMin} inline-flex items-center gap-1 px-2 text-xs font-bold ${theme.accentText} ${theme.focusRing}`}
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" aria-hidden /> Назад
+                      </button>
+                      <h3 className={`${textStyles.sectionLabel} ${theme.textMuted} mt-1`}>Полка</h3>
+                      <p className={`${textStyles.bookTitle} truncate mt-0.5`}>{activeShelfName ?? '…'}</p>
+                    </div>
+                  </div>
                   {shelfBooks.map((b) => (
                     <LiteBookRow
                       key={b.id}

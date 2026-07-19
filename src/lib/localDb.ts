@@ -337,6 +337,7 @@ export async function initLocalDb(): Promise<void> {
       await createSchema();
       let meta = await getMeta();
       meta = await runSchemaMigrations(meta);
+      await purgeLegacyPositionConflicts();
       await migrateFromLocalStorage();
       await migrateReaderDataFromLocalStorage();
       try {
@@ -699,6 +700,20 @@ export async function removeSyncConflict(id: number): Promise<void> {
   } else {
     await idbDelete('sync_conflicts', String(id));
   }
+}
+
+/** One-time cleanup of legacy position conflicts from the pre-revision sync UI. */
+export async function purgeLegacyPositionConflicts(): Promise<void> {
+  if (sqliteConn) {
+    await execSql("DELETE FROM sync_conflicts WHERE conflict_type = 'position'");
+    return;
+  }
+  const all = await idbGetAll<{ id: number; conflictType: string }>('sync_conflicts');
+  await Promise.all(
+    all
+      .filter((row) => row.conflictType === 'position')
+      .map((row) => idbDelete('sync_conflicts', String(row.id))),
+  );
 }
 
 /** Persist full library snapshot (transactional replace). */

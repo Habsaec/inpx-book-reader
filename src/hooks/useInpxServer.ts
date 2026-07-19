@@ -18,7 +18,6 @@ import {
   fetchShelfBooks,
   addBookToServerShelf,
   removeBookFromServerShelf,
-  saveReadingPosition,
   recordReadingHistory,
   fetchReadingPosition,
   fetchReaderBookmarks,
@@ -129,7 +128,9 @@ export function useInpxServer(
         const progress = Math.round(Number(book.readProgress) || 0);
         if (progress > 0) mergedProgress.set(book.id, progress);
       });
-      rdIds.forEach((id) => mergedProgress.set(id, 100));
+      rdIds.forEach((id) => {
+        if (!mergedProgress.has(id)) mergedProgress.set(id, 100);
+      });
       setReadingProgress(mergedProgress);
       if (activityMeta) applyServerActivitySyncMeta(activityMeta);
       const timeStr = new Date().toLocaleTimeString('ru-RU');
@@ -252,24 +253,6 @@ export function useInpxServer(
     await removeBookFromServerShelf(config, shelfId, bookId);
     await refresh();
   }, [config, online, refresh]);
-
-  const syncPosition = React.useCallback(
-    async (bookId: string, position: string, progress: number) => {
-      if (!online) return;
-      const result = await saveReadingPosition(config, bookId, position, progress);
-      setReadingProgress((prev) => {
-        const next = new Map(prev);
-        const rounded = Math.round(progress);
-        if (rounded > 0) next.set(bookId, rounded);
-        if (result.markedRead) next.set(bookId, 100);
-        return next;
-      });
-      if (result.markedRead) {
-        setReadIds((prev) => new Set(prev).add(bookId));
-      }
-    },
-    [config, online]
-  );
 
   const touchReadingHistory = React.useCallback(
     async (bookId: string) => {
@@ -475,7 +458,6 @@ export function useInpxServer(
     loadShelfBooks,
     addToShelf,
     removeFromShelf,
-    syncPosition,
     touchReadingHistory,
     loadPosition,
     loadReaderData,

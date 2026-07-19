@@ -28,7 +28,7 @@ export default function AppShell({
   children,
 }: AppShellProps) {
   return (
-    <div id="main-dashboard-tabs" className={`flex flex-col h-full min-h-0 flex-1 ${theme.bg} ${theme.text} select-none`}>
+    <div id="main-dashboard-tabs" className={`flex flex-col h-full min-h-0 flex-1 ${theme.bg} ${theme.text}`}>
       <div
         id="dashboard-navbar"
         className={`h-14 landscape:max-[500px]:h-9 flex items-center justify-between px-4 landscape:max-[500px]:px-2 select-none shrink-0 border-b ${theme.header}`}
@@ -60,7 +60,7 @@ export default function AppShell({
                 ? 'Проверка подключения. Синхронизация'
                 : 'Офлайн. Синхронизация'
           }
-          className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border ${theme.chip} border-[color:var(--app-border)] ${theme.chipButton} ${theme.focusRing}`}
+          className={`inline-flex items-center justify-center gap-1.5 min-h-12 min-w-12 px-3 text-xs font-bold rounded-full border ${theme.chip} border-[color:var(--app-border)] ${theme.chipButton} ${theme.focusRing}`}
         >
           <Star
             className={`w-3.5 h-3.5 ${
@@ -99,10 +99,18 @@ export default function AppShell({
               onClick={() => onTabChange(tab.id)}
               aria-label={tab.label}
               aria-current={isActive ? 'page' : undefined}
-              className={`flex flex-col items-center justify-center gap-0.5 min-w-0 flex-1 min-h-12 py-2 transition-colors active:scale-[0.98] ${theme.focusRing} ${isActive ? theme.tabActive : theme.tabInactive}`}
+              className={`relative flex flex-col items-center justify-center gap-0.5 min-w-0 flex-1 min-h-12 py-2 transition-colors active:scale-[0.98] ${theme.focusRing} ${
+                isActive ? theme.tabActive : theme.tabInactive
+              }`}
             >
-              <Icon className="w-5 h-5" aria-hidden />
-              <span className="text-xs font-bold truncate">{tab.label}</span>
+              <span
+                className={`absolute top-0 inset-x-3 h-0.5 rounded-full transition-colors ${
+                  isActive ? 'bg-[var(--app-link)]' : 'bg-transparent'
+                }`}
+                aria-hidden
+              />
+              <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : ''}`} aria-hidden />
+              <span className={`text-xs truncate ${isActive ? 'font-black' : 'font-bold'}`}>{tab.label}</span>
             </button>
           );
         })}

@@ -8,7 +8,7 @@ import {
   fetchReaderBookSyncMeta,
   fetchReaderActivitySyncMeta,
   fetchReadingPosition,
-  saveReadingPosition,
+  ReadingPositionConflictError,
 } from './inpxClient';
 import { ServerConfig } from '../types';
 import { OfflineReaderData, applyNewerLocalPositionIfNeeded, primeReaderLocalStorage, readOfflineReaderData, writeOfflineReaderData } from './offlineReaderStore';
@@ -18,15 +18,27 @@ import {
   readReaderActivitySync,
 } from './readerActivitySync';
 import {
+  applyServerPositionToLocal,
+  localFractionFromData,
+  serverFractionFromPos,
+} from './positionApply';
+import {
+  localHasMeaningfulPosition,
+  pushReadingPositionWithRecovery,
+  serverPositionIsMeaningful,
+  writePushSuccessFields,
+} from './readingPositionPush';
+import {
   fractionToProgress,
   isServerCollectionNewer,
   normalizeReadingFraction,
   progressToFraction,
-  shouldPushLocalPosition,
-  shouldUseServerPosition,
   SYNC_EPOCH,
 } from './syncMerge';
-import { detectPositionConflict, recordPositionConflict } from './syncConflicts';
+import {
+  decidePositionOnOpen,
+  positionsDiffer,
+} from '../../public/inpx-reader/reader-shared/position-revision.js';
 
 function localBookmarksRev(data: OfflineReaderData): string {
   return data.bookmarksChangedAt || data.updatedAt || SYNC_EPOCH;
@@ -36,63 +48,149 @@ function localAnnotationsRev(data: OfflineReaderData): string {
   return data.annotationsChangedAt || data.updatedAt || SYNC_EPOCH;
 }
 
-function localPositionRev(data: OfflineReaderData): string {
-  return data.positionChangedAt || data.updatedAt || SYNC_EPOCH;
-}
-
-function serverFractionFromPos(serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>): number {
-  if (serverPos.fraction != null && Number.isFinite(Number(serverPos.fraction))) {
-    return normalizeReadingFraction(Number(serverPos.fraction));
+async function fetchEnrichedServerPosition(
+  config: ServerConfig,
+  bookId: string,
+): Promise<Awaited<ReturnType<typeof fetchReadingPosition>> | null> {
+  let serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>;
+  let syncMeta: Awaited<ReturnType<typeof fetchReaderBookSyncMeta>> | null = null;
+  try {
+    [serverPos, syncMeta] = await Promise.all([
+      fetchReadingPosition(config, bookId),
+      fetchReaderBookSyncMeta(config, bookId).catch(() => null),
+    ]);
+  } catch {
+    return null;
   }
-  return progressToFraction(serverPos.progress || 0);
+  return enrichServerPosition(serverPos, syncMeta);
 }
 
-function localFractionFromData(local: OfflineReaderData): number {
-  if (local.fraction != null && Number.isFinite(Number(local.fraction))) {
-    return normalizeReadingFraction(Number(local.fraction));
-  }
-  return progressToFraction(local.progress || 0);
+function isReadingPositionConflictError(
+  error: unknown,
+): error is ReadingPositionConflictError {
+  if (error instanceof ReadingPositionConflictError) return true;
+  if (typeof error !== 'object' || error === null) return false;
+  const current = (error as ReadingPositionConflictError).current;
+  return current != null && typeof current === 'object';
 }
 
-function buildPositionMergeInput(
-  local: OfflineReaderData,
-  serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>,
-): Parameters<typeof shouldUseServerPosition>[0] {
-  const serverFrac = serverFractionFromPos(serverPos);
-  return {
-    localFraction: localFractionFromData(local),
-    localPositionRev: localPositionRev(local),
-    localHasPaginator: false,
-    serverFraction: serverFrac,
-    serverProgress: serverPos.progress || 0,
-    serverPosition: serverPos.position || '',
-    serverPosUpdatedAt: serverPos.updatedAt || null,
-    localServerPositionUpdatedAt: local.serverPositionUpdatedAt ?? null,
-    localServerPositionProgress: local.serverPositionProgress ?? 0,
-  };
-}
+export type CrossDevicePositionChoice = 'applied' | 'declined' | 'silent' | 'noop' | 'pending';
 
-function applyServerPositionToLocal(
+function writeServerSnapshotForDeferredPrompt(
   local: OfflineReaderData,
   serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>,
 ): OfflineReaderData {
-  const fraction = serverFractionFromPos(serverPos);
-  const progress = fractionToProgress(fraction);
+  const serverFrac = serverFractionFromPos(serverPos);
+  const serverProgress = fractionToProgress(serverFrac);
   return {
     ...local,
-    position: serverPos.position || null,
-    progress,
-    fraction,
-    fb2Href: serverPos.fb2Href ? String(serverPos.fb2Href) : null,
-    sectionIndex: null,
-    sectionPageFraction: null,
-    paginatorPage: null,
-    paginatorPages: null,
-    layoutMode: null,
-    positionChangedAt: serverPos.updatedAt || new Date().toISOString(),
+    serverPosition: serverPos.position || null,
     serverPositionUpdatedAt: serverPos.updatedAt || null,
-    serverPositionProgress: serverPos.progress || 0,
+    serverPositionProgress: serverProgress,
+    serverPositionFraction: serverFrac,
+    serverFb2Href: serverPos.fb2Href ? String(serverPos.fb2Href) : null,
+    serverSectionIndex:
+      serverPos.sectionIndex != null && Number.isFinite(Number(serverPos.sectionIndex))
+        ? Number(serverPos.sectionIndex)
+        : null,
+    serverTextOffset:
+      serverPos.textOffset != null && Number.isFinite(Number(serverPos.textOffset))
+        ? Number(serverPos.textOffset)
+        : null,
+    serverTextQuote: typeof serverPos.textQuote === 'string' ? serverPos.textQuote : null,
+    serverTextSectionLength:
+      serverPos.textSectionLength != null && Number.isFinite(Number(serverPos.textSectionLength))
+        ? Number(serverPos.textSectionLength)
+        : null,
+    serverSectionPageFraction:
+      serverPos.sectionPageFraction != null && Number.isFinite(Number(serverPos.sectionPageFraction))
+        ? Number(serverPos.sectionPageFraction)
+        : null,
+    serverPaginatorPage:
+      serverPos.paginatorPage != null && Number.isFinite(Number(serverPos.paginatorPage))
+        ? Number(serverPos.paginatorPage)
+        : null,
+    serverPaginatorPages:
+      serverPos.paginatorPages != null && Number.isFinite(Number(serverPos.paginatorPages))
+        ? Number(serverPos.paginatorPages)
+        : null,
+    serverLayoutMode: serverPos.layoutMode ? String(serverPos.layoutMode) : null,
+    positionVersion: 4,
+    serverRevision: serverPos.revision,
+    pendingCrossDevicePrompt: true,
+    crossDeviceResolvedAt: null,
   };
+}
+
+function updateServerPositionMetadata(
+  local: OfflineReaderData,
+  serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>,
+): OfflineReaderData {
+  const serverRevision = serverPos.revision ?? 0;
+  return {
+    ...local,
+    positionVersion: 4,
+    serverRevision,
+    serverPosition: serverPos.position || local.serverPosition || null,
+    serverPositionUpdatedAt: serverPos.updatedAt || local.serverPositionUpdatedAt || null,
+    serverPositionProgress: fractionToProgress(serverFractionFromPos(serverPos)),
+    serverPositionFraction: serverFractionFromPos(serverPos),
+    serverFb2Href: serverPos.fb2Href ? String(serverPos.fb2Href) : (local.serverFb2Href ?? null),
+    serverSectionIndex: serverPos.sectionIndex ?? null,
+    serverTextOffset: serverPos.textOffset ?? null,
+    serverTextQuote: serverPos.textQuote ?? null,
+    serverTextSectionLength: serverPos.textSectionLength ?? null,
+  };
+}
+
+function shouldApplyServerSilently(
+  local: OfflineReaderData,
+  serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>,
+): boolean {
+  const baseRevision = local.baseRevision ?? 0;
+  const serverRevision = serverPos.revision ?? 0;
+  if (!serverPositionIsMeaningful(serverPos) && localHasMeaningfulPosition(local) && serverRevision === baseRevision) {
+    return false;
+  }
+  return true;
+}
+
+/** Синхронизация позиции при открытии: deferred prompt в читалке после restore локальной позиции. */
+export async function syncPositionOnBookOpen(
+  config: ServerConfig,
+  bookId: string,
+): Promise<CrossDevicePositionChoice> {
+  try {
+    const serverPos = await fetchEnrichedServerPosition(config, bookId);
+    if (!serverPos) return 'noop';
+
+    const local = readOfflineReaderData(bookId);
+    const decision = decidePositionOnOpen(local, serverPos);
+
+    if (decision === 'prompt') {
+      writeOfflineReaderData(bookId, writeServerSnapshotForDeferredPrompt(local, serverPos));
+      primeReaderLocalStorage(bookId);
+      return 'pending';
+    }
+
+    if (decision === 'server') {
+      if (!shouldApplyServerSilently(local, serverPos)) {
+        writeOfflineReaderData(bookId, updateServerPositionMetadata(local, serverPos));
+        return 'noop';
+      }
+      applyServerPositionPull(bookId, local, serverPos);
+      writeOfflineReaderData(bookId, {
+        ...readOfflineReaderData(bookId),
+        crossDeviceResolvedAt: serverPos.updatedAt || new Date().toISOString(),
+      });
+      return 'silent';
+    }
+
+    writeOfflineReaderData(bookId, updateServerPositionMetadata(local, serverPos));
+    return 'noop';
+  } catch {
+    return 'noop';
+  }
 }
 
 function enrichServerPosition(
@@ -113,32 +211,22 @@ function applyServerPositionPull(
   primeReaderLocalStorage(bookId);
 }
 
-/** Подтянуть позицию с сервера перед открытием, если она впереди локальной. */
+/** @deprecated Use syncPositionOnBookOpen on user open; kept for background pull without prompt. */
 export async function pullServerPositionIfAhead(config: ServerConfig, bookId: string): Promise<boolean> {
-  let serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>;
-  let syncMeta: Awaited<ReturnType<typeof fetchReaderBookSyncMeta>> | null = null;
-  try {
-    [serverPos, syncMeta] = await Promise.all([
-      fetchReadingPosition(config, bookId),
-      fetchReaderBookSyncMeta(config, bookId).catch(() => null),
-    ]);
-  } catch {
-    return false;
-  }
-  serverPos = enrichServerPosition(serverPos, syncMeta);
+  const serverPos = await fetchEnrichedServerPosition(config, bookId);
+  if (!serverPos) return false;
   const local = readOfflineReaderData(bookId);
-  const mergeInput = buildPositionMergeInput(local, serverPos);
-  if (!shouldUseServerPosition(mergeInput)) return false;
+  if (local.positionDirty || serverPos.revision <= (local.baseRevision ?? 0)) return false;
   applyServerPositionPull(bookId, local, serverPos);
   return true;
 }
 
-/** При закрытии читалки: подтянуть с сервера, если впереди; иначе пушить только если локально впереди. */
+/** On close: pull clean state or CAS-push dirty state against the observed server revision. */
 export async function finalizeReadingPositionSync(
   config: ServerConfig,
   bookId: string,
   options?: { canPushRead?: boolean },
-): Promise<'pulled' | 'pushed' | 'noop'> {
+): Promise<'pulled' | 'pushed' | 'conflict' | 'noop'> {
   let serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>;
   let syncMeta: Awaited<ReturnType<typeof fetchReaderBookSyncMeta>> | null = null;
   try {
@@ -151,42 +239,49 @@ export async function finalizeReadingPositionSync(
   }
   serverPos = enrichServerPosition(serverPos, syncMeta);
   const local = readOfflineReaderData(bookId);
-  const mergeInput = buildPositionMergeInput(local, serverPos);
+  const baseRevision = local.baseRevision ?? 0;
+  const serverRevision = serverPos.revision ?? 0;
+  const meaningfulLocal = localHasMeaningfulPosition(local);
 
-  if (shouldUseServerPosition(mergeInput)) {
-    applyServerPositionPull(bookId, local, serverPos);
-    return 'pulled';
-  }
-
-  const localFrac = localFractionFromData(local);
-  const hasMeaningfulPosition =
-    localFrac > 0.02
-    || Boolean(local.fb2Href?.trim())
-    || Boolean(local.position?.trim());
-  if (!hasMeaningfulPosition) return 'noop';
-
-  if (!shouldPushLocalPosition(mergeInput, local.progress, options?.canPushRead !== false)) {
+  if (local.pendingCrossDevicePrompt && !(local.positionDirty && meaningfulLocal)) {
     return 'noop';
   }
 
+  if (!local.positionDirty && serverRevision > baseRevision) {
+    applyServerPositionPull(bookId, local, serverPos);
+    return 'pulled';
+  }
+  if (!local.positionDirty) return 'noop';
+
+  if (serverRevision !== baseRevision && !positionsDiffer(local, serverPos)) {
+    applyServerPositionPull(bookId, local, serverPos);
+    return 'pulled';
+  }
+  if (serverRevision !== baseRevision) {
+    writeOfflineReaderData(bookId, writeServerSnapshotForDeferredPrompt(local, serverPos));
+    primeReaderLocalStorage(bookId);
+    return 'conflict';
+  }
+
+  if (!meaningfulLocal) return 'noop';
+
+  if (local.progress >= 99 && options?.canPushRead === false) return 'noop';
+
+  const localFrac = localFractionFromData(local);
   try {
-    await saveReadingPosition(
-      config,
-      bookId,
-      local.position || '',
-      local.progress,
-      local.fraction ?? undefined,
-      local.fb2Href ?? undefined,
-      {
-        sectionIndex: local.sectionIndex ?? undefined,
-        sectionPageFraction: local.sectionPageFraction ?? undefined,
-        paginatorPage: local.paginatorPage ?? undefined,
-        paginatorPages: local.paginatorPages ?? undefined,
-        layoutMode: local.layoutMode ?? undefined,
-      },
-    );
+    const pushResult = await pushReadingPositionWithRecovery(config, bookId, local, baseRevision);
+    writeOfflineReaderData(bookId, {
+      ...readOfflineReaderData(bookId),
+      ...writePushSuccessFields(local, pushResult, localFrac),
+    });
     return 'pushed';
-  } catch {
+  } catch (error) {
+    if (isReadingPositionConflictError(error)) {
+      const fresh = readOfflineReaderData(bookId);
+      writeOfflineReaderData(bookId, writeServerSnapshotForDeferredPrompt(fresh, error.current));
+      primeReaderLocalStorage(bookId);
+      return 'conflict';
+    }
     return 'noop';
   }
 }
@@ -334,7 +429,12 @@ export async function syncOfflineReaderForBook(
   const deletedBmPositions = new Set(local.deletedBookmarkPositions || []);
   const deletedAnnCfis = new Set(local.deletedAnnotationCfis || []);
 
-  let serverPos: Awaited<ReturnType<typeof fetchReadingPosition>> = { position: '', progress: 0 };
+  let serverPos: Awaited<ReturnType<typeof fetchReadingPosition>> = {
+    position: '',
+    progress: 0,
+    positionVersion: 4,
+    revision: 0,
+  };
   let serverBookmarks: Awaited<ReturnType<typeof fetchReaderBookmarks>> = [];
   let serverAnnotations: Awaited<ReturnType<typeof fetchReaderAnnotations>> = [];
   let syncMeta = await fetchReaderBookSyncMeta(config, bookId);
@@ -439,6 +539,9 @@ export async function syncOfflineReaderForBook(
 
   const serverProgress = serverPos.progress || 0;
   const serverPosUpdatedAt = serverPos.updatedAt || syncMeta.positionUpdatedAt || null;
+  const serverFrac = serverPos.fraction != null && Number.isFinite(Number(serverPos.fraction))
+    ? normalizeReadingFraction(Number(serverPos.fraction))
+    : progressToFraction(serverProgress);
 
   if (options?.skipPosition) {
     const fresh = readOfflineReaderData(bookId);
@@ -456,38 +559,53 @@ export async function syncOfflineReaderForBook(
       serverBookmarkCount: syncMeta.bookmarkCount,
       serverAnnotationCount: syncMeta.annotationCount,
       serverPositionProgress: serverProgress,
+      serverPositionFraction: serverFrac,
+      positionVersion: 4,
     });
     return;
   }
 
-  const serverFrac = serverPos.fraction != null && Number.isFinite(Number(serverPos.fraction))
-    ? normalizeReadingFraction(Number(serverPos.fraction))
-    : progressToFraction(serverProgress);
-  const localFrac = fraction;
-
-  const localHasPaginator = local.paginatorPage != null && Number.isFinite(Number(local.paginatorPage));
-  const mergeInput = {
-    skipPosition: options?.skipPosition,
-    localFraction: localFrac,
-    localPositionRev: localPositionRev(local),
-    localHasPaginator,
-    serverFraction: serverFrac,
-    serverProgress,
-    serverPosition: serverPos.position || '',
-    serverPosUpdatedAt,
-    localServerPositionUpdatedAt: local.serverPositionUpdatedAt ?? null,
-    localServerPositionProgress: local.serverPositionProgress ?? 0,
-  };
-  if (detectPositionConflict(mergeInput)) {
-    await recordPositionConflict(bookId, mergeInput);
-  }
-  const useServerPosition = shouldUseServerPosition(mergeInput);
+  const baseRevision = local.baseRevision ?? 0;
+  const serverRevision = serverPos.revision ?? 0;
+  const revisionConflict =
+    Boolean(local.positionDirty)
+    && serverRevision !== baseRevision
+    && positionsDiffer(local, serverPos);
+  const useServerPosition =
+    (
+      !local.positionDirty
+      && local.dismissedServerRevision !== serverRevision
+      && serverRevision > baseRevision
+    )
+    || (
+      Boolean(local.positionDirty)
+      && serverRevision !== baseRevision
+      && !positionsDiffer(local, serverPos)
+    );
 
   let sectionIndex = local.sectionIndex ?? null;
+  let textOffset = local.textOffset ?? null;
+  let textQuote = local.textQuote ?? null;
+  let textSectionLength = local.textSectionLength ?? null;
   let sectionPageFraction = local.sectionPageFraction ?? null;
   let paginatorPage = local.paginatorPage ?? null;
   let paginatorPages = local.paginatorPages ?? null;
   let layoutModeStored = local.layoutMode ?? null;
+
+  let serverPosUpdatedAtStored = serverPosUpdatedAt;
+  let serverProgressStored = serverProgress;
+  let serverFractionStored = serverFrac;
+  let serverRevisionStored = serverRevision;
+  let serverSectionIndexStored = serverPos.sectionIndex ?? null;
+  let serverTextOffsetStored = serverPos.textOffset ?? null;
+  let serverTextQuoteStored = serverPos.textQuote ?? null;
+  let serverTextSectionLengthStored = serverPos.textSectionLength ?? null;
+  let baseRevisionStored = baseRevision;
+  let positionDirtyStored = Boolean(local.positionDirty);
+  let dismissedServerRevisionStored = local.dismissedServerRevision ?? null;
+  let conflictSnapshot: OfflineReaderData | null = revisionConflict
+    ? writeServerSnapshotForDeferredPrompt(local, serverPos)
+    : null;
 
   if (useServerPosition) {
     position = serverPos.position || null;
@@ -503,6 +621,15 @@ export async function syncOfflineReaderForBook(
       serverPos.sectionIndex != null && Number.isFinite(Number(serverPos.sectionIndex))
         ? Number(serverPos.sectionIndex)
         : null;
+    textOffset =
+      serverPos.textOffset != null && Number.isFinite(Number(serverPos.textOffset))
+        ? Number(serverPos.textOffset)
+        : null;
+    textQuote = typeof serverPos.textQuote === 'string' ? serverPos.textQuote : null;
+    textSectionLength =
+      serverPos.textSectionLength != null && Number.isFinite(Number(serverPos.textSectionLength))
+        ? Number(serverPos.textSectionLength)
+        : null;
     sectionPageFraction =
       serverPos.sectionPageFraction != null && Number.isFinite(Number(serverPos.sectionPageFraction))
         ? Number(serverPos.sectionPageFraction)
@@ -516,19 +643,40 @@ export async function syncOfflineReaderForBook(
         ? Number(serverPos.paginatorPages)
         : null;
     layoutModeStored = serverPos.layoutMode ? String(serverPos.layoutMode) : null;
+    serverFractionStored = fraction;
+    serverRevisionStored = serverRevision;
+    serverSectionIndexStored = sectionIndex;
+    serverTextOffsetStored = textOffset;
+    serverTextQuoteStored = textQuote;
+    serverTextSectionLengthStored = textSectionLength;
+    baseRevisionStored = serverRevision;
+    positionDirtyStored = false;
+    dismissedServerRevisionStored = null;
   } else if (
     !options?.neverPushPosition
-    && shouldPushLocalPosition(mergeInput, progress, activity?.shouldPushReadState !== false)
+    && local.positionDirty
+    && !revisionConflict
+    && (progress < 99 || activity?.shouldPushReadState !== false)
   ) {
     try {
-      await saveReadingPosition(config, bookId, position || '', progress, fraction, fb2Href, {
-        sectionIndex,
-        sectionPageFraction,
-        paginatorPage,
-        paginatorPages,
-        layoutMode: layoutModeStored,
-      });
-    } catch {
+      const pushResult = await pushReadingPositionWithRecovery(config, bookId, local, baseRevision);
+      const pushedFrac = localFractionFromData(local);
+      serverPosUpdatedAtStored = pushResult.updatedAt || new Date().toISOString();
+      serverProgressStored = fractionToProgress(pushedFrac);
+      serverFractionStored = pushedFrac;
+      serverRevisionStored = pushResult.revision;
+      serverSectionIndexStored = sectionIndex;
+      serverTextOffsetStored = textOffset;
+      serverTextQuoteStored = textQuote;
+      serverTextSectionLengthStored = textSectionLength;
+      baseRevisionStored = pushResult.revision;
+      positionDirtyStored = false;
+      dismissedServerRevisionStored = null;
+    } catch (error) {
+      if (isReadingPositionConflictError(error)) {
+        conflictSnapshot = writeServerSnapshotForDeferredPrompt(local, error.current);
+        serverRevisionStored = error.current.revision ?? serverRevisionStored;
+      }
       /* keep local */
     }
   }
@@ -542,6 +690,9 @@ export async function syncOfflineReaderForBook(
       fraction,
       fb2Href,
       sectionIndex,
+      textOffset,
+      textQuote,
+      textSectionLength,
       sectionPageFraction,
       paginatorPage,
       paginatorPages,
@@ -553,14 +704,40 @@ export async function syncOfflineReaderForBook(
       bookmarksChangedAt: serverBookmarksNewer ? syncMeta.bookmarksRev : local.bookmarksChangedAt,
       annotationsChangedAt: serverAnnotationsNewer ? syncMeta.annotationsRev : local.annotationsChangedAt,
       positionChangedAt: useServerPosition
-        ? serverPosUpdatedAt || local.positionChangedAt
+        ? serverPosUpdatedAtStored || local.positionChangedAt
         : local.positionChangedAt,
       serverBookmarksRev: syncMeta.bookmarksRev,
       serverAnnotationsRev: syncMeta.annotationsRev,
-      serverPositionUpdatedAt: serverPosUpdatedAt,
+      serverPositionUpdatedAt: serverPosUpdatedAtStored,
       serverBookmarkCount: syncMeta.bookmarkCount,
       serverAnnotationCount: syncMeta.annotationCount,
-      serverPositionProgress: serverProgress,
+      serverPositionProgress: serverProgressStored,
+      serverPositionFraction: serverFractionStored,
+      serverSectionIndex: serverSectionIndexStored,
+      serverTextOffset: serverTextOffsetStored,
+      serverTextQuote: serverTextQuoteStored,
+      serverTextSectionLength: serverTextSectionLengthStored,
+      positionVersion: 4,
+      serverRevision: serverRevisionStored,
+      baseRevision: baseRevisionStored,
+      positionDirty: positionDirtyStored,
+      dismissedServerRevision: dismissedServerRevisionStored,
+      ...(conflictSnapshot ? {
+        pendingCrossDevicePrompt: true,
+        serverPosition: conflictSnapshot.serverPosition,
+        serverPositionUpdatedAt: conflictSnapshot.serverPositionUpdatedAt,
+        serverPositionProgress: conflictSnapshot.serverPositionProgress,
+        serverPositionFraction: conflictSnapshot.serverPositionFraction,
+        serverFb2Href: conflictSnapshot.serverFb2Href,
+        serverSectionIndex: conflictSnapshot.serverSectionIndex,
+        serverTextOffset: conflictSnapshot.serverTextOffset,
+        serverTextQuote: conflictSnapshot.serverTextQuote,
+        serverTextSectionLength: conflictSnapshot.serverTextSectionLength,
+        serverSectionPageFraction: conflictSnapshot.serverSectionPageFraction,
+        serverPaginatorPage: conflictSnapshot.serverPaginatorPage,
+        serverPaginatorPages: conflictSnapshot.serverPaginatorPages,
+        serverLayoutMode: conflictSnapshot.serverLayoutMode,
+      } : {}),
     }),
   );
 }
@@ -593,3 +770,5 @@ export async function syncDownloadedBooksOnline(
   const activityOpts = buildSyncActivityOptions(activityState, activityMeta);
   await syncAllOfflineReaders(config, bookIds, activityOpts);
 }
+
+export { applyServerPositionToLocal };

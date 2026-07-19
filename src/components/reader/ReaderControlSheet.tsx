@@ -2,8 +2,9 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, Type, Sun, Moon, BookOpen, List, ScrollText, BookMarked, Maximize2, Clock, Volume2, Square, Search, Highlighter } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
-import { textStyles, radii } from '../../ui/tokens';
+import { textStyles, touchMin } from '../../ui/tokens';
 import Button from '../../ui/Button';
+import { SheetDragHandle, sheetBackdropClass, sheetPanelClass, sheetPanelStyle } from '../../ui/SheetChrome';
 
 import type { ReaderFontFamily, ReaderLayout, ReaderTheme } from './readerTypes';
 
@@ -109,20 +110,24 @@ export default function ReaderControlSheet({
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[300] flex flex-col justify-end bg-black/40" onClick={onClose}>
+    <div className={`${sheetBackdropClass} z-[300]`} onClick={onClose}>
       <div
-        className={`${radii.lg} rounded-b-none border-t ${theme.sheet} p-5 space-y-4 max-h-[70vh] overflow-y-auto`}
+        className={`${sheetPanelClass} px-5 pt-0 max-h-[70vh]`}
+        style={sheetPanelStyle()}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label="Настройки чтения"
+        aria-labelledby="reader-control-title"
+        aria-modal="true"
       >
+        <SheetDragHandle />
         <div className="flex items-center justify-between">
-          <h2 className={textStyles.title}>Чтение</h2>
-          <button type="button" aria-label="Закрыть" onClick={onClose} className={theme.focusRing}>
+          <h2 id="reader-control-title" className={textStyles.title}>Чтение</h2>
+          <button type="button" aria-label="Закрыть" onClick={onClose} className={`${touchMin} inline-flex items-center justify-center rounded-lg ${theme.chipButton} ${theme.focusRing}`}>
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        <div className="space-y-4 mt-4">
         <div className="space-y-2">
           <p className={`${textStyles.captionBold} ${theme.textMuted}`}>Тема</p>
           <div className="flex gap-2">
@@ -312,6 +317,7 @@ export default function ReaderControlSheet({
           <Type className="w-3 h-3 inline mr-1" aria-hidden />
           Чтение только из локального файла на устройстве
         </p>
+        </div>
       </div>
     </div>,
     document.body,

@@ -54,8 +54,26 @@
   <div class="ft-seek-wrap">
     <input type="range" class="ft-seek" id="ft-seek" name="readerSeek" min="0" max="1" step="0.001" value="0">
   </div>
+  <button type="button" class="ft-goto-btn" id="ft-goto" title="Перейти…" aria-label="Перейти к позиции">⋯</button>
   <span class="ft-pct" id="ft-pct">0%</span>
 </div>
+
+
+<div class="reader-status-strip" id="reader-status-strip" aria-hidden="true">
+  <div class="rss-side rss-left">
+    <span class="rss-item rss-chapter" id="rss-chapter" hidden></span>
+  </div>
+  <div class="rss-mid">
+    <span class="rss-item rss-page" id="rss-page" hidden></span>
+    <span class="rss-item rss-chapter-left" id="rss-chapter-left" hidden></span>
+    <span class="rss-item rss-pct" id="rss-pct" hidden></span>
+  </div>
+  <div class="rss-side rss-right">
+    <span class="rss-item rss-clock" id="rss-clock" hidden></span>
+  </div>
+</div>
+
+<div class="reader-autoflip-hud" id="reader-autoflip-hud" hidden aria-hidden="true">Авто</div>
 
 <div class="reader-tts-dock" id="reader-tts-dock" role="region" aria-hidden="true" aria-label="Озвучка">
   <div class="reader-tts-dock-inner">
@@ -95,6 +113,28 @@
   </div>
 </div>
 
+
+<div class="reader-goto" id="reader-goto" aria-hidden="true">
+  <div class="rg-card">
+    <div class="rg-title">Перейти к…</div>
+    <label class="rg-label" for="rg-pct">Процент</label>
+    <div class="rg-row">
+      <input type="range" id="rg-pct" name="gotoPct" min="0" max="100" step="0.1" value="0">
+      <input type="number" id="rg-pct-num" name="gotoPctNum" min="0" max="100" step="0.1" value="0" inputmode="decimal">
+      <span class="rg-unit">%</span>
+    </div>
+    <label class="rg-label" for="rg-page">Страница</label>
+    <div class="rg-row">
+      <input type="number" id="rg-page" name="gotoPage" min="1" step="1" value="1" inputmode="numeric">
+      <span class="rg-unit" id="rg-page-total">из —</span>
+    </div>
+    <div class="rg-hint" id="rg-page-hint">Номер экрана в текущей вёрстке</div>
+    <div class="rne-actions">
+      <button type="button" class="rne-btn" id="rg-cancel">Отмена</button>
+      <button type="button" class="rne-btn rne-btn-primary" id="rg-go">Перейти</button>
+    </div>
+  </div>
+</div>
 <div class="panel-overlay" id="panel-overlay">
   <button type="button" class="panel-backdrop" id="panel-backdrop" tabindex="-1" aria-label="Закрыть"></button>
   <div class="panel">
@@ -344,6 +384,49 @@
         </div>
       </section>
 
+      <section class="rs-section" data-rs-section="controls">
+        <h3 class="rs-section-title">Управление</h3>
+        <div class="rs-group">
+          <div class="rs-label">Зоны экрана</div>
+          <div class="rs-seg rs-tap-mode-seg">
+            <button type="button" data-tap-edit="short" class="is-active">Короткий тап</button>
+            <button type="button" data-tap-edit="long">Долгий тап</button>
+          </div>
+          <div class="rs-tap-grid" id="rs-tap-grid" role="group" aria-label="Зоны экрана"></div>
+          <select id="rs-tap-action" class="rs-select" aria-label="Действие зоны" hidden></select>
+          <div class="rs-hint" id="rs-tap-hint">Выберите клетку, затем действие</div>
+          <button type="button" class="rs-tap-reset" id="rs-tap-reset">Сброс зон</button>
+        </div>
+        <div class="rs-group">
+          <div class="rs-label">Автоперелистывание</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-auto-flip" name="readerAutoFlip" min="0" max="30" step="1" aria-label="Интервал автоперелистывания">
+            <span class="rs-val" id="rs-auto-flip-val">Выкл</span>
+          </div>
+          <div class="rs-hint">0 — выкл. Работает только в режиме страниц, пауза при меню и озвучке.</div>
+        </div>
+        <div id="rs-volume-keys-slot"></div>
+      </section>
+
+      <section class="rs-section" data-rs-section="status">
+        <h3 class="rs-section-title">Строка состояния</h3>
+        <div class="rs-group">
+          <div class="rs-label">Видимость</div>
+          <div class="rs-seg">
+            <button type="button" data-set-status-mode="withChrome">С панелью</button>
+            <button type="button" data-set-status-mode="always">Всегда</button>
+            <button type="button" data-set-status-mode="hidden">Скрыта</button>
+          </div>
+        </div>
+        <div class="rs-group">
+          <label class="rs-check"><input type="checkbox" id="rs-status-chapter" name="statusChapter" checked><span>Глава</span></label>
+          <label class="rs-check"><input type="checkbox" id="rs-status-pct" name="statusPct" checked><span>Процент</span></label>
+          <label class="rs-check"><input type="checkbox" id="rs-status-page" name="statusPage" checked><span>Страница N / M</span></label>
+          <label class="rs-check"><input type="checkbox" id="rs-status-chapter-left" name="statusChapterLeft"><span>Осталось в главе</span></label>
+          <label class="rs-check"><input type="checkbox" id="rs-status-clock" name="statusClock"><span>Часы</span></label>
+        </div>
+      </section>
+
       <section class="rs-section" data-rs-section="extra">
         <h3 class="rs-section-title">Дополнительно</h3>
         <div class="rs-group">
@@ -352,7 +435,6 @@
             <span>Всплывающие сноски</span>
           </label>
         </div>
-        <div id="rs-volume-keys-slot"></div>
         <div class="rs-group">
           <div class="rs-label">Свой CSS</div>
           <textarea id="rs-custom-css" class="rs-custom-css" name="readerCustomCss" rows="5" spellcheck="false" placeholder="/* Дополнительные стили для текста книги */"></textarea>
@@ -384,7 +466,8 @@
 
 <div class="reader-toast" id="reader-toast"></div>
 
-<script src="/inpx-reader/bootstrap.js"></script>
+<script>window.__READER_APP=1;</script>
+<script type="module" src="/inpx-reader/bootstrap.js"></script>
 <script src="/inpx-reader/reader-native-bridge.js"></script>
 <script type="module" src="/inpx-reader/reader.js"></script>
 </body>

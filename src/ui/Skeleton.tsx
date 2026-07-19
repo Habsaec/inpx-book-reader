@@ -1,5 +1,7 @@
 import React from 'react';
-import { radii } from './tokens';
+import { Loader2 } from 'lucide-react';
+import { theme } from '../lib/appTheme';
+import { textStyles, radii } from './tokens';
 
 interface SkeletonProps {
   className?: string;
@@ -39,6 +41,29 @@ export function BookListSkeleton({ count = 5 }: { count?: number }) {
       {Array.from({ length: count }, (_, i) => (
         <BookCardSkeleton key={i} />
       ))}
+    </div>
+  );
+}
+
+export function TextBlockSkeleton({ lines = 3 }: { lines?: number }) {
+  return (
+    <div className="space-y-2 py-2" aria-hidden>
+      {Array.from({ length: lines }, (_, i) => (
+        <Skeleton
+          key={i}
+          variant="text"
+          className={i === lines - 1 ? 'max-w-[55%] h-3' : undefined}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function ScreenLoader({ label = 'Загрузка…' }: { label?: string }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 min-h-[12rem]" role="status" aria-live="polite">
+      <Loader2 className={`w-6 h-6 animate-spin ${theme.accentText}`} aria-hidden />
+      <p className={`${textStyles.caption} ${theme.textMuted}`}>{label}</p>
     </div>
   );
 }

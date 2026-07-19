@@ -6,7 +6,7 @@ import {
 } from '../../../public/foliate/progress.js';
 
 describe('FB2 foliate progress', () => {
-  it('byte-weighted SectionProgress skews early fraction (old model)', () => {
+  it('SectionProgress weights sections by text volume', () => {
     const sections = [
       { size: 6200, linear: 'yes' },
       { size: 3800, linear: 'yes' },
@@ -15,6 +15,19 @@ describe('FB2 foliate progress', () => {
     const [idx, anchor] = p.getSection(0.3);
     expect(idx).toBe(0);
     expect(anchor).toBeCloseTo(0.3 / 0.62, 3);
+  });
+
+  it('round-trips the current paginated page instead of the next page', () => {
+    const sections = [
+      { size: 6200, linear: 'yes' },
+      { size: 3800, linear: 'yes' },
+    ];
+    const p = new SectionProgress(sections, 1500, 1600);
+    const progress = p.getProgress(0, 0.4, 0.1);
+    const [idx, anchor] = p.getSection(progress.fraction);
+    expect(idx).toBe(0);
+    expect(anchor).toBeCloseTo(0.4, 6);
+    expect(progress.location.next).toBeGreaterThanOrEqual(progress.location.current);
   });
 
   it('EqualSectionProgress maps 30% across linear sections evenly', () => {

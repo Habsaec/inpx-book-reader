@@ -6,6 +6,24 @@ import {
   footnoteTargetFragmentFromHref,
   shouldTrySpineFootnoteClone,
 } from '/foliate/footnotes.js?v=fb2seek4';
+import {
+  normalizeFraction,
+  fractionToProgress,
+  progressToFraction,
+  resolveFb2Href,
+  positionFromLocation as sharedPositionFromLocation,
+} from '/inpx-reader/reader-shared/reader-position.js';
+import { createSuppressionCounter } from '/inpx-reader/reader-shared/suppression-counter.js';
+import { enrichAndroidPositionPayload } from '/inpx-reader/reader-shared/android-position.js';
+import { isTextAnchorLandingVerified } from '/inpx-reader/reader-shared/text-anchor.js';
+import {
+  TAP_ZONE_IDS,
+  TAP_ACTION_LABELS,
+  defaultTapZonesShort,
+  defaultTapZonesLong,
+  normalizeTapZones,
+  resolveTapZone9,
+} from '/inpx-reader/tap-zones.js';
 
 (function () {
   'use strict';
@@ -112,8 +130,24 @@ import {
   const bookPagesEl = $('reader-book-pages');
   const bookPageLeft = $('book-page-left');
   const bookPageRight = $('book-page-right');
+  const statusStripEl = $('reader-status-strip');
+  const rssChapter = $('rss-chapter');
+  const rssPage = $('rss-page');
+  const rssChapterLeft = $('rss-chapter-left');
+  const rssPct = $('rss-pct');
+  const rssClock = $('rss-clock');
+  const autoFlipHud = $('reader-autoflip-hud');
+  const gotoOverlay = $('reader-goto');
 
   const isTouch = window.matchMedia('(pointer: coarse)');
+
+  /** Last paginator screen estimate for status / goto. */
+  let lastPageInfo = { current: 0, total: 0, chapterLeft: 0, chapterLabel: '' };
+  let statusClockTimer = null;
+  let autoFlipTimer = null;
+  let autoFlipArmed = false;
+  let tapEditMode = 'short';
+  let tapEditSelected = 'mm';
 
   /**
    * ===== Screen Wake Lock =====
@@ -436,7 +470,16 @@ import {
     invert: false, enableFootnotes: true,
     volumeKeys: 'normal',
     customCss: '',
-    ttsRate: 1, ttsVoice: ''
+    ttsRate: 1, ttsVoice: '',
+    autoFlipSec: 0,
+    tapZonesShort: defaultTapZonesShort(),
+    tapZonesLong: defaultTapZonesLong(),
+    statusMode: 'withChrome',
+    statusShowChapter: true,
+    statusShowPct: true,
+    statusShowPage: true,
+    statusShowChapterLeft: false,
+    statusShowClock: false,
   };
   const SYSTEM_FONTS = {
     serif: { label: 'Georgia', stack: 'Georgia, "Times New Roman", serif' },
@@ -647,6 +690,16 @@ import {
     S.ttsRate = Number.isFinite(tr) ? Math.min(2, Math.max(0.5, tr)) : defaults.ttsRate;
     if (typeof S.ttsVoice !== 'string') S.ttsVoice = defaults.ttsVoice;
     if (S.volumeKeys !== 'normal' && S.volumeKeys !== 'inverted') S.volumeKeys = defaults.volumeKeys;
+    const af = Number(S.autoFlipSec);
+    S.autoFlipSec = Number.isFinite(af) ? Math.min(30, Math.max(0, Math.round(af))) : defaults.autoFlipSec;
+    S.tapZonesShort = normalizeTapZones(S.tapZonesShort, defaultTapZonesShort());
+    S.tapZonesLong = normalizeTapZones(S.tapZonesLong, defaultTapZonesLong());
+    if (!['withChrome', 'always', 'hidden'].includes(S.statusMode)) S.statusMode = defaults.statusMode;
+    if (typeof S.statusShowChapter !== 'boolean') S.statusShowChapter = defaults.statusShowChapter;
+    if (typeof S.statusShowPct !== 'boolean') S.statusShowPct = defaults.statusShowPct;
+    if (typeof S.statusShowPage !== 'boolean') S.statusShowPage = defaults.statusShowPage;
+    if (typeof S.statusShowChapterLeft !== 'boolean') S.statusShowChapterLeft = defaults.statusShowChapterLeft;
+    if (typeof S.statusShowClock !== 'boolean') S.statusShowClock = defaults.statusShowClock;
   }
   function saveSettings() { localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(S)); }
   loadSettings();
@@ -791,6 +844,35 @@ import {
       pre { white-space: pre-wrap !important; }
       aside[epub|type~="endnote"],aside[epub|type~="footnote"],aside[epub|type~="note"],aside[epub|type~="rearnote"] { display: none; }
       a { color: ${link} !important; }
+      /* EPUB in-document chapter starts. FB2 chapters are separate Foliate sections. */
+      ${isFb2Book() ? '' : `
+      body:not(.notesBodyType) h1 {
+        break-before: column !important;
+        -webkit-column-break-before: always !important;
+        page-break-before: always !important;
+      }
+      body:not(.notesBodyType) section[epub|type~="chapter"],
+      body:not(.notesBodyType) div[epub|type~="chapter"],
+      body:not(.notesBodyType) article[epub|type~="chapter"],
+      body:not(.notesBodyType) section.chapter,
+      body:not(.notesBodyType) div.chapter {
+        break-before: column !important;
+        -webkit-column-break-before: always !important;
+        page-break-before: always !important;
+      }
+      body > h1:first-child,
+      body > header:first-child,
+      body > section:first-child > h1:first-child,
+      body > section.chapter:first-child,
+      body > div.chapter:first-child,
+      body > section[epub|type~="chapter"]:first-child,
+      body > div[epub|type~="chapter"]:first-child,
+      body > article[epub|type~="chapter"]:first-child {
+        break-before: auto !important;
+        -webkit-column-break-before: auto !important;
+        page-break-before: auto !important;
+      }
+      `}
       ${READER_LITE ? 'img,svg image { filter: grayscale(100%) contrast(115%) !important; }' : ''}
     `;
     const parts = [];
@@ -834,33 +916,39 @@ import {
    * Номера страниц по реальным экранам пагинатора Foliate (один шаг = один «лист» в одноколоннике
    * или разворот в двухколоннике). Неоткрытые главы оцениваются по объёму текста и плотности уже известных секций.
    */
+  function hideBookPageDisplay() {
+    bookPagesEl?.classList.add('is-hidden');
+    lastPageInfo = { ...lastPageInfo, current: 0, total: 0, chapterLeft: 0 };
+    syncStatusStrip();
+  }
+
   function updateBookPageDisplay(loc) {
     if (!bookPagesEl || !bookPageLeft || !bookPageRight) return;
     if (!view || view.isFixedLayout) {
-      bookPagesEl.classList.add('is-hidden');
+      hideBookPageDisplay();
       return;
     }
     const r = view.renderer;
     if (!r || r.localName !== 'foliate-paginator') {
-      bookPagesEl.classList.add('is-hidden');
+      hideBookPageDisplay();
       return;
     }
     if (r.scrolled) {
-      bookPagesEl.classList.add('is-hidden');
+      hideBookPageDisplay();
       return;
     }
 
     const pages = r.pages;
     const page = r.page;
     if (pages == null || page == null || pages < 2) {
-      bookPagesEl.classList.add('is-hidden');
+      hideBookPageDisplay();
       return;
     }
 
     const contents = r.getContents?.();
     const index = contents?.[0]?.index ?? loc?.section?.current;
     if (index == null || index < 0) {
-      bookPagesEl.classList.add('is-hidden');
+      hideBookPageDisplay();
       return;
     }
 
@@ -876,7 +964,7 @@ import {
 
     const secs = view.book?.sections;
     if (!secs?.length) {
-      bookPagesEl.classList.add('is-hidden');
+      hideBookPageDisplay();
       return;
     }
 
@@ -942,10 +1030,19 @@ import {
     }
     bookPageLeft.textContent = leftText;
     bookPageRight.textContent = rightText;
+
+    const chapterScreens = textPagesForSection(index);
+    lastPageInfo = {
+      current: dual ? (2 * globalScreen0 + 1) : (globalScreen0 + 1),
+      total: dual ? Math.max(1, totalScreens * 2) : totalScreens,
+      chapterLeft: Math.max(0, chapterScreens - screenInSection),
+      chapterLabel: lastPageInfo.chapterLabel || '',
+    };
+    syncStatusStrip();
   }
 
   function applySettings() {
-    const beforeLoc = view?.lastLocation;
+    const anchorSnap = view?.lastLocation ? snapshotLayoutAnchor(view.lastLocation) : null;
     if (READER_LITE) S.theme = 'eink';
     document.documentElement.dataset.readerTheme = S.theme;
     document.documentElement.dataset.eink = S.theme === 'eink' ? '1' : '';
@@ -961,32 +1058,140 @@ import {
     updateDayNightButton();
     if (view?.lastLocation) updateBookPageDisplay(view.lastLocation);
     scheduleApplyAnnotations();
-    if (beforeLoc) void preserveLocationAfterLayoutChange(beforeLoc);
+    if (anchorSnap) scheduleLayoutPreserve(anchorSnap);
   }
 
   let layoutRestoreToken = 0;
+  let layoutPreserveTimer = null;
 
-  async function preserveLocationAfterLayoutChange(beforeLoc) {
-    if (!view || !beforeLoc) return;
-    const targetFrac = isFb2Active() && fb2FlatToc.length >= 2
-      ? displayFractionFromLocation(beforeLoc)
-      : normalizeFraction(beforeLoc.fraction ?? 0);
-    if (targetFrac < 0.01) return;
-    const fb2Href = resolveFb2Href(beforeLoc);
-    const cfi = String(beforeLoc.cfi || '').trim();
-    const token = ++layoutRestoreToken;
-    await waitForLayoutSettled(500);
-    if (token !== layoutRestoreToken || !view) return;
-    const currentFrac = isFb2Active() && fb2FlatToc.length >= 2
-      ? displayFractionFromLocation(view.lastLocation)
-      : normalizeFraction(view?.lastLocation?.fraction ?? 0);
-    if (Math.abs(currentFrac - targetFrac) <= 0.03) return;
+  function snapshotLayoutAnchor(loc) {
+    const anchor = {
+      sectionIndex: Number(loc?.section?.current),
+      textOffset: Number(loc?.textOffset),
+      textQuote: String(loc?.textQuote || ''),
+      cfi: String(loc?.cfi || '').trim(),
+      fraction: readingFractionFromLocation(loc),
+      fb2Href: readerResolveFb2Href(loc),
+      range: null,
+    };
     try {
-      if (fb2Href && isFb2Href(fb2Href)) await view.goTo(fb2Href);
-      else if (isFb2Active() && fb2FlatToc.length >= 2) await seekReaderToFraction(targetFrac);
-      else if (cfi) await view.goTo(cfi);
-      else await view.goToFraction(targetFrac);
+      if (loc?.range?.cloneRange) anchor.range = loc.range.cloneRange();
     } catch { /* */ }
+    return anchor;
+  }
+
+  function layoutAnchorFromLocation(loc) {
+    return snapshotLayoutAnchor(loc);
+  }
+
+  function layoutAnchorVerified(snap, landed) {
+    if (!snap || !landed) return false;
+    if (
+      Number.isInteger(snap.sectionIndex)
+      && snap.sectionIndex >= 0
+      && Number.isInteger(snap.textOffset)
+      && snap.textOffset >= 0
+    ) {
+      return isTextAnchorLandingVerified({
+        sectionIndex: snap.sectionIndex,
+        textOffset: snap.textOffset,
+        textQuote: snap.textQuote,
+      }, landed);
+    }
+    return Math.abs(readingFractionFromLocation(landed) - snap.fraction) <= 0.005;
+  }
+
+  function scheduleLayoutPreserve(anchorSnap) {
+    clearTimeout(layoutPreserveTimer);
+    layoutPreserveTimer = setTimeout(() => {
+      void preserveLocationAfterLayoutChange(anchorSnap);
+    }, 180);
+  }
+
+  async function preserveLocationAfterLayoutChange(anchorSnap, opts = {}) {
+    if (!view || !anchorSnap) return;
+    const applyStyles = opts.applyStyles !== false;
+    const token = ++layoutRestoreToken;
+    positionSaveSuppression.begin();
+    try {
+      if (applyStyles) {
+        await syncReaderGoogleFont();
+        applyBookStyles();
+      }
+      const doc = getLoadedSectionDoc();
+      await waitForFontsReady(doc, applyStyles ? 3000 : 1500);
+      await waitForLayoutSettled(applyStyles ? 1500 : 900);
+      if (token !== layoutRestoreToken || !view) return;
+
+      const hasTextAnchor = Number.isInteger(anchorSnap.sectionIndex)
+        && anchorSnap.sectionIndex >= 0
+        && Number.isInteger(anchorSnap.textOffset)
+        && anchorSnap.textOffset >= 0
+        && typeof view.goToTextAnchor === 'function';
+
+      const range = anchorSnap.range;
+      if (range?.startContainer?.isConnected && typeof view.renderer?.scrollToAnchor === 'function') {
+        try {
+          await view.renderer.scrollToAnchor(range);
+          await waitForLayoutSettled(900);
+          if (token !== layoutRestoreToken || !view) return;
+          if (layoutAnchorVerified(anchorSnap, view.lastLocation)) return;
+        } catch {
+          /* fall through */
+        }
+      }
+
+      if (hasTextAnchor) {
+        try {
+          await view.goToTextAnchor(anchorSnap.sectionIndex, anchorSnap.textOffset, anchorSnap.textQuote);
+          await waitForLayoutSettled(900);
+          if (token !== layoutRestoreToken || !view) return;
+          if (layoutAnchorVerified(anchorSnap, view.lastLocation)) return;
+        } catch {
+          /* fall through */
+        }
+      }
+
+      if (!isFb2Active() && anchorSnap.cfi && !isAppReaderPosition(anchorSnap.cfi)) {
+        try {
+          const ok = await goToReaderTarget(anchorSnap.cfi, { retries: 3 });
+          if (ok) {
+            await waitForLayoutSettled(900);
+            if (token !== layoutRestoreToken || !view) return;
+            if (layoutAnchorVerified(anchorSnap, view.lastLocation)) return;
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+
+      const currentFrac = readingFractionFromLocation(view.lastLocation);
+      const needsFraction = !hasTextAnchor
+        && Math.abs(currentFrac - anchorSnap.fraction) > 0.005
+        && anchorSnap.fraction >= 0;
+      if (needsFraction) {
+        try {
+          await seekReaderToFraction(anchorSnap.fraction);
+          await waitForLayoutSettled(900);
+          if (token !== layoutRestoreToken || !view) return;
+          if (layoutAnchorVerified(anchorSnap, view.lastLocation)) return;
+        } catch {
+          /* fall through */
+        }
+      }
+
+      if (anchorSnap.fb2Href && isFb2Href(anchorSnap.fb2Href)) {
+        try {
+          await goToReaderTarget(anchorSnap.fb2Href, { retries: 3 });
+        } catch { /* */ }
+      } else if (isFb2Active() && anchorSnap.cfi && !isAppReaderPosition(anchorSnap.cfi)) {
+        try {
+          await goToReaderTarget(anchorSnap.cfi, { retries: 3 });
+        } catch { /* */ }
+      }
+    } finally {
+      positionSaveSuppression.end();
+    }
   }
 
   function applyPreset(name) {
@@ -996,8 +1201,17 @@ import {
   }
 
   function resetSettings() {
-    S = { ...defaults };
-    applySettings(); refreshSettingsUI(); toast(rt('readerJs.settingsReset'));
+    S = {
+      ...defaults,
+      tapZonesShort: defaultTapZonesShort(),
+      tapZonesLong: defaultTapZonesLong(),
+    };
+    autoFlipArmed = false;
+    applySettings();
+    refreshSettingsUI();
+    syncStatusStrip();
+    syncAutoFlipTimer();
+    toast(rt('readerJs.settingsReset'));
   }
 
   function getActivePreset() {
@@ -1084,9 +1298,6 @@ import {
   let currentTocHref = '';
   let currentFraction = 0;
   let fb2FlatToc = [];
-  /** 0.0001% on 0–100 scale → fraction precision 1e-6 */
-  const READING_POSITION_SCALE = 1e6;
-  const PROGRESS_PERCENT_SCALE = 1e4;
 
   function flattenTocForSeek(toc, out = []) {
     for (const item of toc ?? []) {
@@ -1096,11 +1307,74 @@ import {
     return out;
   }
 
+  /** Flat TOC для подписи главы в диалоге: [{ href, label, startFraction }].
+   *  startFraction — доля по объёму текста (как Foliate считает fraction), чтобы глава
+   *  в диалоге совпадала с процентом. */
+  function buildFlatTocForPrompt() {
+    const sections = view?.book?.sections || [];
+    const sizes = sections.map((s) => (s?.linear === 'no' ? 0 : Math.max(0, Number(s?.size) || 0)));
+    const total = sizes.reduce((a, b) => a + b, 0) || 1;
+    const cumStart = [];
+    let run = 0;
+    for (let i = 0; i < sizes.length; i++) { cumStart[i] = run / total; run += sizes[i]; }
+    const innerCount = {};
+    for (const t of fb2FlatToc) {
+      const [sStr, kStr] = String(t.href).split('#');
+      if (kStr != null) { const s = Number(sStr); innerCount[s] = (innerCount[s] || 0) + 1; }
+    }
+    const sectionDocs = new Map();
+    const textOffsetFor = (sectionIndex, fragmentIndex) => {
+      if (fragmentIndex == null) return 0;
+      try {
+        let doc = sectionDocs.get(sectionIndex);
+        if (!doc) {
+          doc = sections[sectionIndex]?.createDocument?.();
+          if (!doc) return null;
+          sectionDocs.set(sectionIndex, doc);
+        }
+        const marker = [...doc.querySelectorAll('[data-foliate-id]')]
+          .find((el) => Number(el.getAttribute('data-foliate-id')) === fragmentIndex);
+        if (!marker || !doc.body) return null;
+        const prefix = doc.createRange();
+        prefix.setStart(doc.body, 0);
+        prefix.setEndBefore(marker);
+        return String(prefix.toString() || '').replace(/[\t\n\f\r ]+/g, ' ').trim().length;
+      } catch {
+        return null;
+      }
+    };
+    return fb2FlatToc.map((t) => {
+      let label = '';
+      try { label = t?.label ? formatLanguageMap(t.label) : ''; } catch { label = ''; }
+      const [sStr, kStr] = String(t.href).split('#');
+      const s = Number(sStr);
+      const k = kStr != null ? Number(kStr) : null;
+      let startFraction = Number.isFinite(cumStart[s]) ? cumStart[s] : null;
+      if (startFraction != null && k != null) {
+        const secFrac = (sizes[s] || 0) / total;
+        const n = innerCount[s] || 1;
+        startFraction = cumStart[s] + secFrac * (Math.max(0, k) / n);
+      }
+      return {
+        href: t.href,
+        label: String(label || '').trim(),
+        startFraction,
+        sectionIndex: Number.isFinite(s) ? s : null,
+        textOffset: Number.isFinite(s) ? textOffsetFor(s, k) : null,
+        sectionStartFraction: Number.isFinite(cumStart[s]) ? cumStart[s] : null,
+        sectionFraction: Number.isFinite(sizes[s]) ? sizes[s] / total : null,
+        sectionTextLength: Number.isFinite(sizes[s]) ? sizes[s] : null,
+      };
+    });
+  }
+
   function isFb2Active() {
-    if (view?.book?.isFB2) return true;
-    if (view?.book && !view.book.isFB2) return false;
+    // Формат книги известен серверу (__READER_BOOK_EXT) — доверяем расширению.
+    // Раньше приоритет был у view.book.isFB2; если foliate его не выставлял,
+    // FB2 сохранялась как EPUB-CFI (fb2_href=null) и ломался кросс-девайс restore.
     const ext = String(effectiveBookExt || bookExt || '').toLowerCase().replace(/^\./, '').replace(/\.zip$/, '');
-    return ext === 'fb2' || ext === 'fbz';
+    if (ext === 'fb2' || ext === 'fbz') return true;
+    return Boolean(view?.book?.isFB2);
   }
 
   function fractionFromFb2TocHref(href) {
@@ -1110,38 +1384,22 @@ import {
     return normalizeFraction(idx / fb2FlatToc.length);
   }
 
-  function displayFractionFromLocation(loc) {
-    const fromToc = fractionFromFb2TocHref(loc?.tocItem?.href);
-    if (fromToc != null) return fromToc;
+  /** Доля книги для отображения и сохранения — только Foliate loc.fraction (не TOC). */
+  function readingFractionFromLocation(loc) {
     return normalizeFraction(loc?.fraction ?? 0);
+  }
+
+  function displayFractionFromLocation(loc) {
+    return readingFractionFromLocation(loc);
   }
 
   async function seekReaderToFraction(f) {
     if (!view) return;
     const frac = normalizeFraction(f);
-    if (isFb2Active() && fb2FlatToc.length >= 2) {
-      const idx = Math.min(
-        fb2FlatToc.length - 1,
-        Math.max(0, Math.floor(frac * fb2FlatToc.length)),
-      );
-      const href = fb2FlatToc[idx]?.href;
-      if (href) {
-        await view.goTo(href);
-        return;
-      }
-    }
+    // Size-based (по объёму текста, как считается сам fraction). Индексный пересчёт
+    // по TOC (floor(frac × N)) промахивается на неравных главах — 95% попадало бы
+    // в «Приложение» вместо Части VI.
     await view.goToFraction(frac);
-  }
-
-  function normalizeFraction(fraction) {
-    const f = Math.max(0, Math.min(1, Number(fraction) || 0));
-    return Math.round(f * READING_POSITION_SCALE) / READING_POSITION_SCALE;
-  }
-  function fractionToProgress(fraction) {
-    return Math.round(normalizeFraction(fraction) * 100 * PROGRESS_PERCENT_SCALE) / PROGRESS_PERCENT_SCALE;
-  }
-  function progressToFraction(progress) {
-    return normalizeFraction(Number(progress) / 100);
   }
 
   function updateSeekbar() {
@@ -1165,12 +1423,327 @@ import {
     if (tocItem?.label) {
       if (ftChapter) ftChapter.textContent = tocItem.label;
       if (toolbarChapter) toolbarChapter.textContent = tocItem.label;
+      lastPageInfo.chapterLabel = tocItem.label;
     }
     currentTocHref = tocItem?.href || currentTocHref;
     updateTocHighlight();
     updateTocBtnState();
     updateSeekbar();
+    syncStatusStrip();
     if (activePanelTab === 'bookmarks' && panelOverlay.classList.contains('is-open')) updateBmCard();
+  }
+
+  function formatStatusClock(d = new Date()) {
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  }
+
+  function syncStatusStrip() {
+    if (!statusStripEl) return;
+    const mode = S.statusMode || 'withChrome';
+    statusStripEl.dataset.mode = mode;
+    const show = mode !== 'hidden';
+    statusStripEl.classList.toggle('is-visible', show);
+    statusStripEl.setAttribute('aria-hidden', show ? 'false' : 'true');
+
+    const chapterText = lastPageInfo.chapterLabel || ftChapter?.textContent || '';
+    if (rssChapter) {
+      rssChapter.hidden = !(S.statusShowChapter && chapterText);
+      rssChapter.textContent = chapterText;
+    }
+    if (rssPct) {
+      const pct = fractionToProgress(currentFraction).toFixed(1) + '%';
+      rssPct.hidden = !S.statusShowPct;
+      rssPct.textContent = pct;
+    }
+    if (rssPage) {
+      const ok = S.statusShowPage && lastPageInfo.total > 0;
+      rssPage.hidden = !ok;
+      if (ok) rssPage.textContent = `${lastPageInfo.current} / ${lastPageInfo.total}`;
+    }
+    if (rssChapterLeft) {
+      const ok = S.statusShowChapterLeft && lastPageInfo.total > 0;
+      rssChapterLeft.hidden = !ok;
+      if (ok) rssChapterLeft.textContent = `−${lastPageInfo.chapterLeft}`;
+    }
+    if (rssClock) {
+      rssClock.hidden = !S.statusShowClock;
+      if (S.statusShowClock) rssClock.textContent = formatStatusClock();
+    }
+
+    clearInterval(statusClockTimer);
+    statusClockTimer = null;
+    if (show && S.statusShowClock) {
+      statusClockTimer = setInterval(() => {
+        if (rssClock && !rssClock.hidden) rssClock.textContent = formatStatusClock();
+      }, 30_000);
+    }
+  }
+
+  function autoFlipBlocked() {
+    if (!autoFlipArmed || !(S.autoFlipSec > 0)) return true;
+    if (S.layout === 'scrolled') return true;
+    if (ttsChainActive) return true;
+    if (panelOverlay?.classList.contains('is-open')) return true;
+    if (gotoOverlay?.classList.contains('is-open')) return true;
+    if ($('reader-note-editor')?.classList.contains('is-open')) return true;
+    if ($('reader-sel-menu')?.classList.contains('is-open')) return true;
+    if (document.visibilityState !== 'visible') return true;
+    return false;
+  }
+
+  function syncAutoFlipHud() {
+    if (!autoFlipHud) return;
+    const on = autoFlipArmed && S.autoFlipSec > 0;
+    autoFlipHud.hidden = !on;
+    autoFlipHud.setAttribute('aria-hidden', on ? 'false' : 'true');
+    if (on) autoFlipHud.textContent = `Авто · ${S.autoFlipSec}с`;
+  }
+
+  function syncAutoFlipTimer() {
+    clearInterval(autoFlipTimer);
+    autoFlipTimer = null;
+    if (!(S.autoFlipSec > 0)) autoFlipArmed = false;
+    syncAutoFlipHud();
+    if (!autoFlipArmed || !(S.autoFlipSec > 0)) return;
+    autoFlipTimer = setInterval(() => {
+      if (autoFlipBlocked()) return;
+      view?.goRight?.();
+      void acquireReaderWakeLock();
+    }, S.autoFlipSec * 1000);
+  }
+
+  function toggleAutoFlip() {
+    if (!(S.autoFlipSec > 0)) {
+      S.autoFlipSec = 8;
+      saveSettings();
+      refreshSettingsUI();
+    }
+    autoFlipArmed = !autoFlipArmed;
+    syncAutoFlipTimer();
+    toast(autoFlipArmed ? `Автолист · ${S.autoFlipSec} с` : 'Автолист выкл');
+  }
+
+  function runTapAction(action) {
+    if (!action || action === 'none') return;
+    void acquireReaderWakeLock();
+    switch (action) {
+      case 'prevPage': view?.goLeft?.(); break;
+      case 'nextPage': view?.goRight?.(); break;
+      case 'toggleChrome': toggleChromeFromCenterTap(); break;
+      case 'toc': openPanel('toc'); break;
+      case 'search': openPanel('search'); break;
+      case 'settings': openPanel('settings'); break;
+      case 'bookmark': addBookmark(); break;
+      case 'dayNight': toggleDayNightTheme(); break;
+      case 'tts': toggleReaderTts(); break;
+      case 'prevChapter': {
+        const i = getTocIdx();
+        if (i > 0) goTocIdx(i - 1);
+        break;
+      }
+      case 'nextChapter': {
+        const i = getTocIdx();
+        if (i >= 0 && i < tocData.length - 1) goTocIdx(i + 1);
+        break;
+      }
+      case 'goto': openGotoDialog(); break;
+      case 'autoFlip': toggleAutoFlip(); break;
+      default: break;
+    }
+  }
+
+  async function seekReaderToPage(page1) {
+    const total = lastPageInfo.total;
+    if (!(total > 0)) return;
+    const p = Math.min(total, Math.max(1, Math.round(Number(page1) || 1)));
+    const frac = total <= 1 ? 0 : (p - 1) / (total - 1);
+    await seekReaderToFraction(frac);
+  }
+
+  function openGotoDialog() {
+    if (!gotoOverlay) return;
+    hideSelMenu();
+    const pct = fractionToProgress(currentFraction);
+    const pctSl = $('rg-pct');
+    const pctNum = $('rg-pct-num');
+    const pageEl = $('rg-page');
+    const pageTotal = $('rg-page-total');
+    if (pctSl) pctSl.value = String(pct);
+    if (pctNum) pctNum.value = String(Number(pct.toFixed(1)));
+    if (pageEl) {
+      pageEl.value = String(Math.max(1, lastPageInfo.current || 1));
+      pageEl.max = String(Math.max(1, lastPageInfo.total || 1));
+      pageEl.disabled = !(lastPageInfo.total > 0);
+    }
+    if (pageTotal) pageTotal.textContent = lastPageInfo.total > 0 ? `из ${lastPageInfo.total}` : 'из —';
+    gotoOverlay.classList.add('is-open');
+    gotoOverlay.setAttribute('aria-hidden', 'false');
+    syncAutoFlipTimer();
+  }
+
+  function closeGotoDialog() {
+    if (!gotoOverlay) return;
+    gotoOverlay.classList.remove('is-open');
+    gotoOverlay.setAttribute('aria-hidden', 'true');
+    syncAutoFlipTimer();
+  }
+
+  function initGotoDialog() {
+    if (!gotoOverlay || gotoOverlay.dataset.wired === '1') return;
+    gotoOverlay.dataset.wired = '1';
+    let gotoLastField = 'pct';
+    const pctSl = $('rg-pct');
+    const pctNum = $('rg-pct-num');
+    const pageEl = $('rg-page');
+    const syncPageFromPct = (pct) => {
+      if (!pageEl || !(lastPageInfo.total > 0)) return;
+      const total = lastPageInfo.total;
+      const p = total <= 1 ? 1 : Math.round(1 + (pct / 100) * (total - 1));
+      pageEl.value = String(Math.min(total, Math.max(1, p)));
+    };
+    const syncPctFromPage = (page) => {
+      if (!(lastPageInfo.total > 0)) return;
+      const total = lastPageInfo.total;
+      const pct = total <= 1 ? 0 : ((page - 1) / (total - 1)) * 100;
+      if (pctSl) pctSl.value = String(pct);
+      if (pctNum) pctNum.value = String(Number(pct.toFixed(1)));
+    };
+    pctSl?.addEventListener('input', () => {
+      gotoLastField = 'pct';
+      const v = Number(pctSl.value);
+      if (pctNum) pctNum.value = String(Number(v.toFixed(1)));
+      syncPageFromPct(v);
+    });
+    pctNum?.addEventListener('input', () => {
+      gotoLastField = 'pct';
+      const v = Math.min(100, Math.max(0, Number(pctNum.value) || 0));
+      if (pctSl) pctSl.value = String(v);
+      syncPageFromPct(v);
+    });
+    pageEl?.addEventListener('input', () => {
+      gotoLastField = 'page';
+      syncPctFromPage(Number(pageEl.value) || 1);
+    });
+    $('rg-cancel')?.addEventListener('click', closeGotoDialog);
+    $('rg-go')?.addEventListener('click', () => {
+      const pageVal = Number(pageEl?.value);
+      const usePage = gotoLastField === 'page' && Number.isFinite(pageVal) && lastPageInfo.total > 0;
+      closeGotoDialog();
+      if (usePage) {
+        void seekReaderToPage(pageVal);
+        return;
+      }
+      const pct = Number(pctNum?.value ?? pctSl?.value);
+      if (Number.isFinite(pct)) void seekReaderToFraction(progressToFraction(pct));
+    });
+    gotoOverlay.addEventListener('click', (e) => {
+      if (e.target === gotoOverlay) closeGotoDialog();
+    });
+    $('ft-goto')?.addEventListener('click', openGotoDialog);
+    pctLabel?.addEventListener('click', openGotoDialog);
+  }
+
+  function shortActionLabel(action) {
+    const full = TAP_ACTION_LABELS[action] || action;
+    if (full.length <= 10) return full;
+    return full.slice(0, 9) + '…';
+  }
+
+  function refreshTapZonesUi() {
+    const grid = $('rs-tap-grid');
+    const sel = $('rs-tap-action');
+    const hint = $('rs-tap-hint');
+    if (!grid) return;
+    const map = tapEditMode === 'long' ? S.tapZonesLong : S.tapZonesShort;
+    if (!grid.dataset.built) {
+      grid.dataset.built = '1';
+      grid.innerHTML = TAP_ZONE_IDS.map((id) =>
+        `<button type="button" class="rs-tap-cell" data-tap-zone="${id}">` +
+        `<span class="rs-tap-cell-id">${id}</span>` +
+        `<span class="rs-tap-cell-label"></span></button>`
+      ).join('');
+      grid.addEventListener('click', (e) => {
+        const cell = e.target.closest?.('[data-tap-zone]');
+        if (!cell) return;
+        tapEditSelected = cell.dataset.tapZone;
+        refreshTapZonesUi();
+        sel?.focus();
+      });
+    }
+    grid.querySelectorAll('[data-tap-zone]').forEach((cell) => {
+      const id = cell.dataset.tapZone;
+      const action = map?.[id] || 'none';
+      cell.classList.toggle('is-selected', id === tapEditSelected);
+      const label = cell.querySelector('.rs-tap-cell-label');
+      if (label) label.textContent = shortActionLabel(action);
+    });
+    if (sel) {
+      if (!sel.dataset.built) {
+        sel.dataset.built = '1';
+        sel.hidden = false;
+        sel.innerHTML = Object.entries(TAP_ACTION_LABELS)
+          .map(([k, lab]) => `<option value="${k}">${lab}</option>`)
+          .join('');
+        sel.addEventListener('change', () => {
+          const mapKey = tapEditMode === 'long' ? 'tapZonesLong' : 'tapZonesShort';
+          S[mapKey] = { ...S[mapKey], [tapEditSelected]: sel.value };
+          saveSettings();
+          refreshTapZonesUi();
+        });
+      }
+      sel.value = map?.[tapEditSelected] || 'none';
+    }
+    if (hint) {
+      hint.textContent = tapEditMode === 'long'
+        ? `Долгий тап · зона ${tapEditSelected.toUpperCase()}`
+        : `Короткий тап · зона ${tapEditSelected.toUpperCase()}`;
+    }
+    document.querySelectorAll('[data-tap-edit]').forEach((b) => {
+      b.classList.toggle('is-active', b.dataset.tapEdit === tapEditMode);
+    });
+  }
+
+  function initControlsAndStatusSettings() {
+    document.querySelectorAll('[data-tap-edit]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        tapEditMode = btn.dataset.tapEdit === 'long' ? 'long' : 'short';
+        refreshTapZonesUi();
+      });
+    });
+    $('rs-tap-reset')?.addEventListener('click', () => {
+      S.tapZonesShort = defaultTapZonesShort();
+      S.tapZonesLong = defaultTapZonesLong();
+      saveSettings();
+      refreshTapZonesUi();
+      toast('Зоны сброшены');
+    });
+    const autoSl = $('rs-auto-flip');
+    const autoVal = $('rs-auto-flip-val');
+    autoSl?.addEventListener('input', () => {
+      S.autoFlipSec = Math.round(Number(autoSl.value) || 0);
+      if (autoVal) autoVal.textContent = S.autoFlipSec > 0 ? `${S.autoFlipSec} с` : 'Выкл';
+      if (S.autoFlipSec > 0) autoFlipArmed = true;
+      else autoFlipArmed = false;
+      saveSettings();
+      syncAutoFlipTimer();
+    });
+    const bindStatusCheck = (id, key) => {
+      const el = $(id);
+      if (!el) return;
+      el.addEventListener('change', () => {
+        S[key] = el.checked;
+        saveSettings();
+        syncStatusStrip();
+      });
+    };
+    bindStatusCheck('rs-status-chapter', 'statusShowChapter');
+    bindStatusCheck('rs-status-pct', 'statusShowPct');
+    bindStatusCheck('rs-status-page', 'statusShowPage');
+    bindStatusCheck('rs-status-chapter-left', 'statusShowChapterLeft');
+    bindStatusCheck('rs-status-clock', 'statusShowClock');
+    refreshTapZonesUi();
   }
 
   function estimateRemainingChapterMinutes(fraction) {
@@ -1226,7 +1799,7 @@ import {
         seekBarUserActive = false;
         const loc = view?.lastLocation;
         if (loc) {
-          setProgressFromFraction(displayFractionFromLocation(loc), loc.tocItem);
+          setProgressFromFraction(readingFractionFromLocation(loc), loc.tocItem);
         }
       })();
     }, 150);
@@ -1241,7 +1814,7 @@ import {
   /* ===== Position sync ===== */
   let syncTimer = null;
   let autoReadToastShown = false;
-  let suppressPositionSave = false;
+  const positionSaveSuppression = createSuppressionCounter();
   const pendingStyleDocs = new Set();
 
   async function applySectionStyles(doc) {
@@ -1278,28 +1851,18 @@ import {
     return Boolean(view?.book && !view.book.resolveCFI);
   }
 
-  function foliateIdFromRange(range) {
-    if (!range) return '';
-    let node = range.startContainer;
-    if (node?.nodeType === Node.TEXT_NODE) node = node.parentElement;
-    while (node && node !== node.ownerDocument?.documentElement) {
-      const id = node.getAttribute?.('data-foliate-id');
-      if (id != null && id !== '') return id;
-      node = node.parentElement;
-    }
-    return '';
+  function readerResolveFb2Href(loc) {
+    return resolveFb2Href(loc, isFb2Book());
   }
 
-  function resolveFb2Href(loc) {
-    if (!isFb2Book()) return '';
-    const sectionIndex = loc?.section?.current;
-    if (!Number.isFinite(Number(sectionIndex))) return '';
-    const blockId = foliateIdFromRange(loc?.range);
-    if (blockId !== '') return `${sectionIndex}#${blockId}`;
-    const tocHref = String(loc?.tocItem?.href || '').trim();
-    if (tocHref && isFb2Href(tocHref)) return tocHref;
-    return String(sectionIndex);
+  function readerPositionFromLocation(loc) {
+    const payload = sharedPositionFromLocation(loc, isFb2Active());
+    return enrichAndroidPositionPayload(payload, loc, view?.renderer, layoutMode());
   }
+
+  window.__READER_GET_CURRENT_POSITION__ = () => (
+    view?.lastLocation ? readerPositionFromLocation(view.lastLocation) : null
+  );
 
   function posLog(phase, data) {
     try {
@@ -1310,23 +1873,13 @@ import {
     } catch { /* */ }
   }
 
-  function positionFromLocation(loc) {
-    const fraction = isFb2Active() && fb2FlatToc.length >= 2
-      ? displayFractionFromLocation(loc)
-      : normalizeFraction(loc?.fraction ?? 0);
-    const payload = {
-      // FB2: fake CFI из Foliate ненадёжен для restore — только href + fraction.
-      position: isFb2Active() ? '' : String(loc?.cfi || ''),
-      fraction,
-      progress: fractionToProgress(fraction),
-    };
-    const href = resolveFb2Href(loc);
-    if (href) payload.fb2Href = href;
-    return payload;
-  }
-
   function savedFraction(saved) {
-    if (saved && Number.isFinite(Number(saved.fraction))) {
+    if (
+      saved
+      && saved.fraction != null
+      && saved.fraction !== ''
+      && Number.isFinite(Number(saved.fraction))
+    ) {
       return normalizeFraction(saved.fraction);
     }
     const progress = Number(saved?.progress);
@@ -1344,6 +1897,20 @@ import {
       positionSaveReason: payload._reason || payload.positionSaveReason || '',
     };
     if (payload.fb2Href) body.fb2Href = payload.fb2Href;
+    if (Number.isFinite(Number(payload.sectionIndex))) body.sectionIndex = Number(payload.sectionIndex);
+    if (Number.isInteger(Number(payload.textOffset)) && Number(payload.textOffset) >= 0) {
+      body.textOffset = Number(payload.textOffset);
+    }
+    if (typeof payload.textQuote === 'string') body.textQuote = payload.textQuote.slice(0, 256);
+    if (Number.isInteger(Number(payload.textSectionLength)) && Number(payload.textSectionLength) >= 0) {
+      body.textSectionLength = Number(payload.textSectionLength);
+    }
+    if (Number.isFinite(Number(payload.sectionPageFraction))) {
+      body.sectionPageFraction = Number(payload.sectionPageFraction);
+    }
+    if (Number.isFinite(Number(payload.paginatorPage))) body.paginatorPage = Number(payload.paginatorPage);
+    if (Number.isFinite(Number(payload.paginatorPages))) body.paginatorPages = Number(payload.paginatorPages);
+    if (typeof payload.layoutMode === 'string' && payload.layoutMode) body.layoutMode = payload.layoutMode;
     posLog('save', {
       reason,
       fraction: body.fraction,
@@ -1357,25 +1924,92 @@ import {
     void api('POST', '/position', body).catch(() => {});
   }
 
+  /** Last position the user intentionally reached (or a verified restore). */
+  let committedPosition = null;
+
+  function isBackwardPageDrift(prev, next) {
+    if (!prev || !next) return false;
+    if (Number(prev.sectionIndex) !== Number(next.sectionIndex)) return false;
+    const prevPage = Number(prev.paginatorPage);
+    const nextPage = Number(next.paginatorPage);
+    if (
+      Number.isFinite(prevPage)
+      && Number.isFinite(nextPage)
+      && Number(prev.paginatorPages) === Number(next.paginatorPages)
+      && nextPage < prevPage
+      && prevPage - nextPage <= 2
+    ) {
+      return true;
+    }
+    const prevOff = Number(prev.textOffset);
+    const nextOff = Number(next.textOffset);
+    return Number.isInteger(prevOff)
+      && Number.isInteger(nextOff)
+      && nextOff < prevOff
+      && prevOff - nextOff <= 2500;
+  }
+
+  function commitReadingPosition(payload, reason) {
+    if (!payload) return;
+    committedPosition = { ...payload };
+    writePositionImmediate({ ...payload, _reason: reason });
+  }
+
   function savePosition(payload, reason) {
-    if (suppressPositionSave) return;
+    if (positionSaveSuppression.isSuppressed()) return;
     clearTimeout(syncTimer);
     const withReason = { ...payload, _reason: reason };
+    if (
+      committedPosition
+      && reason !== 'page'
+      && reason !== 'snap'
+      && reason !== 'scroll'
+      && isBackwardPageDrift(committedPosition, payload)
+    ) {
+      posLog('save-skip-drift', {
+        reason,
+        committedPage: committedPosition.paginatorPage,
+        nextPage: payload.paginatorPage,
+        committedOffset: committedPosition.textOffset,
+        nextOffset: payload.textOffset,
+      });
+      return;
+    }
     if (reason === 'page' || reason === 'snap' || reason === 'scroll' || reason === 'navigation') {
+      committedPosition = { ...payload };
       writePositionImmediate(withReason);
       return;
     }
-    syncTimer = setTimeout(() => writePositionImmediate(withReason), 3000);
+    syncTimer = setTimeout(() => {
+      if (
+        committedPosition
+        && isBackwardPageDrift(committedPosition, withReason)
+      ) {
+        posLog('save-skip-drift', { reason: reason || 'debounced' });
+        return;
+      }
+      committedPosition = { ...withReason };
+      writePositionImmediate(withReason);
+    }, 3000);
   }
   function flushSavePosition() {
     clearTimeout(syncTimer);
     syncTimer = null;
-    if (suppressPositionSave) return;
+    if (positionSaveSuppression.isSuppressed()) return;
     const loc = view?.lastLocation;
     if (!loc) return;
-    const payload = positionFromLocation(loc);
+    const payload = readerPositionFromLocation(loc);
     if (!payload.position && payload.fraction <= 0) return;
+    if (committedPosition && isBackwardPageDrift(committedPosition, payload)) {
+      posLog('flush-keep-committed', {
+        committedPage: committedPosition.paginatorPage,
+        currentPage: payload.paginatorPage,
+      });
+      writePositionImmediate({ ...committedPosition, _reason: 'flush' });
+      return;
+    }
     posLog('flush', { fraction: payload.fraction });
+    committedPosition = { ...payload };
     writePositionImmediate({ ...payload, _reason: 'flush' });
   }
   window.__READER_FLUSH_POSITION__ = flushSavePosition;
@@ -1386,6 +2020,21 @@ import {
   async function loadSavedPosition() {
     try {
       const d = await api('GET', '/position');
+      if (
+        d?.sectionIndex != null
+        && d?.textOffset != null
+        && Number.isInteger(Number(d.sectionIndex))
+        && Number(d.sectionIndex) >= 0
+        && Number.isInteger(Number(d?.textOffset))
+        && Number(d.textOffset) >= 0
+      ) {
+        posLog('load', {
+          source: 'textAnchor',
+          sectionIndex: Number(d.sectionIndex),
+          textOffset: Number(d.textOffset),
+        });
+        return d;
+      }
       const fb2Href = String(d?.fb2Href || '').trim();
       if (fb2Href && isFb2Href(fb2Href)) {
         posLog('load', { source: 'fb2Href', fraction: savedFraction(d), fb2Href: fb2Href.slice(0, 40) });
@@ -1477,23 +2126,111 @@ import {
     return ok;
   }
 
-  async function restoreFb2ReadingPosition(fb2Href, frac) {
+  /**
+   * Same-layout reopen: textAnchor/scrollToRect often lands one page early.
+   * When paginator page count matches the save, snap to the exact saved page.
+   */
+  async function tryRestorePaginatorPage(saved) {
+    const renderer = view?.renderer;
+    if (!renderer || typeof renderer.scrollToPageIndex !== 'function') return false;
+    const savedPage = Number(saved?.paginatorPage);
+    const savedPages = Number(saved?.paginatorPages);
+    const sectionIndex = Number(saved?.sectionIndex);
+    if (!Number.isFinite(savedPage) || !Number.isFinite(savedPages)) return false;
+    if (savedPages < 3 || savedPage < 1 || savedPage > savedPages - 2) return false;
+    if (Number(renderer.pages) !== savedPages) return false;
+    if (
+      Number.isInteger(sectionIndex)
+      && sectionIndex >= 0
+      && Number(view?.lastLocation?.section?.current) !== sectionIndex
+    ) {
+      return false;
+    }
+    await renderer.scrollToPageIndex(savedPage);
+    await waitForLayoutSettled(600);
+    return Number(renderer.page) === savedPage;
+  }
+
+  /** If text-anchor restore sat one page early, nudge forward once. */
+  async function nudgeIfLandedOnePageEarly(saved) {
+    const renderer = view?.renderer;
+    if (!renderer) return false;
+    const savedPage = Number(saved?.paginatorPage);
+    const savedPages = Number(saved?.paginatorPages);
+    const curPage = Number(renderer.page);
+    const curPages = Number(renderer.pages);
+    if (
+      Number.isFinite(savedPage)
+      && Number.isFinite(savedPages)
+      && savedPages === curPages
+      && curPage === savedPage - 1
+      && typeof renderer.next === 'function'
+    ) {
+      await renderer.next();
+      await waitForLayoutSettled(400);
+      return Number(renderer.page) === savedPage;
+    }
+    const savedOff = Number(saved?.textOffset);
+    const landedOff = Number(view?.lastLocation?.textOffset);
+    const sectionIndex = Number(saved?.sectionIndex);
+    if (
+      !Number.isInteger(savedOff)
+      || !Number.isInteger(landedOff)
+      || landedOff >= savedOff - 40
+      || Number(view?.lastLocation?.section?.current) !== sectionIndex
+      || typeof renderer.next !== 'function'
+    ) {
+      return false;
+    }
+    await renderer.next();
+    await waitForLayoutSettled(400);
+    const after = Number(view?.lastLocation?.textOffset);
+    if (Number.isInteger(after) && after > savedOff + 120 && typeof renderer.prev === 'function') {
+      await renderer.prev();
+      await waitForLayoutSettled(400);
+      return false;
+    }
+    return true;
+  }
+
+  async function restoreFb2ReadingPosition(saved) {
+    const fb2Href = String(saved?.fb2Href || '').trim();
+    const frac = savedFraction(saved);
+    const sectionIndex = Number(saved?.sectionIndex);
+    const textOffset = Number(saved?.textOffset);
+    if (
+      saved?.sectionIndex != null
+      && saved?.textOffset != null
+      && Number.isInteger(sectionIndex)
+      && sectionIndex >= 0
+      && Number.isInteger(textOffset)
+      && textOffset >= 0
+      && typeof view?.goToTextAnchor === 'function'
+    ) {
+      try {
+        await view.goToTextAnchor(sectionIndex, textOffset, String(saved?.textQuote || ''));
+        await waitForLayoutSettled(1200);
+        if (await tryRestorePaginatorPage(saved)) return 'paginatorPage';
+        if (await nudgeIfLandedOnePageEarly(saved)) return 'textAnchor-nudge';
+        if (isTextAnchorLandingVerified(saved, view?.lastLocation)) return 'textAnchor';
+      } catch {
+        /* continue with coarse fallbacks */
+      }
+    }
+    // Fraction is the first coarse fallback; fb2Href only identifies a section/block.
+    if (frac > 0) {
+      await seekReaderToFraction(frac);
+      await waitForLayoutSettled(1000);
+      if (await tryRestorePaginatorPage(saved)) return 'paginatorPage';
+      return 'fraction';
+    }
     if (fb2Href && isFb2Href(fb2Href)) {
       const ok = await goToReaderTarget(fb2Href, { retries: 8 });
       if (ok) {
         await waitForLayoutSettled(1000);
+        if (await tryRestorePaginatorPage(saved)) return 'paginatorPage';
         return 'fb2Href';
       }
-    }
-    if (frac > 0 && fb2FlatToc.length >= 2) {
-      await seekReaderToFraction(frac);
-      await waitForLayoutSettled(1000);
-      return 'fb2FlatToc';
-    }
-    if (frac > 0) {
-      await seekReaderToFraction(frac);
-      await waitForLayoutSettled(1000);
-      return 'fraction';
     }
     return null;
   }
@@ -1541,7 +2278,7 @@ import {
     let method = 'none';
     try {
       if (isFb2Active()) {
-        method = await restoreFb2ReadingPosition(fb2Href, frac) || 'none';
+        method = await restoreFb2ReadingPosition(effectiveSaved) || 'none';
         if (!method || method === 'none') {
           if (cfi && !isAppReaderPosition(cfi)) {
             const ok = await goToReaderTarget(cfi, { retries: 5 });
@@ -1578,12 +2315,17 @@ import {
         await view.renderer.next();
         method = 'next';
       }
-      let landed = isFb2Active() && fb2FlatToc.length >= 2
-        ? displayFractionFromLocation(view?.lastLocation)
-        : normalizeFraction(view?.lastLocation?.fraction ?? 0);
-      if (frac > 0 && Math.abs(landed - frac) > 0.03) {
+      if (!isFb2Active()) {
+        if (await tryRestorePaginatorPage(effectiveSaved)) method = 'paginatorPage';
+        else if (await nudgeIfLandedOnePageEarly(effectiveSaved)) method = `${method}-nudge`;
+      }
+      let landed = readingFractionFromLocation(view?.lastLocation);
+      const exactMethod = method === 'textAnchor'
+        || method === 'paginatorPage'
+        || method === 'textAnchor-nudge';
+      if (!exactMethod && frac > 0 && Math.abs(landed - frac) > 0.03) {
         if (isFb2Active()) {
-          const retry = await restoreFb2ReadingPosition(fb2Href, frac);
+          const retry = await restoreFb2ReadingPosition(effectiveSaved);
           if (retry) method = `${retry}-retry`;
         } else if (fb2Href && isFb2Href(fb2Href)) {
           await view.goTo(fb2Href);
@@ -1595,15 +2337,15 @@ import {
           await view.goToFraction(frac);
           method = 'fraction-retry';
         }
-        landed = isFb2Active() && fb2FlatToc.length >= 2
-          ? displayFractionFromLocation(view?.lastLocation)
-          : normalizeFraction(view?.lastLocation?.fraction ?? 0);
+        landed = readingFractionFromLocation(view?.lastLocation);
       }
       posLog('restore-done', {
         method,
         restored: true,
         targetFraction: frac,
         landedFraction: landed,
+        landedPage: Number(view?.renderer?.page),
+        targetPage: Number(effectiveSaved?.paginatorPage),
       });
       if (landed > 0) {
         setProgressFromFraction(landed, view?.lastLocation?.tocItem);
@@ -1612,7 +2354,7 @@ import {
     } catch (e) {
       try {
         if (isFb2Active()) {
-          await restoreFb2ReadingPosition(fb2Href, frac);
+          await restoreFb2ReadingPosition(effectiveSaved);
         } else if (fb2Href && isFb2Href(fb2Href)) {
           await view.goTo(fb2Href);
         } else if (frac > 0) {
@@ -1620,9 +2362,7 @@ import {
         } else {
           await view.renderer.next();
         }
-        const landed = isFb2Active() && fb2FlatToc.length >= 2
-          ? displayFractionFromLocation(view?.lastLocation)
-          : normalizeFraction(view?.lastLocation?.fraction ?? 0);
+        const landed = readingFractionFromLocation(view?.lastLocation);
         if (landed > 0) {
           setProgressFromFraction(landed, view?.lastLocation?.tocItem);
           updateBookPageDisplay(view.lastLocation);
@@ -1675,7 +2415,7 @@ import {
 
   function getSnapshot() {
     const ch = (ftChapter?.textContent || toolbarChapter?.textContent || '').trim() || rt('readerJs.currentPos');
-    return { chapter: ch, percent: Math.round(currentFraction * 100) };
+    return { chapter: ch, percent: Math.round(fractionToProgress(currentFraction)) };
   }
 
   function updateBmCard() {
@@ -2111,10 +2851,10 @@ import {
     });
   }
   let panelHistoryPushed = false;
-  function openPanel(tab) {
+  function openPanel(tab, { toggle = true } = {}) {
     const t = tab || 'toc';
     hideSelMenu();
-    if (panelOverlay.classList.contains('is-open') && activePanelTab === t) { closePanel(); return; }
+    if (toggle && panelOverlay.classList.contains('is-open') && activePanelTab === t) { closePanel(); return; }
     const wasOpen = panelOverlay.classList.contains('is-open');
     panelOverlay.classList.add('is-open');
     switchTab(t);
@@ -2263,8 +3003,18 @@ import {
 
   function bindSeg(sel, prop) {
     document.querySelectorAll(sel).forEach(btn => btn.addEventListener('click', () => {
-      S[prop] = btn.dataset['set' + prop[0].toUpperCase() + prop.slice(1)];
-      applySettings(); refreshSettingsUI();
+      const dsKey = 'set' + prop[0].toUpperCase() + prop.slice(1);
+      S[prop] = btn.dataset[dsKey];
+      if (prop === 'layout' && S.layout === 'scrolled') autoFlipArmed = false;
+      if (prop === 'statusMode') {
+        saveSettings();
+        refreshSettingsUI();
+        syncStatusStrip();
+        return;
+      }
+      applySettings();
+      refreshSettingsUI();
+      if (prop === 'layout') syncAutoFlipTimer();
     }));
   }
 
@@ -2383,9 +3133,12 @@ import {
   function initSettings() {
     ensureExtendedReadingSettingsUi();
     ensureAppVolumeKeysSettingsUi();
+    initControlsAndStatusSettings();
+    initGotoDialog();
     bindSeg('[data-set-theme]', 'theme');
     bindSeg('[data-set-layout]', 'layout');
     bindSeg('[data-set-volume-keys]', 'volumeKeys');
+    bindSeg('[data-set-status-mode]', 'statusMode');
     populateFontSelect();
     const justifyEl = $('rs-justify');
     const hyphenateEl = $('rs-hyphenate');
@@ -2753,6 +3506,26 @@ import {
     if (ttsV && S.ttsVoice && [...ttsV.options].some(o => o.value === S.ttsVoice)) ttsV.value = S.ttsVoice;
     else if (ttsV) ttsV.value = '';
     refreshBgImageUi();
+    toggle('[data-set-status-mode]', 'setStatusMode', S.statusMode);
+    const autoSl = $('rs-auto-flip');
+    const autoVal = $('rs-auto-flip-val');
+    if (autoSl) {
+      autoSl.value = String(S.autoFlipSec || 0);
+      if (autoVal) autoVal.textContent = S.autoFlipSec > 0 ? `${S.autoFlipSec} с` : 'Выкл';
+    }
+    const stChapter = $('rs-status-chapter');
+    if (stChapter) stChapter.checked = S.statusShowChapter !== false;
+    const stPct = $('rs-status-pct');
+    if (stPct) stPct.checked = S.statusShowPct !== false;
+    const stPage = $('rs-status-page');
+    if (stPage) stPage.checked = S.statusShowPage !== false;
+    const stLeft = $('rs-status-chapter-left');
+    if (stLeft) stLeft.checked = S.statusShowChapterLeft === true;
+    const stClock = $('rs-status-clock');
+    if (stClock) stClock.checked = S.statusShowClock === true;
+    refreshTapZonesUi();
+    syncStatusStrip();
+    syncAutoFlipHud();
   }
 
   /* ===== TTS (read aloud) ===== */
@@ -3300,7 +4073,25 @@ import {
 
   /* ===== Toolbar buttons ===== */
   const btnFullscreen = $('btn-fullscreen');
+  /** В APK Fullscreen API в iframe не работает — immersive через host (StatusBar). */
+  let appImmersive = false;
+  function isFullscreenActive() {
+    if (document.documentElement.dataset.inpxApp === '1' || window.__READER_APP) {
+      return appImmersive;
+    }
+    return !!document.fullscreenElement;
+  }
   function toggleFullscreen() {
+    if (document.documentElement.dataset.inpxApp === '1' || window.__READER_APP) {
+      appImmersive = !appImmersive;
+      try {
+        window.parent?.postMessage({ type: 'inpx-reader-immersive', enabled: appImmersive }, '*');
+      } catch { /* */ }
+      document.body.classList.toggle('is-immersive', appImmersive);
+      if (appImmersive) setChromeVisible(false);
+      updateFullscreenIcon();
+      return;
+    }
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen?.();
     } else {
@@ -3309,11 +4100,13 @@ import {
   }
   function updateFullscreenIcon() {
     if (!btnFullscreen) return;
-    const isFs = !!document.fullscreenElement;
+    const isFs = isFullscreenActive();
     btnFullscreen.innerHTML = isFs
       ? '<svg viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/></svg>'
       : '<svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>';
     btnFullscreen.title = isFs ? rt('readerJs.fullscreenExit') : rt('readerJs.fullscreenEnter');
+    btnFullscreen.setAttribute('aria-pressed', isFs ? 'true' : 'false');
+    btnFullscreen.classList.toggle('is-active', isFs);
   }
   btnFullscreen?.addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', updateFullscreenIcon);
@@ -3344,6 +4137,8 @@ import {
   initDictionaryUi();
   initSettings();
   refreshSettingsUI();
+  syncStatusStrip();
+  syncAutoFlipTimer();
   refreshTriggers();
   initReaderMediaSessionHandlers();
 
@@ -3855,10 +4650,27 @@ import {
       }
       if (savedFraction(parsed) > 0 || parsed.position) {
         const f = savedFraction(parsed);
+        let baseRevision = 0;
+        try {
+          const rawStore = localStorage.getItem(`inpx_offline_reader_${bookId}`);
+          if (rawStore) {
+            const store = JSON.parse(rawStore);
+            baseRevision = Number.isInteger(Number(store.baseRevision))
+              ? Number(store.baseRevision)
+              : (Number.isInteger(Number(store.serverRevision)) ? Number(store.serverRevision) : 0);
+          }
+        } catch { /* */ }
         await api('POST', '/position', {
           position: String(parsed.position || ''),
           progress: Number(parsed.progress) || fractionToProgress(f),
           fraction: f,
+          positionVersion: 4,
+          baseRevision,
+          sectionIndex: parsed.sectionIndex ?? undefined,
+          textOffset: parsed.textOffset ?? undefined,
+          textQuote: parsed.textQuote ?? undefined,
+          textSectionLength: parsed.textSectionLength ?? undefined,
+          fb2Href: parsed.fb2Href ?? undefined,
         });
       }
       renderBmTab();
@@ -3938,16 +4750,67 @@ import {
     if (hudVal) hudVal.textContent = pct;
   }
 
+  function applySoftwareBrightness(level) {
+    const clamped = Math.min(BRIGHTNESS_MAX, Math.max(BRIGHTNESS_MIN, level));
+    /* Весь viewport читалки (toolbar + текст), не только #reader-body */
+    const filter = clamped < 0.999 ? `brightness(${clamped})` : '';
+    document.documentElement.style.filter = filter;
+    if (readerBody) readerBody.style.filter = '';
+  }
+
+  function clearSoftwareBrightness() {
+    document.documentElement.style.filter = '';
+    if (readerBody) readerBody.style.filter = '';
+  }
+
+  let nativeBrightnessAvailable = false;
+  let brightnessInitPending = false;
+
   function applyBrightnessLevel(level, { persist = false } = {}) {
     const clamped = Math.min(BRIGHTNESS_MAX, Math.max(BRIGHTNESS_MIN, level));
-    if (window.__INPX_NATIVE?.setBrightness) {
+    if (nativeBrightnessAvailable && window.__INPX_NATIVE?.setBrightness) {
+      clearSoftwareBrightness();
       window.__INPX_NATIVE.setBrightness(clamped).catch(() => {});
-    } else if (readerBody) {
-      readerBody.style.filter = clamped < 0.999 ? `brightness(${clamped})` : '';
+    } else if (nativeBrightnessAvailable) {
+      clearSoftwareBrightness();
+    } else {
+      applySoftwareBrightness(clamped);
     }
     syncBrightnessControls(clamped);
     if (persist) persistBrightnessLevel(clamped);
     return clamped;
+  }
+
+  window.addEventListener('message', (e) => {
+    if (e.data?.type !== 'inpx-native-ready') return;
+    brightnessInitPending = false;
+    nativeBrightnessAvailable = Boolean(e.data.ready);
+    applyBrightnessLevel(readBrightnessLevel(), { persist: false });
+    if (nativeBrightnessAvailable && window.__INPX_NATIVE?.getBrightness) {
+      window.__INPX_NATIVE.getBrightness().then((res) => {
+        const level = Number(res?.level);
+        if (Number.isFinite(level)) applyBrightnessLevel(level, { persist: true });
+      }).catch(() => {});
+    }
+  });
+
+  function initBrightnessGesture() {
+    ensureBrightnessHud();
+    window.__INPX_SET_BRIGHTNESS = (level, opts) => applyBrightnessLevel(level, opts || {});
+    if (window.__INPX_NATIVE?.setBrightness && window.parent !== window) {
+      brightnessInitPending = true;
+      window.parent.postMessage({ type: 'inpx-reader-native-handshake' }, '*');
+      setTimeout(() => {
+        if (!brightnessInitPending) return;
+        brightnessInitPending = false;
+        applyBrightnessLevel(readBrightnessLevel());
+      }, 500);
+    } else {
+      applyBrightnessLevel(readBrightnessLevel());
+    }
+    if (!readerBody || readerBody.dataset.brightnessEdgeWired) return;
+    readerBody.dataset.brightnessEdgeWired = '1';
+    wireBrightnessEdge(readerBody);
   }
 
   function ensureBrightnessHud() {
@@ -4045,21 +4908,6 @@ import {
     doc_.addEventListener('touchcancel', () => { brightnessDrag = null; }, { capture: true, passive: true });
   }
 
-  function initBrightnessGesture() {
-    ensureBrightnessHud();
-    window.__INPX_SET_BRIGHTNESS = (level, opts) => applyBrightnessLevel(level, opts || {});
-    applyBrightnessLevel(readBrightnessLevel());
-    if (window.__INPX_NATIVE?.getBrightness) {
-      window.__INPX_NATIVE.getBrightness().then((res) => {
-        const level = Number(res?.level);
-        if (Number.isFinite(level)) applyBrightnessLevel(level, { persist: true });
-      }).catch(() => {});
-    }
-    if (!readerBody || readerBody.dataset.brightnessEdgeWired) return;
-    readerBody.dataset.brightnessEdgeWired = '1';
-    wireBrightnessEdge(readerBody);
-  }
-
   function wireDoc(doc) {
     if (readerWiredDocs.has(doc)) return;
     readerWiredDocs.add(doc);
@@ -4081,41 +4929,62 @@ import {
     let linkTapTouch = null;
     const isFlowPaginated = () => S.layout !== 'scrolled';
 
-    const TAP_EDGE = 0.22;
     /** Макс. сдвиг пальца для «тапа»; Foliate на touchmove листает при меньшем dx — см. touchmove cancel. */
     const TAP_SLOP_PX = 22;
     const TAP_MAX_MS = 700;
+    const TAP_LONG_MS = 480;
     /** Любой touchmove дальше — не тап (иначе после лёгкого drag Foliate touchend + наш тап = двойной сдвиг). */
     const TAP_CANCEL_MOVE_PX = 10;
+    const EDGE_MENU_PX = 24;
+    const EDGE_MENU_MIN_DX = 48;
     let screenTapTrack = null;
+    let edgeMenuTrack = null;
 
     /**
-     * Зоны относительно видимого foliate-view на странице (как у экранного ридера), а не innerWidth iframe.
-     * В foliate-js reader.js зон на doc нет — листание делает paginator; у нас добавлены края/центр для UI.
-     * clientX/Y события в iframe — в системе вьюпорта iframe; переносим в координаты страницы через frameElement.
+     * Координаты тапа относительно видимого foliate-view + id зоны 3×3.
+     * clientX/Y в iframe → page coords через frameElement.
      */
-    function tapZoneHost(clientX, clientY, doc_) {
+    function tapCoordsInHost(clientX, clientY, doc_) {
       const win = doc_?.defaultView;
       const iframe = win?.frameElement;
       const host = view?.getBoundingClientRect?.();
-      if (!iframe || !host?.width) return 'center';
+      if (!iframe || !host?.width) return null;
       const fr = iframe.getBoundingClientRect();
       const px = fr.left + clientX;
       const py = fr.top + clientY;
-      const rx = (px - host.left) / Math.max(1, host.width);
-      const ry = (py - host.top) / Math.max(1, host.height);
-      const fx = Math.max(0, Math.min(1, rx));
-      const fy = Math.max(0, Math.min(1, ry));
+      const fx = Math.max(0, Math.min(1, (px - host.left) / Math.max(1, host.width)));
+      const fy = Math.max(0, Math.min(1, (py - host.top) / Math.max(1, host.height)));
       const el = doc_?.documentElement;
       const wm = (el && win?.getComputedStyle(el).writingMode || 'horizontal-tb').toLowerCase();
-      if (wm.startsWith('vertical')) {
-        if (fy < TAP_EDGE) return 'left';
-        if (fy > 1 - TAP_EDGE) return 'right';
-        return 'center';
-      }
-      if (fx < TAP_EDGE) return 'left';
-      if (fx > 1 - TAP_EDGE) return 'right';
-      return 'center';
+      const zone = resolveTapZone9(fx, fy, { verticalWriting: wm.startsWith('vertical') });
+      return { fx, fy, zone, pageX: px, pageY: py, hostLeft: host.left };
+    }
+
+    function clearScreenTapLongPress() {
+      if (screenTapTrack?.longTimer) clearTimeout(screenTapTrack.longTimer);
+      if (screenTapTrack) screenTapTrack.longTimer = null;
+    }
+
+    function armScreenTapLongPress(doc_) {
+      clearScreenTapLongPress();
+      if (!screenTapTrack) return;
+      screenTapTrack.longTimer = setTimeout(() => {
+        if (!screenTapTrack || screenTapTrack.longFired) return;
+        try {
+          const sel = doc_?.getSelection?.();
+          if (sel && !sel.isCollapsed && String(sel).trim()) {
+            clearScreenTapLongPress();
+            screenTapTrack = null;
+            return;
+          }
+        } catch { /* */ }
+        screenTapTrack.longFired = true;
+        const coords = tapCoordsInHost(screenTapTrack.x, screenTapTrack.y, doc_);
+        const zone = coords?.zone || 'mm';
+        const action = S.tapZonesLong?.[zone] || 'none';
+        screenTapTrack = null;
+        runTapAction(action);
+      }, TAP_LONG_MS);
     }
 
     function slopOk(t) {
@@ -4156,21 +5025,56 @@ import {
     }, { capture: true, passive: true });
 
     doc.addEventListener('touchstart', e => {
+      edgeMenuTrack = null;
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        const pageX = touchPageX(t.clientX, doc);
+        const host = view?.getBoundingClientRect?.();
+        const fromLeft = host?.width
+          ? (pageX - host.left) <= EDGE_MENU_PX
+          : pageX <= EDGE_MENU_PX;
+        if (fromLeft && !brightnessGestureBlocked()) {
+          edgeMenuTrack = { x: t.clientX, y: t.clientY, armed: false };
+        }
+      }
       if (isFlowPaginated() && e.touches.length === 1 && !e.target.closest?.('a[href]')) {
         const t = e.touches[0];
-        screenTapTrack = { x: t.clientX, y: t.clientY, t: Date.now() };
+        screenTapTrack = { x: t.clientX, y: t.clientY, t: Date.now(), longFired: false, longTimer: null };
+        armScreenTapLongPress(doc);
       } else {
+        clearScreenTapLongPress();
         screenTapTrack = null;
       }
     }, { capture: true, passive: true });
 
     doc.addEventListener('touchmove', e => {
+      if (edgeMenuTrack && e.touches.length === 1 && !edgeMenuTrack.armed) {
+        const t = e.touches[0];
+        const dx = t.clientX - edgeMenuTrack.x;
+        const dy = t.clientY - edgeMenuTrack.y;
+        const adx = Math.abs(dx);
+        const ady = Math.abs(dy);
+        if (dx >= EDGE_MENU_MIN_DX && adx > ady * 1.25) {
+          edgeMenuTrack.armed = true;
+          clearScreenTapLongPress();
+          screenTapTrack = null;
+          brightnessDrag = null;
+          e.preventDefault();
+          openPanel('toc', { toggle: false });
+          void acquireReaderWakeLock();
+          return;
+        }
+        if (ady > 16 && ady >= adx) {
+          edgeMenuTrack = null;
+        }
+      }
       if (!isFlowPaginated() || !screenTapTrack || e.touches.length !== 1) return;
       const t = e.touches[0];
       if (Math.hypot(t.clientX - screenTapTrack.x, t.clientY - screenTapTrack.y) > TAP_CANCEL_MOVE_PX) {
+        clearScreenTapLongPress();
         screenTapTrack = null;
       }
-    }, { capture: true, passive: true });
+    }, { capture: true, passive: false });
 
     /* Короткий тап: только preventDefault — foliate-paginator #onTouchEnd всё равно вызывается и
      * должен отработать (сброс #touchScrolled); при defaultPrevented foliate не делает snap().
@@ -4178,29 +5082,49 @@ import {
     doc.addEventListener('touchend', e => {
       if (linkTapTouch) return;
       if (brightnessDrag?.active) return;
+      if (edgeMenuTrack?.armed) {
+        edgeMenuTrack = null;
+        clearScreenTapLongPress();
+        screenTapTrack = null;
+        return;
+      }
+      edgeMenuTrack = null;
       if (!isFlowPaginated()) return;
       if (isFootnoteOverlayOpen()) return;
       if (!screenTapTrack || e.changedTouches.length !== 1) return;
+      if (screenTapTrack.longFired) {
+        clearScreenTapLongPress();
+        screenTapTrack = null;
+        e.preventDefault();
+        return;
+      }
       const t = e.changedTouches[0];
-      if (panelBlocksBookTap(touchToPageY(t.clientY, doc))) return;
+      if (panelBlocksBookTap(touchToPageY(t.clientY, doc))) {
+        clearScreenTapLongPress();
+        screenTapTrack = null;
+        return;
+      }
       const dt = Date.now() - screenTapTrack.t;
       const adx = Math.abs(t.clientX - screenTapTrack.x);
       const ady = Math.abs(t.clientY - screenTapTrack.y);
       if (dt > TAP_MAX_MS || adx > TAP_SLOP_PX || ady > TAP_SLOP_PX) {
+        clearScreenTapLongPress();
         screenTapTrack = null;
         return;
       }
-      const z = tapZoneHost(t.clientX, t.clientY, doc);
+      clearScreenTapLongPress();
+      const coords = tapCoordsInHost(t.clientX, t.clientY, doc);
+      const zone = coords?.zone || 'mm';
+      const action = S.tapZonesShort?.[zone] || 'toggleChrome';
       screenTapTrack = null;
       e.preventDefault();
-      void acquireReaderWakeLock();
-      if (z === 'center') toggleChromeFromCenterTap();
-      else if (z === 'left') view?.goLeft();
-      else view?.goRight();
+      runTapAction(action);
     }, { capture: true, passive: false });
 
     doc.addEventListener('touchcancel', () => {
+      clearScreenTapLongPress();
       screenTapTrack = null;
+      edgeMenuTrack = null;
     }, { capture: true, passive: true });
 
     doc.addEventListener('touchmove', e => {
@@ -4301,8 +5225,8 @@ import {
           return;
         }
         if (e.pointerType === 'pen') {
-          const zStart = tapZoneHost(startX, startY, doc);
-          if (zStart === 'left' || zStart === 'right') {
+          const zStart = tapCoordsInHost(startX, startY, doc)?.zone || '';
+          if (zStart.endsWith('l') || zStart.endsWith('r')) {
             if (dx < 0) view?.goRight(); else view?.goLeft();
             void acquireReaderWakeLock();
             return;
@@ -4315,17 +5239,8 @@ import {
        * короткий тап с малым сдвигом уже отфильтрован выше. */
       if (fromLink) return;
 
-      const z = tapZoneHost(e.clientX, e.clientY, doc);
-      if (z === 'left') {
-        view?.goLeft();
-        void acquireReaderWakeLock();
-      } else if (z === 'right') {
-        view?.goRight();
-        void acquireReaderWakeLock();
-      } else {
-        toggleChromeFromCenterTap();
-        void acquireReaderWakeLock();
-      }
+      const zone = tapCoordsInHost(e.clientX, e.clientY, doc)?.zone || 'mm';
+      runTapAction(S.tapZonesShort?.[zone] || 'toggleChrome');
     });
 
     const WHEEL_FLIP_PX = 28;
@@ -4633,10 +5548,11 @@ import {
       || urlFrac > 0.01
       || (urlFb2 && isFb2Href(urlFb2)),
     );
+    let bootRestoreInProgress = needsRestore;
     let openedView = false;
     try {
       if (needsRestore) {
-        suppressPositionSave = true;
+        positionSaveSuppression.begin();
         setRestoreVeil(true);
       }
 
@@ -4648,6 +5564,7 @@ import {
       try { window.__DEBUG_LOG__?.('H4', 'reader:loadBook', 'view.open ok', { effectiveExt }); } catch { /* */ }
 
       fb2FlatToc = isFb2Active() ? flattenTocForSeek(view.book?.toc) : [];
+      window.__READER_FB2_FLAT_TOC__ = buildFlatTocForPrompt();
 
       applyRendererLayout();
       await syncReaderGoogleFont();
@@ -4659,7 +5576,7 @@ import {
       view.addEventListener('load', ({ detail: { doc, index } }) => {
         if (!ttsAdvancingSection) stopReaderTts();
         if (doc && index != null) docIndexMap.set(doc, index);
-        void applySectionStyles(doc);
+        if (!bootRestoreInProgress) void applySectionStyles(doc);
         wireDoc(doc);
         wireSelection(doc);
       });
@@ -4669,7 +5586,7 @@ import {
 
       view.addEventListener('relocate', ({ detail }) => {
         const loc = view.lastLocation || detail;
-        const payload = positionFromLocation(loc);
+        const payload = readerPositionFromLocation(loc);
         if (!seekBarUserActive) {
           setProgressFromFraction(payload.fraction, loc.tocItem ?? detail.tocItem);
         }
@@ -4726,16 +5643,55 @@ import {
         const saved = await loadSavedPosition();
         try {
           await restoreReadingPosition(saved, urlPos);
+          if (saved && view?.lastLocation) {
+            // Same-layout reopen can still sit one page early after textAnchor;
+            // snap/nudge again once fonts are fully ready.
+            const bootDoc = getLoadedSectionDoc();
+            if (bootDoc) await waitForFontsReady(bootDoc, 3000);
+            if (!(await tryRestorePaginatorPage(saved))) {
+              await nudgeIfLandedOnePageEarly(saved);
+            }
+            if (view?.lastLocation) {
+              const landed = readerPositionFromLocation(view.lastLocation);
+              const pageOk = Number(saved.paginatorPage) === Number(landed.paginatorPage)
+                && Number(saved.paginatorPages) === Number(landed.paginatorPages);
+              if (pageOk || isTextAnchorLandingVerified(saved, view.lastLocation)) {
+                commitReadingPosition(landed, 'restore-settle');
+              } else {
+                // Keep saved page/offset as the commit so close-flush cannot walk backward.
+                committedPosition = {
+                  ...landed,
+                  sectionIndex: saved.sectionIndex ?? landed.sectionIndex,
+                  textOffset: saved.textOffset ?? landed.textOffset,
+                  textQuote: saved.textQuote ?? landed.textQuote,
+                  textSectionLength: saved.textSectionLength ?? landed.textSectionLength,
+                  paginatorPage: saved.paginatorPage ?? landed.paginatorPage,
+                  paginatorPages: saved.paginatorPages ?? landed.paginatorPages,
+                  sectionPageFraction: saved.sectionPageFraction ?? landed.sectionPageFraction,
+                  fraction: savedFraction(saved) || landed.fraction,
+                  progress: fractionToProgress(savedFraction(saved) || landed.fraction),
+                  fb2Href: saved.fb2Href || landed.fb2Href,
+                };
+                posLog('restore-commit-saved', {
+                  landedPage: landed.paginatorPage,
+                  savedPage: saved.paginatorPage,
+                });
+              }
+            }
+          }
         } catch (e) {
           posLog('restore-error', { msg: e instanceof Error ? e.message : String(e) });
           console.warn('[reader] position restore', e);
         }
-        await flushPendingSectionStyles();
+      }
+      if (typeof window.__SHOW_DEFERRED_CROSS_DEVICE_PROMPT__ === 'function') {
+        await window.__SHOW_DEFERRED_CROSS_DEVICE_PROMPT__();
       }
     } finally {
+      bootRestoreInProgress = false;
       setRestoreVeil(false);
       hideReaderLoading();
-      suppressPositionSave = false;
+      if (needsRestore) positionSaveSuppression.end();
       if (openedView) {
         clearTimeout(chromeTimer);
         setChromeVisible(false);
@@ -4751,15 +5707,10 @@ import {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(async () => {
       if (!view?.renderer) return;
-      const wasSuppressed = suppressPositionSave;
-      suppressPositionSave = true;
-      try {
-        applyRendererLayout();
-        if (view.lastLocation) updateBookPageDisplay(view.lastLocation);
-        await waitForLayoutSettled(1500);
-      } finally {
-        suppressPositionSave = wasSuppressed;
-      }
+      const anchorSnap = view.lastLocation ? snapshotLayoutAnchor(view.lastLocation) : null;
+      applyRendererLayout();
+      if (view.lastLocation) updateBookPageDisplay(view.lastLocation);
+      if (anchorSnap) await preserveLocationAfterLayoutChange(anchorSnap);
     }, 120);
   }
   window.addEventListener('resize', onViewportResize);
@@ -4768,6 +5719,45 @@ import {
   /* ===== Boot ===== */
   applySettings();
   initBrightnessGesture();
+  window.__READER_RESTORE_SAVED__ = async (saved) => {
+    if (!saved || !view) return false;
+    positionSaveSuppression.begin();
+    try {
+      await restoreReadingPosition(saved, null);
+      if (
+        saved.sectionIndex != null
+        && saved.textOffset != null
+        && Number.isInteger(Number(saved.sectionIndex))
+        && Number(saved.sectionIndex) >= 0
+        && Number.isInteger(Number(saved.textOffset))
+        && Number(saved.textOffset) >= 0
+      ) {
+        await waitForLayoutSettled(1200);
+        const ok = isTextAnchorLandingVerified(saved, view?.lastLocation);
+        posLog('deferred-text-anchor-verify', {
+          targetSectionIndex: Number(saved.sectionIndex),
+          targetTextOffset: Number(saved.textOffset),
+          landedSectionIndex: Number(view?.lastLocation?.section?.current),
+          landedTextOffset: Number(view?.lastLocation?.textOffset),
+          ok,
+        });
+        return ok;
+      }
+      const target = savedFraction(saved);
+      if (target <= 0) return true;
+      await waitForLayoutSettled(1200);
+      const landed = readingFractionFromLocation(view?.lastLocation);
+      const ok = Math.abs(landed - target) <= 0.03;
+      posLog('deferred-restore-verify', {
+        targetFraction: target,
+        landedFraction: landed,
+        ok,
+      });
+      return ok;
+    } finally {
+      positionSaveSuppression.end();
+    }
+  };
   (async () => {
     try {
       try { window.__DEBUG_LOG__?.('H3', 'reader:boot', 'start', { bookId, bookExt }); } catch { /* */ }

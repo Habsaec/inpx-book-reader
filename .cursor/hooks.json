@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "node .cursor/hooks/post-sync-edit.cjs",
+        "matcher": "Write|StrReplace"
+      },
+      {
+        "command": "node .cursor/hooks/post-client-edit.cjs",
+        "matcher": "Write|StrReplace"
+      }
+    ],
+    "stop": [
+      {
+        "command": "node .cursor/hooks/verify-on-stop.cjs",
+        "loop_limit": 1
+      }
+    ]
+  }
+}

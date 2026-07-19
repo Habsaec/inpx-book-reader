@@ -1,6 +1,6 @@
 import React from 'react';
 import { theme } from '../lib/appTheme';
-import { textStyles } from '../ui/tokens';
+import { textStyles, semantic } from '../ui/tokens';
 
 interface ReadProgressBarProps {
   value: number;
@@ -23,7 +23,7 @@ export default function ReadProgressBar({ value, showLabel = true, className = '
         aria-label={`Прогресс чтения ${pct}%`}
       >
         <div
-          className={`h-full transition-all duration-300 ${pct >= 100 ? 'bg-emerald-500' : theme.progress}`}
+          className={`h-full transition-all duration-300 ${pct >= 100 ? 'bg-[var(--app-success)]' : theme.progress}`}
           style={{ width: `${pct}%` }}
         />
       </div>

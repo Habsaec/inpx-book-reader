@@ -27,6 +27,7 @@ import { useLocalLibrary } from './hooks/useLocalLibrary';
 import { useDownloadPipeline } from './hooks/useDownloadPipeline';
 import { useAppSync } from './hooks/useAppSync';
 import { useBookActions } from './hooks/useBookActions';
+import { useLocalBookFileVerification } from './hooks/useLocalBookFileVerification';
 import {
   ensureStorageDirectory,
   isValidStorageDirectory,
@@ -36,6 +37,7 @@ import {
 } from './lib/storageDirectory';
 import { isAndroid } from './lib/platform';
 import { theme } from './lib/appTheme';
+import { ScreenLoader } from './ui/Skeleton';
 import { syncAndroidStatusBar } from './lib/androidChrome';
 import {
   type AppThemeMode,
@@ -46,7 +48,6 @@ import {
   resolveIsDark,
 } from './lib/serverTheme';
 import { APP_SETTING_KEYS, getAppSettingString, setAppSettingRaw } from './lib/appSettings';
-import { resolveLocalBookFile } from './lib/localBookAccess';
 import { bookHasPendingSync } from './lib/syncStats';
 
 const CatalogTab = React.lazy(() => import('./components/CatalogTab'));
@@ -180,25 +181,6 @@ export default function App() {
   }, [libraryReady]);
 
   React.useEffect(() => {
-    if (!libraryReady || !storageDirectoryReady) return;
-    let cancelled = false;
-    void (async () => {
-      for (const book of downloadedBooks) {
-        if (!book.localFileName?.trim()) continue;
-        const loc = await resolveLocalBookFile(book, storageDirectory);
-        if (cancelled || !loc) continue;
-        if (loc.storageUri !== storageDirectory?.uri) {
-          setStorageDirectory(loc.directory);
-        }
-        break;
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [libraryReady, storageDirectoryReady, downloadedBooks, storageDirectory?.uri]);
-
-  React.useEffect(() => {
     if (serverConfig.connectionStatus !== 'connected') return;
     void fetchServerUiTheme(serverConfig).then(setServerUiTheme);
   }, [serverConfig.connectionStatus, serverConfig.url]);
@@ -262,6 +244,15 @@ export default function App() {
     isOnline,
     inpxServer,
     profile,
+  });
+
+  useLocalBookFileVerification({
+    enabled: libraryReady && storageDirectoryReady,
+    downloadedBooks,
+    setDownloadedBooks,
+    storageDirectory,
+    onStorageDirectoryResolved: setStorageDirectory,
+    activeTab,
   });
 
   const {
@@ -381,7 +372,7 @@ export default function App() {
       ) : activeReader ? (
         resolvedReaderFile ? (
           <div className="fixed inset-0 z-[200] flex flex-col min-h-0">
-            <React.Suspense fallback={<div className={`flex-1 flex items-center justify-center ${theme.textMuted}`}>Загрузка читалки…</div>}>
+            <React.Suspense fallback={<ScreenLoader label="Загрузка читалки…" />}>
               <FoliateReader
                 bookId={activeReader.bookId}
                 bookTitle={activeReader.title}
@@ -426,7 +417,7 @@ export default function App() {
           )}
 
           <div className={`flex-1 min-h-0 flex flex-col h-full overflow-hidden ${activeTab !== 'catalog' ? 'hidden' : ''}`}>
-            <React.Suspense fallback={<div className={`flex-1 flex items-center justify-center ${theme.textMuted}`}>Загрузка каталога…</div>}>
+            <React.Suspense fallback={<ScreenLoader label="Загрузка каталога…" />}>
               <CatalogTab
                 serverConfig={serverConfig}
                 onEnqueueDownload={handleDownloadBookFromUi}

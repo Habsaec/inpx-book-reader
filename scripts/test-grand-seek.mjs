@@ -10,7 +10,9 @@ import { chromium } from 'playwright-core';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distDir = path.join(root, 'dist');
-const fb2Path = path.join(root, '.tmp-grand/450324.fb2');
+const fb2Path = process.env.GRAND_FB2_PATH
+  ? path.resolve(process.env.GRAND_FB2_PATH)
+  : path.join(root, '.tmp-grand/450324.fb2');
 const port = 4178;
 
 if (!fs.existsSync(fb2Path)) {

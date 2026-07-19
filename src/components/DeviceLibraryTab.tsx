@@ -13,6 +13,7 @@ import {
 } from '../lib/offlineReaderStore';
 import { bookHasPendingSync } from '../lib/syncStats';
 import BookMetaSummary from './BookMetaSummary';
+import EmptyState from '../ui/EmptyState';
 
 interface DeviceLibraryTabProps {
   books: Book[];
@@ -101,36 +102,34 @@ export default function DeviceLibraryTab({
 
   if (!storageDirectoryReady) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-3">
-        <HardDrive className={`w-10 h-10 ${theme.textMuted}`} />
-        <p className="text-xs font-black">Подготовка хранилища…</p>
-      </div>
+      <EmptyState
+        icon={HardDrive}
+        title="Подготовка хранилища…"
+      />
     );
   }
 
   if (!storageDirectory?.uri) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-3">
-        <HardDrive className={`w-10 h-10 ${theme.textMuted}`} />
-        <p className="text-xs font-black">Папка хранения не выбрана</p>
-        <p className={`${textStyles.micro} leading-relaxed ${theme.textMuted}`}>
-          Укажите папку для книг в настройках, затем скачайте книги из каталога.
-        </p>
-      </div>
+      <EmptyState
+        icon={HardDrive}
+        title="Папка хранения не выбрана"
+        description="Укажите папку для книг в настройках, затем скачайте книги из каталога."
+      />
     );
   }
 
   if (sorted.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-3">
-        <HardDrive className={`w-10 h-10 ${theme.textMuted}`} />
-        <p className="text-xs font-black">На устройстве пока нет книг</p>
-        <p className={`${textStyles.micro} leading-relaxed ${theme.textMuted}`}>
-          {isOnline
+      <EmptyState
+        icon={HardDrive}
+        title="На устройстве пока нет книг"
+        description={
+          isOnline
             ? 'Скачайте книги из каталога или профиля — они появятся здесь и будут доступны без сети.'
-            : 'Подключитесь к серверу и скачайте книги, пока есть сеть.'}
-        </p>
-      </div>
+            : 'Подключитесь к серверу и скачайте книги, пока есть сеть.'
+        }
+      />
     );
   }
 
@@ -238,7 +237,7 @@ export default function DeviceLibraryTab({
               <div className={`flex border-t divide-x ${theme.divider}`}>
                 <button
                   type="button"
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 ${textStyles.microBold} transition-colors hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-surface-hover)] ${theme.textMuted} ${theme.focusRing}`}
+                  className={`flex-1 flex items-center justify-center gap-1.5 min-h-12 py-2 ${textStyles.microBold} transition-colors hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-surface-hover)] ${theme.textMuted} ${theme.focusRing}`}
                   onClick={() => handleExport(book.id, book.title)}
                   title="Экспорт заметок"
                 >
@@ -247,7 +246,7 @@ export default function DeviceLibraryTab({
                 </button>
                 <button
                   type="button"
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 ${textStyles.microBold} transition-colors hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-surface-hover)] ${theme.textMuted} ${theme.focusRing}`}
+                  className={`flex-1 flex items-center justify-center gap-1.5 min-h-12 py-2 ${textStyles.microBold} transition-colors hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-surface-hover)] ${theme.textMuted} ${theme.focusRing}`}
                   onClick={() => handleImportPick(book.id)}
                   title="Импорт заметок"
                 >
@@ -258,7 +257,7 @@ export default function DeviceLibraryTab({
                   <button
                     type="button"
                     disabled={downloadingId === book.id}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 ${textStyles.microBold} transition-colors hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-surface-hover)] ${theme.accentText} ${theme.focusRing} disabled:opacity-50 disabled:cursor-not-allowed`}
+                    className={`flex-1 flex items-center justify-center gap-1.5 min-h-12 py-2 ${textStyles.microBold} transition-colors hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-surface-hover)] ${theme.accentText} ${theme.focusRing} disabled:opacity-50 disabled:cursor-not-allowed`}
                     onClick={() => onDownloadBook(book)}
                   >
                     <Download className="w-3.5 h-3.5" aria-hidden />
@@ -267,7 +266,7 @@ export default function DeviceLibraryTab({
                 )}
                 <button
                   type="button"
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 ${textStyles.microBold} transition-colors hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-surface-hover)] ${
+                  className={`flex-1 flex items-center justify-center gap-1.5 min-h-12 py-2 ${textStyles.microBold} transition-colors hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-surface-hover)] ${
                     isRemoving ? semantic.error : theme.textMuted
                   } ${theme.focusRing}`}
                   onClick={() => handleRemove(book.id)}

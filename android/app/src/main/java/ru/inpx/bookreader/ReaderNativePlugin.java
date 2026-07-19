@@ -156,7 +156,10 @@ public class ReaderNativePlugin extends Plugin {
             call.reject("Missing level");
             return;
         }
-        float clamped = Math.max(0.01f, Math.min(1f, level));
+        // < 0 → вернуть системную яркость (выход из читалки)
+        final float clamped = level < 0f
+            ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            : Math.max(0.01f, Math.min(1f, level));
         getActivity().runOnUiThread(() -> {
             Window window = getActivity().getWindow();
             WindowManager.LayoutParams params = window.getAttributes();

@@ -1,0 +1,30 @@
+---
+description: React 19 + Capacitor 7 + TypeScript patterns for the Android reader app
+globs: "src/**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# React / Capacitor (Reader)
+
+## Architecture
+
+- Business logic in `src/lib/` — hooks orchestrate, components render
+- API calls only through `src/lib/inpxClient.ts` — never ad-hoc fetch elsewhere
+- Heavy tabs lazy-loaded (`React.lazy`)
+
+## Android WebView
+
+- `MotionConfig reducedMotion="always"` — animations may not complete in WebView
+- Flex chain: `min-h-0` on scroll containers
+- Dev browser uses `/api/proxy`; APK uses CapacitorHttp direct to server
+
+## Types
+
+- Book/sync types live in `inpxClient.ts` and `src/types.ts`
+- New API fields → update types + client method in same PR
+
+## Do Not
+
+- Add iOS/desktop/PWA branches
+- Parse FB2/EPUB for metadata when server has `/api/books/:id/meta`
+- Modify `server.ts` unless explicitly asked (dev proxy only)

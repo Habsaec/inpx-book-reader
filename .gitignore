@@ -10,8 +10,12 @@ coverage/
 # Android / Capacitor
 android/.gradle/
 android/app/build/
+android/app/release/
 android/build/
 android/local.properties
 android/.idea/
 *.iml
 .idea/
+
+# Local scratch / fixtures
+.tmp-grand/

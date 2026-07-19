@@ -2,6 +2,7 @@ import React from 'react';
 import { Filter, Inbox } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles } from '../../ui/tokens';
+import EmptyState from '../../ui/EmptyState';
 import { Book, ServerConfig } from '../../types';
 import type { AuthorGroupedState } from '../../hooks/useCatalogData';
 import CatalogActiveFilterChips from './CatalogActiveFilterChips';
@@ -156,11 +157,11 @@ export default function CatalogBooksView({
       </div>
 
       {showEmpty ? (
-        <div className={`h-48 flex flex-col justify-center items-center text-center p-4 border border-dashed rounded-2xl ${theme.panel}`}>
-          <Inbox className={`w-9 h-9 ${theme.textMuted} mb-2`} aria-hidden />
-          <p className={`${textStyles.bodyBold}`}>Нет подходящих книг</p>
-          <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>Попробуйте изменить условия фильтрации</p>
-        </div>
+        <EmptyState
+          icon={Inbox}
+          title="Нет подходящих книг"
+          description="Попробуйте изменить условия фильтрации"
+        />
       ) : currentBooks.length > 0 ? (
         <CatalogBookList
           books={currentBooks}

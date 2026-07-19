@@ -1,8 +1,6 @@
 (function () {
   'use strict';
 
-  if (!window.__READER_APP) return;
-
   const pendingNative = new Map();
   let nativeReady = false;
 
@@ -47,7 +45,21 @@
     },
   };
 
-  window.__INPX_NATIVE = nativeApi;
+  function installNativeBridge() {
+    if (window.__INPX_NATIVE) return;
+    window.__INPX_NATIVE = nativeApi;
+  }
+
+  if (window.__READER_APP) {
+    installNativeBridge();
+  } else {
+    const waitForApp = setInterval(() => {
+      if (!window.__READER_APP) return;
+      clearInterval(waitForApp);
+      installNativeBridge();
+    }, 0);
+    setTimeout(() => clearInterval(waitForApp), 5000);
+  }
 
   class NativeUtterance {
     constructor(text) {
@@ -238,6 +250,19 @@
 
   function bootNativeUi() {
     injectBrightnessControl();
+    /* Переключить с CSS-filter на системную яркость окна (включая status bar) */
+    try {
+      const settings = JSON.parse(localStorage.getItem('reader-settings') || '{}');
+      const saved = Number(settings.brightness);
+      const level = Number.isFinite(saved) ? Math.min(1, Math.max(0.05, saved)) : 1;
+      if (typeof window.__INPX_SET_BRIGHTNESS === 'function') {
+        window.__INPX_SET_BRIGHTNESS(level, { persist: false });
+      } else {
+        nativeApi.setBrightness(level).catch(() => {});
+      }
+    } catch {
+      nativeApi.setBrightness(1).catch(() => {});
+    }
   }
 
   window.addEventListener('message', (e) => {

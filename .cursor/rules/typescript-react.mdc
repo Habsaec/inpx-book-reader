@@ -1,0 +1,34 @@
+---
+description: TypeScript и React — паттерны inpx-book-reader
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# TypeScript / React (reader)
+
+## Структура
+
+- Бизнес-логика → `src/lib/`, UI → `src/components/` и `src/ui/`
+- Хуки для состояния и side effects → `src/hooks/`
+- API только через `src/lib/inpxClient.ts` — не дублировать fetch по проекту
+
+## Импорты
+
+- Алиас `@/` → корень проекта
+- Lazy-load тяжёлых табов (`CatalogTab`, `FoliateReader`)
+
+## React
+
+- Функциональные компоненты
+- `MotionConfig reducedMotion="always"` — WebView не доигрывает анимации
+- Цепочка высот: `html`, `body`, `#root`, flex + `min-h-0`
+
+## Типы
+
+- Типы API — рядом с `inpxClient.ts` или в `src/types.ts`
+- Без `any`; для неизвестного — `unknown` + narrowing
+
+## Ошибки
+
+- Не глотать catch; показывать пользователю через Snackbar/toast
+- Семантика ошибок API — как на сервере (`code`, `error`)

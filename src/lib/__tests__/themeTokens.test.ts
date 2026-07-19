@@ -4,8 +4,8 @@ import { textStyles } from '../../ui/tokens';
 /** Snapshot-style guard: typography tokens used by light/dark UI stay stable. */
 describe('theme typography tokens', () => {
   it('defines micro and body scales for server-aligned UI', () => {
-    expect(textStyles.micro).toContain('11px');
+    expect(textStyles.micro).toContain('text-xs');
     expect(textStyles.body).toContain('text-sm');
-    expect(textStyles.label).toContain('11px');
+    expect(textStyles.label).toContain('text-xs');
   });
 });
