@@ -3,10 +3,12 @@ import type { Book } from '../../types';
 
 vi.mock('../bookStorage', () => ({
   bookFileExists: vi.fn(),
+  migrateBookChaptersPathIfNeeded: vi.fn(async (_dir: unknown, book: Book) => book),
 }));
 
 vi.mock('../storageDirectory', () => ({
   isValidStorageDirectory: (d: { uri?: string } | null) => Boolean(d?.uri),
+  normalizeStorageDirectory: (d: { label: string; uri?: string } | null | undefined) => d ?? null,
   readStoredStorageDirectory: vi.fn(() => ({ label: 'Saved', uri: 'content://saved-tree' })),
   getDefaultStorageDirectory: vi.fn(async () => ({ label: 'Default', uri: 'downloads://INPXLibraryReader' })),
 }));

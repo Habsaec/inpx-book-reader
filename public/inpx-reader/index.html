@@ -11,13 +11,13 @@
 <script>try{var _t=JSON.parse(localStorage.getItem('reader-settings')||'{}').theme||'sepia';document.documentElement.dataset.readerTheme=_t}catch(e){document.documentElement.dataset.readerTheme='sepia'}</script>
 </head>
 <body class="chrome-hidden">
+<div id="reader-wallpaper" aria-hidden="true"></div>
 <script type="application/json" id="ui-i18n-json">{"locale":"ru","strings":{}}</script>
 
 <div class="reader-toolbar reader-chrome" id="toolbar">
   <div class="tb-left">
     <button type="button" class="tb-btn" id="btn-app-back" title="Назад" aria-label="Назад" aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
     <div class="tb-meta">
-      <span class="tb-kicker">Чтение</span>
       <span class="tb-title"></span>
     </div>
   </div>
@@ -33,7 +33,7 @@
       <button class="tb-btn tb-tts-stop js-tts-stop" type="button" id="btn-tts-stop" hidden title="Стоп" aria-label="Стоп"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" fill="currentColor"/></svg></button>
       <button class="tb-btn tb-tts-skip js-tts-next" type="button" id="btn-tts-next" disabled title="Вперёд" aria-label="Вперёд"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5h2v14h-2V5zm-2.4 7L8 5v14l7.6-7z" fill="currentColor"/></svg></button>
     </div>
-    <button class="tb-btn" type="button" id="btn-fullscreen" title="Полный экран" aria-label="Полный экран"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg></button>
+    <button class="tb-btn tb-hide-mobile" type="button" id="btn-fullscreen" title="Полный экран" aria-label="Полный экран"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg></button>
     <button class="tb-btn tb-hide-mobile" type="button" id="btn-day-night" title="Ночь" aria-label="День/ночь"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
     <button class="tb-btn" type="button" id="btn-bookmark-add" title="Закладка" aria-label="Добавить закладку"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg></button>
     <button class="tb-btn" type="button" id="btn-search" title="Поиск" aria-label="Поиск по книге"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></button>
@@ -66,14 +66,16 @@
   <div class="rss-mid">
     <span class="rss-item rss-page" id="rss-page" hidden></span>
     <span class="rss-item rss-chapter-left" id="rss-chapter-left" hidden></span>
-    <span class="rss-item rss-pct" id="rss-pct" hidden></span>
   </div>
   <div class="rss-side rss-right">
     <span class="rss-item rss-clock" id="rss-clock" hidden></span>
+    <span class="rss-item rss-pct" id="rss-pct" hidden></span>
   </div>
 </div>
 
 <div class="reader-autoflip-hud" id="reader-autoflip-hud" hidden aria-hidden="true">Авто</div>
+
+<div class="reader-hud-flash" id="reader-hud-flash" aria-hidden="true"></div>
 
 <div class="reader-tts-dock" id="reader-tts-dock" role="region" aria-hidden="true" aria-label="Озвучка">
   <div class="reader-tts-dock-inner">
@@ -404,6 +406,22 @@
             <span class="rs-val" id="rs-auto-flip-val">Выкл</span>
           </div>
           <div class="rs-hint">0 — выкл. Работает только в режиме страниц, пауза при меню и озвучке.</div>
+        </div>
+        <div class="rs-group">
+          <label class="rs-check"><input type="checkbox" id="rs-page-haptic" name="readerPageHaptic"><span>Вибрация при листании</span></label>
+          <div class="rs-hint">По умолчанию выкл. Отклик при добавлении закладки не затрагивается.</div>
+        </div>
+        <div class="rs-group" id="rs-eink-refresh-group" hidden>
+          <div class="rs-label">Полная перерисовка</div>
+          <div class="rs-seg">
+            <button type="button" data-set-eink-refresh="1">Каждый раз</button>
+            <button type="button" data-set-eink-refresh="3">Каждые 3</button>
+            <button type="button" data-set-eink-refresh="5">Каждые 5</button>
+          </div>
+          <div class="rs-hint">E-Ink: полный refresh экрана против шлейфов. Чуть дольше обычного листания.</div>
+        </div>
+        <div class="rs-group" id="rs-eink-volume-hint" hidden>
+          <div class="rs-hint">E-Ink: громкость листает страницы. Яркость — левый край, температура — правый.</div>
         </div>
         <div id="rs-volume-keys-slot"></div>
       </section>

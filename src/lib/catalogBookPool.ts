@@ -1,5 +1,5 @@
 import type { Book } from '../types';
-import type { CatalogFormatFilter } from '../components/catalog/catalogTypes';
+import type { CatalogFormatFilter, CatalogHasSeriesFilter } from '../components/catalog/catalogTypes';
 import type { DemoBookSort } from './catalogAggregations';
 
 export interface CatalogBookPoolContext {
@@ -12,6 +12,9 @@ export interface CatalogBookPoolContext {
   selectedSubgenre: { parent: string; name: string } | null;
   minRating: number;
   formatFilter: CatalogFormatFilter;
+  genreFilter?: string | string[];
+  yearFilter?: number;
+  hasSeriesFilter?: CatalogHasSeriesFilter;
   sortBy: DemoBookSort;
   booksList: Book[];
   facetBooks: Book[];
@@ -66,6 +69,9 @@ export function filterAndSortBooks(books: Book[], ctx: CatalogBookPoolContext): 
     selectedSubgenre,
     minRating,
     formatFilter,
+    genreFilter = '',
+    yearFilter = 0,
+    hasSeriesFilter = 'any',
     sortBy,
   } = ctx;
 
@@ -82,12 +88,44 @@ export function filterAndSortBooks(books: Book[], ctx: CatalogBookPoolContext): 
     result = result.filter((b) => b.title.toLowerCase().includes(q));
   }
 
-  if (minRating > 0) {
-    result = result.filter((b) => (b.rating || 0) >= minRating);
-  }
+  // Server `/api/catalog` already applies these dims — re-filtering empties the list
+  // (genre codes vs display names, etc.). Local/demo pool still filters client-side.
+  if (!isServerBrowse) {
+    if (minRating > 0) {
+      result = result.filter((b) => (b.rating || 0) >= minRating);
+    }
 
-  if (formatFilter !== 'all') {
-    result = result.filter((b) => b.ext.toLowerCase() === formatFilter.toLowerCase());
+    if (formatFilter !== 'all') {
+      result = result.filter((b) => b.ext.toLowerCase() === formatFilter.toLowerCase());
+    }
+
+    const genreCodes = (Array.isArray(genreFilter) ? genreFilter : String(genreFilter || '').split(','))
+      .map((g) => g.trim().toLowerCase())
+      .filter(Boolean);
+    if (genreCodes.length) {
+      result = result.filter((b) => {
+        const hay = [
+          b.genre,
+          b.subgenre,
+          ...(b.genresDisplay || []),
+        ]
+          .map((x) => String(x || '').toLowerCase())
+          .filter(Boolean);
+        return genreCodes.some((code) =>
+          hay.some((h) => h === code || h.includes(code)),
+        );
+      });
+    }
+
+    if (yearFilter >= 1800 && yearFilter <= 2100) {
+      result = result.filter((b) => (b.year || 0) === yearFilter);
+    }
+
+    if (hasSeriesFilter === 'yes') {
+      result = result.filter((b) => Boolean(b.series?.trim()));
+    } else if (hasSeriesFilter === 'no') {
+      result = result.filter((b) => !b.series?.trim());
+    }
   }
 
   if (!(isServerBrowse && (isSearchActive || subTab === 'books'))) {

@@ -118,6 +118,9 @@ export function useServerConnection() {
         updatedFields.username !== undefined ||
         updatedFields.password !== undefined
       ) {
+        // Смена учётных данных → старый device token больше недействителен для логина.
+        next.deviceToken = '';
+        next.deviceTokenId = '';
         next.connectionStatus = 'disconnected';
         setConnectionError(null);
       }

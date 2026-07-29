@@ -3,11 +3,22 @@ import { ServerConfig } from '../types';
 import { fetchCoverBlob } from '../lib/inpxClient';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { readCoverFromDirectory, saveCoverToDirectory } from '../lib/coverCache';
+/** Same asset as INPX Library Server `public/book-fallback.png` — bundled for APK. */
+import bookFallbackPng from '../assets/book-fallback.png';
 
 const blobCache = new Map<string, string>();
 
 function cacheKey(bookId: string, variant: 'thumb' | 'full') {
   return `${variant}:${bookId}`;
+}
+
+function fillsParent(className: string): boolean {
+  return (
+    className.includes('inset-0') ||
+    className.includes('h-full') ||
+    className.includes('w-full') ||
+    className.includes('absolute')
+  );
 }
 
 interface BookCoverProps {
@@ -20,6 +31,89 @@ interface BookCoverProps {
   className?: string;
   width?: number;
   height?: number;
+}
+
+function CoverFallback({
+  title,
+  author,
+  className,
+  width,
+  height,
+  variant,
+}: {
+  title: string;
+  author: string;
+  className: string;
+  width?: number;
+  height?: number;
+  variant: 'thumb' | 'full';
+}) {
+  const fill = fillsParent(className);
+  const w = width ?? (variant === 'full' ? 180 : 72);
+  const h = height ?? (variant === 'full' ? 270 : 108);
+  const [imgOk, setImgOk] = React.useState(true);
+
+  return (
+    <div
+      className={`relative overflow-hidden rounded pointer-events-none border border-black/10 ${fill ? 'w-full h-full min-h-0' : 'flex-shrink-0'} ${className}`}
+      style={{
+        ...(fill ? undefined : { width: w, height: h }),
+        containerType: 'size',
+        background: imgOk ? undefined : 'linear-gradient(180deg, #181410 0%, #100e0b 100%)',
+      }}
+    >
+      {imgOk && (
+        <img
+          src={bookFallbackPng}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          draggable={false}
+          onError={() => setImgOk(false)}
+        />
+      )}
+      <span
+        className="absolute inset-0"
+        style={{
+          background:
+            'linear-gradient(180deg, rgba(13, 13, 20, 0.18) 0%, rgba(13, 13, 20, 0.48) 100%)',
+        }}
+        aria-hidden
+      />
+      {(title || author) && (
+        <span
+          className="absolute flex flex-col items-center justify-start gap-[0.35em] text-center overflow-hidden box-border z-[1]"
+          style={{ inset: '11% 15% 28%' }}
+        >
+          {title ? (
+            <span
+              className="w-full font-bold text-[#f6f1e6] line-clamp-6 [overflow-wrap:anywhere]"
+              style={{
+                fontSize: 'clamp(9px, 7cqi, 18px)',
+                lineHeight: 1.14,
+                letterSpacing: '0.015em',
+                textShadow: '0 1px 3px rgba(0,0,0,.65), 0 0 1px rgba(0,0,0,.4)',
+              }}
+            >
+              {title}
+            </span>
+          ) : null}
+          {author ? (
+            <span
+              className="w-full italic text-[#f6f1e6]/80 line-clamp-2 [overflow-wrap:anywhere]"
+              style={{
+                fontSize: 'clamp(7px, 4.2cqi, 12px)',
+                lineHeight: 1.22,
+                letterSpacing: '0.02em',
+                textShadow: '0 1px 2px rgba(0,0,0,.55)',
+              }}
+            >
+              {author}
+            </span>
+          ) : null}
+        </span>
+      )}
+    </div>
+  );
 }
 
 export default function BookCover({
@@ -66,13 +160,17 @@ export default function BookCover({
 
       if (!useServer) {
         setSrc(null);
+        setFailed(true);
         return;
       }
 
       try {
         const blob = await fetchCoverBlob(serverConfig!, bookId, variant);
-        if (cancelled || !blob) {
-          if (!cancelled) setFailed(true);
+        if (cancelled || !blob || blob.size < 32) {
+          if (!cancelled) {
+            setSrc(null);
+            setFailed(true);
+          }
           return;
         }
         if (storageDirectory?.uri) {
@@ -82,7 +180,10 @@ export default function BookCover({
         blobCache.set(key, url);
         if (!cancelled) setSrc(url);
       } catch {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) {
+          setSrc(null);
+          setFailed(true);
+        }
       }
     }
 
@@ -102,42 +203,33 @@ export default function BookCover({
   ]);
 
   if (src && !failed) {
+    const fill = fillsParent(className);
     return (
       <img
         src={src}
         alt=""
-        width={width}
-        height={height}
-        className={`block object-cover border rounded pointer-events-none ${className.includes('inset-0') || className.includes('h-full') ? 'w-full h-full' : ''} ${className}`}
+        width={fill ? undefined : width}
+        height={fill ? undefined : height}
+        className={`block object-cover border rounded pointer-events-none ${fill ? 'w-full h-full max-w-full max-h-full' : ''} ${className}`}
+        style={fill ? { objectFit: 'cover', width: '100%', height: '100%' } : undefined}
         loading="lazy"
         draggable={false}
+        onError={() => {
+          setFailed(true);
+          setSrc(null);
+        }}
       />
     );
   }
 
-  const hue = ((author || title).charCodeAt(0) + (author || title).charCodeAt(1) || 0) % 360;
-  const hue2 = (hue + 42) % 360;
-  const w = width ?? (variant === 'full' ? 180 : 72);
-  const h = height ?? (variant === 'full' ? 270 : 108);
-
   return (
-    <div
-      className={`flex-shrink-0 flex flex-col justify-between p-1.5 shadow-sm border border-black/10 rounded overflow-hidden pointer-events-none ${className}`}
-      style={{
-        width: w,
-        height: h,
-        background: `linear-gradient(145deg, hsl(${hue}, 72%, 52%) 0%, hsl(${hue2}, 68%, 38%) 100%)`,
-      }}
-    >
-      {title ? (
-        <>
-          <span className="text-[6px] font-bold text-white/85 uppercase tracking-widest truncate opacity-80">📖</span>
-          <h4 className="text-[8px] font-bold text-white line-clamp-4 text-center leading-tight">{title}</h4>
-          {author ? <span className="text-[7px] font-medium text-white/70 truncate text-center">{author}</span> : null}
-        </>
-      ) : (
-        <span className="text-white/60 text-lg m-auto">📖</span>
-      )}
-    </div>
+    <CoverFallback
+      title={title}
+      author={author}
+      className={className}
+      width={width}
+      height={height}
+      variant={variant}
+    />
   );
 }

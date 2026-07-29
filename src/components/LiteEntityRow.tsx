@@ -33,7 +33,6 @@ export default function LiteEntityRow({
 }: LiteEntityRowProps) {
   const borderColor = theme.divider;
   const titleColor = theme.text;
-  const badgeBg = `${theme.chip} ${theme.textMuted}`;
 
   return (
     <button
@@ -44,8 +43,8 @@ export default function LiteEntityRow({
       {authorKey && serverConfig ? (
         <AuthorPortrait authorName={authorKey} serverConfig={serverConfig} size={36} />
       ) : null}
-      <span className={`flex-1 min-w-0 font-bold text-sm landscape:max-[500px]:text-xs truncate ${titleColor}`}>{name}</span>
-      <span className={`shrink-0 ${textStyles.labelBold} px-2 py-0.5 rounded-full ${badgeBg}`}>
+      <span className={`flex-1 min-w-0 ${textStyles.bodyBold} landscape:max-[500px]:text-xs truncate ${titleColor}`}>{name}</span>
+      <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted}`}>
         {bookCountLabel(count)}
       </span>
       <ChevronRight className={`w-4 h-4 shrink-0 opacity-40 ${titleColor}`} aria-hidden />

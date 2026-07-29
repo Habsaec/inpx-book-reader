@@ -136,6 +136,7 @@ import {
   const rssChapterLeft = $('rss-chapter-left');
   const rssPct = $('rss-pct');
   const rssClock = $('rss-clock');
+  const hudFlashEl = $('reader-hud-flash');
   const autoFlipHud = $('reader-autoflip-hud');
   const gotoOverlay = $('reader-goto');
 
@@ -144,6 +145,8 @@ import {
   /** Last paginator screen estimate for status / goto. */
   let lastPageInfo = { current: 0, total: 0, chapterLeft: 0, chapterLabel: '' };
   let statusClockTimer = null;
+  let hudFlashTimer = null;
+  let lastPageHapticAt = 0;
   let autoFlipTimer = null;
   let autoFlipArmed = false;
   let tapEditMode = 'short';
@@ -474,12 +477,17 @@ import {
     autoFlipSec: 0,
     tapZonesShort: defaultTapZonesShort(),
     tapZonesLong: defaultTapZonesLong(),
-    statusMode: 'withChrome',
+    statusMode: 'always',
     statusShowChapter: true,
     statusShowPct: true,
     statusShowPage: true,
     statusShowChapterLeft: false,
     statusShowClock: false,
+    // По умолчанию выкл: при открытии книги Foliate шлёт несколько relocate подряд,
+    // а на каждом листании вибрация быстро утомляет.
+    pageHaptic: false,
+    /** E-Ink: полная перерисовка экрана каждые N страниц (1 / 3 / 5). */
+    einkFullRefreshEvery: 5,
   };
   const SYSTEM_FONTS = {
     serif: { label: 'Georgia', stack: 'Georgia, "Times New Roman", serif' },
@@ -633,6 +641,16 @@ import {
   }
   const mobileMq = window.matchMedia('(max-width: 640px)');
   let S = {};
+  /** Режим устройства из приложения (BOOX и т.п.) — не путать с цветовой темой «E-Ink». */
+  function isAppEinkMode() {
+    if (window.__READER_APP_EINK === 1 || window.__READER_APP_EINK === true) return true;
+    try {
+      return new URLSearchParams(location.search).get('eink') === '1';
+    } catch {
+      return false;
+    }
+  }
+
   function loadSettings() {
     try { S = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}'); } catch { S = {}; }
     for (const k of Object.keys(defaults)) if (S[k] === undefined) S[k] = defaults[k];
@@ -700,6 +718,16 @@ import {
     if (typeof S.statusShowPage !== 'boolean') S.statusShowPage = defaults.statusShowPage;
     if (typeof S.statusShowChapterLeft !== 'boolean') S.statusShowChapterLeft = defaults.statusShowChapterLeft;
     if (typeof S.statusShowClock !== 'boolean') S.statusShowClock = defaults.statusShowClock;
+    if (typeof S.pageHaptic !== 'boolean') S.pageHaptic = defaults.pageHaptic;
+    {
+      const er = Number(S.einkFullRefreshEvery);
+      S.einkFullRefreshEvery = [1, 3, 5].includes(er) ? er : defaults.einkFullRefreshEvery;
+    }
+    if (isAppEinkMode()) {
+      S.theme = 'eink';
+      S.pageHaptic = false;
+      S.invert = false;
+    }
   }
   function saveSettings() { localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(S)); }
   loadSettings();
@@ -775,26 +803,67 @@ import {
     if (!root) return;
     const bgEl = root.getElementById('background');
     if (!bgEl) return;
-    const layer = getBgImageLayerCss();
-    const value = layer || getEffectiveBgColor();
+    // При картинке фон уже на html (fixed) — колонки прозрачные, без щелей
+    const value = getEffectiveBgImage() ? 'transparent' : getEffectiveBgColor();
     bgEl.style.background = value;
     for (const col of bgEl.children) {
       if (col?.style) col.style.background = value;
     }
   }
 
+  function ensureWallpaperEl() {
+    let el = document.getElementById('reader-wallpaper');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'reader-wallpaper';
+    el.setAttribute('aria-hidden', 'true');
+    document.body.insertBefore(el, document.body.firstChild);
+    return el;
+  }
+
+  function applyChromeVarsForBgImage(active) {
+    const root = document.documentElement;
+    if (!active) {
+      root.style.removeProperty('--r-chrome-bg');
+      root.style.removeProperty('--r-chrome-line');
+      root.style.removeProperty('--r-chrome-hover');
+      return;
+    }
+    const paper = getEffectiveBgColor();
+    const fg = getEffectiveTextColor();
+    // Явный rgba: color-mix на Android WebView часто игнорируется → остаётся непрозрачный --r-bar
+    root.style.setProperty('--r-chrome-bg', hexToRgba(paper, 0.72));
+    root.style.setProperty('--r-chrome-line', hexToRgba(fg, 0.14));
+    root.style.setProperty('--r-chrome-hover', hexToRgba(fg, 0.1));
+  }
+
   function applyShellBackground() {
     const color = getEffectiveBgColor();
     const layer = getBgImageLayerCss();
-    document.body.style.background = layer || color;
-    if (!readerBody) return;
-    if (layer) {
-      readerBody.style.background = layer;
+    const root = document.documentElement;
+    const wallpaper = ensureWallpaperEl();
+    const hasImg = Boolean(layer);
+    root.classList.toggle('has-bg-image', hasImg);
+    applyChromeVarsForBgImage(hasImg);
+    // Не красим html background-attachment:fixed — на Android WebView даёт боковые щели
+    root.style.background = '';
+    root.style.backgroundAttachment = '';
+    if (hasImg) {
+      wallpaper.style.background = layer;
+      document.body.style.background = 'transparent';
+      if (readerBody) {
+        readerBody.style.background = 'transparent';
+        readerBody.style.backgroundImage = '';
+      }
     } else {
-      readerBody.style.background = color;
-      readerBody.style.backgroundImage = '';
+      wallpaper.style.background = '';
+      document.body.style.background = color;
+      if (readerBody) {
+        readerBody.style.background = color;
+        readerBody.style.backgroundImage = '';
+      }
     }
-    if (view) view.style.background = layer ? 'transparent' : '';
+    if (view) view.style.background = hasImg ? 'transparent' : '';
     applyPaginatorWallpaper();
   }
 
@@ -1043,9 +1112,16 @@ import {
 
   function applySettings() {
     const anchorSnap = view?.lastLocation ? snapshotLayoutAnchor(view.lastLocation) : null;
-    if (READER_LITE) S.theme = 'eink';
+    if (READER_LITE || isAppEinkMode()) {
+      S.theme = 'eink';
+      S.pageHaptic = false;
+      S.invert = false;
+    }
     document.documentElement.dataset.readerTheme = S.theme;
-    document.documentElement.dataset.eink = S.theme === 'eink' ? '1' : '';
+    // data-eink только для режима устройства; иначе тема «E-Ink» на телефоне
+    // запирала выбор любой другой темы (dataset → isAppEinkMode → force theme).
+    if (isAppEinkMode()) document.documentElement.dataset.eink = '1';
+    else delete document.documentElement.dataset.eink;
     document.body.dataset.readerTheme = S.theme;
     applyShellBackground();
     saveSettings();
@@ -1275,6 +1351,35 @@ import {
     const hideChrome = !(show || (panelOpen && !settingsPreview));
     document.body.classList.toggle('chrome-hidden', hideChrome);
   }
+
+  function postReaderHaptic(kind) {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'inpx-reader-haptic', kind: kind || 'light' }, '*');
+      }
+    } catch { /* ignore */ }
+  }
+
+  function flashReadingHud() {
+    if (!hudFlashEl) return;
+    const chapter = formatChapterLabel(lastPageInfo.chapterLabel || ftChapter?.textContent || '');
+    const pct = fractionToProgress(currentFraction).toFixed(1) + '%';
+    const page =
+      lastPageInfo.total > 0
+        ? `${lastPageInfo.current}/${lastPageInfo.total}`
+        : '';
+    const parts = [chapter, page, pct].filter(Boolean);
+    if (!parts.length) return;
+    hudFlashEl.textContent = parts.join(' · ');
+    hudFlashEl.classList.add('is-visible');
+    hudFlashEl.setAttribute('aria-hidden', 'false');
+    clearTimeout(hudFlashTimer);
+    hudFlashTimer = setTimeout(() => {
+      hudFlashEl.classList.remove('is-visible');
+      hudFlashEl.setAttribute('aria-hidden', 'true');
+    }, 1600);
+  }
+
   /** Сбросить таймер скрытия, не показывая панели силой (если уже скрыты — ничего не делаем). */
   function scheduleChromeHide() {
     clearTimeout(chromeTimer);
@@ -1288,6 +1393,7 @@ import {
     if (panelOverlay.classList.contains('is-open')) return;
     if (document.body.classList.contains('chrome-hidden')) {
       setChromeVisible(true);
+      flashReadingHud();
       chromeTimer = setTimeout(() => setChromeVisible(false), CHROME_AUTOHIDE_MS());
     } else {
       setChromeVisible(false);
@@ -1410,20 +1516,38 @@ import {
   function setProgress(pct, tocItem) {
     setProgressFromFraction(pct / 100, tocItem);
   }
+  /** «Глава 3Всякому…» → «Глава 3 Всякому…» */
+  function formatChapterLabel(raw) {
+    let s = '';
+    try {
+      s = typeof raw === 'string' ? raw : formatLanguageMap(raw);
+    } catch {
+      s = String(raw || '');
+    }
+    s = s.replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    s = s.replace(
+      /^(Глава|Гл\.?|Chapter|Ch\.?|Часть|Part)\s*(\d+)\s*/iu,
+      '$1 $2 ',
+    );
+    return s.replace(/\s+/g, ' ').trim();
+  }
+
   function setProgressFromFraction(fraction, tocItem) {
     const f = normalizeFraction(fraction);
     if (!seekBarUserActive) {
       currentFraction = f;
-      const pctDisplay = fractionToProgress(f).toFixed(4);
+      const pctDisplay = fractionToProgress(f).toFixed(1);
       if (seekBar) seekBar.value = f;
       updateSeekbar();
       if (pctLabel) pctLabel.textContent = pctDisplay + '%';
       if (progressText) progressText.textContent = pctDisplay + '%';
     }
     if (tocItem?.label) {
-      if (ftChapter) ftChapter.textContent = tocItem.label;
-      if (toolbarChapter) toolbarChapter.textContent = tocItem.label;
-      lastPageInfo.chapterLabel = tocItem.label;
+      const label = formatChapterLabel(tocItem.label);
+      if (ftChapter) ftChapter.textContent = label;
+      if (toolbarChapter) toolbarChapter.textContent = label;
+      lastPageInfo.chapterLabel = label;
     }
     currentTocHref = tocItem?.href || currentTocHref;
     updateTocHighlight();
@@ -1439,18 +1563,32 @@ import {
     return `${hh}:${mm}`;
   }
 
+  /** % справа; generate-reader-html раньше клал его в mid — чиним в runtime. */
+  function ensureStatusPctOnRight() {
+    if (!rssPct || !statusStripEl) return;
+    let right = statusStripEl.querySelector('.rss-right');
+    if (!right) {
+      right = document.createElement('div');
+      right.className = 'rss-side rss-right';
+      statusStripEl.appendChild(right);
+    }
+    if (rssPct.parentElement !== right) right.appendChild(rssPct);
+  }
+
   function syncStatusStrip() {
     if (!statusStripEl) return;
+    ensureStatusPctOnRight();
     const mode = S.statusMode || 'withChrome';
     statusStripEl.dataset.mode = mode;
     const show = mode !== 'hidden';
     statusStripEl.classList.toggle('is-visible', show);
     statusStripEl.setAttribute('aria-hidden', show ? 'false' : 'true');
 
-    const chapterText = lastPageInfo.chapterLabel || ftChapter?.textContent || '';
+    const chapterText = formatChapterLabel(lastPageInfo.chapterLabel || ftChapter?.textContent || '');
     if (rssChapter) {
       rssChapter.hidden = !(S.statusShowChapter && chapterText);
       rssChapter.textContent = chapterText;
+      rssChapter.title = chapterText;
     }
     if (rssPct) {
       const pct = fractionToProgress(currentFraction).toFixed(1) + '%';
@@ -1470,6 +1608,17 @@ import {
     if (rssClock) {
       rssClock.hidden = !S.statusShowClock;
       if (S.statusShowClock) rssClock.textContent = formatStatusClock();
+    }
+
+    /* Дубли «67» / «714» по краям не нужны, пока strip уже показывает страницу */
+    const stripOwnsPages = show && S.statusShowPage && lastPageInfo.total > 0;
+    if (bookPagesEl) {
+      if (stripOwnsPages) {
+        bookPagesEl.classList.add('is-hidden');
+        bookPagesEl.setAttribute('aria-hidden', 'true');
+      } else if (lastPageInfo.total > 0 && !bookPagesEl.classList.contains('is-hidden')) {
+        bookPagesEl.setAttribute('aria-hidden', 'false');
+      }
     }
 
     clearInterval(statusClockTimer);
@@ -1743,6 +1892,11 @@ import {
     bindStatusCheck('rs-status-page', 'statusShowPage');
     bindStatusCheck('rs-status-chapter-left', 'statusShowChapterLeft');
     bindStatusCheck('rs-status-clock', 'statusShowClock');
+    const pageHapticEl = $('rs-page-haptic');
+    pageHapticEl?.addEventListener('change', () => {
+      S.pageHaptic = pageHapticEl.checked;
+      saveSettings();
+    });
     refreshTapZonesUi();
   }
 
@@ -1779,7 +1933,7 @@ import {
 
   seekBar?.addEventListener('input', () => {
     const f = parseFloat(seekBar.value);
-    if (pctLabel) pctLabel.textContent = fractionToProgress(f).toFixed(4) + '%';
+    if (pctLabel) pctLabel.textContent = fractionToProgress(f).toFixed(1) + '%';
     seekBar.style.setProperty('--seek-pct', (f * 100).toFixed(4) + '%');
     scheduleChromeHide();
     clearTimeout(seekTimer);
@@ -2077,6 +2231,30 @@ import {
     return false;
   }
 
+  /** Переход к заметке: Foliate showAnnotation (меню + range), иначе goTo. */
+  async function revealAnnotationAt(cfi, opts = {}) {
+    if (!view || !cfi) return false;
+    const retries = Math.max(1, Number(opts.retries) || 8);
+    if (typeof view.showAnnotation === 'function') {
+      for (let attempt = 0; attempt < retries; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 100 * attempt));
+        try {
+          await view.showAnnotation({ value: cfi });
+          document.documentElement.classList.add('annotation-goto-flash');
+          clearTimeout(revealAnnFlashTimer);
+          revealAnnFlashTimer = setTimeout(() => {
+            document.documentElement.classList.remove('annotation-goto-flash');
+          }, 1200);
+          return true;
+        } catch {
+          /* retry / fall through */
+        }
+      }
+    }
+    return goToReaderTarget(cfi, { retries });
+  }
+  let revealAnnFlashTimer = null;
+
   function getLoadedSectionDoc() {
     const contents = view?.renderer?.getContents?.() || [];
     return contents[0]?.doc || null;
@@ -2235,17 +2413,29 @@ import {
     return null;
   }
 
-  /** Стандартный Foliate: view.init({ lastLocation }) с CFI, href или fraction. */
+  /**
+   * Restore reading position.
+   * @returns {Promise<boolean>} true — после restore нужна доводка saved (paginator/nudge).
+   *   false — явный переход (?pos= закладка/заметка): saved settle запрещён.
+   */
   async function restoreReadingPosition(saved, urlPos) {
     const urlFracRaw = new URLSearchParams(location.search).get('frac');
     const urlFb2 = new URLSearchParams(location.search).get('fb2');
     const urlFrac = urlFracRaw != null ? normalizeFraction(Number(urlFracRaw)) : 0;
 
     if (urlPos) {
-      const ok = await goToReaderTarget(urlPos, { retries: 5 });
-      posLog('restore', { method: 'urlPos', ok });
-      if (!ok && saved) await restoreReadingPosition(saved, null);
-      return;
+      const isAnnotationTarget = annotationsData.some((a) => a?.cfi && a.cfi === urlPos);
+      const ok = isAnnotationTarget
+        ? await revealAnnotationAt(urlPos, { retries: 8 })
+        : await goToReaderTarget(urlPos, { retries: 8 });
+      posLog('restore', { method: isAnnotationTarget ? 'urlPos-annotation' : 'urlPos', ok });
+      if (ok) {
+        await waitForLayoutSettled(800);
+        return false;
+      }
+      // CFI/href не сработал — откат к сохранённой позиции чтения.
+      if (saved) return restoreReadingPosition(saved, null);
+      return false;
     }
 
     let effectiveSaved = saved ? { ...saved } : null;
@@ -2270,7 +2460,7 @@ import {
     if (!effectiveSaved) {
       await view.renderer.next();
       posLog('restore', { method: 'next', ok: true });
-      return;
+      return false;
     }
     const cfi = String(effectiveSaved.position || '').trim();
     const fb2Href = String(effectiveSaved.fb2Href || '').trim();
@@ -2373,6 +2563,7 @@ import {
         posLog('restore', { method: 'fallback-next', ok: false, msg: e instanceof Error ? e.message : String(e) });
       }
     }
+    return true;
   }
 
   /* ===== Auto-mark as read when finished ===== */
@@ -2389,7 +2580,11 @@ import {
     const pos = loc.cfi || '';
     const title = loc.tocItem?.label || rtp('readerJs.positionPct', { n: Math.round((loc.fraction ?? 0) * 100) });
     api('POST', '/bookmarks', { position: pos, title }).then(r => {
-      if (r.ok) { toast(rt('readerJs.bookmarkAdded')); loadBookmarks().then(renderBmTab); }
+      if (r.ok) {
+        postReaderHaptic('medium');
+        toast(rt('readerJs.bookmarkAdded'));
+        loadBookmarks().then(renderBmTab);
+      }
     }).catch(() => {});
   }
 
@@ -2669,6 +2864,7 @@ import {
     ed?.classList.remove('is-open');
     ed?.setAttribute('aria-hidden', 'true');
     pendingNote = null;
+    requestEinkPanelRefresh();
   }
   async function saveNoteEditor() {
     if (!pendingNote) { closeNoteEditor(); return; }
@@ -2719,7 +2915,7 @@ import {
     c.querySelectorAll('[data-note-go]').forEach(el => el.addEventListener('click', () => {
       const a = annotationsData.find(x => x.id === Number(el.dataset.noteGo));
       if (a?.cfi && view) {
-        void goToReaderTarget(a.cfi);
+        void revealAnnotationAt(a.cfi);
         closePanel();
       }
     }));
@@ -2868,6 +3064,7 @@ import {
     clearTimeout(chromeTimer);
     setChromeVisible(false);
     if (activePanelTab === 'search') { try { view?.clearSearch?.(); } catch { /* */ } }
+    requestEinkPanelRefresh();
   }
   function closePanel() {
     if (!panelOverlay.classList.contains('is-open')) return;
@@ -3130,6 +3327,51 @@ import {
     scheduleChromeHide();
   }
 
+  let einkPageTurnsSinceRefresh = 0;
+  let lastEinkFullRefreshAt = 0;
+
+  function requestEinkPanelRefresh() {
+    if (!isAppEinkMode()) return;
+    const api = window.__INPX_NATIVE?.refreshEinkScreen;
+    if (typeof api !== 'function') return;
+    const now = Date.now();
+    if (now - lastEinkFullRefreshAt < 450) return;
+    lastEinkFullRefreshAt = now;
+    einkPageTurnsSinceRefresh = 0;
+    api.call(window.__INPX_NATIVE).catch(() => {});
+  }
+
+  function maybeEinkFullRefresh(why) {
+    if (!isAppEinkMode()) return;
+    if (why !== 'snap' && why !== 'page' && why !== 'navigation') return;
+    const every = Number(S.einkFullRefreshEvery);
+    if (![1, 3, 5].includes(every)) return;
+    const api = window.__INPX_NATIVE?.refreshEinkScreen;
+    if (typeof api !== 'function') return;
+    einkPageTurnsSinceRefresh += 1;
+    if (einkPageTurnsSinceRefresh < every) return;
+    einkPageTurnsSinceRefresh = 0;
+    const now = Date.now();
+    if (now - lastEinkFullRefreshAt < 450) return;
+    lastEinkFullRefreshAt = now;
+    api.call(window.__INPX_NATIVE).catch(() => {});
+  }
+
+  function bindEinkRefreshSeg() {
+    document.querySelectorAll('[data-set-eink-refresh]').forEach((btn) => {
+      if (btn.dataset.boundEinkRefresh === '1') return;
+      btn.dataset.boundEinkRefresh = '1';
+      btn.addEventListener('click', () => {
+        const n = Number(btn.dataset.setEinkRefresh);
+        if (![1, 3, 5].includes(n)) return;
+        S.einkFullRefreshEvery = n;
+        einkPageTurnsSinceRefresh = 0;
+        saveSettings();
+        refreshSettingsUI();
+      });
+    });
+  }
+
   function initSettings() {
     ensureExtendedReadingSettingsUi();
     ensureAppVolumeKeysSettingsUi();
@@ -3139,6 +3381,7 @@ import {
     bindSeg('[data-set-layout]', 'layout');
     bindSeg('[data-set-volume-keys]', 'volumeKeys');
     bindSeg('[data-set-status-mode]', 'statusMode');
+    bindEinkRefreshSeg();
     populateFontSelect();
     const justifyEl = $('rs-justify');
     const hyphenateEl = $('rs-hyphenate');
@@ -3455,7 +3698,11 @@ import {
     const publisherFontEl = $('rs-publisher-font');
     if (publisherFontEl) publisherFontEl.checked = S.usePublisherFont === true;
     const invertEl = $('rs-invert');
-    if (invertEl) invertEl.checked = S.invert === true;
+    if (invertEl) {
+      invertEl.checked = isAppEinkMode() ? false : S.invert === true;
+      const invertLabel = invertEl.closest('.rs-check');
+      if (invertLabel) invertLabel.hidden = isAppEinkMode();
+    }
     const footnotesEl = $('rs-footnotes');
     if (footnotesEl) footnotesEl.checked = S.enableFootnotes !== false;
     const fontWeightEl = $('rs-font-weight');
@@ -3523,6 +3770,15 @@ import {
     if (stLeft) stLeft.checked = S.statusShowChapterLeft === true;
     const stClock = $('rs-status-clock');
     if (stClock) stClock.checked = S.statusShowClock === true;
+    const pageHapticEl = $('rs-page-haptic');
+    if (pageHapticEl) pageHapticEl.checked = S.pageHaptic === true;
+    const einkVolHint = $('rs-eink-volume-hint');
+    if (einkVolHint) einkVolHint.hidden = !isAppEinkMode();
+    const einkRefreshGroup = $('rs-eink-refresh-group');
+    if (einkRefreshGroup) einkRefreshGroup.hidden = !isAppEinkMode();
+    document.querySelectorAll('[data-set-eink-refresh]').forEach((btn) => {
+      btn.classList.toggle('is-active', Number(btn.dataset.setEinkRefresh) === Number(S.einkFullRefreshEvery));
+    });
     refreshTapZonesUi();
     syncStatusStrip();
     syncAutoFlipHud();
@@ -4229,7 +4485,7 @@ import {
       if (!annotationsData.length) return;
       annotationNavIndex = (annotationNavIndex + dir + annotationsData.length) % annotationsData.length;
       const a = annotationsData[annotationNavIndex];
-      if (a?.cfi) void goToReaderTarget(a.cfi, { retries: 8 });
+      if (a?.cfi) void revealAnnotationAt(a.cfi, { retries: 8 });
     }
   });
 
@@ -4695,12 +4951,61 @@ import {
     };
   }
 
-  /* ===== Brightness: left-edge vertical swipe ===== */
-  const BRIGHTNESS_MIN = 0.05;
+  /* ===== Brightness / warmth edge swipes ===== */
+  const BRIGHTNESS_MIN_LCD = 0.05;
+  const BRIGHTNESS_MIN_EINK = 0;
   const BRIGHTNESS_MAX = 1;
-  const BRIGHTNESS_SWIPE_PX = 280;
+  const WARMTH_MIN = 0;
+  const WARMTH_MAX = 1;
+  /** Полный ход 0→1 (LCD) за эту высоту свайпа. */
+  const LIGHT_SWIPE_PX = 220;
+  /** Порог, после которого край считается регулировкой подсветки, а не листанием. */
+  const LIGHT_ARM_DY = 8;
+  /** Уже с этого сдвига начинаем есть touchmove, чтобы Foliate не копил жест листания. */
+  const LIGHT_CLAIM_DY = 3;
+
+  /** Пикселей на 1 raw-шаг: один свайп ~55% высоты экрана покрывает весь 0..max. */
+  function lightPixelsPerStep(channelMax) {
+    const max = Math.max(1, Number(channelMax) || 32);
+    const hostH = view?.getBoundingClientRect?.()?.height || innerHeight || 800;
+    const span = Math.max(200, Math.min(480, hostH * 0.55));
+    return span / max;
+  }
+
+  function brightnessMin() {
+    return (isAppEinkMode() || S.theme === 'eink') ? BRIGHTNESS_MIN_EINK : BRIGHTNESS_MIN_LCD;
+  }
+
   let brightnessDrag = null;
-  let brightnessHudTimer = null;
+  let warmthDrag = null;
+  /** Свайп у края обрабатывает native (dispatchTouchEvent) — JS-жест выключен. */
+  let nativeLightSwipe = false;
+  let nativeLightSwipeWanted = null;
+  /** Блокирует листание/тап Foliate до конца текущего касания после регулировки. */
+  let suppressBookGesture = false;
+  /** Прерванный (touchcancel) жест: следующее касание у того же края продолжает регулировку. */
+  let lightDragResume = null;
+  const LIGHT_RESUME_MS = 1500;
+  const lightAdjustCancelers = new Set();
+
+  /**
+   * Палец жеста ищем по identifier: на e-ink к касанию часто добавляется второй
+   * «призрачный» тач, а его touchend с проверкой по touches[0] убивал регулировку.
+   */
+  function findTouchById(list, id) {
+    if (!list) return null;
+    for (let i = 0; i < list.length; i += 1) {
+      if (list[i].identifier === id) return list[i];
+    }
+    return null;
+  }
+
+  function takeLightResume(kind) {
+    const r = lightDragResume;
+    lightDragResume = null;
+    if (!r || r.kind !== kind) return null;
+    return Date.now() - r.at <= LIGHT_RESUME_MS ? r : null;
+  }
 
   function brightnessEdgeLimitPx() {
     const host = view?.getBoundingClientRect?.();
@@ -4720,11 +5025,52 @@ import {
     return pageX - host.left <= brightnessEdgeLimitPx();
   }
 
+  function isRightEdgeWarmthZone(pageX) {
+    if (!nativeWarmthAvailable) return false;
+    if (!(isAppEinkMode() || S.theme === 'eink')) return false;
+    const host = view?.getBoundingClientRect?.();
+    const limit = brightnessEdgeLimitPx();
+    if (!host?.width) return pageX >= innerWidth - limit;
+    return host.right - pageX <= limit;
+  }
+
+  function brightnessGestureBlocked() {
+    return panelOverlay?.classList.contains('is-open') || isFootnoteOverlayOpen();
+  }
+
+  let lightSliderActive = false;
+  let lightSliderCommit = null;
+  const lightSliderCommits = new Map();
+
+  function isLightAdjustActive() {
+    return Boolean(brightnessDrag?.active || warmthDrag?.active);
+  }
+
+  function isLightUiBusy() {
+    return Boolean(isLightAdjustActive() || lightSliderActive);
+  }
+
+  function beginLightAdjust() {
+    suppressBookGesture = true;
+    for (const fn of lightAdjustCancelers) {
+      try { fn(); } catch { /* */ }
+    }
+  }
+
+  function eatLightGestureEvent(e, { hard = false } = {}) {
+    try { e.preventDefault(); } catch { /* */ }
+    try { e.stopPropagation(); } catch { /* */ }
+    /* hard — полностью отрезаем Foliate (иначе во время свайпа яркости листает страницу). */
+    if (hard) {
+      try { e.stopImmediatePropagation(); } catch { /* */ }
+    }
+  }
+
   function readBrightnessLevel() {
     try {
       const raw = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
       const v = Number(raw.brightness);
-      return Number.isFinite(v) ? Math.min(BRIGHTNESS_MAX, Math.max(BRIGHTNESS_MIN, v)) : 1;
+      return Number.isFinite(v) ? Math.min(BRIGHTNESS_MAX, Math.max(brightnessMin(), v)) : 1;
     } catch {
       return 1;
     }
@@ -4738,21 +5084,100 @@ import {
     } catch { /* */ }
   }
 
+  function lightValueText(level, raw, max) {
+    if (Number.isFinite(Number(raw)) && Number.isFinite(Number(max))) return `${raw}/${max}`;
+    return `${Math.round(level * 100)}%`;
+  }
+
+  /**
+   * Только текстовая метка рядом со слайдером. value/step у range input во время
+   * драга трогать нельзя — WebView сбрасывает захват ползунка.
+   */
+  function updateLightLabel(kind) {
+    const val = $(kind === 'warmth' ? 'rs-warmth-val' : 'rs-brightness-val');
+    if (!val) return;
+    const raw = kind === 'warmth' ? lightState?.warmthRaw : lightState?.brightnessRaw;
+    const max = kind === 'warmth' ? lightState?.warmthMax : lightState?.brightnessMax;
+    const level = kind === 'warmth'
+      ? lightState?.warmth
+      : (lightState?.brightness ?? lightState?.level);
+    val.textContent = lightValueText(Number(level) || 0, raw, max);
+  }
+
+  /** HUD со значением: во время свайпа железо молчит, показать значение больше негде. */
+  let lightHudEl = null;
+  let lightHudAt = 0;
+  let lightHudTimer = 0;
+  /** Перерисовка на e-ink дорогая: не чаще, но с догоняющим обновлением в конце. */
+  const LIGHT_HUD_THROTTLE_MS = 110;
+
+  function showLightHud(text) {
+    const now = Date.now();
+    const wait = LIGHT_HUD_THROTTLE_MS - (now - lightHudAt);
+    if (wait > 0) {
+      if (lightHudTimer) clearTimeout(lightHudTimer);
+      lightHudTimer = setTimeout(() => {
+        lightHudTimer = 0;
+        paintLightHud(text);
+      }, wait);
+      return;
+    }
+    paintLightHud(text);
+  }
+
+  function paintLightHud(text) {
+    lightHudAt = Date.now();
+    if (!lightHudEl) {
+      const el = document.createElement('div');
+      el.id = 'reader-light-hud';
+      el.setAttribute('aria-hidden', 'true');
+      el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)'
+        + ';z-index:500;pointer-events:none;padding:10px 18px;border-radius:12px'
+        + ';font-size:15px;font-weight:600;white-space:nowrap;text-align:center'
+        + ';background:var(--r-bar,#fff);color:var(--r-fg,#111)'
+        + ';border:1px solid var(--r-border,#8a8a8a)';
+      el.hidden = true;
+      // В body, а не в #reader-body: filter яркости на html делал бы его
+      // containing block для position:fixed
+      document.body?.appendChild(el);
+      lightHudEl = el;
+    }
+    if (lightHudEl.textContent !== text) lightHudEl.textContent = text;
+    if (lightHudEl.hidden) lightHudEl.hidden = false;
+  }
+
+  function hideLightHud() {
+    if (lightHudTimer) {
+      clearTimeout(lightHudTimer);
+      lightHudTimer = 0;
+    }
+    if (lightHudEl && !lightHudEl.hidden) lightHudEl.hidden = true;
+  }
+
   function syncBrightnessControls(level) {
-    const pct = `${Math.round(level * 100)}%`;
+    // Во время свайпа/драга не трогаем DOM — на BOOX WebView это обрывает жест.
+    if (isLightUiBusy()) return;
     const slider = $('rs-brightness');
     const val = $('rs-brightness-val');
-    if (slider) slider.value = String(level);
-    if (val) val.textContent = pct;
-    const fill = $('reader-brightness-hud-fill');
-    const hudVal = $('reader-brightness-hud-val');
-    if (fill) fill.style.height = `${Math.round(level * 100)}%`;
-    if (hudVal) hudVal.textContent = pct;
+    if (slider) wireLightSliderGuard(slider);
+    const steps = Number(lightState?.brightnessSteps);
+    if (slider && Number.isFinite(steps) && steps > 1) {
+      slider.step = String(1 / (steps - 1));
+    }
+    if (slider && document.activeElement !== slider) {
+      slider.value = String(level);
+    }
+    if (val) {
+      val.textContent = lightValueText(level, lightState?.brightnessRaw, lightState?.brightnessMax);
+    }
   }
 
   function applySoftwareBrightness(level) {
-    const clamped = Math.min(BRIGHTNESS_MAX, Math.max(BRIGHTNESS_MIN, level));
-    /* Весь viewport читалки (toolbar + текст), не только #reader-body */
+    if (isAppEinkMode() || S.theme === 'eink') {
+      clearSoftwareBrightness();
+      return;
+    }
+    const clamped = Math.min(BRIGHTNESS_MAX, Math.max(brightnessMin(), level));
     const filter = clamped < 0.999 ? `brightness(${clamped})` : '';
     document.documentElement.style.filter = filter;
     if (readerBody) readerBody.style.filter = '';
@@ -4765,139 +5190,665 @@ import {
 
   let nativeBrightnessAvailable = false;
   let brightnessInitPending = false;
+  let discreteLight = false;
+  let lightState = null;
+  /** На e-ink rAF почти не тикает — throttle + single-flight вместо rAF. */
+  const LIGHT_NATIVE_THROTTLE_MS = 50;
+  let pendingNativeBrightness = null;
+  let brightnessNativeTimer = 0;
+  let brightnessNativeInFlight = false;
+  /** Троттлинг записи на железо: реже вызовы → меньше шансов поднять системную шкалу BOOX. */
+  const LIGHT_WRITE_THROTTLE_MS = 90;
+  /** Ответ моста iframe→parent→plugin может потеряться; без сторожа очередь залипает. */
+  const LIGHT_WRITE_TIMEOUT_MS = 1200;
+  let pendingRawTarget = { brightnessRaw: null, warmthRaw: null };
+  let rawTargetTimer = 0;
+  let rawTargetInFlight = false;
+  let rawTargetWatchdog = 0;
+
+  /** Дискретный raw-путь только на Onyx. На телефоне всегда float + Window brightness. */
+  function isDiscreteLight() {
+    return Boolean(
+      lightState?.onyx
+      && (Number(lightState?.brightnessMax) > 0 || discreteLight)
+      && (window.__INPX_NATIVE?.setFrontLightRaw || window.__INPX_NATIVE?.adjustFrontLight),
+    );
+  }
+
+  function applyLightStateFromNative(res, { persist = false, force = false } = {}) {
+    if (!res) return null;
+    // Во время свайпа/слайдера UI ведём оптимистично — ответ native не должен откатывать
+    if (!force && isLightUiBusy()) {
+      if (persist) {
+        const br = Number(res.brightness ?? res.level);
+        if (Number.isFinite(br)) persistBrightnessLevel(br);
+        if (Number.isFinite(Number(res.warmth))) persistWarmthLevel(Number(res.warmth));
+      }
+      return Number(res.brightness ?? res.level);
+    }
+    const br = Number(res.brightness ?? res.level);
+    if (!Number.isFinite(br) && !Number.isFinite(Number(res.brightnessRaw))) return null;
+    const onyx = res.onyx === true;
+    lightState = onyx
+      ? res
+      : { ...res, onyx: false, brightness: br, level: br };
+    // Никогда не включать raw-режим на обычном LCD/OLED
+    discreteLight = onyx && (Number(res.brightnessSteps) > 1 || Number(res.brightnessMax) > 0);
+    const level = Number.isFinite(br) ? br : 0;
+    syncBrightnessControls(level);
+    if (persist) persistBrightnessLevel(level);
+    if (onyx && (res.warmthSupported || Number(res.warmthMax) > 0) && Number.isFinite(Number(res.warmth))) {
+      nativeWarmthAvailable = true;
+      syncWarmthControls(Number(res.warmth));
+      if (persist) persistWarmthLevel(Number(res.warmth));
+    }
+    return level;
+  }
+
+  function optimisticBrightnessRaw(raw) {
+    if (!lightState?.onyx) return null;
+    const max = Math.max(1, Number(lightState?.brightnessMax) || 32);
+    const v = Math.max(0, Math.min(max, Math.round(raw)));
+    lightState = {
+      ...(lightState || {}),
+      onyx: true,
+      brightnessRaw: v,
+      brightnessMax: max,
+      brightnessSteps: max + 1,
+      brightness: v / max,
+    };
+    discreteLight = true;
+    // Не syncBrightnessControls во время жеста — только in-memory
+    if (!isLightUiBusy()) syncBrightnessControls(v / max);
+    return v;
+  }
+
+  function optimisticWarmthRaw(raw) {
+    const max = Math.max(1, Number(lightState?.warmthMax) || 32);
+    const v = Math.max(0, Math.min(max, Math.round(raw)));
+    lightState = {
+      ...(lightState || {}),
+      warmthRaw: v,
+      warmthMax: max,
+      warmthSteps: max + 1,
+      warmth: v / max,
+      warmthSupported: true,
+    };
+    nativeWarmthAvailable = true;
+    if (!isLightUiBusy()) syncWarmthControls(v / max);
+    return v;
+  }
+
+  function refreshLightState() {
+    if (!window.__INPX_NATIVE?.getFrontLightState) {
+      return Promise.resolve(null);
+    }
+    return window.__INPX_NATIVE.getFrontLightState()
+      .then((res) => {
+        if (res?.onyx === false) return null;
+        applyLightStateFromNative(res, { persist: false, force: !isLightUiBusy() });
+        return res;
+      })
+      .catch(() => null);
+  }
+
+  function flushRawTarget({ immediate = false } = {}) {
+    if (rawTargetTimer) {
+      clearTimeout(rawTargetTimer);
+      rawTargetTimer = 0;
+    }
+    if (rawTargetInFlight) return;
+    const br = pendingRawTarget.brightnessRaw;
+    const warm = pendingRawTarget.warmthRaw;
+    if (br == null && warm == null) return;
+    pendingRawTarget = { brightnessRaw: null, warmthRaw: null };
+    rawTargetInFlight = true;
+    const payload = {};
+    if (br != null) payload.brightnessRaw = br;
+    if (warm != null) payload.warmthRaw = warm;
+    const send = window.__INPX_NATIVE?.setFrontLightRaw
+      ? window.__INPX_NATIVE.setFrontLightRaw(payload)
+      : Promise.all([
+        br != null && window.__INPX_NATIVE?.setBrightness
+          ? window.__INPX_NATIVE.setBrightness(
+            br / Math.max(1, Number(lightState?.brightnessMax) || 32),
+          )
+          : null,
+        warm != null && window.__INPX_NATIVE?.setWarmth
+          ? window.__INPX_NATIVE.setWarmth(
+            warm / Math.max(1, Number(lightState?.warmthMax) || 32),
+          )
+          : null,
+      ]).then((rows) => rows.find(Boolean) || null);
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      if (rawTargetWatchdog) {
+        clearTimeout(rawTargetWatchdog);
+        rawTargetWatchdog = 0;
+      }
+      rawTargetInFlight = false;
+      if (pendingRawTarget.brightnessRaw != null || pendingRawTarget.warmthRaw != null) {
+        if (immediate) flushRawTarget({ immediate: true });
+        else {
+          rawTargetTimer = setTimeout(() => flushRawTarget(), LIGHT_WRITE_THROTTLE_MS);
+        }
+      }
+    };
+    rawTargetWatchdog = setTimeout(settle, LIGHT_WRITE_TIMEOUT_MS);
+    Promise.resolve(send)
+      .then((res) => {
+        // Опоздавший ответ (сторож уже сработал) не должен откатывать шкалу
+        if (!settled) applyLightStateFromNative(res, { persist: false });
+      })
+      .catch(() => {})
+      .finally(settle);
+  }
+
+  function queueRawTarget({ brightnessRaw = null, warmthRaw = null } = {}, { flush = false } = {}) {
+    if (brightnessRaw != null) pendingRawTarget.brightnessRaw = brightnessRaw;
+    if (warmthRaw != null) pendingRawTarget.warmthRaw = warmthRaw;
+    if (flush) {
+      flushRawTarget({ immediate: true });
+      return;
+    }
+    if (rawTargetInFlight || rawTargetTimer) return;
+    rawTargetTimer = setTimeout(() => flushRawTarget(), LIGHT_WRITE_THROTTLE_MS);
+  }
+
+  function pumpNativeBrightness() {
+    if (brightnessNativeInFlight) return;
+    if (pendingNativeBrightness == null) return;
+    if (!window.__INPX_NATIVE?.setBrightness) {
+      pendingNativeBrightness = null;
+      return;
+    }
+    const level = pendingNativeBrightness;
+    pendingNativeBrightness = null;
+    brightnessNativeInFlight = true;
+    Promise.resolve(window.__INPX_NATIVE.setBrightness(level))
+      .then((res) => { applyLightStateFromNative(res, { persist: false }); })
+      .catch(() => {})
+      .finally(() => {
+        brightnessNativeInFlight = false;
+        if (pendingNativeBrightness != null) pumpNativeBrightness();
+      });
+  }
+
+  function queueNativeBrightness(level, { flush = false } = {}) {
+    pendingNativeBrightness = level;
+    if (flush && brightnessNativeTimer) {
+      clearTimeout(brightnessNativeTimer);
+      brightnessNativeTimer = 0;
+    }
+    if (brightnessNativeInFlight) return;
+    if (flush) {
+      pumpNativeBrightness();
+      return;
+    }
+    if (brightnessNativeTimer) return;
+    // setTimeout, не rAF: на e-ink rAF почти не вызывается → жест «замирает»
+    brightnessNativeTimer = setTimeout(() => {
+      brightnessNativeTimer = 0;
+      pumpNativeBrightness();
+    }, LIGHT_NATIVE_THROTTLE_MS);
+  }
+
+  /**
+   * Пока палец на слайдере — в железо не пишем. Первая же запись поднимает системную
+   * шкалу подсветки BOOX, окно теряет фокус, и Chromium отменяет драг ползунка.
+   * Нативный свайп это переживает (он ниже WebView), драг внутри страницы — нет.
+   */
+  function lightWriteDeferred(persist) {
+    return Boolean(lightSliderActive) && !persist && Boolean(lightState?.onyx);
+  }
 
   function applyBrightnessLevel(level, { persist = false } = {}) {
-    const clamped = Math.min(BRIGHTNESS_MAX, Math.max(BRIGHTNESS_MIN, level));
+    const clamped = Math.min(BRIGHTNESS_MAX, Math.max(brightnessMin(), level));
+    if (isDiscreteLight()) {
+      const max = Math.max(1, Number(lightState?.brightnessMax) || 32);
+      const raw = optimisticBrightnessRaw(clamped * max);
+      if (lightWriteDeferred(persist)) updateLightLabel('brightness');
+      else if (raw != null) queueRawTarget({ brightnessRaw: raw }, { flush: persist });
+      if (persist) persistBrightnessLevel(clamped);
+      if (!isLightUiBusy()) syncBrightnessControls(clamped);
+      return clamped;
+    }
     if (nativeBrightnessAvailable && window.__INPX_NATIVE?.setBrightness) {
+      // Телефон: Window.screenBrightness. Onyx без discrete — тот же float-путь.
       clearSoftwareBrightness();
-      window.__INPX_NATIVE.setBrightness(clamped).catch(() => {});
-    } else if (nativeBrightnessAvailable) {
+      if (!lightWriteDeferred(persist)) queueNativeBrightness(clamped, { flush: persist });
+    } else if (isAppEinkMode()) {
+      // На e-ink без native API программный filter бесполезен
       clearSoftwareBrightness();
     } else {
       applySoftwareBrightness(clamped);
     }
-    syncBrightnessControls(clamped);
+    if (!isLightAdjustActive() || !lightState?.onyx) {
+      lightState = { ...(lightState || {}), onyx: false, brightness: clamped, level: clamped };
+    }
+    if (!isLightUiBusy()) syncBrightnessControls(clamped);
     if (persist) persistBrightnessLevel(clamped);
     return clamped;
+  }
+
+  let nativeWarmthAvailable = false;
+  let pendingNativeWarmth = null;
+  let warmthNativeTimer = 0;
+  let warmthNativeInFlight = false;
+  let warmthProbeStarted = false;
+
+  function readWarmthLevel() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+      const v = Number(raw.warmth);
+      return Number.isFinite(v) ? Math.min(WARMTH_MAX, Math.max(WARMTH_MIN, v)) : 0.5;
+    } catch {
+      return 0.5;
+    }
+  }
+
+  function persistWarmthLevel(level) {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+      raw.warmth = level;
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(raw));
+    } catch { /* */ }
+  }
+
+  function syncWarmthControls(level) {
+    if (isLightUiBusy()) return;
+    const slider = $('rs-warmth');
+    const val = $('rs-warmth-val');
+    if (slider) wireLightSliderGuard(slider);
+    const steps = Number(lightState?.warmthSteps);
+    if (slider && Number.isFinite(steps) && steps > 1) {
+      slider.step = String(1 / (steps - 1));
+    }
+    if (slider && document.activeElement !== slider) {
+      slider.value = String(level);
+    }
+    if (val) {
+      val.textContent = lightValueText(level, lightState?.warmthRaw, lightState?.warmthMax);
+    }
+  }
+
+  function pumpNativeWarmth() {
+    if (warmthNativeInFlight) return;
+    if (pendingNativeWarmth == null) return;
+    if (!window.__INPX_NATIVE?.setWarmth) {
+      pendingNativeWarmth = null;
+      return;
+    }
+    const level = pendingNativeWarmth;
+    pendingNativeWarmth = null;
+    warmthNativeInFlight = true;
+    Promise.resolve(window.__INPX_NATIVE.setWarmth(level))
+      .then((res) => { applyLightStateFromNative(res, { persist: false }); })
+      .catch(() => {})
+      .finally(() => {
+        warmthNativeInFlight = false;
+        if (pendingNativeWarmth != null) pumpNativeWarmth();
+      });
+  }
+
+  function queueNativeWarmth(level, { flush = false } = {}) {
+    pendingNativeWarmth = level;
+    if (flush && warmthNativeTimer) {
+      clearTimeout(warmthNativeTimer);
+      warmthNativeTimer = 0;
+    }
+    if (warmthNativeInFlight) return;
+    if (flush) {
+      pumpNativeWarmth();
+      return;
+    }
+    if (warmthNativeTimer) return;
+    warmthNativeTimer = setTimeout(() => {
+      warmthNativeTimer = 0;
+      pumpNativeWarmth();
+    }, LIGHT_NATIVE_THROTTLE_MS);
+  }
+
+  function applyWarmthLevel(level, { persist = false } = {}) {
+    if (!nativeWarmthAvailable) return readWarmthLevel();
+    const clamped = Math.min(WARMTH_MAX, Math.max(WARMTH_MIN, level));
+    if (isDiscreteLight()) {
+      const max = Math.max(1, Number(lightState?.warmthMax) || 32);
+      const raw = optimisticWarmthRaw(clamped * max);
+      if (lightWriteDeferred(persist)) updateLightLabel('warmth');
+      else queueRawTarget({ warmthRaw: raw }, { flush: persist });
+      if (persist) persistWarmthLevel(clamped);
+      if (!isLightUiBusy()) syncWarmthControls(clamped);
+      return clamped;
+    }
+    if (!lightWriteDeferred(persist)) queueNativeWarmth(clamped, { flush: persist });
+    if (!isLightUiBusy()) syncWarmthControls(clamped);
+    if (persist) persistWarmthLevel(clamped);
+    return clamped;
+  }
+
+  function wireLightSliderGuard(slider) {
+    if (!slider || slider.dataset.lightGuardWired) return;
+    slider.dataset.lightGuardWired = '1';
+    const isWarmth = slider.id === 'rs-warmth';
+    /* Отпускание (в т.ч. pointercancel от системного оверлея) — единственная точка
+     * записи в железо; pointerup и change приходят оба, поэтому дедуп по значению. */
+    const commit = () => {
+      const level = Number(slider.value);
+      lightSliderActive = false;
+      if (!Number.isFinite(level)) return;
+      if (slider.dataset.lightCommitted === String(level)) return;
+      slider.dataset.lightCommitted = String(level);
+      if (isWarmth) {
+        applyWarmthLevel(level, { persist: true });
+        syncWarmthControls(Number(lightState?.warmth ?? level));
+      } else {
+        applyBrightnessLevel(level, { persist: true });
+        syncBrightnessControls(Number(lightState?.brightness ?? level));
+      }
+    };
+    lightSliderCommits.set(slider.id, commit);
+    const on = () => {
+      lightSliderActive = true;
+      lightSliderCommit = commit;
+      delete slider.dataset.lightCommitted;
+    };
+    slider.addEventListener('pointerdown', on);
+    slider.addEventListener('touchstart', on, { passive: true });
+    slider.addEventListener('pointerup', commit);
+    slider.addEventListener('pointercancel', commit);
+    slider.addEventListener('touchend', commit);
+    slider.addEventListener('touchcancel', commit);
+    slider.addEventListener('change', commit);
+  }
+
+  /**
+   * Слайдеры подсветки создаёт native-мост, порядок относительно первого sync не
+   * гарантирован — ловим касание делегированием, чтобы флаг «палец на слайдере»
+   * встал до первого input, и страхуем отпускание вне ползунка.
+   */
+  function wireLightSliderDelegation() {
+    if (document.documentElement.dataset.lightSliderDelegated) return;
+    document.documentElement.dataset.lightSliderDelegated = '1';
+    const claim = (e) => {
+      const el = e.target;
+      if (el?.id !== 'rs-brightness' && el?.id !== 'rs-warmth') return;
+      wireLightSliderGuard(el);
+      lightSliderActive = true;
+      lightSliderCommit = lightSliderCommits.get(el.id) || lightSliderCommit;
+      delete el.dataset.lightCommitted;
+    };
+    const release = () => {
+      if (lightSliderActive) lightSliderCommit?.();
+    };
+    document.addEventListener('pointerdown', claim, { capture: true });
+    document.addEventListener('touchstart', claim, { capture: true, passive: true });
+    document.addEventListener('pointerup', release, { capture: true });
+    document.addEventListener('pointercancel', release, { capture: true });
+    document.addEventListener('touchend', release, { capture: true });
+    document.addEventListener('touchcancel', release, { capture: true });
   }
 
   window.addEventListener('message', (e) => {
     if (e.data?.type !== 'inpx-native-ready') return;
     brightnessInitPending = false;
     nativeBrightnessAvailable = Boolean(e.data.ready);
-    applyBrightnessLevel(readBrightnessLevel(), { persist: false });
-    if (nativeBrightnessAvailable && window.__INPX_NATIVE?.getBrightness) {
+    // Только читаем с устройства. Не пишем localStorage → железу при старте.
+    if (nativeBrightnessAvailable && window.__INPX_NATIVE?.getFrontLightState) {
+      refreshLightState().then((res) => {
+        if (isLightAdjustActive()) return;
+        if (res) applyLightStateFromNative(res, { persist: true });
+        else if (!(isAppEinkMode() || S.theme === 'eink')) {
+          applyBrightnessLevel(readBrightnessLevel(), { persist: false });
+        }
+      });
+    } else if (nativeBrightnessAvailable && window.__INPX_NATIVE?.getBrightness) {
       window.__INPX_NATIVE.getBrightness().then((res) => {
-        const level = Number(res?.level);
-        if (Number.isFinite(level)) applyBrightnessLevel(level, { persist: true });
-      }).catch(() => {});
+        if (isLightAdjustActive()) return;
+        if (applyLightStateFromNative(res, { persist: true }) != null) return;
+        if (!(isAppEinkMode() || S.theme === 'eink')) {
+          applyBrightnessLevel(readBrightnessLevel(), { persist: false });
+        }
+      }).catch(() => {
+        if (!(isAppEinkMode() || S.theme === 'eink')) {
+          applyBrightnessLevel(readBrightnessLevel(), { persist: false });
+        }
+      });
+    } else if (!(isAppEinkMode() || S.theme === 'eink')) {
+      applyBrightnessLevel(readBrightnessLevel(), { persist: false });
     }
+    initWarmthGesture();
   });
 
   function initBrightnessGesture() {
-    ensureBrightnessHud();
     window.__INPX_SET_BRIGHTNESS = (level, opts) => applyBrightnessLevel(level, opts || {});
+    wireLightSliderDelegation();
     if (window.__INPX_NATIVE?.setBrightness && window.parent !== window) {
       brightnessInitPending = true;
       window.parent.postMessage({ type: 'inpx-reader-native-handshake' }, '*');
       setTimeout(() => {
         if (!brightnessInitPending) return;
         brightnessInitPending = false;
-        applyBrightnessLevel(readBrightnessLevel());
+        // Без записи на устройство: только LCD software / уже прочитанное состояние
+        if (!(isAppEinkMode() || S.theme === 'eink')) {
+          applyBrightnessLevel(readBrightnessLevel(), { persist: false });
+        }
+        initWarmthGesture();
       }, 500);
+    } else if (!(isAppEinkMode() || S.theme === 'eink')) {
+      applyBrightnessLevel(readBrightnessLevel(), { persist: false });
+      initWarmthGesture();
     } else {
-      applyBrightnessLevel(readBrightnessLevel());
+      initWarmthGesture();
     }
     if (!readerBody || readerBody.dataset.brightnessEdgeWired) return;
     readerBody.dataset.brightnessEdgeWired = '1';
     wireBrightnessEdge(readerBody);
   }
 
-  function ensureBrightnessHud() {
-    if ($('reader-brightness-hud')) return;
-    const hud = document.createElement('div');
-    hud.id = 'reader-brightness-hud';
-    hud.className = 'reader-brightness-hud';
-    hud.setAttribute('aria-hidden', 'true');
-    hud.innerHTML =
-      '<div class="reader-brightness-hud-icon" aria-hidden="true">' +
-      '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/>' +
-      '<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></div>' +
-      '<div class="reader-brightness-hud-track"><div class="reader-brightness-hud-fill" id="reader-brightness-hud-fill"></div></div>' +
-      '<div class="reader-brightness-hud-val" id="reader-brightness-hud-val">100%</div>';
-    document.body.appendChild(hud);
-    syncBrightnessControls(readBrightnessLevel());
+  /**
+   * Включает/выключает нативный свайп подсветки. Пока открыта панель или ушла сама
+   * читалка, жест обязан молчать: он живёт в dispatchTouchEvent и иначе перехватывает
+   * касание раньше слайдеров настроек и списков — те обрываются на первом же движении.
+   */
+  function syncNativeLightSwipe(force) {
+    if (!window.__INPX_NATIVE?.setLightSwipe) return;
+    const wanted = force === false ? false : !brightnessGestureBlocked();
+    if (nativeLightSwipeWanted === wanted) return;
+    nativeLightSwipeWanted = wanted;
+    window.__INPX_NATIVE.setLightSwipe({ enabled: wanted })
+      .then((res) => {
+        if (res?.supported) nativeLightSwipe = true;
+        else if (res?.active === false && !res?.supported) nativeLightSwipe = false;
+      })
+      .catch(() => {});
   }
 
-  function showBrightnessHud() {
-    ensureBrightnessHud();
-    const hud = $('reader-brightness-hud');
-    if (!hud) return;
-    hud.classList.add('is-visible');
-    hud.setAttribute('aria-hidden', 'false');
-    clearTimeout(brightnessHudTimer);
+  /** Любой путь открытия/закрытия панели (кнопка, backdrop, popstate) — один и тот же класс. */
+  function watchPanelForLightSwipe() {
+    if (!panelOverlay || panelOverlay.dataset.lightSwipeWatched) return;
+    panelOverlay.dataset.lightSwipeWatched = '1';
+    new MutationObserver(() => {
+      syncNativeLightSwipe();
+      if (panelOverlay.classList.contains('is-open')) refreshLightState();
+    }).observe(panelOverlay, { attributes: true, attributeFilter: ['class'] });
+    // Сноска открывается тремя разными путями, общий у них только класс на body
+    new MutationObserver(() => syncNativeLightSwipe())
+      .observe(document.body, { attributes: true, attributeFilter: ['class'] });
   }
 
-  function hideBrightnessHudSoon() {
-    clearTimeout(brightnessHudTimer);
-    brightnessHudTimer = setTimeout(() => {
-      const hud = $('reader-brightness-hud');
-      if (!hud) return;
-      hud.classList.remove('is-visible');
-      hud.setAttribute('aria-hidden', 'true');
-    }, 700);
+  let lightSwipeWired = false;
+
+  /** Жест живёт в native, поэтому его состояние и результат надо забирать событиями. */
+  function wireNativeLightSwipe() {
+    if (lightSwipeWired) return;
+    lightSwipeWired = true;
+    watchPanelForLightSwipe();
+    window.addEventListener('inpx-native-front-light', (e) => {
+      applyLightStateFromNative(e.detail, { persist: true, force: !isLightUiBusy() });
+    });
+    window.addEventListener('pagehide', () => syncNativeLightSwipe(false));
   }
 
-  function brightnessGestureBlocked() {
-    return panelOverlay?.classList.contains('is-open') || isFootnoteOverlayOpen();
+  function initWarmthGesture() {
+    window.__INPX_SET_WARMTH = (level, opts) => applyWarmthLevel(level, opts || {});
+    syncNativeLightSwipe();
+    wireNativeLightSwipe();
+    if (!readerBody?.dataset.warmthEdgeWired && readerBody) {
+      readerBody.dataset.warmthEdgeWired = '1';
+      wireWarmthEdge(readerBody);
+    }
+    if (warmthProbeStarted || !window.__INPX_NATIVE?.getWarmth) return;
+    warmthProbeStarted = true;
+    window.__INPX_NATIVE.getWarmth().then((res) => {
+      nativeWarmthAvailable = Boolean(res?.supported || res?.warmthSupported);
+      if (!nativeWarmthAvailable || isLightAdjustActive()) return;
+      // Не прогонять через applyLightStateFromNative — там level путался с brightness на LCD
+      const level = Number(res?.warmth ?? res?.level);
+      if (Number.isFinite(level)) {
+        syncWarmthControls(level);
+        persistWarmthLevel(level);
+      }
+    }).catch(() => {
+      nativeWarmthAvailable = false;
+    });
   }
 
   function onBrightnessTouchStart(e, doc_) {
+    if (nativeLightSwipe) return;
     if (!isTouch.matches || brightnessGestureBlocked()) return;
     if (e.touches.length !== 1) return;
+    if (warmthDrag) return;
     const t = e.touches[0];
     if (!isLeftEdgeBrightnessZone(touchPageX(t.clientX, doc_))) return;
+    // Не refreshLightState здесь: async syncFromDevice на старте жеста
+    // откатывает raw и обрывает «туда-сюда».
+    suppressBookGesture = true;
+    const resume = takeLightResume('brightness');
     brightnessDrag = {
-      doc: doc_ || null,
+      id: t.identifier,
       x0: t.clientX,
-      y0: t.clientY,
-      level0: readBrightnessLevel(),
+      yPrev: t.clientY,
+      startY: t.clientY,
+      armDy: resume ? LIGHT_CLAIM_DY : LIGHT_ARM_DY,
+      rawFloat: resume ? resume.rawFloat : null,
+      levelFloat: resume ? resume.levelFloat : null,
+      startRaw: Number(lightState?.brightnessRaw),
+      startLevel: Number(lightState?.brightness ?? lightState?.level ?? readBrightnessLevel()),
       active: false,
     };
   }
 
   function onBrightnessTouchMove(e) {
-    if (!brightnessDrag || e.touches.length !== 1) return false;
-    const t = e.touches[0];
-    const dy = brightnessDrag.y0 - t.clientY;
+    if (!brightnessDrag) return false;
+    if (warmthDrag?.active) {
+      brightnessDrag = null;
+      return false;
+    }
+    const t = findTouchById(e.touches, brightnessDrag.id);
+    if (!t) return false;
     const adx = Math.abs(t.clientX - brightnessDrag.x0);
-    const ady = Math.abs(dy);
+    const dyFromStart = Math.abs(t.clientY - brightnessDrag.startY);
     if (!brightnessDrag.active) {
-      if (ady < 14) return false;
-      if (adx > ady * 0.85) {
+      // Горизонталь — уступаем жесту меню с края; снимаем suppress
+      if (adx > dyFromStart * 0.75 && adx > LIGHT_ARM_DY) {
         brightnessDrag = null;
+        if (!warmthDrag?.active) suppressBookGesture = false;
         return false;
       }
+      // Рано едим move, пока Foliate не накопил свайп листания
+      if (dyFromStart >= LIGHT_CLAIM_DY && adx <= dyFromStart) {
+        eatLightGestureEvent(e, { hard: true });
+      }
+      if (dyFromStart < brightnessDrag.armDy) return false;
       brightnessDrag.active = true;
-      showBrightnessHud();
+      brightnessDrag.yPrev = t.clientY;
+      if (!Number.isFinite(brightnessDrag.startRaw)) {
+        brightnessDrag.startRaw = Number(lightState?.brightnessRaw) || 0;
+      }
+      if (!Number.isFinite(brightnessDrag.startLevel)) {
+        brightnessDrag.startLevel = Number(
+          lightState?.brightness ?? lightState?.level ?? readBrightnessLevel(),
+        );
+      }
+      brightnessDrag.startY = t.clientY;
+      brightnessDrag.stepPx = lightPixelsPerStep(Number(lightState?.brightnessMax) || 32);
+      if (!Number.isFinite(brightnessDrag.rawFloat)) {
+        brightnessDrag.rawFloat = Number.isFinite(Number(lightState?.brightnessRaw))
+          ? Number(lightState.brightnessRaw)
+          : (Number(brightnessDrag.startRaw) || 0);
+      }
+      if (!Number.isFinite(brightnessDrag.levelFloat)) {
+        brightnessDrag.levelFloat = brightnessDrag.startLevel;
+      }
+      warmthDrag = null;
+      beginLightAdjust();
+      eatLightGestureEvent(e, { hard: true });
+      return true;
     }
-    const level = applyBrightnessLevel(brightnessDrag.level0 + dy / BRIGHTNESS_SWIPE_PX);
-    brightnessDrag.lastLevel = level;
-    e.preventDefault();
-    e.stopPropagation();
+    // Относительная дельта от yPrev — «туда-сюда» без привязки к startY
+    // (абсолют ломался, когда native/sync сбрасывал якорь).
+    const dy = brightnessDrag.yPrev - t.clientY;
+    brightnessDrag.yPrev = t.clientY;
+    if (isDiscreteLight()) {
+      const max = Math.max(1, Number(lightState?.brightnessMax) || 32);
+      const stepPx = brightnessDrag.stepPx || lightPixelsPerStep(max);
+      // Копим дробь в rawFloat: округление на каждом move съедало движения
+      // по 1–3 px, и медленный свайп вообще не сдвигал шкалу.
+      const base = Number.isFinite(brightnessDrag.rawFloat) ? brightnessDrag.rawFloat : 0;
+      const next = Math.max(0, Math.min(max, base + dy / stepPx));
+      brightnessDrag.rawFloat = next;
+      const raw = optimisticBrightnessRaw(next);
+      if (raw != null && raw !== brightnessDrag.sentRaw) {
+        brightnessDrag.sentRaw = raw;
+        queueRawTarget({ brightnessRaw: raw });
+      }
+    } else {
+      const base = Number.isFinite(brightnessDrag.levelFloat) ? brightnessDrag.levelFloat : 1;
+      const next = Math.min(
+        BRIGHTNESS_MAX,
+        Math.max(brightnessMin(), base + dy / LIGHT_SWIPE_PX),
+      );
+      brightnessDrag.levelFloat = next;
+      applyBrightnessLevel(next);
+    }
+    eatLightGestureEvent(e, { hard: true });
     return true;
   }
 
   function onBrightnessTouchEnd(e) {
     if (!brightnessDrag) return false;
-    const wasActive = brightnessDrag.active;
-    if (wasActive) {
-      applyBrightnessLevel(brightnessDrag.lastLevel ?? readBrightnessLevel(), { persist: true });
-      hideBrightnessHudSoon();
-      e.preventDefault();
-      e.stopPropagation();
+    if (!findTouchById(e.changedTouches, brightnessDrag.id)) {
+      // Отпустили лишний палец — регулировка продолжается
+      if (brightnessDrag.active) {
+        eatLightGestureEvent(e, { hard: true });
+        return true;
+      }
+      return false;
     }
+    const wasActive = brightnessDrag.active;
+    // Сброс до persist/sync: пока drag жив, syncBrightnessControls себя блокирует
     brightnessDrag = null;
+    if (wasActive) {
+      if (isDiscreteLight()) {
+        const raw = Number(lightState?.brightnessRaw);
+        if (Number.isFinite(raw)) queueRawTarget({ brightnessRaw: raw }, { flush: true });
+        const br = Number(lightState?.brightness ?? readBrightnessLevel());
+        persistBrightnessLevel(br);
+        syncBrightnessControls(br);
+      } else {
+        const br = Number(lightState?.brightness ?? lightState?.level ?? readBrightnessLevel());
+        applyBrightnessLevel(br, { persist: true });
+      }
+      suppressBookGesture = true;
+      // hard: иначе Foliate на touchend всё равно перелистнёт
+      eatLightGestureEvent(e, { hard: true });
+    } else if (suppressBookGesture) {
+      // Краткий вертикальный сдвиг у края — не считать тапом/листанием
+      eatLightGestureEvent(e, { hard: true });
+    }
     return wasActive;
   }
 
@@ -4905,7 +5856,177 @@ import {
     doc_.addEventListener('touchstart', (e) => onBrightnessTouchStart(e, doc_), { capture: true, passive: true });
     doc_.addEventListener('touchmove', (e) => { onBrightnessTouchMove(e); }, { capture: true, passive: false });
     doc_.addEventListener('touchend', (e) => { onBrightnessTouchEnd(e); }, { capture: true, passive: false });
-    doc_.addEventListener('touchcancel', () => { brightnessDrag = null; }, { capture: true, passive: true });
+    doc_.addEventListener('touchcancel', (e) => {
+      if (!brightnessDrag) return;
+      if (!findTouchById(e.changedTouches, brightnessDrag.id)) return;
+      const drag = brightnessDrag;
+      brightnessDrag = null;
+      if (!drag.active) return;
+      suppressBookGesture = true;
+      if (isDiscreteLight()) {
+        const raw = Number(lightState?.brightnessRaw);
+        if (Number.isFinite(raw)) queueRawTarget({ brightnessRaw: raw }, { flush: true });
+      }
+      const br = Number(lightState?.brightness ?? readBrightnessLevel());
+      persistBrightnessLevel(br);
+      syncBrightnessControls(br);
+      // BOOX отменяет касание системным оверлеем подсветки — даём продолжить с того же места
+      lightDragResume = {
+        kind: 'brightness',
+        at: Date.now(),
+        rawFloat: drag.rawFloat,
+        levelFloat: drag.levelFloat,
+      };
+    }, { capture: true, passive: true });
+  }
+
+  function onWarmthTouchStart(e, doc_) {
+    if (nativeLightSwipe) return;
+    if (!isTouch.matches || brightnessGestureBlocked()) return;
+    if (!nativeWarmthAvailable) return;
+    if (e.touches.length !== 1) return;
+    if (brightnessDrag) return;
+    const t = e.touches[0];
+    if (!isRightEdgeWarmthZone(touchPageX(t.clientX, doc_))) return;
+    suppressBookGesture = true;
+    const resume = takeLightResume('warmth');
+    warmthDrag = {
+      id: t.identifier,
+      x0: t.clientX,
+      yPrev: t.clientY,
+      startY: t.clientY,
+      armDy: resume ? LIGHT_CLAIM_DY : LIGHT_ARM_DY,
+      rawFloat: resume ? resume.rawFloat : null,
+      levelFloat: resume ? resume.levelFloat : null,
+      startRaw: Number(lightState?.warmthRaw),
+      active: false,
+    };
+  }
+
+  function onWarmthTouchMove(e) {
+    if (!warmthDrag) return false;
+    if (brightnessDrag?.active) {
+      warmthDrag = null;
+      return false;
+    }
+    const t = findTouchById(e.touches, warmthDrag.id);
+    if (!t) return false;
+    const adx = Math.abs(t.clientX - warmthDrag.x0);
+    const dyFromStart = Math.abs(t.clientY - warmthDrag.startY);
+    if (!warmthDrag.active) {
+      if (adx > dyFromStart * 0.75 && adx > LIGHT_ARM_DY) {
+        warmthDrag = null;
+        if (!brightnessDrag?.active) suppressBookGesture = false;
+        return false;
+      }
+      if (dyFromStart >= LIGHT_CLAIM_DY && adx <= dyFromStart) {
+        eatLightGestureEvent(e, { hard: true });
+      }
+      if (dyFromStart < warmthDrag.armDy) return false;
+      warmthDrag.active = true;
+      warmthDrag.yPrev = t.clientY;
+      if (!Number.isFinite(warmthDrag.startRaw)) {
+        warmthDrag.startRaw = Number(lightState?.warmthRaw) || 0;
+      }
+      warmthDrag.startY = t.clientY;
+      warmthDrag.stepPx = lightPixelsPerStep(Number(lightState?.warmthMax) || 32);
+      if (!Number.isFinite(warmthDrag.rawFloat)) {
+        warmthDrag.rawFloat = Number.isFinite(Number(lightState?.warmthRaw))
+          ? Number(lightState.warmthRaw)
+          : (Number(warmthDrag.startRaw) || 0);
+      }
+      if (!Number.isFinite(warmthDrag.levelFloat)) {
+        warmthDrag.levelFloat = Number(lightState?.warmth ?? readWarmthLevel());
+      }
+      brightnessDrag = null;
+      beginLightAdjust();
+      eatLightGestureEvent(e, { hard: true });
+      return true;
+    }
+    const dy = warmthDrag.yPrev - t.clientY;
+    warmthDrag.yPrev = t.clientY;
+    if (isDiscreteLight()) {
+      const max = Math.max(1, Number(lightState?.warmthMax) || 32);
+      const stepPx = warmthDrag.stepPx || lightPixelsPerStep(max);
+      const base = Number.isFinite(warmthDrag.rawFloat) ? warmthDrag.rawFloat : 0;
+      const next = Math.max(0, Math.min(max, base + dy / stepPx));
+      warmthDrag.rawFloat = next;
+      const raw = optimisticWarmthRaw(next);
+      if (raw != null && raw !== warmthDrag.sentRaw) {
+        warmthDrag.sentRaw = raw;
+        /* В железо пишем только на отпускании: setLightValue(TEMP) на BOOX поднимает
+         * системную шкалу подсветки, окно теряет захват касания и свайп обрывается. */
+        showLightHud(`Температура ${raw}/${max}`);
+      }
+    } else {
+      const base = Number.isFinite(warmthDrag.levelFloat) ? warmthDrag.levelFloat : 0.5;
+      const next = Math.min(
+        WARMTH_MAX,
+        Math.max(WARMTH_MIN, base + dy / LIGHT_SWIPE_PX),
+      );
+      warmthDrag.levelFloat = next;
+      applyWarmthLevel(next);
+    }
+    eatLightGestureEvent(e, { hard: true });
+    return true;
+  }
+
+  function onWarmthTouchEnd(e) {
+    if (!warmthDrag) return false;
+    if (!findTouchById(e.changedTouches, warmthDrag.id)) {
+      if (warmthDrag.active) {
+        eatLightGestureEvent(e, { hard: true });
+        return true;
+      }
+      return false;
+    }
+    const wasActive = warmthDrag.active;
+    warmthDrag = null;
+    hideLightHud();
+    if (wasActive) {
+      if (isDiscreteLight()) {
+        const raw = Number(lightState?.warmthRaw);
+        if (Number.isFinite(raw)) queueRawTarget({ warmthRaw: raw }, { flush: true });
+        const w = Number(lightState?.warmth ?? readWarmthLevel());
+        persistWarmthLevel(w);
+        syncWarmthControls(w);
+      } else {
+        applyWarmthLevel(Number(lightState?.warmth ?? readWarmthLevel()), { persist: true });
+      }
+      suppressBookGesture = true;
+      eatLightGestureEvent(e, { hard: true });
+    } else if (suppressBookGesture) {
+      eatLightGestureEvent(e, { hard: true });
+    }
+    return wasActive;
+  }
+
+  function wireWarmthEdge(doc_) {
+    doc_.addEventListener('touchstart', (e) => onWarmthTouchStart(e, doc_), { capture: true, passive: true });
+    doc_.addEventListener('touchmove', (e) => { onWarmthTouchMove(e); }, { capture: true, passive: false });
+    doc_.addEventListener('touchend', (e) => { onWarmthTouchEnd(e); }, { capture: true, passive: false });
+    doc_.addEventListener('touchcancel', (e) => {
+      if (!warmthDrag) return;
+      if (!findTouchById(e.changedTouches, warmthDrag.id)) return;
+      const drag = warmthDrag;
+      warmthDrag = null;
+      hideLightHud();
+      if (!drag.active) return;
+      suppressBookGesture = true;
+      if (isDiscreteLight()) {
+        const raw = Number(lightState?.warmthRaw);
+        if (Number.isFinite(raw)) queueRawTarget({ warmthRaw: raw }, { flush: true });
+      }
+      const w = Number(lightState?.warmth ?? readWarmthLevel());
+      persistWarmthLevel(w);
+      syncWarmthControls(w);
+      lightDragResume = {
+        kind: 'warmth',
+        at: Date.now(),
+        rawFloat: drag.rawFloat,
+        levelFloat: drag.levelFloat,
+      };
+    }, { capture: true, passive: true });
   }
 
   function wireDoc(doc) {
@@ -4913,6 +6034,7 @@ import {
     readerWiredDocs.add(doc);
 
     wireBrightnessEdge(doc);
+    wireWarmthEdge(doc);
     wireDictionary(doc);
 
     doc.addEventListener('keydown', handleKeydown);
@@ -4987,6 +6109,13 @@ import {
       }, TAP_LONG_MS);
     }
 
+    lightAdjustCancelers.add(() => {
+      clearScreenTapLongPress();
+      screenTapTrack = null;
+      edgeMenuTrack = null;
+      linkTapTouch = null;
+    });
+
     function slopOk(t) {
       return Math.hypot(t.clientX - linkTapTouch.x, t.clientY - linkTapTouch.y) <= LINK_TAP_SLOP;
     }
@@ -5025,6 +6154,8 @@ import {
     }, { capture: true, passive: true });
 
     doc.addEventListener('touchstart', e => {
+      /* Новый тач — снимаем блок листания от прошлой регулировки. */
+      if (!isLightAdjustActive()) suppressBookGesture = false;
       edgeMenuTrack = null;
       if (e.touches.length === 1) {
         const t = e.touches[0];
@@ -5048,6 +6179,16 @@ import {
     }, { capture: true, passive: true });
 
     doc.addEventListener('touchmove', e => {
+      if (isLightAdjustActive() || suppressBookGesture) {
+        clearScreenTapLongPress();
+        screenTapTrack = null;
+        edgeMenuTrack = null;
+        // Не даём Foliate обрабатывать move, пока палец у края (кандидат на подсветку)
+        if (brightnessDrag || warmthDrag || isLightAdjustActive()) {
+          eatLightGestureEvent(e, { hard: true });
+        }
+        return;
+      }
       if (edgeMenuTrack && e.touches.length === 1 && !edgeMenuTrack.armed) {
         const t = e.touches[0];
         const dx = t.clientX - edgeMenuTrack.x;
@@ -5059,6 +6200,7 @@ import {
           clearScreenTapLongPress();
           screenTapTrack = null;
           brightnessDrag = null;
+          warmthDrag = null;
           e.preventDefault();
           openPanel('toc', { toggle: false });
           void acquireReaderWakeLock();
@@ -5081,7 +6223,14 @@ import {
      * Нельзя stopImmediatePropagation — иначе #onTouchEnd не выполняется и состояние ломается. */
     doc.addEventListener('touchend', e => {
       if (linkTapTouch) return;
-      if (brightnessDrag?.active) return;
+      if (suppressBookGesture || isLightAdjustActive()) {
+        suppressBookGesture = false;
+        clearScreenTapLongPress();
+        screenTapTrack = null;
+        edgeMenuTrack = null;
+        eatLightGestureEvent(e, { hard: true });
+        return;
+      }
       if (edgeMenuTrack?.armed) {
         edgeMenuTrack = null;
         clearScreenTapLongPress();
@@ -5372,15 +6521,9 @@ import {
     try {
       window.__DEBUG_LOG__?.('H3', 'reader:showError', 'displayed', { msg: String(msg || '') });
     } catch { /* */ }
-    let debugTail = '';
-    try {
-      const arr = JSON.parse(localStorage.getItem('debug_session_756f1e') || '[]');
-      const tail = arr.slice(-6).map((e) => `${e.location}: ${e.message}`).join(' | ');
-      if (tail) debugTail = '\n\n[debug] ' + tail;
-    } catch { /* */ }
     bookPagesEl?.classList.add('is-hidden');
     readerBody.innerHTML = '<div class="reader-error"><div class="reader-error-title">' + esc(rt('readerJs.errorTitle')) + '</div>' +
-      '<div class="reader-error-text">' + esc(msg) + esc(debugTail) + '</div>' +
+      '<div class="reader-error-text">' + esc(msg) + '</div>' +
       '<a href="' + readerBookPagePath() + '" class="tb-btn" style="margin-top:12px;">' + esc(rt('readerJs.back')) + '</a></div>';
   }
 
@@ -5548,7 +6691,8 @@ import {
       || urlFrac > 0.01
       || (urlFb2 && isFb2Href(urlFb2)),
     );
-    let bootRestoreInProgress = needsRestore;
+    // Пока книга открывается/восстанавливается — глушим page-haptic (несколько relocate подряд).
+    let bootRestoreInProgress = true;
     let openedView = false;
     try {
       if (needsRestore) {
@@ -5595,7 +6739,7 @@ import {
           const tocItem = loc.tocItem ?? detail.tocItem;
           let chapterTitle = '';
           try {
-            chapterTitle = tocItem?.label ? formatLanguageMap(tocItem.label) : '';
+            chapterTitle = tocItem?.label ? formatChapterLabel(tocItem.label) : '';
           } catch { /* ignore */ }
           const chapterKey = tocItem?.href || chapterTitle || '';
           if (chapterKey && chapterKey !== lastChapterKey) {
@@ -5617,6 +6761,14 @@ import {
         const why = detail.reason || loc.reason;
         if (!seekBarUserActive && (payload.position || payload.fraction > 0)) savePosition(payload, why);
         if (why === 'snap' || why === 'page' || why === 'navigation') {
+          if (S.pageHaptic === true && !bootRestoreInProgress) {
+            const now = Date.now();
+            if (now - lastPageHapticAt > 280) {
+              lastPageHapticAt = now;
+              postReaderHaptic('light');
+            }
+          }
+          if (!bootRestoreInProgress) maybeEinkFullRefresh(why);
           try { view.deselect?.(); } catch { /* */ }
           hideSelMenu();
           activeSel = null;
@@ -5642,8 +6794,10 @@ import {
       } else {
         const saved = await loadSavedPosition();
         try {
-          await restoreReadingPosition(saved, urlPos);
-          if (saved && view?.lastLocation) {
+          const settleFromSaved = await restoreReadingPosition(saved, urlPos);
+          // При открытии закладки/заметки (?pos=) нельзя дотягивать paginator/nudge
+          // к последней позиции чтения — иначе прыжок обратно «куда читали».
+          if (settleFromSaved && saved && view?.lastLocation) {
             // Same-layout reopen can still sit one page early after textAnchor;
             // snap/nudge again once fonts are fully ready.
             const bootDoc = getLoadedSectionDoc();

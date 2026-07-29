@@ -5,9 +5,6 @@ import {
   Sun,
   Moon,
   Tv,
-  RefreshCw,
-  Server,
-  FolderOpen,
   ShieldCheck,
   Palette,
   LogOut,
@@ -27,6 +24,7 @@ import { isAndroid } from '../lib/platform';
 import { insecureHttpWarning } from '../lib/serverUrl';
 import { clearServerCredentials } from '../lib/secureServerConfig';
 import type { AppThemeMode } from '../lib/serverTheme';
+import type { EinkModePref } from '../lib/einkMode';
 import DiagnosticsTab from './DiagnosticsTab';
 import { textStyles, semantic } from '../ui/tokens';
 import Button from '../ui/Button';
@@ -38,6 +36,9 @@ interface SyncSettingsTabProps {
   appTheme: AppThemeMode;
   onChangeTheme: (theme: AppThemeMode) => void;
   isAppDark: boolean;
+  einkMode: EinkModePref;
+  onChangeEinkMode: (mode: EinkModePref) => void;
+  einkDetected: boolean;
   serverConfig: ServerConfig;
   onChangeServerConfig: (config: Partial<ServerConfig>) => void;
   onTestConnection: () => void;
@@ -53,6 +54,9 @@ export default function SyncSettingsTab({
   appTheme,
   onChangeTheme,
   isAppDark,
+  einkMode,
+  onChangeEinkMode,
+  einkDetected,
   serverConfig,
   onChangeServerConfig,
   onTestConnection,
@@ -64,7 +68,6 @@ export default function SyncSettingsTab({
   const [pickingFolder, setPickingFolder] = React.useState(false);
   const [forgetting, setForgetting] = React.useState(false);
   const snackbar = useSnackbar();
-  const themeCard = theme.card;
   const themeInput = theme.input;
   const themeAccentText = theme.accentText;
   const themeTextMuted = theme.textMuted;
@@ -148,20 +151,17 @@ export default function SyncSettingsTab({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5">
-        <div className={`p-4 border rounded-2xl space-y-3.5 shadow-xs ${themeCard}`}>
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-8">
+        <section className="space-y-3.5">
           <div className="flex justify-between items-center select-none">
-            <div className="flex items-center gap-2">
-              <Server className={`w-4 h-4 ${themeAccentText}`} />
-              <span className={`${textStyles.captionBold} uppercase tracking-wider ${theme.textMuted}`}>Сервер INPX</span>
-            </div>
-            <span className={`${textStyles.caption} font-bold px-2 py-0.5 rounded uppercase ${
-              serverConfig.connectionStatus === 'testing' ? `${semantic.warningBg} animate-pulse` :
-              serverConfig.connectionStatus === 'connected' ? semantic.successBg :
-              `${theme.chip} ${theme.textMuted}`
+            <h3 className={textStyles.sectionLabel}>Сервер</h3>
+            <span className={`${textStyles.caption} ${
+              serverConfig.connectionStatus === 'testing' ? `${semantic.warning} animate-pulse` :
+              serverConfig.connectionStatus === 'connected' ? semantic.success :
+              theme.textMuted
             }`}>
-              {serverConfig.connectionStatus === 'testing' && 'Тест...'}
-              {serverConfig.connectionStatus === 'connected' ? 'Подключен' : 'Отключен'}
+              {serverConfig.connectionStatus === 'testing' && 'Проверка…'}
+              {serverConfig.connectionStatus === 'connected' ? 'Подключён' : 'Отключён'}
             </span>
           </div>
 
@@ -174,7 +174,7 @@ export default function SyncSettingsTab({
 
           <div className="space-y-3">
             <div className="space-y-1">
-              <label htmlFor="server-url" className={`${textStyles.captionBold} ${theme.textMuted}`}>Адрес сервера</label>
+              <label htmlFor="server-url" className={`${textStyles.caption} ${theme.textMuted}`}>Адрес сервера</label>
               <input
                 id="server-url"
                 type="url"
@@ -191,12 +191,12 @@ export default function SyncSettingsTab({
             </div>
 
             {connectionError && (
-              <p role="alert" className={`${textStyles.caption} text-[var(--app-danger)] font-medium`}>{connectionError}</p>
+              <p role="alert" className={`${textStyles.caption} px-3 py-2 rounded-xl ${semantic.errorBg}`}>{connectionError}</p>
             )}
 
             <div className="grid grid-cols-2 gap-2.5">
               <div className="space-y-1">
-                <label htmlFor="server-username" className={`${textStyles.captionBold} ${theme.textMuted}`}>Логин</label>
+                <label htmlFor="server-username" className={`${textStyles.caption} ${theme.textMuted}`}>Логин</label>
                 <input
                   id="server-username"
                   type="text"
@@ -207,7 +207,7 @@ export default function SyncSettingsTab({
                 />
               </div>
               <div className="space-y-1">
-                <label htmlFor="server-password" className={`${textStyles.captionBold} ${theme.textMuted}`}>Пароль</label>
+                <label htmlFor="server-password" className={`${textStyles.caption} ${theme.textMuted}`}>Пароль</label>
                 <input
                   id="server-password"
                   type="password"
@@ -241,11 +241,11 @@ export default function SyncSettingsTab({
               Забыть сервер
             </Button>
           </div>
-        </div>
+        </section>
 
-        <div className={`p-4 border rounded-2xl space-y-3 shadow-xs ${themeCard}`}>
-          <span className={`${textStyles.captionBold} uppercase tracking-wider ${theme.textMuted}`}>Тема</span>
-          <div className="grid grid-cols-3 gap-2 pt-1">
+        <section className="space-y-3">
+          <h3 className={textStyles.sectionLabel}>Тема</h3>
+          <div className="flex flex-wrap gap-2">
             {themeOptions.map((item) => {
               const Icon = item.icon;
               const isSel = appTheme === item.id;
@@ -255,24 +255,54 @@ export default function SyncSettingsTab({
                   type="button"
                   onClick={() => onChangeTheme(item.id)}
                   aria-pressed={isSel}
-                  className={`min-h-12 py-2.5 px-1 rounded-xl border flex flex-col items-center justify-center gap-1 ${textStyles.captionBold} ${theme.focusRing} ${
-                    isSel ? `${theme.accentBg} border-transparent` : `${theme.input} ${theme.textMuted}`
+                  className={`min-h-12 px-3 rounded-full inline-flex items-center gap-1.5 ${textStyles.caption} ${theme.focusRing} ${
+                    isSel ? `${theme.accentActive} font-semibold` : `${theme.textMuted} font-medium`
                   }`}
                 >
-                  <Icon className="w-4 h-4" aria-hidden />
+                  <Icon className="w-3.5 h-3.5" aria-hidden />
                   {item.label}
                 </button>
               );
             })}
           </div>
-        </div>
+        </section>
 
-        <div className={`p-4 border rounded-2xl space-y-3 shadow-xs ${themeCard}`}>
-          <div className="flex items-center gap-2">
-            <FolderOpen className={`w-4 h-4 ${themeAccentText}`} />
-            <span className={`${textStyles.captionBold} uppercase tracking-wider ${theme.textMuted}`}>Папка книг</span>
+        <section className="space-y-3">
+          <h3 className={textStyles.sectionLabel}>E-Ink</h3>
+          <div className="flex flex-wrap gap-2">
+            {([
+              { id: 'auto' as const, label: 'Авто' },
+              { id: 'on' as const, label: 'Вкл' },
+              { id: 'off' as const, label: 'Выкл' },
+            ]).map((item) => {
+              const isSel = einkMode === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onChangeEinkMode(item.id)}
+                  aria-pressed={isSel}
+                  className={`min-h-12 px-4 rounded-full ${textStyles.caption} ${theme.focusRing} ${
+                    isSel ? `${theme.accentActive} font-semibold` : `${theme.textMuted} font-medium`
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
           </div>
-          <p className={`${textStyles.body} font-semibold break-all`}>{storageDirectory?.label || DEFAULT_STORAGE_LABEL}</p>
+          <p className={`${textStyles.caption} ${themeTextMuted}`}>
+            {einkMode === 'auto'
+              ? (einkDetected ? 'Обнаружено e-ink устройство' : 'Обычный экран')
+              : einkMode === 'on'
+                ? 'Высокий контраст, без анимаций'
+                : 'Режим e-ink выключен'}
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h3 className={textStyles.sectionLabel}>Папка книг</h3>
+          <p className={`${textStyles.body} break-all ${theme.textMuted}`}>{storageDirectory?.label || DEFAULT_STORAGE_LABEL}</p>
           <div className="flex gap-2">
             <Button fullWidth onClick={handlePickFolder} loading={pickingFolder} disabled={pickingFolder}>
               Выбрать папку
@@ -283,7 +313,7 @@ export default function SyncSettingsTab({
               </Button>
             )}
           </div>
-        </div>
+        </section>
 
         <DiagnosticsTab
           serverUrl={serverConfig.url}

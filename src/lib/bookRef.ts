@@ -41,6 +41,32 @@ function bookSegment(prefix: string, id: string, suffix = ''): string {
   return `${prefix}/${encodeURIComponent(id)}${tail}`;
 }
 
+/**
+ * Filesystem-safe key for bookId under `.inpx-reader/` (covers, chapters JSON).
+ * Flibusta-style IDs with NUL/control chars must not appear raw in paths.
+ */
+export function safeBookIdFileKey(bookId: string): string {
+  const id = String(bookId ?? '');
+  if (bookIdNeedsSafeUrl(id)) {
+    return `b64_${encodeBookRef(id)}`;
+  }
+  return id
+    .replace(/[\/\\*?"<>|]/g, '_')
+    .replace(/[\x00-\x1f\x7f]/g, '_')
+    .slice(0, 180);
+}
+
+/**
+ * Pre-b64 filesystem key (controls → `_`). Used only to migrate legacy
+ * `.inpx-reader/` paths written before `safeBookIdFileKey` used `b64_`.
+ */
+export function legacyStrippedBookIdFileKey(bookId: string): string {
+  return String(bookId ?? '')
+    .replace(/[\/\\*?"<>|]/g, '_')
+    .replace(/[\x00-\x1f\x7f]/g, '_')
+    .slice(0, 180);
+}
+
 function apiActionPath(prefix: string, id: string): string {
   return bookIdNeedsSafeUrl(id)
     ? `${prefix}/b64/${encodeBookRef(id)}`

@@ -13,10 +13,46 @@ export interface SafeAreaInsets {
   right: number;
 }
 
+export interface NativeDeviceInfo {
+  manufacturer: string;
+  brand: string;
+  model: string;
+  onyxDevice?: boolean;
+  onyxFrontLight?: boolean;
+  onyxWarmth?: boolean;
+  onyxEpdRefresh?: boolean;
+  onyxStatus?: string;
+  onyxError?: string;
+  writeSettings?: boolean;
+}
+
+export interface FrontLightState {
+  brightness: number;
+  warmth: number;
+  brightnessIndex?: number;
+  warmthIndex?: number;
+  brightnessSteps?: number;
+  warmthSteps?: number;
+  warmthSupported?: boolean;
+  mode?: string;
+  status?: string;
+  level?: number;
+  onyx?: boolean;
+  onyxError?: string;
+}
+
 interface ReaderNativePlugin {
   getSafeAreaInsets(): Promise<SafeAreaInsets>;
-  setBrightness(options: { level: number }): Promise<void>;
-  getBrightness(): Promise<{ level: number }>;
+  getDeviceInfo(): Promise<NativeDeviceInfo>;
+  setBrightness(options: { level: number }): Promise<FrontLightState | void>;
+  getBrightness(): Promise<FrontLightState>;
+  getFrontLightState(): Promise<FrontLightState>;
+  adjustFrontLight(options: { brightnessDelta?: number; warmthDelta?: number }): Promise<FrontLightState>;
+  setFrontLightRaw(options: { brightnessRaw?: number; warmthRaw?: number }): Promise<FrontLightState>;
+  setWarmth(options: { level: number }): Promise<FrontLightState | void>;
+  setLightSwipe(options: { enabled: boolean }): Promise<{ active: boolean; supported: boolean }>;
+  refreshEinkScreen(): Promise<{ ok: boolean; supported: boolean; error?: string }>;
+  getWarmth(): Promise<FrontLightState & { supported?: boolean }>;
   getVoices(): Promise<{ voices: ReaderVoice[] }>;
   speak(options: { text: string; utteranceId?: string; rate?: number; voice?: string }): Promise<void>;
   stopTts(): Promise<void>;

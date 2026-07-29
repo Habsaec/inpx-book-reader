@@ -15,6 +15,7 @@ import {
 } from '../lib/inpxClient';
 import type { Book, ServerConfig } from '../types';
 import type { CatalogSubTab } from '../components/catalog/catalogTypes';
+import { sortBooksBySeriesVolume } from '../lib/seriesVolumeSort';
 
 export interface CatalogAuthorRow {
   key: string;
@@ -48,11 +49,21 @@ export interface UseCatalogDataOptions {
   selectedAuthor: string | null;
   selectedSeries: string | null;
   selectedSubgenre: { parent: string; name: string } | null;
+  minRating?: number;
+  formatFilter?: 'all' | 'fb2' | 'epub' | 'txt';
+  genreFilter?: string | string[];
+  yearFilter?: number;
+  hasSeriesFilter?: 'any' | 'yes' | 'no';
+  /** When true, skip books/authors/series list fetch (unified search hub is shown). */
+  pauseListFetch?: boolean;
   onReconnectReset?: () => void;
 }
 
 function applyGenreFilter(
-  groups: Array<{ groupName: string; items: Array<{ name: string; bookCount?: number }> }>,
+  groups: Array<{
+    groupName: string;
+    items: Array<{ name: string; bookCount?: number; displayName?: string }>;
+  }>,
   q: string,
 ) {
   if (!q) return groups;
@@ -60,7 +71,10 @@ function applyGenreFilter(
   return groups
     .map((g) => ({
       ...g,
-      items: g.items.filter((it) => it.name.toLowerCase().includes(lq) || g.groupName.toLowerCase().includes(lq)),
+      items: g.items.filter((it) =>
+        it.name.toLowerCase().includes(lq)
+        || (it.displayName || '').toLowerCase().includes(lq)
+        || g.groupName.toLowerCase().includes(lq)),
     }))
     .filter((g) => g.items.length > 0);
 }
@@ -76,6 +90,12 @@ export function useCatalogData({
   selectedAuthor,
   selectedSeries,
   selectedSubgenre,
+  minRating = 0,
+  formatFilter = 'all',
+  genreFilter = '',
+  yearFilter = 0,
+  hasSeriesFilter = 'any',
+  pauseListFetch = false,
   onReconnectReset,
 }: UseCatalogDataOptions) {
   const [booksLoading, setBooksLoading] = React.useState(false);
@@ -144,14 +164,54 @@ export function useCatalogData({
     appendBooksRef.current = false;
     listPageRef.current = 1;
     setListPage(1);
-  }, [debouncedSearch, subTab, catalogSort, entitySort]);
+    // Drop stale recent/previous hits so the UI shows a skeleton, not wrong books.
+    const genreList = (Array.isArray(genreFilter) ? genreFilter : String(genreFilter || '').split(','))
+      .map((g) => g.trim())
+      .filter(Boolean);
+    const hasFilters =
+      minRating >= 1 ||
+      formatFilter !== 'all' ||
+      genreList.length > 0 ||
+      yearFilter > 0 ||
+      hasSeriesFilter !== 'any';
+    if (debouncedSearch.trim() || hasFilters) {
+      setBooksList([]);
+    }
+  }, [
+    debouncedSearch,
+    subTab,
+    catalogSort,
+    entitySort,
+    minRating,
+    formatFilter,
+    genreFilter,
+    yearFilter,
+    hasSeriesFilter,
+  ]);
 
   React.useEffect(() => {
     setFacetPage(1);
-  }, [selectedAuthor, selectedSeries, selectedSubgenre, catalogSort]);
+  }, [
+    selectedAuthor,
+    selectedSeries,
+    selectedSubgenre,
+    catalogSort,
+    minRating,
+    formatFilter,
+    genreFilter,
+    yearFilter,
+    hasSeriesFilter,
+  ]);
 
   React.useEffect(() => {
     if (!isServerConnected || selectedAuthor || selectedSeries || selectedSubgenre) return;
+    if (pauseListFetch) {
+      setBooksLoading(false);
+      setBooksLoadingMore(false);
+      setBrowseLoading(false);
+      setIsRefreshing(false);
+      return;
+    }
 
     const reqId = ++dataRequestRef.current;
     const q = debouncedSearch;
@@ -159,11 +219,30 @@ export function useCatalogData({
     const isBooks = subTab === 'books';
     const append = appendBooksRef.current;
     appendBooksRef.current = false;
+    const genreList = (Array.isArray(genreFilter) ? genreFilter : String(genreFilter || '').split(','))
+      .map((g) => g.trim())
+      .filter(Boolean);
+    const bookFilters = {
+      format: formatFilter !== 'all' ? formatFilter : undefined,
+      minRate: minRating >= 1 ? Math.floor(minRating) : undefined,
+      genre: genreList.length ? genreList : undefined,
+      year: yearFilter >= 1800 && yearFilter <= 2100 ? yearFilter : undefined,
+      hasSeries:
+        hasSeriesFilter === 'yes' ? (1 as const) : hasSeriesFilter === 'no' ? (0 as const) : undefined,
+    };
+    const hasBookFilters = Boolean(
+      bookFilters.format ||
+        bookFilters.minRate ||
+        (Array.isArray(bookFilters.genre) && bookFilters.genre.length) ||
+        bookFilters.year ||
+        bookFilters.hasSeries === 0 ||
+        bookFilters.hasSeries === 1,
+    );
 
     if (isBooks) {
       if (append) setBooksLoadingMore(true);
-      else if (booksListRef.current.length > 0) setIsRefreshing(true);
-      else setBooksLoading(true);
+      else if (q.length > 0 || hasBookFilters || booksListRef.current.length === 0) setBooksLoading(true);
+      else setIsRefreshing(true);
     } else {
       setBrowseLoading(true);
     }
@@ -176,9 +255,16 @@ export function useCatalogData({
         }
 
         if (subTab === 'books') {
-          const data = q.length > 0
-            ? await searchCatalog(serverConfig, { q, field: 'books', sort: catalogSort, page })
-            : await fetchRecentBooks(serverConfig, page, catalogSort);
+          const data =
+            q.length > 0 || hasBookFilters
+              ? await searchCatalog(serverConfig, {
+                  q: q.length > 0 ? q : '',
+                  field: 'books',
+                  sort: catalogSort,
+                  page,
+                  ...bookFilters,
+                })
+              : await fetchRecentBooks(serverConfig, page, catalogSort);
           if (reqId !== dataRequestRef.current) return;
           const mapped = data.items.map((item) => mapServerBook(item as InpxBookItem, serverConfig) as Book);
           setBooksList((prev) => (append && page > 1 ? [...prev, ...mapped] : mapped));
@@ -221,10 +307,10 @@ export function useCatalogData({
         } else if (subTab === 'genres') {
           const data = await fetchGenres(serverConfig);
           if (reqId !== dataRequestRef.current) return;
-          genresCacheRef.current = data.groups || [];
+          genresCacheRef.current = Array.isArray(data.groups) ? data.groups : [];
           genresLoadedRef.current = true;
           const groups = applyGenreFilter(genresCacheRef.current, searchInput.trim());
-          setListTotal(searchInput.trim() ? groups.reduce((n, g) => n + g.items.length, 0) : 0);
+          setListTotal(groups.reduce((n, g) => n + g.items.length, 0));
           setServerGenreGroups(groups);
         }
       } catch (err: unknown) {
@@ -252,14 +338,19 @@ export function useCatalogData({
     selectedSeries,
     selectedSubgenre,
     serverConfig,
-    searchInput,
+    minRating,
+    formatFilter,
+    genreFilter,
+    yearFilter,
+    hasSeriesFilter,
+    pauseListFetch,
   ]);
 
   React.useEffect(() => {
     if (!isServerConnected || subTab !== 'genres' || selectedAuthor || selectedSeries || selectedSubgenre) return;
     if (!genresLoadedRef.current) return;
     const groups = applyGenreFilter(genresCacheRef.current, searchInput.trim());
-    setListTotal(searchInput.trim() ? groups.reduce((n, g) => n + g.items.length, 0) : 0);
+    setListTotal(groups.reduce((n, g) => n + g.items.length, 0));
     setServerGenreGroups(groups);
   }, [searchInput, subTab, isServerConnected, selectedAuthor, selectedSeries, selectedSubgenre]);
 
@@ -311,11 +402,24 @@ export function useCatalogData({
           let value = selectedSeries || selectedSubgenre?.name || selectedAuthor || '';
           if (selectedSeries) facet = 'series';
           else if (selectedSubgenre) facet = 'genres';
+          // Серия: как на сервере — sort=series (по номеру тома), номер из book_series
+          const facetSort = selectedSeries ? 'series' : catalogSort;
           const data = await fetchFacetBooks(serverConfig, facet, value, facetPage, {
             author: selectedSeries && selectedAuthor ? selectedAuthor : undefined,
-            sort: catalogSort,
+            sort: facetSort,
           });
-          setFacetBooks(data.items.map((item) => mapServerBook(item, serverConfig) as Book));
+          setFacetBooks(
+            selectedSeries
+              ? sortBooksBySeriesVolume(
+                  data.items.map(
+                    (item) =>
+                      mapServerBook(item, serverConfig, {
+                        preferredSeries: selectedSeries,
+                      }) as Book,
+                  ),
+                )
+              : data.items.map((item) => mapServerBook(item, serverConfig) as Book),
+          );
           setFacetTotal(data.total);
           setFacetPageSize(data.pageSize);
         }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronRight, ChevronDown, Tag, Library, User } from 'lucide-react';
+import { ChevronRight, ChevronDown, Tag, Library, User, Inbox } from 'lucide-react';
 import { ServerConfig } from '../../types';
 import { theme } from '../../lib/appTheme';
 import LiteEntityRow from '../LiteEntityRow';
@@ -9,6 +9,7 @@ import type { LocalGenreAgg } from '../../lib/catalogAggregations';
 import type { AuthorSeriesSort } from '../../lib/catalogAggregations';
 import type { CatalogSubTab } from './catalogTypes';
 import { textStyles } from '../../ui/tokens';
+import EmptyState from '../../ui/EmptyState';
 
 export interface CatalogEntityAuthor {
   key?: string;
@@ -62,8 +63,8 @@ function EntitySortBar({
   onChange: (sort: AuthorSeriesSort) => void;
 }) {
   return (
-    <div className={`flex items-center justify-between rounded-xl p-2 border text-xs ${theme.cardSecondary}`}>
-      <span className={`${theme.textMuted} font-semibold pl-1`}>{label}</span>
+    <div className="flex items-center justify-between gap-2 py-1">
+      <span className={`${textStyles.caption} ${theme.textMuted}`}>{label}</span>
       <div className="flex gap-1">
         {(
           [
@@ -76,8 +77,8 @@ function EntitySortBar({
             key={btn.id}
             type="button"
             onClick={() => onChange(btn.id)}
-            className={`px-2 py-1 rounded-lg font-bold transition-all ${textStyles.micro} cursor-pointer ${
-              sortBy === btn.id ? theme.accentActive : `${theme.chip} ${theme.chipHover}`
+            className={`min-h-12 px-2.5 rounded-full transition-colors ${textStyles.caption} cursor-pointer ${
+              sortBy === btn.id ? `${theme.accentText} font-semibold` : theme.textMuted
             }`}
           >
             {btn.label}
@@ -113,7 +114,6 @@ export default function CatalogEntityLists({
   selectedSeries,
   selectedSubgenre,
 }: CatalogEntityListsProps) {
-  const themeCardSecondary = theme.cardSecondary;
   const themeAccentText = theme.accentText;
 
   if (subTab === 'authors' && !selectedAuthor) {
@@ -122,53 +122,59 @@ export default function CatalogEntityLists({
         {!isServerBrowse && (
           <EntitySortBar label="Сортировка авторов:" sortBy={authorSortBy} onChange={onAuthorSortChange} />
         )}
-        <div>
-          {authors.map((author) => {
-            const authorKey = String(author.key ?? author.name);
-            return isServerBrowse ? (
-              <LiteEntityRow
-                key={authorKey}
-                name={author.name}
-                count={author.bookCount}
-                authorKey={authorKey}
-                serverConfig={serverConfig}
+        {authors.length === 0 ? (
+          <EmptyState icon={User} title="Список авторов пуст" description="Попробуйте обновить каталог или изменить поиск" />
+        ) : (
+          <>
+            <div>
+              {authors.map((author) => {
+                const authorKey = String(author.key ?? author.name);
+                return isServerBrowse ? (
+                  <LiteEntityRow
+                    key={authorKey}
+                    name={author.name}
+                    count={author.bookCount}
+                    authorKey={authorKey}
+                    serverConfig={serverConfig}
+                    isAppDark={isAppDark}
+                    onClick={() => onOpenAuthor(authorKey)}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    key={author.name}
+                    onClick={() => onOpenAuthor(author.name)}
+                    className={`w-full border-b last:border-b-0 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.divider} ${theme.focusRing}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center border text-sm shrink-0 ${theme.iconBg}`}>
+                        <User className={`w-4 h-4 ${theme.accentText}`} aria-hidden />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className={`${textStyles.bodyBold} truncate`}>{author.name}</h3>
+                        <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
+                          {author.bookCount} кн.
+                        </p>
+                      </div>
+                    </div>
+                    <div className={`flex items-center gap-1.5 shrink-0 ${textStyles.caption} ${theme.textMuted}`}>
+                      ★ {author.avgRating}
+                      <ChevronRight className="w-3.5 h-3.5" aria-hidden />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {isServerBrowse && (
+              <CatalogPagination
+                page={listPage}
+                pageSize={listPageSize}
+                total={listTotal}
                 isAppDark={isAppDark}
-                onClick={() => onOpenAuthor(authorKey)}
+                onPageChange={onListPageChange}
               />
-            ) : (
-              <button
-                type="button"
-                key={author.name}
-                onClick={() => onOpenAuthor(author.name)}
-                className={`w-full border-b last:border-b-0 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.divider} ${theme.focusRing}`}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center border text-sm shrink-0 ${theme.iconBg}`}>
-                    <User className={`w-4 h-4 ${theme.accentText}`} aria-hidden />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-xs font-black truncate">{author.name}</h3>
-                    <p className={`${textStyles.micro} ${theme.textMuted} mt-0.5`}>
-                      Книг: {author.bookCount} • Скачиваний: {author.totalDownloads}
-                    </p>
-                  </div>
-                </div>
-                <div className={`flex items-center gap-1.5 shrink-0 font-mono ${textStyles.micro} ${theme.accentText} font-bold`}>
-                  ★ {author.avgRating}
-                  <ChevronRight className={`w-3.5 h-3.5 ${theme.textMuted}`} aria-hidden />
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        {isServerBrowse && (
-          <CatalogPagination
-            page={listPage}
-            pageSize={listPageSize}
-            total={listTotal}
-            isAppDark={isAppDark}
-            onPageChange={onListPageChange}
-          />
+            )}
+          </>
         )}
       </div>
     );
@@ -180,8 +186,12 @@ export default function CatalogEntityLists({
         {!isServerBrowse && (
           <EntitySortBar label="Сортировка серий:" sortBy={seriesSortBy} onChange={onSeriesSortChange} />
         )}
-        <div>
-          {series.map((item) => {
+        {series.length === 0 ? (
+          <EmptyState icon={Library} title="Список серий пуст" description="Попробуйте обновить каталог или изменить поиск" />
+        ) : (
+          <>
+            <div>
+              {series.map((item) => {
             const seriesKey = String(item.key ?? item.name);
             return isServerBrowse ? (
               <LiteEntityRow
@@ -203,28 +213,30 @@ export default function CatalogEntityLists({
                     <Library className={`w-4 h-4 ${themeAccentText}`} aria-hidden />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-xs font-black truncate">{item.name}</h3>
-                    <p className={`${textStyles.label} ${theme.textMuted} mt-0.5`}>
-                      Произведений: {item.bookCount} • Популярность: {item.totalDownloads}
+                    <h3 className={`${textStyles.bodyBold} truncate`}>{item.name}</h3>
+                    <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
+                      {item.bookCount} кн.
                     </p>
                   </div>
                 </div>
-                <div className={`flex items-center gap-1.5 shrink-0 font-mono ${textStyles.label} ${theme.accentText} font-bold`}>
+                <div className={`flex items-center gap-1.5 shrink-0 ${textStyles.caption} ${theme.textMuted}`}>
                   ★ {item.avgRating}
-                  <ChevronRight className={`w-3.5 h-3.5 ${theme.textMuted}`} aria-hidden />
+                  <ChevronRight className="w-3.5 h-3.5" aria-hidden />
                 </div>
               </button>
             );
-          })}
-        </div>
-        {isServerBrowse && (
-          <CatalogPagination
-            page={listPage}
-            pageSize={listPageSize}
-            total={listTotal}
-            isAppDark={isAppDark}
-            onPageChange={onListPageChange}
-          />
+              })}
+            </div>
+            {isServerBrowse && (
+              <CatalogPagination
+                page={listPage}
+                pageSize={listPageSize}
+                total={listTotal}
+                isAppDark={isAppDark}
+                onPageChange={onListPageChange}
+              />
+            )}
+          </>
         )}
       </div>
     );
@@ -233,23 +245,26 @@ export default function CatalogEntityLists({
   if (subTab === 'genres' && !selectedSubgenre) {
     return (
       <div className="space-y-2.5">
-        {genres.map((genreItem) => {
+        {genres.length === 0 ? (
+          <EmptyState icon={Inbox} title="Список жанров пуст" description="Попробуйте обновить каталог" />
+        ) : (
+          genres.map((genreItem) => {
           const isExpanded = !!expandedGenres[genreItem.name];
-          const subgenresList = Object.values(genreItem.subgenres);
+          const subgenresList = Object.entries(genreItem.subgenres);
           return (
-            <div key={genreItem.name} className={`border rounded-2xl overflow-hidden ${themeCardSecondary}`}>
+            <div key={genreItem.name} className={`border-b last:border-b-0 ${theme.divider}`}>
               <button
                 type="button"
                 onClick={() => onToggleGenreExpand(genreItem.name)}
                 aria-expanded={isExpanded}
-                className={`w-full px-4 py-3 flex items-center justify-between text-left border-b transition-colors ${theme.panel} ${theme.chipHover} ${theme.focusRing}`}
+                className={`w-full py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.focusRing}`}
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <Tag className={`w-4 h-4 ${themeAccentText}`} aria-hidden />
                   <div>
-                    <h3 className="text-xs font-black">{genreItem.name}</h3>
-                    <p className={`${textStyles.micro} ${theme.textMuted} mt-0.5`}>
-                      {subgenresList.length} поджанров • {genreItem.count} книг(и)
+                    <h3 className={`${textStyles.bodyBold}`}>{genreItem.name}</h3>
+                    <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
+                      {genreItem.count} кн. · {subgenresList.length} поджанров
                     </p>
                   </div>
                 </div>
@@ -272,15 +287,15 @@ export default function CatalogEntityLists({
                     exit={{ height: 0 }}
                     className="overflow-hidden divide-y bg-black/5 divide-[color:var(--app-border)]"
                   >
-                    {subgenresList.map((sub) => (
+                    {subgenresList.map(([genreCode, sub]) => (
                       <button
                         type="button"
-                        key={sub.name}
-                        onClick={() => onSelectSubgenre(genreItem.name, sub.name)}
-                        className={`w-full px-4 py-2.5 pl-8 flex items-center justify-between text-left text-xs ${theme.rowPress} ${theme.focusRing}`}
+                        key={genreCode}
+                        onClick={() => onSelectSubgenre(genreItem.name, genreCode)}
+                        className={`w-full min-h-12 px-4 py-3 pl-8 flex items-center justify-between text-left text-xs ${theme.rowPress} ${theme.focusRing}`}
                       >
                         <div>
-                          <span className="font-bold">{sub.name}</span>
+                          <span className={textStyles.bodyBold}>{sub.name}</span>
                           <span className={`${textStyles.micro} ${theme.textMuted} ml-1.5`}>({sub.count} кн.)</span>
                         </div>
                         <div className={`flex items-center gap-1.5 ${textStyles.microBold} ${theme.accentText}`}>
@@ -294,7 +309,8 @@ export default function CatalogEntityLists({
               </AnimatePresence>
             </div>
           );
-        })}
+        })
+        )}
       </div>
     );
   }

@@ -32,7 +32,7 @@ export default function CatalogPagination({
     pageItems.push(totalPages);
   }
 
-  const btnBase = `min-w-12 min-h-12 px-2 rounded-lg text-xs font-bold border border-[color:var(--app-border)] transition-colors cursor-pointer active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[color-mix(in_srgb,var(--app-text)_5%,transparent)] ${theme.focusRing}`;
+  const btnBase = `min-w-12 min-h-12 px-2 rounded-full text-xs font-medium transition-colors cursor-pointer active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed ${theme.focusRing}`;
 
   return (
     <div className="flex flex-wrap gap-1.5 mt-3 mb-1 justify-center items-center">

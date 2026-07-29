@@ -6,6 +6,8 @@ import {
   apiBookPath,
   apiBookmarkPath,
   apiReadingHistoryPath,
+  safeBookIdFileKey,
+  legacyStrippedBookIdFileKey,
 } from '../bookRef';
 
 /** Same sample as inpx-library-server/test/book-ref.test.js */
@@ -29,5 +31,20 @@ describe('bookRef', () => {
     expect(apiBookPath(SAMPLE_ID, 'content')).toMatch(/^\/api\/books\/b64\/.+\/content$/);
     expect(apiBookmarkPath(SAMPLE_ID)).toMatch(/^\/api\/bookmarks\/b64\//);
     expect(apiReadingHistoryPath('safe-id')).toBe('/api/reading-history/safe-id');
+  });
+
+  it('builds filesystem-safe keys for covers/chapters', () => {
+    expect(safeBookIdFileKey('8:873746')).toBe('8:873746');
+    const key = safeBookIdFileKey(SAMPLE_ID);
+    expect(key.startsWith('b64_')).toBe(true);
+    expect(key.includes('\0')).toBe(false);
+    expect(key).toMatch(/^b64_[A-Za-z0-9_-]+$/);
+  });
+
+  it('exposes legacy stripped key for meta path migration', () => {
+    const legacy = legacyStrippedBookIdFileKey(SAMPLE_ID);
+    expect(legacy.includes('\0')).toBe(false);
+    expect(legacy.startsWith('b64_')).toBe(false);
+    expect(safeBookIdFileKey(SAMPLE_ID)).not.toBe(legacy);
   });
 });

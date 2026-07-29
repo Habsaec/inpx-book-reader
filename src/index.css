@@ -116,3 +116,135 @@ html[data-theme="light"] {
     linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 40%, rgba(0, 0, 0, 0.02) 100%);
 }
 
+/* E-Ink mode — high contrast, no motion/shadows (does not affect phones when data-eink unset) */
+html[data-eink="1"] {
+  --app-bg: #ffffff;
+  --app-surface: #ffffff;
+  --app-surface-hover: #efeee9;
+  --app-shell: #ffffff;
+  --app-text: #000000;
+  --app-muted: #1a1a1a;
+  --app-accent: #000000;
+  --app-accent-hover: #000000;
+  --app-link: #000000;
+  --app-link-hover: #000000;
+  --app-border: #8a8a8a;
+  --app-field-bg: #ffffff;
+  --app-card-bg: #ffffff;
+  --app-card-bg-hover: #efeee9;
+  --app-panel-soft: #efeee9;
+  --app-topbar-bg: #ffffff;
+  --app-topbar-border: #000000;
+  --app-placeholder: #3a3a3a;
+  --app-cover-border: #000000;
+  --app-danger: #000000;
+  --app-frame-border: #000000;
+  --app-success: #000000;
+  --app-warning: #000000;
+  --app-offline: #1a1a1a;
+  color-scheme: light;
+}
+
+html[data-eink="1"],
+html[data-eink="1"] body {
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+/* Onyx WebView: без рамки 2:3 img раздувается до intrinsic size */
+html[data-eink="1"] img {
+  max-width: 100%;
+}
+
+html[data-eink="1"] *,
+html[data-eink="1"] *::before,
+html[data-eink="1"] *::after {
+  animation: none !important;
+  transition: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+html[data-eink="1"] button,
+html[data-eink="1"] a,
+html[data-eink="1"] [role="button"],
+html[data-eink="1"] input,
+html[data-eink="1"] select,
+html[data-eink="1"] textarea {
+  min-height: 2.75rem;
+}
+
+html[data-eink="1"] #mobile-tab-navigation {
+  border-top: 2px solid var(--app-text);
+  background: var(--app-surface) !important;
+}
+
+html[data-eink="1"] #mobile-tab-navigation button {
+  color: var(--app-text) !important;
+  opacity: 1 !important;
+}
+
+html[data-eink="1"] #mobile-tab-navigation button span {
+  color: var(--app-text) !important;
+  font-weight: 800;
+  opacity: 1 !important;
+}
+
+/* Selected / pressed / primary: white fill + bold black outline (no solid black fill) */
+html[data-eink="1"] button[aria-current="page"],
+html[data-eink="1"] button[aria-current="true"],
+html[data-eink="1"] button[aria-pressed="true"],
+html[data-eink="1"] button[aria-selected="true"],
+html[data-eink="1"] [role="tab"][aria-selected="true"],
+html[data-eink="1"] [role="button"][aria-pressed="true"],
+html[data-eink="1"] button.text-white,
+html[data-eink="1"] button:active,
+html[data-eink="1"] [role="button"]:active {
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
+  border: 3px solid var(--app-text) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+html[data-eink="1"] button[aria-current="page"],
+html[data-eink="1"] button[aria-current="true"],
+html[data-eink="1"] button[aria-pressed="true"],
+html[data-eink="1"] button[aria-selected="true"],
+html[data-eink="1"] [role="tab"][aria-selected="true"] {
+  font-weight: 900;
+}
+
+html[data-eink="1"] button[aria-current="page"] svg,
+html[data-eink="1"] button[aria-current="true"] svg,
+html[data-eink="1"] button[aria-pressed="true"] svg,
+html[data-eink="1"] button[aria-selected="true"] svg,
+html[data-eink="1"] [role="tab"][aria-selected="true"] svg,
+html[data-eink="1"] button.text-white svg,
+html[data-eink="1"] button:active svg {
+  color: var(--app-text) !important;
+}
+
+html[data-eink="1"] button[aria-current="page"] span,
+html[data-eink="1"] button[aria-pressed="true"] span,
+html[data-eink="1"] button[aria-selected="true"] span {
+  color: inherit !important;
+}
+
+html[data-eink="1"] label,
+html[data-eink="1"] p,
+html[data-eink="1"] h1,
+html[data-eink="1"] h2,
+html[data-eink="1"] h3,
+html[data-eink="1"] h4,
+html[data-eink="1"] span,
+html[data-eink="1"] small {
+  opacity: 1 !important;
+}
+
+html[data-eink="1"] .reader-paper {
+  background-image: none;
+}
+

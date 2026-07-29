@@ -1,18 +1,19 @@
 import React from 'react';
-import { Filter, Inbox } from 'lucide-react';
+import { Filter, Inbox, WifiOff } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles } from '../../ui/tokens';
 import EmptyState from '../../ui/EmptyState';
 import { Book, ServerConfig } from '../../types';
+import type { StorageDirectory } from '../../lib/storageDirectory';
 import type { AuthorGroupedState } from '../../hooks/useCatalogData';
 import CatalogActiveFilterChips from './CatalogActiveFilterChips';
 import CatalogBookList from './CatalogBookList';
-import CatalogFilterSheet from './CatalogFilterSheet';
+import CatalogFilterSheet, { type CatalogFilterDraft, type CatalogGenreOption } from './CatalogFilterSheet';
 import CatalogLoadMore from './CatalogLoadMore';
 import CatalogPagination from './CatalogPagination';
 import CatalogViewToggle from './CatalogViewToggle';
 import { CatalogAuthorSeriesShelf } from './CatalogDrilldownPanel';
-import type { CatalogFormatFilter, CatalogViewMode, DemoBookSort } from './catalogTypes';
+import type { CatalogFormatFilter, CatalogHasSeriesFilter, CatalogViewMode, DemoBookSort } from './catalogTypes';
 
 interface CatalogBooksViewProps {
   subTab: 'books' | 'authors' | 'series' | 'genres';
@@ -20,21 +21,31 @@ interface CatalogBooksViewProps {
   isServerConnected: boolean;
   isAppDark: boolean;
   serverConfig: ServerConfig;
+  storageDirectory?: StorageDirectory | null;
   selectedAuthor: string | null;
   selectedSeries: string | null;
   selectedSubgenre: { parent: string; name: string } | null;
   authorGrouped: AuthorGroupedState | null;
   authorOutsideSeries: boolean;
   currentBooks: Book[];
-  viewMode: CatalogViewMode;
-  onViewModeChange: (mode: CatalogViewMode) => void;
   minRating: number;
   onMinRatingChange: (v: number) => void;
   formatFilter: CatalogFormatFilter;
   onFormatFilterChange: (v: CatalogFormatFilter) => void;
+  genreFilters: string[];
+  onGenreFiltersChange: (codes: string[]) => void;
+  genreOptions: CatalogGenreOption[];
+  resolveGenreOptions?: () => Promise<CatalogGenreOption[]>;
+  yearFilter: number;
+  onYearFilterChange: (year: number) => void;
+  hasSeriesFilter: CatalogHasSeriesFilter;
+  onHasSeriesFilterChange: (v: CatalogHasSeriesFilter) => void;
   sortBy: DemoBookSort;
   onSortByChange: (v: DemoBookSort) => void;
+  onApplyFilters: (next: CatalogFilterDraft) => void;
   onClearAllFilters: () => void;
+  /** Book filters only for search results — hidden on author/series browse. */
+  showFilters?: boolean;
   onClearAuthor: () => void;
   onClearSeries: () => void;
   onClearSubgenre: () => void;
@@ -42,6 +53,7 @@ interface CatalogBooksViewProps {
   readIds?: Set<string>;
   readingProgressByBookId?: Record<string, number>;
   onBookClick: (book: Book) => void;
+  onBookLongPress?: (book: Book) => void;
   onOpenSeries: (name: string, author: string) => void;
   onOpenOutsideSeries: () => void;
   booksListLength: number;
@@ -62,21 +74,30 @@ export default function CatalogBooksView({
   isServerConnected,
   isAppDark,
   serverConfig,
+  storageDirectory,
   selectedAuthor,
   selectedSeries,
   selectedSubgenre,
   authorGrouped,
   authorOutsideSeries,
   currentBooks,
-  viewMode,
-  onViewModeChange,
   minRating,
   onMinRatingChange,
   formatFilter,
   onFormatFilterChange,
+  genreFilters,
+  onGenreFiltersChange,
+  genreOptions,
+  resolveGenreOptions,
+  yearFilter,
+  onYearFilterChange,
+  hasSeriesFilter,
+  onHasSeriesFilterChange,
   sortBy,
   onSortByChange,
+  onApplyFilters,
   onClearAllFilters,
+  showFilters = true,
   onClearAuthor,
   onClearSeries,
   onClearSubgenre,
@@ -84,6 +105,7 @@ export default function CatalogBooksView({
   readIds,
   readingProgressByBookId,
   onBookClick,
+  onBookLongPress,
   onOpenSeries,
   onOpenOutsideSeries,
   booksListLength,
@@ -98,10 +120,23 @@ export default function CatalogBooksView({
   onScrollToTop,
 }: CatalogBooksViewProps) {
   const [filterSheetOpen, setFilterSheetOpen] = React.useState(false);
+  const [viewMode, setViewMode] = React.useState<CatalogViewMode>('grid');
   const showBooksSection = subTab === 'books' || Boolean(selectedAuthor || selectedSeries || selectedSubgenre);
   if (!showBooksSection) return null;
 
-  const hasDemoFilters = !isServerBrowse && (minRating > 0 || formatFilter !== 'all');
+  const genreLabels = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const g of genreOptions) {
+      map[g.name] = g.displayName || g.name;
+    }
+    return map;
+  }, [genreOptions]);
+  const hasActiveFilters =
+    minRating > 0 ||
+    formatFilter !== 'all' ||
+    genreFilters.length > 0 ||
+    (yearFilter >= 1800 && yearFilter <= 2100) ||
+    hasSeriesFilter !== 'any';
   const authorShelfOnly =
     isServerBrowse &&
     selectedAuthor &&
@@ -113,34 +148,46 @@ export default function CatalogBooksView({
 
   return (
     <div className="flex-1 flex flex-col">
-      {!isServerBrowse && (
-        <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        {showFilters ? (
           <button
             type="button"
             onClick={() => setFilterSheetOpen(true)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl ${theme.interactive} ${textStyles.captionBold} ${
-              hasDemoFilters ? theme.accentActive : `${theme.chip} ${theme.chipHover}`
+            className={`flex items-center gap-1.5 min-h-12 px-3 py-2 rounded-xl ${theme.interactive} ${textStyles.captionBold} ${
+              hasActiveFilters ? theme.accentActive : `${theme.chip} ${theme.chipHover}`
             }`}
           >
             <Filter className="w-4 h-4" aria-hidden />
-            Фильтры{hasDemoFilters ? ' •' : ''}
+            Фильтры{hasActiveFilters ? ' •' : ''}
           </button>
-        </div>
-      )}
+        ) : (
+          <span />
+        )}
+        <CatalogViewToggle mode={viewMode} onChange={setViewMode} />
+      </div>
 
+      {showFilters && (
       <CatalogActiveFilterChips
         minRating={minRating}
         formatFilter={formatFilter}
+        genreFilters={genreFilters}
+        genreLabels={genreLabels}
+        yearFilter={yearFilter}
+        hasSeriesFilter={hasSeriesFilter}
         selectedAuthor={selectedAuthor}
         selectedSeries={selectedSeries}
         selectedSubgenre={selectedSubgenre}
         onClearMinRating={() => onMinRatingChange(0)}
         onClearFormat={() => onFormatFilterChange('all')}
+        onClearGenre={(code) => onGenreFiltersChange(genreFilters.filter((g) => g !== code))}
+        onClearYear={() => onYearFilterChange(0)}
+        onClearHasSeries={() => onHasSeriesFilterChange('any')}
         onClearAuthor={onClearAuthor}
         onClearSeries={onClearSeries}
         onClearSubgenre={onClearSubgenre}
         onClearAll={onClearAllFilters}
       />
+      )}
 
       {isServerBrowse && selectedAuthor && !selectedSeries && !selectedSubgenre && !authorOutsideSeries && authorGrouped && (
         <CatalogAuthorSeriesShelf
@@ -152,27 +199,40 @@ export default function CatalogBooksView({
         />
       )}
 
-      <div className="flex items-center justify-end mb-2">
-        <CatalogViewToggle mode={viewMode} onChange={onViewModeChange} />
-      </div>
-
       {showEmpty ? (
-        <EmptyState
-          icon={Inbox}
-          title="Нет подходящих книг"
-          description="Попробуйте изменить условия фильтрации"
-        />
+        !isServerConnected ? (
+          <EmptyState
+            icon={WifiOff}
+            tone="offline"
+            title="Нет подключения"
+            description="Подключитесь к серверу, чтобы искать книги в каталоге"
+            actionLabel={hasActiveFilters || selectedAuthor || selectedSeries || selectedSubgenre ? 'Сбросить фильтры' : undefined}
+            onAction={hasActiveFilters || selectedAuthor || selectedSeries || selectedSubgenre ? onClearAllFilters : undefined}
+            actionVariant="primary"
+          />
+        ) : (
+          <EmptyState
+            icon={Inbox}
+            title="Ничего не найдено"
+            description="Попробуйте другой запрос или сбросьте фильтры"
+            actionLabel={hasActiveFilters || selectedAuthor || selectedSeries || selectedSubgenre ? 'Сбросить' : undefined}
+            onAction={hasActiveFilters || selectedAuthor || selectedSeries || selectedSubgenre ? onClearAllFilters : undefined}
+          />
+        )
       ) : currentBooks.length > 0 ? (
         <CatalogBookList
           books={currentBooks}
           viewMode={viewMode}
           isServerBrowse={isServerBrowse}
           serverConfig={isServerConnected ? serverConfig : null}
+          storageDirectory={storageDirectory}
           isAppDark={isAppDark}
           downloadedBookIds={downloadedBookIds}
           readIds={readIds}
           readingProgressByBookId={readingProgressByBookId}
           onBookClick={onBookClick}
+          onBookLongPress={onBookLongPress}
+          showSeriesVolume={Boolean(selectedSeries)}
         />
       ) : null}
 
@@ -198,21 +258,23 @@ export default function CatalogBooksView({
         />
       )}
 
-      {!isServerBrowse && (
-        <CatalogFilterSheet
-          open={filterSheetOpen}
-          onClose={() => setFilterSheetOpen(false)}
-          minRating={minRating}
-          onMinRatingChange={onMinRatingChange}
-          formatFilter={formatFilter}
-          onFormatFilterChange={onFormatFilterChange}
-          sortBy={sortBy}
-          onSortByChange={onSortByChange}
-          onReset={() => {
-            onMinRatingChange(0);
-            onFormatFilterChange('all');
-          }}
-        />
+      {showFilters && (
+      <CatalogFilterSheet
+        open={filterSheetOpen}
+        onClose={() => setFilterSheetOpen(false)}
+        value={{
+          minRating,
+          formatFilter,
+          genreFilters,
+          yearFilter,
+          hasSeriesFilter,
+          sortBy,
+        }}
+        onApply={onApplyFilters}
+        genreOptions={genreOptions}
+        resolveGenreOptions={resolveGenreOptions}
+        showSort={!isServerBrowse}
+      />
       )}
     </div>
   );

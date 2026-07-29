@@ -20,3 +20,11 @@ android/.idea/
 # Local scratch / fixtures
 .tmp-grand/
 release/
+.device-data-backup.tgz
+.logcat-*.txt
+
+# Agent tooling (local)
+.agents/
+skills-lock.json
+scripts/cdp-eval.cjs
+scripts/cdp-eval.js

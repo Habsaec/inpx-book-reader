@@ -8,6 +8,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import androidx.annotation.RequiresApi;
 import androidx.documentfile.provider.DocumentFile;
@@ -18,6 +19,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.util.Locale;
 import java.nio.charset.StandardCharsets;
 
 public final class BookStorageAccess {
@@ -88,8 +90,19 @@ public final class BookStorageAccess {
 
     public static boolean fileExists(Context context, String storageUri, String path) {
         try {
-            if (canUseDownloadsVolume(storageUri)) {
-                return findDownloadsUri(context, baseFolder(storageUri), path) != null;
+            // Prefer DocumentsContract for SAF trees — DocumentFile.findFile is flaky on some OEMs/emulators.
+            if (storageUri != null && storageUri.startsWith("content://")) {
+                if (safDocumentExists(context, storageUri, path)) {
+                    return true;
+                }
+            }
+            String downloadsFolder = effectiveDownloadsFolder(storageUri);
+            if (downloadsFolder != null) {
+                if (resolveDownloadsUri(context, downloadsFolder, path) != null) {
+                    return true;
+                }
+                File disk = resolveDownloadsDiskFile(downloadsFolder, path);
+                return disk.isFile() && disk.length() > 0;
             }
             if (isFileUri(storageUri)) {
                 File file = resolveLegacyFile(storageUri, path, false);
@@ -97,69 +110,142 @@ public final class BookStorageAccess {
             }
             DocumentFile root = DocumentFile.fromTreeUri(context, Uri.parse(storageUri));
             DocumentFile file = resolveSafPath(root, path, false);
-            return file != null && file.exists();
+            if (file != null && file.exists()) {
+                return true;
+            }
+            File disk = resolveDownloadsDiskFile("INPXLibraryReader", path);
+            return disk.isFile() && disk.length() > 0;
         } catch (Exception ignored) {
             return false;
         }
     }
 
+    public static byte[] readBinaryFile(Context context, String storageUri, String path) throws Exception {
+        Exception last = null;
+        if (storageUri != null && storageUri.startsWith("content://")) {
+            try {
+                Uri doc = buildSafChildUri(storageUri, path);
+                if (doc != null) {
+                    try (InputStream in = context.getContentResolver().openInputStream(doc)) {
+                        if (in != null) {
+                            return readStreamBytes(in);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                last = e;
+            }
+            try {
+                return readSafBinary(context, storageUri, path);
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        String downloadsFolder = effectiveDownloadsFolder(storageUri);
+        if (downloadsFolder == null && isFileUri(storageUri)) {
+            return readLegacyBinary(storageUri, path);
+        }
+        try {
+            return readDownloadsBinary(
+                context,
+                downloadsFolder != null ? downloadsFolder : "INPXLibraryReader",
+                path
+            );
+        } catch (Exception e) {
+            if (last != null) e.addSuppressed(last);
+            throw e;
+        }
+    }
+
+    public static String readTextFile(Context context, String storageUri, String path) throws Exception {
+        Exception last = null;
+        if (storageUri != null && storageUri.startsWith("content://")) {
+            try {
+                Uri doc = buildSafChildUri(storageUri, path);
+                if (doc != null) {
+                    InputStream raw = context.getContentResolver().openInputStream(doc);
+                    if (raw != null) {
+                        return readUtf8Stream(raw);
+                    }
+                }
+            } catch (Exception e) {
+                last = e;
+            }
+            try {
+                return readSafText(context, storageUri, path);
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        String downloadsFolder = effectiveDownloadsFolder(storageUri);
+        if (downloadsFolder == null && isFileUri(storageUri)) {
+            return readLegacyText(storageUri, path);
+        }
+        try {
+            return readDownloadsText(
+                context,
+                downloadsFolder != null ? downloadsFolder : "INPXLibraryReader",
+                path
+            );
+        } catch (Exception e) {
+            if (last != null) e.addSuppressed(last);
+            throw e;
+        }
+    }
+
     public static void writeBinaryFile(Context context, String storageUri, String path, byte[] bytes)
         throws Exception {
-        if (canUseDownloadsVolume(storageUri)) {
-            writeDownloadsFile(context, baseFolder(storageUri), path, bytes, "application/octet-stream");
+        String downloadsFolder = effectiveDownloadsFolder(storageUri);
+        if (downloadsFolder != null) {
+            writeDownloadsFile(context, downloadsFolder, path, bytes, mimeForPath(path));
             return;
         }
         if (isFileUri(storageUri)) {
             writeLegacyFile(storageUri, path, bytes);
             return;
         }
-        writeSafBinaryFile(context, storageUri, path, bytes);
+        try {
+            writeSafBinaryFile(context, storageUri, path, bytes);
+        } catch (Exception safErr) {
+            writeDownloadsFile(context, "INPXLibraryReader", path, bytes, mimeForPath(path));
+        }
     }
 
     public static void writeTextFile(Context context, String storageUri, String path, String content)
         throws Exception {
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
-        if (canUseDownloadsVolume(storageUri)) {
-            writeDownloadsFile(context, baseFolder(storageUri), path, bytes, "application/json");
+        String downloadsFolder = effectiveDownloadsFolder(storageUri);
+        if (downloadsFolder != null) {
+            writeDownloadsFile(context, downloadsFolder, path, bytes, mimeForPath(path));
             return;
         }
         if (isFileUri(storageUri)) {
             writeLegacyFile(storageUri, path, bytes);
             return;
         }
-        writeSafTextFile(context, storageUri, path, bytes);
-    }
-
-    public static String readTextFile(Context context, String storageUri, String path) throws Exception {
-        if (canUseDownloadsVolume(storageUri)) {
-            return readDownloadsText(context, baseFolder(storageUri), path);
+        try {
+            writeSafTextFile(context, storageUri, path, bytes);
+        } catch (Exception safErr) {
+            writeDownloadsFile(context, "INPXLibraryReader", path, bytes, mimeForPath(path));
         }
-        if (isFileUri(storageUri)) {
-            return readLegacyText(storageUri, path);
-        }
-        return readSafText(context, storageUri, path);
-    }
-
-    public static byte[] readBinaryFile(Context context, String storageUri, String path) throws Exception {
-        if (canUseDownloadsVolume(storageUri)) {
-            return readDownloadsBinary(context, baseFolder(storageUri), path);
-        }
-        if (isFileUri(storageUri)) {
-            return readLegacyBinary(storageUri, path);
-        }
-        return readSafBinary(context, storageUri, path);
     }
 
     public static void deleteFile(Context context, String storageUri, String path) throws Exception {
-        if (canUseDownloadsVolume(storageUri)) {
-            deleteDownloadsFile(context, baseFolder(storageUri), path);
+        String downloadsFolder = effectiveDownloadsFolder(storageUri);
+        if (downloadsFolder != null) {
+            deleteDownloadsFile(context, downloadsFolder, path);
             return;
         }
         if (isFileUri(storageUri)) {
             deleteLegacyFile(storageUri, path);
             return;
         }
-        deleteSafFile(context, storageUri, path);
+        try {
+            deleteSafFile(context, storageUri, path);
+        } catch (Exception ignored) {
+            /* fall through */
+        }
+        deleteDownloadsFile(context, "INPXLibraryReader", path);
     }
 
     private static boolean isDownloadsUri(String storageUri) {
@@ -172,6 +258,107 @@ public final class BookStorageAccess {
 
     private static String baseFolder(String storageUri) {
         return storageUri.substring(DOWNLOADS_SCHEME.length());
+    }
+
+    /**
+     * SAF tree under Download/&lt;folder&gt; → folder name for MediaStore/disk path.
+     * Example: content://.../tree/primary%3ADownload%2FINPXLibraryReader
+     */
+    private static String downloadsFolderFromSafUri(String storageUri) {
+        if (storageUri == null || !storageUri.startsWith("content://")) {
+            return null;
+        }
+        try {
+            Uri uri = Uri.parse(storageUri);
+            String last = uri.getLastPathSegment();
+            if (last == null || last.isEmpty()) {
+                return null;
+            }
+            String docId = Uri.decode(last);
+            if (docId.startsWith("primary:")) {
+                docId = docId.substring("primary:".length());
+            }
+            while (docId.endsWith("/")) {
+                docId = docId.substring(0, docId.length() - 1);
+            }
+            String downloads = Environment.DIRECTORY_DOWNLOADS;
+            if (docId.equals(downloads) || docId.equalsIgnoreCase("Download")) {
+                return "INPXLibraryReader";
+            }
+            String prefix = downloads + "/";
+            if (docId.startsWith(prefix)) {
+                return docId.substring(prefix.length());
+            }
+            if (docId.toLowerCase(Locale.US).startsWith("download/")) {
+                return docId.substring("download/".length());
+            }
+        } catch (Exception ignored) {
+            /* not a Downloads tree */
+        }
+        return null;
+    }
+
+    private static String effectiveDownloadsFolder(String storageUri) {
+        if (canUseDownloadsVolume(storageUri)) {
+            return baseFolder(storageUri);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return downloadsFolderFromSafUri(storageUri);
+        }
+        return null;
+    }
+
+    /** Direct child URI under a persisted SAF tree (avoids DocumentFile.findFile). */
+    private static Uri buildSafChildUri(String treeUriStr, String relativePath) {
+        try {
+            Uri tree = Uri.parse(treeUriStr);
+            String treeId = DocumentsContract.getTreeDocumentId(tree);
+            StringBuilder docId = new StringBuilder(treeId);
+            for (String part : splitPath(relativePath)) {
+                if (part == null || part.isEmpty()) continue;
+                docId.append('/').append(part);
+            }
+            return DocumentsContract.buildDocumentUriUsingTree(tree, docId.toString());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static boolean safDocumentExists(Context context, String treeUri, String relativePath) {
+        try {
+            Uri doc = buildSafChildUri(treeUri, relativePath);
+            if (doc == null) return false;
+            try (
+                Cursor c = context.getContentResolver().query(
+                    doc,
+                    new String[] { DocumentsContract.Document.COLUMN_DOCUMENT_ID },
+                    null,
+                    null,
+                    null
+                )
+            ) {
+                return c != null && c.moveToFirst();
+            }
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static String readUtf8Stream(InputStream raw) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (
+            InputStream in = raw;
+            BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))
+        ) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(line);
+            }
+        }
+        return sb.toString();
     }
 
     private static String downloadsRelativeDir(String baseFolder, String relativePath) {
@@ -193,18 +380,35 @@ public final class BookStorageAccess {
         return relativePath.split("/");
     }
 
+    /** Prefer real book MIME — octet-stream often becomes `*.fb2.bin` on OEM MediaStore. */
+    private static String mimeForPath(String relativePath) {
+        String name = fileNameFromPath(relativePath).toLowerCase(Locale.US);
+        if (name.endsWith(".json")) return "application/json";
+        if (name.endsWith(".epub")) return "application/epub+zip";
+        if (name.endsWith(".fb2") || name.endsWith(".fbz")) return "application/x-fictionbook+xml";
+        if (name.endsWith(".txt")) return "text/plain";
+        if (name.endsWith(".pdf")) return "application/pdf";
+        return "application/octet-stream";
+    }
+
+    private static File resolveDownloadsDiskFile(String baseFolder, String relativePath) {
+        File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        return new File(downloads, baseFolder + "/" + relativePath.replace('\\', '/'));
+    }
+
     @RequiresApi(Build.VERSION_CODES.Q)
-    private static Uri findDownloadsUri(Context context, String baseFolder, String relativePath) {
-        ContentResolver resolver = context.getContentResolver();
-        String relativeDir = downloadsRelativeDir(baseFolder, relativePath);
-        String displayName = fileNameFromPath(relativePath);
+    private static Uri queryDownloadsByNameAndDir(
+        ContentResolver resolver,
+        Uri collection,
+        String relativeDir,
+        String displayName
+    ) {
         String selection =
             MediaStore.MediaColumns.RELATIVE_PATH + "=? AND "
                 + MediaStore.MediaColumns.DISPLAY_NAME + "=?";
         String[] args = new String[] { relativeDir, displayName };
-
         try (Cursor cursor = resolver.query(
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            collection,
             new String[] { MediaStore.MediaColumns._ID },
             selection,
             args,
@@ -212,8 +416,66 @@ public final class BookStorageAccess {
         )) {
             if (cursor != null && cursor.moveToFirst()) {
                 long id = cursor.getLong(0);
-                return ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id);
+                return ContentUris.withAppendedId(collection, id);
             }
+        }
+        return null;
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private static Uri queryDownloadsFuzzy(
+        ContentResolver resolver,
+        Uri collection,
+        String baseFolder,
+        String displayName
+    ) {
+        // RELATIVE_PATH may omit trailing slash or nest differently per OEM.
+        String like = Environment.DIRECTORY_DOWNLOADS + "/" + baseFolder + "%";
+        String selection =
+            MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ? AND ("
+                + MediaStore.MediaColumns.DISPLAY_NAME + "=? OR "
+                + MediaStore.MediaColumns.DISPLAY_NAME + "=?)";
+        String[] args = new String[] { like, displayName, displayName + ".bin" };
+        try (Cursor cursor = resolver.query(
+            collection,
+            new String[] { MediaStore.MediaColumns._ID },
+            selection,
+            args,
+            null
+        )) {
+            if (cursor != null && cursor.moveToFirst()) {
+                long id = cursor.getLong(0);
+                return ContentUris.withAppendedId(collection, id);
+            }
+        }
+        return null;
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private static Uri findDownloadsUri(Context context, String baseFolder, String relativePath) {
+        ContentResolver resolver = context.getContentResolver();
+        String relativeDir = downloadsRelativeDir(baseFolder, relativePath);
+        String relativeDirNoSlash =
+            relativeDir.endsWith("/") ? relativeDir.substring(0, relativeDir.length() - 1) : relativeDir;
+        String displayName = fileNameFromPath(relativePath);
+
+        Uri[] collections = new Uri[] {
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            MediaStore.Files.getContentUri("external"),
+        };
+
+        for (Uri collection : collections) {
+            Uri hit = queryDownloadsByNameAndDir(resolver, collection, relativeDir, displayName);
+            if (hit != null) return hit;
+            hit = queryDownloadsByNameAndDir(resolver, collection, relativeDirNoSlash, displayName);
+            if (hit != null) return hit;
+            // octet-stream writes sometimes land as Title.fb2.bin
+            hit = queryDownloadsByNameAndDir(resolver, collection, relativeDir, displayName + ".bin");
+            if (hit != null) return hit;
+            hit = queryDownloadsByNameAndDir(resolver, collection, relativeDirNoSlash, displayName + ".bin");
+            if (hit != null) return hit;
+            hit = queryDownloadsFuzzy(resolver, collection, baseFolder, displayName);
+            if (hit != null) return hit;
         }
         return null;
     }
@@ -230,6 +492,20 @@ public final class BookStorageAccess {
         Uri existing = findDownloadsUri(context, baseFolder, relativePath);
         if (existing != null) {
             resolver.delete(existing, null, null);
+        }
+        // MediaStore delete may leave an orphan on disk; remove before rewrite.
+        File disk = resolveDownloadsDiskFile(baseFolder, relativePath);
+        if (disk.isFile()) {
+            //noinspection ResultOfMethodCallIgnored
+            disk.delete();
+        }
+        File parent = disk.getParentFile();
+        if (parent != null) {
+            File binTwin = new File(parent, disk.getName() + ".bin");
+            if (binTwin.isFile()) {
+                //noinspection ResultOfMethodCallIgnored
+                binTwin.delete();
+            }
         }
 
         ContentValues values = new ContentValues();
@@ -259,22 +535,56 @@ public final class BookStorageAccess {
         }
     }
 
+    /**
+     * MediaScanner can index Download orphans the app cannot open (SecurityException).
+     * Only return URIs we can actually read.
+     */
+    private static Uri ensureOpenableUri(Context context, Uri uri) {
+        if (uri == null) return null;
+        try (InputStream in = context.getContentResolver().openInputStream(uri)) {
+            if (in != null) return uri;
+        } catch (SecurityException se) {
+            try {
+                context.getContentResolver().delete(uri, null, null);
+            } catch (Exception ignored) {
+                /* cannot remove foreign MediaStore row */
+            }
+        } catch (Exception ignored) {
+            /* not readable */
+        }
+        return null;
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private static Uri resolveDownloadsUri(Context context, String baseFolder, String relativePath) {
+        Uri uri = ensureOpenableUri(context, findDownloadsUri(context, baseFolder, relativePath));
+        if (uri != null) return uri;
+        // Do not MediaScanner-index foreign/SAF orphans — that yields unreadable MediaStore rows.
+        return null;
+    }
+
     @RequiresApi(Build.VERSION_CODES.Q)
     private static String readDownloadsText(Context context, String baseFolder, String relativePath)
         throws Exception {
-        Uri uri = findDownloadsUri(context, baseFolder, relativePath);
-        if (uri == null) {
+        Uri uri = resolveDownloadsUri(context, baseFolder, relativePath);
+        InputStream raw = null;
+        if (uri != null) {
+            raw = context.getContentResolver().openInputStream(uri);
+        } else {
+            File disk = resolveDownloadsDiskFile(baseFolder, relativePath);
+            if (disk.isFile()) {
+                raw = new FileInputStream(disk);
+            }
+        }
+        if (raw == null) {
             throw new Exception("File not found");
         }
 
         StringBuilder sb = new StringBuilder();
         try (
-            InputStream in = context.getContentResolver().openInputStream(uri);
+            InputStream in = raw;
             BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))
         ) {
-            if (in == null) {
-                throw new Exception("Could not open input stream");
-            }
             String line;
             while ((line = reader.readLine()) != null) {
                 if (sb.length() > 0) {
@@ -304,13 +614,19 @@ public final class BookStorageAccess {
     @RequiresApi(Build.VERSION_CODES.Q)
     private static byte[] readDownloadsBinary(Context context, String baseFolder, String relativePath)
         throws Exception {
-        Uri uri = findDownloadsUri(context, baseFolder, relativePath);
-        if (uri == null) {
-            throw new Exception("File not found");
+        Uri uri = resolveDownloadsUri(context, baseFolder, relativePath);
+        if (uri != null) {
+            try (InputStream in = context.getContentResolver().openInputStream(uri)) {
+                return readStreamBytes(in);
+            }
         }
-        try (InputStream in = context.getContentResolver().openInputStream(uri)) {
-            return readStreamBytes(in);
+        File disk = resolveDownloadsDiskFile(baseFolder, relativePath);
+        if (disk.isFile() && disk.length() > 0) {
+            try (FileInputStream in = new FileInputStream(disk)) {
+                return readStreamBytes(in);
+            }
         }
+        throw new Exception("File not found");
     }
 
     private static byte[] readLegacyBinary(String storageUri, String relativePath) throws Exception {
@@ -339,6 +655,19 @@ public final class BookStorageAccess {
         Uri uri = findDownloadsUri(context, baseFolder, relativePath);
         if (uri != null) {
             context.getContentResolver().delete(uri, null, null);
+        }
+        File disk = resolveDownloadsDiskFile(baseFolder, relativePath);
+        if (disk.isFile()) {
+            //noinspection ResultOfMethodCallIgnored
+            disk.delete();
+        }
+        File parent = disk.getParentFile();
+        if (parent != null) {
+            File binTwin = new File(parent, disk.getName() + ".bin");
+            if (binTwin.isFile()) {
+                //noinspection ResultOfMethodCallIgnored
+                binTwin.delete();
+            }
         }
     }
 
@@ -408,17 +737,18 @@ public final class BookStorageAccess {
             boolean isLast = i == parts.length - 1;
             if (isLast) {
                 if (!create) {
-                    return current.findFile(part);
+                    DocumentFile found = findChild(current, part);
+                    return found;
                 }
-                DocumentFile existing = current.findFile(part);
+                DocumentFile existing = findChild(current, part);
                 if (existing != null) {
                     existing.delete();
                 }
-                String mime = part.endsWith(".json") ? "application/json" : "application/octet-stream";
+                String mime = mimeForPath(part);
                 return current.createFile(mime, part);
             }
 
-            DocumentFile next = current.findFile(part);
+            DocumentFile next = findChild(current, part);
             if (next == null && create) {
                 next = current.createDirectory(part);
             }
@@ -428,6 +758,25 @@ public final class BookStorageAccess {
             current = next;
         }
 
+        return null;
+    }
+
+    /** DocumentFile.findFile is exact; OEM/SAF may alter unicode or casing. */
+    private static DocumentFile findChild(DocumentFile parent, String name) {
+        if (parent == null || name == null) return null;
+        DocumentFile exact = parent.findFile(name);
+        if (exact != null) return exact;
+        DocumentFile[] children = parent.listFiles();
+        if (children == null) return null;
+        String want = java.text.Normalizer.normalize(name, java.text.Normalizer.Form.NFC);
+        for (DocumentFile child : children) {
+            String childName = child.getName();
+            if (childName == null) continue;
+            String normalized = java.text.Normalizer.normalize(childName, java.text.Normalizer.Form.NFC);
+            if (normalized.equals(want) || childName.equalsIgnoreCase(name)) {
+                return child;
+            }
+        }
         return null;
     }
 

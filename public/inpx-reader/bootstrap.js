@@ -80,6 +80,18 @@ function debugLog(hypothesisId, location, message, data) {
   window.__READER_APP = 1;
   document.documentElement.dataset.inpxApp = '1';
 
+  // Только флаг приложения / URL — не dataset (его раньше ставила цветовая тема «E-Ink»).
+  const appEink =
+    params.get('eink') === '1'
+    || config?.einkActive === true;
+  window.__READER_APP_EINK = appEink ? 1 : 0;
+  if (appEink) {
+    document.documentElement.dataset.eink = '1';
+    document.documentElement.dataset.readerTheme = 'eink';
+  } else {
+    delete document.documentElement.dataset.eink;
+  }
+
   /** 0.0001% on 0–100 scale → fraction precision 1e-6 */
   function normalizeStoredFraction(fraction) {
     return normalizeReadingFraction(fraction);

@@ -1,4 +1,4 @@
-export type ReaderTheme = 'light' | 'dark' | 'sepia';
+export type ReaderTheme = 'light' | 'dark' | 'sepia' | 'night' | 'eink';
 export type ReaderLayout = 'paginated' | 'scrolled';
 export type ReaderFontFamily =
   | 'serif'

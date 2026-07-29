@@ -6,6 +6,7 @@ import { syncDownloadedBooksOnline } from '../lib/offlineSync';
 import { flushOfflineReaderStore } from '../lib/offlineReaderStore';
 import { getPendingSyncCount } from '../lib/localDb';
 import { processSyncQueue } from '../lib/syncQueueProcessor';
+import { formatSuggestCount } from '../lib/catalogBookPool';
 import { useSnackbar } from '../ui/Snackbar';
 
 interface InpxServerSync {
@@ -19,13 +20,30 @@ export function useAppSync(opts: {
   downloadedBooksWithFile: Book[];
   inpxServer: InpxServerSync;
   activeReaderRef: React.RefObject<{ bookId: string } | null>;
+  /** Invalidate library notes/bookmarks memos after reader store sync. */
+  onReaderStoreSynced?: () => void;
 }) {
-  const { canReadOnline, serverConfig, connectionStatus, downloadedBooksWithFile, inpxServer, activeReaderRef } = opts;
+  const {
+    canReadOnline,
+    serverConfig,
+    connectionStatus,
+    downloadedBooksWithFile,
+    inpxServer,
+    activeReaderRef,
+    onReaderStoreSynced,
+  } = opts;
   const snackbar = useSnackbar();
 
   const [syncing, setSyncing] = React.useState(false);
   const [syncError, setSyncError] = React.useState<string | null>(null);
   const [lastSyncSummary, setLastSyncSummary] = React.useState<string | null>(null);
+
+  const onSyncedRef = React.useRef(onReaderStoreSynced);
+  onSyncedRef.current = onReaderStoreSynced;
+
+  const bumpAfterReaderSync = React.useCallback(() => {
+    onSyncedRef.current?.();
+  }, []);
 
   const wasOnlineRef = React.useRef(false);
   React.useEffect(() => {
@@ -34,8 +52,8 @@ export function useAppSync(opts: {
     if (!justConnected || downloadedBooksWithFile.length === 0) return;
     const activeBookId = activeReaderRef.current?.bookId;
     const bookIds = downloadedBooksWithFile.map((b) => b.id).filter((id) => id !== activeBookId);
-    void syncDownloadedBooksOnline(serverConfig, bookIds);
-  }, [canReadOnline, serverConfig, downloadedBooksWithFile, activeReaderRef]);
+    void syncDownloadedBooksOnline(serverConfig, bookIds).then(bumpAfterReaderSync);
+  }, [canReadOnline, serverConfig, downloadedBooksWithFile, activeReaderRef, bumpAfterReaderSync]);
 
   React.useEffect(() => {
     if (!canReadOnline || !Capacitor.isNativePlatform()) return;
@@ -47,12 +65,12 @@ export function useAppSync(opts: {
       }
       const activeBookId = activeReaderRef.current?.bookId;
       const bookIds = downloadedBooksWithFile.map((b) => b.id).filter((id) => id !== activeBookId);
-      void syncDownloadedBooksOnline(serverConfig, bookIds);
+      void syncDownloadedBooksOnline(serverConfig, bookIds).then(bumpAfterReaderSync);
     });
     return () => {
       void subPromise.then((sub) => sub.remove());
     };
-  }, [canReadOnline, serverConfig, downloadedBooksWithFile, activeReaderRef]);
+  }, [canReadOnline, serverConfig, downloadedBooksWithFile, activeReaderRef, bumpAfterReaderSync]);
 
   React.useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -78,6 +96,7 @@ export function useAppSync(opts: {
         await syncDownloadedBooksOnline(serverConfig, bookIds);
         const queueProcessed = await processSyncQueue(serverConfig);
         await inpxServer.refresh();
+        bumpAfterReaderSync();
         const summary = `Синхронизировано ${pending + queueProcessed} изменений`;
         setLastSyncSummary(summary);
         snackbar.show(summary, undefined, 'success');
@@ -85,7 +104,7 @@ export function useAppSync(opts: {
         /* пользователь может синхронизировать вручную */
       }
     })();
-  }, [connectionStatus, canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, snackbar]);
+  }, [connectionStatus, canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, snackbar, bumpAfterReaderSync]);
 
   const handleSyncNow = React.useCallback(async () => {
     if (!canReadOnline) return;
@@ -96,11 +115,12 @@ export function useAppSync(opts: {
       await syncDownloadedBooksOnline(serverConfig, bookIds);
       const queueProcessed = await processSyncQueue(serverConfig);
       await inpxServer.refresh();
-      setLastSyncSummary(`Синхронизировано ${bookIds.length} книг`);
+      bumpAfterReaderSync();
+      setLastSyncSummary(`Синхронизировано: ${formatSuggestCount(bookIds.length)}`);
       snackbar.show(
         queueProcessed > 0
-          ? `Синхронизировано ${bookIds.length} книг и ${queueProcessed} операций`
-          : `Синхронизировано ${bookIds.length} книг`,
+          ? `Синхронизировано: ${formatSuggestCount(bookIds.length)} и ${queueProcessed} операций`
+          : `Синхронизировано: ${formatSuggestCount(bookIds.length)}`,
         undefined,
         'success',
       );
@@ -109,7 +129,7 @@ export function useAppSync(opts: {
     } finally {
       setSyncing(false);
     }
-  }, [canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, snackbar]);
+  }, [canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, snackbar, bumpAfterReaderSync]);
 
   return { syncing, syncError, lastSyncSummary, handleSyncNow, setSyncError };
 }

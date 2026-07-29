@@ -10,12 +10,13 @@ import { Capacitor } from '@capacitor/core';
 import { StatusBar, Style } from '@capacitor/status-bar';
 
 /** Синхронизация системной строки состояния Android с темой приложения. */
-export async function syncAndroidStatusBar(isDark: boolean): Promise<void> {
+export async function syncAndroidStatusBar(isDark: boolean, opts?: { eink?: boolean }): Promise<void> {
   if (Capacitor.getPlatform() !== 'android') return;
-  const bg = isDark ? '#1e1a16' : '#f5f1e8';
+  const eink = Boolean(opts?.eink);
+  const bg = eink ? '#ffffff' : isDark ? '#1e1a16' : '#f5f1e8';
   try {
     await StatusBar.setBackgroundColor({ color: bg });
-    await StatusBar.setStyle({ style: isDark ? Style.Light : Style.Dark });
+    await StatusBar.setStyle({ style: eink || !isDark ? Style.Dark : Style.Light });
   } catch {
     // вне APK (редкая отладка в WebView) — игнорируем
   }

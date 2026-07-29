@@ -28,7 +28,10 @@ interface LiteBookRowProps {
   removeLabel?: string;
   /** Компактная строка для главной (меньше обложка, serif-заголовок) */
   compact?: boolean;
+  onLongPress?: () => void;
 }
+
+const LONG_PRESS_MS = 420;
 
 export default function LiteBookRow({
   book,
@@ -43,6 +46,7 @@ export default function LiteBookRow({
   hasPendingSync = false,
   onDownload,
   onClick,
+  onLongPress,
   subtitle,
   onRemove,
   removeLabel = 'Удалить',
@@ -50,6 +54,35 @@ export default function LiteBookRow({
 }: LiteBookRowProps) {
   const progress = isRead ? 100 : Math.max(readProgress, 0);
   const isFullyRead = isRead || progress >= 100;
+  const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = React.useRef(false);
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handlePointerDown = () => {
+    if (!onLongPress) return;
+    longPressFired.current = false;
+    clearLongPress();
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      onLongPress();
+    }, LONG_PRESS_MS);
+  };
+
+  const handleClick = () => {
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
+    onClick?.();
+  };
+
+  React.useEffect(() => () => clearLongPress(), []);
 
   const borderColor = theme.divider;
   const metaColor = theme.textMuted;
@@ -61,7 +94,11 @@ export default function LiteBookRow({
     <div className={`flex items-center gap-3 ${compact ? 'py-3' : 'items-start py-3.5'} border-b last:border-b-0 ${borderColor}`}>
       <button
         type="button"
-        onClick={onClick}
+        onClick={handleClick}
+        onPointerDown={handlePointerDown}
+        onPointerUp={clearLongPress}
+        onPointerLeave={clearLongPress}
+        onPointerCancel={clearLongPress}
         aria-label={onClick ? `Открыть: ${book.title}` : undefined}
         className={`flex flex-1 min-w-0 items-center gap-3.5 text-left select-none touch-manipulation rounded-xl -mx-1 px-1 ${theme.rowPress} ${motion.colors} ${theme.focusRing}`}
       >
@@ -89,7 +126,7 @@ export default function LiteBookRow({
         </div>
 
         <span className="flex-1 min-w-0 block pointer-events-none text-left">
-          <span className={`block line-clamp-2 ${compact ? textStyles.bookTitle : `font-bold text-sm leading-snug`} ${titleColor}`}>
+          <span className={`block line-clamp-2 ${textStyles.bookTitle} ${compact ? 'text-sm' : ''} ${titleColor}`}>
             {book.title}
           </span>
 
@@ -102,7 +139,7 @@ export default function LiteBookRow({
           ) : null}
 
           <span className="block mt-1">
-            <BookMetaSummary book={book} showDescription />
+            <BookMetaSummary book={book} compact={compact} />
           </span>
 
           {hasPendingSync && (
@@ -114,7 +151,11 @@ export default function LiteBookRow({
 
           {showDownloadStatus ? (
             <span className="block mt-1">
-              <DownloadStatusLabel isDownloaded={isDownloaded} showNotDownloaded />
+              <DownloadStatusLabel
+                isDownloaded={isDownloaded}
+                isDownloading={isDownloading}
+                showNotDownloaded
+              />
             </span>
           ) : null}
 
@@ -139,7 +180,7 @@ export default function LiteBookRow({
             e.stopPropagation();
             onDownload();
           }}
-          className={`shrink-0 ${theme.touchTarget} w-11 h-11 rounded-xl flex items-center justify-center ${theme.accentBg} text-white disabled:opacity-50 disabled:cursor-not-allowed ${motion.press} ${theme.focusRing}`}
+          className={`shrink-0 ${theme.touchTarget} rounded-xl flex items-center justify-center ${theme.accentBg} text-white disabled:opacity-50 disabled:cursor-not-allowed ${motion.press} ${theme.focusRing}`}
           title="Скачать"
           aria-label="Скачать"
         >
@@ -152,7 +193,7 @@ export default function LiteBookRow({
             e.stopPropagation();
             onRemove();
           }}
-          className={`shrink-0 ${theme.touchTarget} w-11 h-11 rounded-xl flex items-center justify-center text-[var(--app-danger)] hover:bg-[color-mix(in_srgb,var(--app-danger)_10%,transparent)] active:bg-[color-mix(in_srgb,var(--app-danger)_15%,transparent)] ${motion.press} ${theme.focusRing}`}
+          className={`shrink-0 ${theme.touchTarget} rounded-xl flex items-center justify-center text-[var(--app-danger)] hover:bg-[color-mix(in_srgb,var(--app-danger)_10%,transparent)] active:bg-[color-mix(in_srgb,var(--app-danger)_15%,transparent)] ${motion.press} ${theme.focusRing}`}
           title={removeLabel}
           aria-label={removeLabel}
         >

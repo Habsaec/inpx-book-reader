@@ -79,7 +79,7 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
       {queue.length > 0 &&
         createPortal(
           <div
-            className="fixed left-0 right-0 z-[450] flex flex-col gap-2 px-4 pointer-events-none"
+            className="fixed left-0 right-0 z-[700] flex flex-col gap-2 px-4 pointer-events-none"
             style={{ bottom: 'max(var(--app-tab-bar-height), calc(env(safe-area-inset-bottom) + 3.5rem))' }}
             aria-live="polite"
           >

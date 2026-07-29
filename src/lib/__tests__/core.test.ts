@@ -41,10 +41,15 @@ describe('authHeader', () => {
     connectionStatus: 'connected',
   };
 
-  it('prefers bearer device token', () => {
-    expect(authHeader({ ...base, deviceToken: 'abc123' })).toEqual({
+  it('uses bearer device token when password is absent', () => {
+    expect(authHeader({ ...base, password: '', deviceToken: 'abc123' })).toEqual({
       Authorization: 'Bearer abc123',
     });
+  });
+
+  it('prefers basic auth when password is present', () => {
+    const header = authHeader({ ...base, deviceToken: 'abc123' });
+    expect(header.Authorization?.startsWith('Basic ')).toBe(true);
   });
 
   it('falls back to basic auth', () => {

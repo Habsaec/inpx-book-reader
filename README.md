@@ -1,94 +1,140 @@
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="INPX Book Reader — Android APK: каталог, офлайн-полка и sync с INPX Library Server">
+</p>
+
 # INPX Book Reader
 
-> 📱 **Только Android.** Приложение разрабатывается исключительно для платформы Android (Capacitor APK). iOS и десктоп не поддерживаются и не планируются.
->
-> ⚠️ `server.ts` — это прокси **только для локальной разработки** в браузере. В production (APK) не используется. Не улучшать, не оптимизировать.
+Мобильная читалка **только для Android**. Каталог и sync — с [INPX Library Server](https://github.com/Habsaec/inpx-library-server); текст книги — только из скачанного файла на устройстве.
 
-Мобильная читалка для [INPX Library Server](../inpx-library-server) — каталог, офлайн-полка, профиль как на сервере.
+<p align="center">
+  <img src="./assets/readme/workflow.svg" width="100%" alt="Подключить сервер → каталог → скачать → читать офлайн со sync">
+</p>
 
-## Быстрый старт
+## Что это
 
-1. Запустите **INPX Library Server** (порт по умолчанию `3000`):
+| Нужно | Как работает |
+| --- | --- |
+| Каталог, поиск, полки, профиль | REST `/api/*` сервера |
+| Чтение FB2 / EPUB | Локальный файл через Foliate |
+| Позиция, закладки, заметки | Sync по `bookId` |
+| iOS / Desktop / PWA | Не поддерживаются |
 
-   ```bash
-   cd D:\inpx-library-server
-   npm start
-   ```
+**Без работающего INPX Library Server приложение почти бесполезно** (нет каталога, скачивания и sync). Сервер — источник правды для метаданных; путь файла на диске — snapshot при скачивании, не sync-поле.
 
-2. Запустите **INPX Book Reader** (порт `3100`):
+## Требования
 
-   ```bash
-   cd D:\inpx-book-reader
-   npm install
-   npm run dev
-   ```
+1. **[INPX Library Server](https://github.com/Habsaec/inpx-library-server)** уже установлен и запущен (порт по умолчанию `3000`)
+2. **Node.js 20+**
+3. **Android Studio** (SDK API 34+, Build-Tools, Platform-Tools) и **JDK 17**
+4. Телефон и сервер в **одной Wi‑Fi сети** (для APK адрес сервера — IP ПК/NAS, не `localhost`)
 
-3. Откройте в браузере: `http://localhost:3100`
+Сборка APK ниже рассчитана на **Windows** (`gradlew.bat`). Подробности и troubleshooting: [`docs/ANDROID.md`](./docs/ANDROID.md).
 
-4. В **Настройки → Сервер INPX** укажите:
-   - Адрес: `http://127.0.0.1:3000` (или IP вашего ПК в локальной сети)
-   - Логин и пароль пользователя библиотеки
-   - Снимите галочку «Демонстрационный каталог»
-   - Нажмите **Проверить подключение**
-
-## Android (телефон / планшет)
-
-### Вариант A — через Wi‑Fi (рекомендуется для этого приложения)
-
-1. На ПК запустите оба сервера (`inpx-library-server` и `inpx-book-reader`).
-2. Узнайте IP ПК в локальной сети (например `192.168.1.42`).
-3. На телефоне откройте Chrome: `http://192.168.1.42:3100`
-4. В настройках приложения укажите адрес INPX: `http://192.168.1.42:3000` (IP ПК, порт сервера библиотеки).
-
-> Прокси встроен в `server.ts` — телефон обращается к reader на `:3100`, а тот пересылает запросы к INPX на `:3000`.
-
-### Вариант B — встроенный lite-интерфейс сервера
-
-На сервере уже есть мобильный UI без установки:
-
-`http://<IP-сервера>:3000/lite/`
-
-Подходит для чтения и профиля прямо в браузере Android.
-
-### Добавить на главный экран (PWA)
-
-В Chrome на Android: меню → «Установить приложение» / «Добавить на главный экран».
-
-## Android (Android Studio / APK)
-
-Проект настроен через **Capacitor**. Подробная инструкция: [docs/ANDROID.md](docs/ANDROID.md)
+## Быстрый путь: собрать и поставить APK
 
 ```powershell
-cd D:\inpx-book-reader
+git clone https://github.com/Habsaec/inpx-book-reader.git
+cd inpx-book-reader
 npm install
-npm run build:android    # собрать веб и синхронизировать с android/
-npm run android:open     # открыть в Android Studio
+npm run build:android
 ```
 
-В Android Studio: **Build → Build APK(s)**.  
-Debug-APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+Готовый файл:
 
-На телефоне в настройках приложения укажите `http://<IP-ПК>:3000` (не `localhost`).
+`android/app/build/outputs/apk/debug/app-debug.apk`
 
-## Демо-режим
+Установка:
 
-Если сервер недоступен, включите «Демонстрационный каталог» — откроется профиль и 4 классические книги для офлайн-чтения.
+```powershell
+adb install android\app\build\outputs\apk\debug\app-debug.apk
+```
 
-## Архитектура
+Или откройте проект в Android Studio и соберите оттуда:
 
-| Компонент | Назначение |
-|-----------|------------|
-| `src/lib/inpxClient.ts` | REST API клиент (`/api/catalog`, `/api/profile`, …) |
-| `server.ts` | Прокси к INPX (обходит CORS), локальный sync |
-| `ProfileTab` | Профиль как на сервере: чтение, закладки, заметки |
-| `CatalogTab` | Каталог через REST API, не OPDS |
+```powershell
+npm run android:open
+```
 
-## API сервера (новые endpoint'ы)
+Затем **Build → Build APK(s)** или Run ▶ на устройство.
 
-Добавлены в `inpx-library-server`:
+### Первый запуск на телефоне
 
-- `GET /api/profile` — данные профиля (JSON)
-- `GET /api/browse/authors|series|genres` — списки для каталога
-- Basic Auth для REST API (логин/пароль в заголовке Authorization)
+Приложение проводит onboarding (3 шага):
 
-Перезапустите INPX Library Server после обновления.
+1. **Сервер** — URL вида `http://192.168.x.x:3000`, логин и пароль пользователя библиотеки → **Подключить**
+2. **Папка хранения** — куда скачивать книги (SAF; по умолчанию можно оставить предложенную)
+3. Готово → каталог, скачивание, чтение
+
+Позже то же в **Настройки → Сервер**.
+
+> HTTP без HTTPS для домашней сети разрешён (`cleartext: true` в Capacitor).  
+> Если нет связи: IP ПК вместо `127.0.0.1` / `localhost`, файрвол Windows для порта `3000`.
+
+Сервер (кратко; полная инструкция в его README):
+
+```powershell
+git clone https://github.com/Habsaec/inpx-library-server.git
+cd inpx-library-server
+# Windows: install.cmd → start-server.cmd
+# Первый вход часто: admin / admin — сразу смените пароль
+```
+
+## Как устроено
+
+<p align="center">
+  <img src="./assets/readme/architecture.svg" width="100%" alt="APK ↔ INPX Library Server по REST; книги читаются с локального диска">
+</p>
+
+```text
+Android APK  ←── REST /api/* ──→  INPX Library Server
+     │
+     └── скачивание → локальные FB2/EPUB → Foliate (офлайн)
+```
+
+## Dev в браузере (только отладка)
+
+Браузер — временный инструмент, не целевая платформа. `server.ts` — прокси **только для localhost**; в APK не используется.
+
+1. Запустите INPX Library Server на порту `3000`.
+2. В этом репо:
+
+```powershell
+npm install
+npm run dev
+```
+
+3. Откройте `http://localhost:3100` → укажите сервер `http://127.0.0.1:3000` → подключитесь.
+
+С телефона по Wi‑Fi (оба процесса на ПК): reader `http://<IP-ПК>:3100`, библиотека `http://<IP-ПК>:3000`.
+
+## Стек
+
+| Слой | Технология |
+| --- | --- |
+| UI | React 19 · TypeScript · Tailwind 4 · Capacitor 7 |
+| Читалка | Foliate (iframe) |
+| Натив | BookStorage · FolderPicker · ReaderNative · SAF |
+| API | `src/lib/inpxClient.ts` → CapacitorHttp |
+
+## Полезные команды
+
+```powershell
+npm run lint              # tsc --noEmit
+npm test                  # vitest
+npm run build:app         # веб-сборка для Capacitor
+npm run build:android     # build:app + cap sync + debug APK
+npm run android:sync      # cap sync без полной пересборки веба
+npm run android:open      # Android Studio
+npm run verify:api-parity # сверка API с сервером
+```
+
+После правок UI: снова `npm run build:android` (или `build:app` + `android:sync`), затем Run / переустановка APK.
+
+## Связанные проекты
+
+| Репозиторий | Роль |
+| --- | --- |
+| [inpx-book-reader](https://github.com/Habsaec/inpx-book-reader) | Android-клиент (этот репо) |
+| [inpx-library-server](https://github.com/Habsaec/inpx-library-server) | API, индекс INPX, sync |
+
+Контракт API и sync для разработки: [`AGENTS.md`](./AGENTS.md). Сборка и типичные ошибки: [`docs/ANDROID.md`](./docs/ANDROID.md).

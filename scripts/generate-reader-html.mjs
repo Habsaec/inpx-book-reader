@@ -357,6 +357,22 @@ function composeReaderSettingsPanel(html) {
           </div>
           <div class="rs-hint">0 — выкл. Работает только в режиме страниц, пауза при меню и озвучке.</div>
         </div>
+        <div class="rs-group">
+          <label class="rs-check"><input type="checkbox" id="rs-page-haptic" name="readerPageHaptic"><span>Вибрация при листании</span></label>
+          <div class="rs-hint">По умолчанию выкл. Отклик при добавлении закладки не затрагивается.</div>
+        </div>
+        <div class="rs-group" id="rs-eink-refresh-group" hidden>
+          <div class="rs-label">Полная перерисовка</div>
+          <div class="rs-seg">
+            <button type="button" data-set-eink-refresh="1">Каждый раз</button>
+            <button type="button" data-set-eink-refresh="3">Каждые 3</button>
+            <button type="button" data-set-eink-refresh="5">Каждые 5</button>
+          </div>
+          <div class="rs-hint">E-Ink: полный refresh экрана против шлейфов. Чуть дольше обычного листания.</div>
+        </div>
+        <div class="rs-group" id="rs-eink-volume-hint" hidden>
+          <div class="rs-hint">E-Ink: громкость листает страницы. Яркость — левый край, температура — правый.</div>
+        </div>
         <div id="rs-volume-keys-slot"></div>
       </section>
 
@@ -447,16 +463,23 @@ function injectAlReaderChrome(source) {
   <div class="rss-mid">
     <span class="rss-item rss-page" id="rss-page" hidden></span>
     <span class="rss-item rss-chapter-left" id="rss-chapter-left" hidden></span>
-    <span class="rss-item rss-pct" id="rss-pct" hidden></span>
   </div>
   <div class="rss-side rss-right">
     <span class="rss-item rss-clock" id="rss-clock" hidden></span>
+    <span class="rss-item rss-pct" id="rss-pct" hidden></span>
   </div>
 </div>
 
 <div class="reader-autoflip-hud" id="reader-autoflip-hud" hidden aria-hidden="true">Авто</div>
 
 $2`,
+    );
+  }
+
+  if (!out.includes('id="reader-hud-flash"')) {
+    out = out.replace(
+      /(<div class="reader-autoflip-hud" id="reader-autoflip-hud"[^>]*>[\s\S]*?<\/div>)/,
+      `$1\n\n<div class="reader-hud-flash" id="reader-hud-flash" aria-hidden="true"></div>`,
     );
   }
 
@@ -494,6 +517,14 @@ $2`,
 
 html = extendReaderSettingsHtml(html);
 html = injectAlReaderChrome(html);
+
+// Полноэкранный wallpaper underlay (Android WebView; создаётся и из reader.js)
+if (!html.includes('id="reader-wallpaper"')) {
+  html = html.replace(
+    /<body([^>]*)>/i,
+    '<body$1>\n<div id="reader-wallpaper" aria-hidden="true"></div>',
+  );
+}
 
 // Strip any remaining template expressions
 html = html.replace(/\$\{[^}]+\}/g, '');

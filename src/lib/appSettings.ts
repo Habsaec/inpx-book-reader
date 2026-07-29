@@ -20,6 +20,8 @@ export const APP_SETTING_KEYS = {
   serverThemeCache: 'server_theme_cache',
   safeArea: 'safe_area',
   settingsMigrated: 'settings_migrated_v1',
+  onboardingDone: 'onboarding_done',
+  einkMode: 'eink_mode',
 } as const;
 
 /** Legacy localStorage keys → app_meta key */

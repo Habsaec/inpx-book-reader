@@ -15,6 +15,9 @@ export interface CatalogBookPoolInput {
   selectedSubgenre: { parent: string; name: string } | null;
   minRating: number;
   formatFilter: 'all' | 'fb2' | 'epub' | 'txt';
+  genreFilter?: string | string[];
+  yearFilter?: number;
+  hasSeriesFilter?: 'any' | 'yes' | 'no';
   sortBy: 'rating' | 'downloads' | 'title' | 'year' | 'size';
   booksList: Book[];
   facetBooks: Book[];
@@ -24,7 +27,10 @@ export interface CatalogBookPoolInput {
   seriesSortBy: 'rating' | 'count' | 'name';
   serverAuthors: Array<{ key: string; label: string; bookCount: number }>;
   serverSeries: Array<{ key: string; label: string; bookCount: number }>;
-  serverGenreGroups: Array<{ groupName: string; items: Array<{ name: string; bookCount?: number }> }>;
+  serverGenreGroups: Array<{
+    groupName: string;
+    items: Array<{ name: string; bookCount?: number; displayName?: string }>;
+  }>;
 }
 
 export function useCatalogBookPool(input: CatalogBookPoolInput) {
@@ -38,6 +44,9 @@ export function useCatalogBookPool(input: CatalogBookPoolInput) {
     selectedSubgenre,
     minRating,
     formatFilter,
+    genreFilter = '',
+    yearFilter = 0,
+    hasSeriesFilter = 'any',
     sortBy,
     booksList,
     facetBooks,
@@ -86,7 +95,13 @@ export function useCatalogBookPool(input: CatalogBookPoolInput) {
         subgenres: Object.fromEntries(
           g.items.map((item) => [
             item.name,
-            { name: item.name, count: item.bookCount || 0, avgRating: 4.5, books: [] as Book[] },
+            {
+              // ключ Record — код жанра для /api/facet-books; name — подпись
+              name: item.displayName?.trim() || item.name,
+              count: item.bookCount || 0,
+              avgRating: 4.5,
+              books: [] as Book[],
+            },
           ]),
         ),
       }))
@@ -103,6 +118,9 @@ export function useCatalogBookPool(input: CatalogBookPoolInput) {
       selectedSubgenre,
       minRating,
       formatFilter,
+      genreFilter,
+      yearFilter,
+      hasSeriesFilter,
       sortBy,
       booksList,
       facetBooks,
@@ -119,6 +137,9 @@ export function useCatalogBookPool(input: CatalogBookPoolInput) {
       selectedSubgenre,
       minRating,
       formatFilter,
+      genreFilter,
+      yearFilter,
+      hasSeriesFilter,
       sortBy,
       booksList,
       facetBooks,

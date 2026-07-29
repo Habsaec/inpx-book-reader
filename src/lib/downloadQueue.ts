@@ -37,7 +37,8 @@ class DownloadQueueManager {
   private cancelledIds = new Set<string>();
   private serverConfig: ServerConfig | null = null;
   private storageDirectory: StorageDirectory | null = null;
-  private onComplete: ((book: Book, content: string, buffer: ArrayBuffer) => Promise<void>) | null = null;
+  private onComplete: ((book: Book, content: string, buffer: ArrayBuffer) => Promise<Book | void>) | null = null;
+  private onSaved: ((book: Book) => void) | null = null;
   private canDownload = false;
 
   async hydrate(): Promise<void> {
@@ -53,6 +54,8 @@ class DownloadQueueManager {
     } catch {
       /* ignore */
     }
+    this.notify();
+    this.pumpQueue();
   }
 
   private persist(): void {
@@ -73,12 +76,14 @@ class DownloadQueueManager {
     serverConfig: ServerConfig;
     storageDirectory: StorageDirectory | null;
     canDownload: boolean;
-    onComplete: (book: Book, content: string, buffer: ArrayBuffer) => Promise<void>;
+    onComplete: (book: Book, content: string, buffer: ArrayBuffer) => Promise<Book | void>;
+    onSaved?: (book: Book) => void;
   }): void {
     this.serverConfig = opts.serverConfig;
     this.storageDirectory = opts.storageDirectory;
     this.canDownload = opts.canDownload;
     this.onComplete = opts.onComplete;
+    this.onSaved = opts.onSaved ?? null;
     if (opts.canDownload && opts.storageDirectory?.uri) {
       this.pumpQueue();
     }
@@ -101,14 +106,17 @@ class DownloadQueueManager {
     if (this.jobs.some((j) => j.id === book.id && (j.status === 'queued' || j.status === 'downloading' || j.status === 'saving'))) {
       return;
     }
-    if (this.jobs.some((j) => j.id === book.id && j.status === 'saved')) {
-      return;
-    }
+    // Drop finished markers so re-download works after file was removed externally
+    // or local meta was cleared. Active jobs already returned above.
+    this.jobs = this.jobs.filter(
+      (j) => j.id !== book.id || (j.status !== 'saved' && j.status !== 'error' && j.status !== 'cancelled'),
+    );
     const existing = this.jobs.find((j) => j.id === book.id);
     if (existing) {
       existing.status = 'queued';
       existing.error = null;
       existing.progress = 0;
+      existing.book = book;
     } else {
       this.jobs.push({
         id: book.id,
@@ -195,7 +203,7 @@ class DownloadQueueManager {
       this.persist();
 
       const chaptersJson = await buildChaptersJson(enriched, buffer);
-      await this.onComplete!(enriched, chaptersJson, buffer);
+      const savedBook = await this.onComplete!(enriched, chaptersJson, buffer);
 
       if (this.canDownload && this.storageDirectory?.uri) {
         void cacheCoverFromServer(this.storageDirectory, this.serverConfig!, enriched.id);
@@ -204,6 +212,17 @@ class DownloadQueueManager {
       next.status = 'saved';
       next.progress = 100;
       next.finishedAt = Date.now();
+      try {
+        // Prefer the persisted record (has localFileName/storageUri) — React state may not
+        // have flushed yet when the user taps «Открыть» on the snackbar.
+        const openBook =
+          savedBook && typeof savedBook === 'object' && 'id' in savedBook
+            ? (savedBook as Book)
+            : enriched;
+        this.onSaved?.(openBook);
+      } catch {
+        /* ignore UI callback errors */
+      }
     } catch (err) {
       if (this.cancelledIds.has(next.id)) {
         next.status = 'cancelled';

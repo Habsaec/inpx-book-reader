@@ -90,16 +90,16 @@ export default function CatalogDrilldownPanel({
 
   return (
     <>
-      <div className={`border rounded-xl p-3 mb-3.5 flex items-center justify-between shadow-xs ${theme.cardSecondary}`}>
+      <div className={`mb-3.5 flex items-center justify-between gap-3 pb-3 border-b ${theme.divider}`}>
         <div className="min-w-0">
           <button
             type="button"
             onClick={onDrillDownBack}
-            className={`flex items-center gap-1 text-xs font-bold mb-1 hover:underline cursor-pointer ${theme.accentText}`}
+            className={`flex items-center gap-1 min-h-12 px-1 ${textStyles.caption} mb-1 ${theme.accentText} ${theme.focusRing}`}
           >
             <ArrowLeft className="w-3.5 h-3.5" aria-hidden /> Назад
           </button>
-          <h2 className={`${textStyles.microCaps} ${theme.textMuted}`}>
+          <h2 className={`${textStyles.caption} ${theme.textMuted}`}>
             {authorOutsideSeries ? 'Вне серий' : selectedAuthor && !selectedSeries ? 'Автор' : selectedSeries ? 'Серия' : 'Жанр'}
           </h2>
           <p className={`${textStyles.bookTitle} truncate mt-0.5`}>
@@ -112,19 +112,16 @@ export default function CatalogDrilldownPanel({
                   : selectedSeries || (selectedSubgenre && `${selectedSubgenre.parent} » ${selectedSubgenre.name}`)}
           </p>
         </div>
-
-        <div className={`shrink-0 text-right ${textStyles.micro} px-2 py-1 rounded-lg border ${theme.chip} border-[color:var(--app-border)]`}>
-          <div>
-            Книг: <span className="font-bold">{bookCount}</span>
-          </div>
-        </div>
+        <p className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
+          {bookCount} кн.
+        </p>
       </div>
 
       {selectedAuthor && !selectedSeries && !authorOutsideSeries && (
         <motion.div
           initial={{ opacity: 0, y: 5 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`border rounded-2xl p-4 mb-3.5 landscape:max-[500px]:p-2.5 landscape:max-[500px]:mb-2 ${theme.cardSecondary}`}
+          className="mb-3.5 landscape:max-[500px]:mb-2"
         >
           <div className="flex justify-between items-start gap-3">
             <div className="flex gap-3 items-start min-w-0">
@@ -154,14 +151,14 @@ export default function CatalogDrilldownPanel({
             <button
               type="button"
               onClick={() => onToggleFavoriteAuthor(selectedAuthor)}
-              className={`min-h-12 px-3 rounded-xl border flex items-center gap-1 ${textStyles.micro} font-bold cursor-pointer transition-all shrink-0 ${theme.focusRing} ${
+              aria-label={favoriteAuthors.includes(selectedAuthor) ? 'Убрать из избранного' : 'В избранное'}
+              className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${
                 favoriteAuthors.includes(selectedAuthor)
-                  ? 'bg-[color-mix(in_srgb,var(--app-danger)_12%,transparent)] border-[var(--app-danger)] text-[var(--app-danger)]'
-                  : `${theme.input} ${theme.textMuted} hover:text-[var(--app-text)]`
+                  ? 'text-[var(--app-danger)]'
+                  : theme.textMuted
               }`}
             >
-              <Heart className={`w-3.5 h-3.5 ${favoriteAuthors.includes(selectedAuthor) ? 'fill-[var(--app-danger)]' : ''}`} aria-hidden />
-              {favoriteAuthors.includes(selectedAuthor) ? 'В избранном' : 'В избранное'}
+              <Heart className={`w-5 h-5 ${favoriteAuthors.includes(selectedAuthor) ? 'fill-[var(--app-danger)]' : ''}`} aria-hidden />
             </button>
           </div>
 
@@ -182,29 +179,29 @@ export default function CatalogDrilldownPanel({
         <motion.div
           initial={{ opacity: 0, y: 5 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`border rounded-2xl p-4 mb-3.5 flex justify-between items-center ${theme.cardSecondary}`}
+          className="mb-3.5 flex justify-between items-center gap-3"
         >
-          <div className="flex gap-3 items-center">
-            <div className={`w-11 h-11 rounded-xl flex items-center justify-center border shrink-0 ${theme.avatarBg}`}>
+          <div className="flex gap-3 items-center min-w-0">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${theme.avatarBg}`}>
               <Layers3 className={`w-5 h-5 ${theme.accentText}`} aria-hidden />
             </div>
-            <div>
-              <h3 className="text-sm font-black">{selectedSeries}</h3>
-              <p className={`${textStyles.micro} ${theme.textMuted}`}>Цикл произведений</p>
+            <div className="min-w-0">
+              <h3 className={`${textStyles.bookTitle} truncate`}>{selectedSeries}</h3>
+              <p className={`${textStyles.caption} ${theme.textMuted}`}>Серия</p>
             </div>
           </div>
 
           <button
             type="button"
             onClick={() => onToggleFavoriteSeries(selectedSeries)}
-            className={`min-h-12 px-3 rounded-xl border flex items-center gap-1 ${textStyles.micro} font-bold cursor-pointer transition-all ${theme.focusRing} ${
+            aria-label={favoriteSeries.includes(selectedSeries) ? 'Убрать серию из избранного' : 'В избранное'}
+            className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${
               favoriteSeries.includes(selectedSeries)
-                ? 'bg-[color-mix(in_srgb,var(--app-warning)_15%,transparent)] border-[var(--app-warning)] text-[var(--app-warning)]'
-                : `${theme.input} ${theme.textMuted} hover:text-[var(--app-text)]`
+                ? 'text-[var(--app-warning)]'
+                : theme.textMuted
             }`}
           >
-            <Star className={`w-3.5 h-3.5 ${favoriteSeries.includes(selectedSeries) ? 'fill-[var(--app-warning)]' : ''}`} aria-hidden />
-            {favoriteSeries.includes(selectedSeries) ? 'Избранная серия' : 'В избранное'}
+            <Star className={`w-5 h-5 ${favoriteSeries.includes(selectedSeries) ? 'fill-[var(--app-warning)]' : ''}`} aria-hidden />
           </button>
         </motion.div>
       )}

@@ -45,6 +45,39 @@ export function BookListSkeleton({ count = 5 }: { count?: number }) {
   );
 }
 
+export function BookGridSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" aria-hidden>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="space-y-2">
+          <Skeleton className="w-full aspect-[2/3]" />
+          <Skeleton variant="text" className="max-w-[90%]" />
+          <Skeleton variant="text" className="max-w-[55%] h-3" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function BookShelfSkeleton({
+  count = 5,
+  tileWidthPx = 110,
+}: {
+  count?: number;
+  tileWidthPx?: number;
+}) {
+  return (
+    <div className="flex gap-3 overflow-hidden" aria-hidden>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="shrink-0 space-y-2" style={{ width: tileWidthPx }}>
+          <Skeleton className="w-full aspect-[2/3]" />
+          <Skeleton variant="text" className="max-w-full h-3" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function TextBlockSkeleton({ lines = 3 }: { lines?: number }) {
   return (
     <div className="space-y-2 py-2" aria-hidden>

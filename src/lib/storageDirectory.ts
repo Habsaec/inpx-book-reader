@@ -110,3 +110,24 @@ export function isDefaultStorageDirectory(directory: StorageDirectory | null | u
     directory.uri?.startsWith('downloads://') === true
   );
 }
+
+/** SAF tree for Download/INPXLibraryReader → virtual downloads:// URI (MediaStore + disk). */
+export function normalizeStorageDirectory(directory: StorageDirectory | null | undefined): StorageDirectory | null {
+  if (!isValidStorageDirectory(directory)) return directory ?? null;
+  const uri = directory.uri;
+  if (!uri.startsWith('content://')) return directory;
+  try {
+    const decoded = decodeURIComponent(uri);
+    if (
+      /primary:Download\/INPXLibraryReader(?:\/)?$/i.test(decoded)
+      || /tree\/primary:Download\/INPXLibraryReader/i.test(decoded)
+      || decoded.includes('primary%3ADownload%2FINPXLibraryReader')
+      || decoded.includes('primary:Download/INPXLibraryReader')
+    ) {
+      return { label: DEFAULT_STORAGE_LABEL, uri: DEFAULT_STORAGE_URI };
+    }
+  } catch {
+    /* keep original */
+  }
+  return directory;
+}

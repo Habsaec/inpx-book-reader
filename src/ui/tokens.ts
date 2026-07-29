@@ -23,8 +23,8 @@ export const textStyles = {
   bookTitle: 'font-serif text-base font-semibold leading-snug',
   /** Serif — hero «Продолжить чтение» */
   bookTitleHero: 'font-serif text-2xl font-bold leading-tight',
-  /** Заголовки секций (Недавно, Новинки…) */
-  sectionLabel: 'text-xs font-bold uppercase tracking-wider leading-snug',
+  /** Заголовки секций (Недавно, Новинки…) — спокойнее, без caps-крика */
+  sectionLabel: 'text-sm font-semibold leading-snug',
   /** Числа в статистике профиля */
   statNumber: 'font-serif text-2xl font-bold leading-tight tabular-nums',
 } as const;

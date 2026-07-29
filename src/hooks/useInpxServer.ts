@@ -4,6 +4,8 @@ import {
   InpxProfile,
   InpxBookItem,
   ServerShelf,
+  FavoriteAuthorItem,
+  FavoriteSeriesItem,
   fetchProfile,
   fetchFavorites,
   fetchBookmarkedBooks,
@@ -86,6 +88,8 @@ export function useInpxServer(
   const [readingProgress, setReadingProgress] = React.useState<Map<string, number>>(() => new Map());
   const [favoriteAuthors, setFavoriteAuthors] = React.useState<string[]>([]);
   const [favoriteSeries, setFavoriteSeries] = React.useState<string[]>([]);
+  const [favoriteAuthorItems, setFavoriteAuthorItems] = React.useState<FavoriteAuthorItem[]>([]);
+  const [favoriteSeriesItems, setFavoriteSeriesItems] = React.useState<FavoriteSeriesItem[]>([]);
   const [shelves, setShelves] = React.useState<ServerShelf[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -100,27 +104,59 @@ export function useInpxServer(
     setLoading(true);
     setError('');
     setSyncStatus('syncing');
-    
+
     const requestId = ++refreshRequestId.current;
-    
+    const isCurrent = () => requestId === refreshRequestId.current;
+
+    /** Fast path: unlock Home/UI — profile + favs + shelves (no paginated ID dumps). */
+    let prof: InpxProfile;
     try {
-      const [prof, favs, shelfList, bmIds, rdIds, progressMap, activityMeta] = await Promise.all([
+      const [profileRes, favs, shelfList, activityMeta] = await Promise.all([
         fetchProfile(config),
         fetchFavorites(config),
         fetchShelves(config),
-        loadAllIds(config, (p) => fetchBookmarkedBooks(config, p, 24)),
-        loadAllIds(config, (p) => fetchLibraryView(config, 'read', p, 24)),
-        loadReadingProgressMap(config),
         fetchReaderActivitySyncMeta(config),
       ]);
-      
-      // Обновляем состояние только если это последний запущенный запрос
-      if (requestId !== refreshRequestId.current) return;
-      
+      if (!isCurrent()) return;
+
+      prof = profileRes;
       setProfile(prof);
+      setFavoriteAuthorItems(favs.authors);
+      setFavoriteSeriesItems(favs.series);
       setFavoriteAuthors(favs.authors.map((a) => a.name));
       setFavoriteSeries(favs.series.map((s) => s.name));
       setShelves(shelfList);
+
+      const quickProgress = new Map<string, number>();
+      prof.recentBooks.forEach((book) => {
+        const progress = Math.round(Number(book.readProgress) || 0);
+        if (progress > 0) quickProgress.set(book.id, progress);
+      });
+      setReadingProgress(quickProgress);
+
+      if (activityMeta) applyServerActivitySyncMeta(activityMeta);
+      setLoading(false);
+    } catch (err: unknown) {
+      if (!isCurrent()) return;
+      if (isUnreachableServerError(err)) {
+        onConnectionLostRef.current?.();
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      setSyncStatus('error');
+      setLoading(false);
+      return;
+    }
+
+    /** Slow path: full bookmark/read/progress ID maps (can be many pages). */
+    try {
+      const [bmIds, rdIds, progressMap] = await Promise.all([
+        loadAllIds(config, (p) => fetchBookmarkedBooks(config, p, 24)),
+        loadAllIds(config, (p) => fetchLibraryView(config, 'read', p, 24)),
+        loadReadingProgressMap(config),
+      ]);
+      if (!isCurrent()) return;
+
       setBookmarkIds(bmIds);
       setReadIds(rdIds);
       const mergedProgress = new Map(progressMap);
@@ -132,25 +168,16 @@ export function useInpxServer(
         if (!mergedProgress.has(id)) mergedProgress.set(id, 100);
       });
       setReadingProgress(mergedProgress);
-      if (activityMeta) applyServerActivitySyncMeta(activityMeta);
-      const timeStr = new Date().toLocaleTimeString('ru-RU');
-      setLastSynced(timeStr);
+      setLastSynced(new Date().toLocaleTimeString('ru-RU'));
       setSyncStatus('success');
     } catch (err: unknown) {
-      // Обновляем ошибку только если это актуальный запрос
-      if (requestId !== refreshRequestId.current) return;
-
+      if (!isCurrent()) return;
       if (isUnreachableServerError(err)) {
         onConnectionLostRef.current?.();
       }
-
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
+      // Keep fast-path profile; only mark sync soft-failed.
       setSyncStatus('error');
-    } finally {
-      if (requestId === refreshRequestId.current) {
-        setLoading(false);
-      }
+      setLastSynced(new Date().toLocaleTimeString('ru-RU'));
     }
   }, [config, online]);
 
@@ -163,6 +190,8 @@ export function useInpxServer(
       setReadingProgress(new Map());
       setFavoriteAuthors([]);
       setFavoriteSeries([]);
+      setFavoriteAuthorItems([]);
+      setFavoriteSeriesItems([]);
       setShelves([]);
     }
   }, [online, config.url, config.username, config.password, config.deviceToken, refresh]);
@@ -208,6 +237,11 @@ export function useInpxServer(
     setFavoriteAuthors((prev) =>
       favorite ? (prev.includes(name) ? prev : [...prev, name]) : prev.filter((a) => a !== name)
     );
+    setFavoriteAuthorItems((prev) => {
+      if (!favorite) return prev.filter((a) => a.name !== name);
+      if (prev.some((a) => a.name === name)) return prev;
+      return [...prev, { name, displayName: name }];
+    });
     return favorite;
   }, [config, online]);
 
@@ -217,6 +251,11 @@ export function useInpxServer(
     setFavoriteSeries((prev) =>
       favorite ? (prev.includes(name) ? prev : [...prev, name]) : prev.filter((s) => s !== name)
     );
+    setFavoriteSeriesItems((prev) => {
+      if (!favorite) return prev.filter((s) => s.name !== name);
+      if (prev.some((s) => s.name === name)) return prev;
+      return [...prev, { name, displayName: name }];
+    });
     return favorite;
   }, [config, online]);
 
@@ -242,17 +281,30 @@ export function useInpxServer(
     [config, online]
   );
 
-  const addToShelf = React.useCallback(async (shelfId: number, bookId: string) => {
-    if (!online) return;
-    await addBookToServerShelf(config, shelfId, bookId);
-    await refresh();
-  }, [config, online, refresh]);
-
   const removeFromShelf = React.useCallback(async (shelfId: number, bookId: string) => {
     if (!online) return;
     await removeBookFromServerShelf(config, shelfId, bookId);
-    await refresh();
-  }, [config, online, refresh]);
+    setShelves((prev) =>
+      prev.map((s) => {
+        if (s.id !== shelfId) return s;
+        const nextCount = Math.max(0, (s.bookCount ?? 1) - 1);
+        const preview = (s.previewBookIds || []).filter((id) => id !== bookId);
+        return { ...s, bookCount: nextCount, previewBookIds: preview };
+      }),
+    );
+  }, [config, online]);
+
+  const addToShelf = React.useCallback(async (shelfId: number, bookId: string) => {
+    if (!online) return;
+    await addBookToServerShelf(config, shelfId, bookId);
+    setShelves((prev) =>
+      prev.map((s) => {
+        if (s.id !== shelfId) return s;
+        const preview = [bookId, ...(s.previewBookIds || []).filter((id) => id !== bookId)].slice(0, 4);
+        return { ...s, bookCount: (s.bookCount ?? 0) + 1, previewBookIds: preview };
+      }),
+    );
+  }, [config, online]);
 
   const touchReadingHistory = React.useCallback(
     async (bookId: string) => {
@@ -443,6 +495,8 @@ export function useInpxServer(
     readingProgress,
     favoriteAuthors,
     favoriteSeries,
+    favoriteAuthorItems,
+    favoriteSeriesItems,
     shelves,
     loading,
     error,

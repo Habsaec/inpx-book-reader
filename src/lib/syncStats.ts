@@ -25,26 +25,48 @@ export function syncOpLabel(opType: string): string {
 
 function hasPendingPosition(bookId: string): boolean {
   const data = readOfflineReaderData(bookId);
+  if (data.pendingCrossDevicePrompt) return true;
   if (data.positionDirty) return true;
   const base = data.baseRevision ?? 0;
   const server = data.serverRevision ?? 0;
-  if (base < server) return true;
-  if (!data.positionChangedAt) return false;
-  if (!data.serverPositionUpdatedAt) return true;
-  return data.positionChangedAt > data.serverPositionUpdatedAt;
+  if (server > base && data.dismissedServerRevision !== server) return true;
+  return false;
 }
 
 function hasPendingBookmarks(bookId: string): boolean {
   const data = readOfflineReaderData(bookId);
   if (!data.bookmarksChangedAt) return false;
-  if (!data.serverBookmarksRev) return data.bookmarks.length > 0 || (data.deletedBookmarkPositions?.length ?? 0) > 0;
+  const deletes = data.deletedBookmarkPositions?.length ?? 0;
+  if (!data.serverBookmarksRev) {
+    return data.bookmarks.length > 0 || deletes > 0;
+  }
+  // После sync счётки совпали, а rev на клиенте мог остаться «грязным» (EPOCH vs ISO).
+  if (
+    deletes === 0
+    && data.serverBookmarkCount != null
+    && data.serverBookmarkCount >= 0
+    && data.serverBookmarkCount === data.bookmarks.length
+  ) {
+    return false;
+  }
   return data.bookmarksChangedAt > data.serverBookmarksRev;
 }
 
 function hasPendingAnnotations(bookId: string): boolean {
   const data = readOfflineReaderData(bookId);
   if (!data.annotationsChangedAt) return false;
-  if (!data.serverAnnotationsRev) return data.annotations.length > 0 || (data.deletedAnnotationCfis?.length ?? 0) > 0;
+  const deletes = data.deletedAnnotationCfis?.length ?? 0;
+  if (!data.serverAnnotationsRev) {
+    return data.annotations.length > 0 || deletes > 0;
+  }
+  if (
+    deletes === 0
+    && data.serverAnnotationCount != null
+    && data.serverAnnotationCount >= 0
+    && data.serverAnnotationCount === data.annotations.length
+  ) {
+    return false;
+  }
   return data.annotationsChangedAt > data.serverAnnotationsRev;
 }
 

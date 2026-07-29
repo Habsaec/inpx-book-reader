@@ -64,6 +64,8 @@ export type LocalRecentReadingItem = {
   lastOpenedAt: string;
   series?: string;
   seriesNo?: number;
+  /** Library rating 1–5 from INPX `libRate` when known. */
+  rating?: number;
 };
 
 export function buildLocalRecentReading(books: Book[]): LocalRecentReadingItem[] {
@@ -72,6 +74,7 @@ export function buildLocalRecentReading(books: Book[]): LocalRecentReadingItem[]
       const data = readOfflineReaderData(book.id);
       const progress = Math.round(data.progress);
       if (progress <= 0 || !(data.positionChangedAt || data.updatedAt)) return null;
+      const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));
       const item: LocalRecentReadingItem = {
         id: book.id,
         title: book.title,
@@ -81,6 +84,7 @@ export function buildLocalRecentReading(books: Book[]): LocalRecentReadingItem[]
         lastOpenedAt: data.positionChangedAt || data.updatedAt || '',
         series: book.series,
         seriesNo: book.seriesNo,
+        ...(rating > 0 ? { rating } : {}),
       };
       return item;
     })
@@ -107,12 +111,15 @@ export function mergeRecentReadingLists(
     const localTs = Date.parse(local.lastOpenedAt);
     const serverTs = Date.parse(existing.lastOpenedAt);
     const useLocal = Number.isFinite(localTs) && (!Number.isFinite(serverTs) || localTs >= serverTs);
-    byId.set(local.id, {
+    const merged: LocalRecentReadingItem = {
       ...existing,
       ...(useLocal ? local : {}),
       readProgress: useLocal ? local.readProgress : existing.readProgress,
       lastOpenedAt: useLocal ? local.lastOpenedAt : existing.lastOpenedAt,
-    });
+    };
+    const rating = existing.rating || local.rating;
+    if (rating && rating > 0) merged.rating = rating;
+    byId.set(local.id, merged);
   }
 
   return [...byId.values()].sort((a, b) => Date.parse(b.lastOpenedAt) - Date.parse(a.lastOpenedAt));

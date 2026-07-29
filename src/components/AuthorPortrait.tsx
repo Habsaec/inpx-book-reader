@@ -1,9 +1,10 @@
 import React from 'react';
 import { User } from 'lucide-react';
 import { ServerConfig } from '../types';
-import { fetchAuthorPortraitBlob } from '../lib/inpxClient';
+import { fetchAuthorPortraitBlob, fetchCoverBlob } from '../lib/inpxClient';
 
 const portraitCache = new Map<string, string>();
+const coverFallbackCache = new Map<string, string>();
 
 function authorInitials(name: string): string {
   const parts = name.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
@@ -17,6 +18,28 @@ interface AuthorPortraitProps {
   serverConfig: ServerConfig;
   className?: string;
   size?: number;
+  /** Fallback: cover of most popular book (server favorites parity). */
+  coverBookId?: string | null;
+}
+
+function AvatarFrame({
+  size,
+  className,
+  children,
+}: {
+  size: number;
+  className: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className={`relative inline-block shrink-0 overflow-hidden rounded-full border bg-[var(--app-panel-soft)] ${className}`}
+      style={{ width: size, height: size, minWidth: size, minHeight: size, maxWidth: size, maxHeight: size }}
+      aria-hidden
+    >
+      {children}
+    </span>
+  );
 }
 
 export default function AuthorPortrait({
@@ -24,27 +47,33 @@ export default function AuthorPortrait({
   serverConfig,
   className = '',
   size = 48,
+  coverBookId,
 }: AuthorPortraitProps) {
+  const coverId = coverBookId != null && String(coverBookId).trim() ? String(coverBookId) : '';
   const [src, setSrc] = React.useState<string | null>(() => portraitCache.get(authorName) ?? null);
-  const [failed, setFailed] = React.useState(false);
+  const [coverSrc, setCoverSrc] = React.useState<string | null>(() =>
+    coverId ? coverFallbackCache.get(coverId) ?? null : null,
+  );
+  const [portraitFailed, setPortraitFailed] = React.useState(false);
+  const [coverFailed, setCoverFailed] = React.useState(false);
 
   React.useEffect(() => {
     const cached = portraitCache.get(authorName);
     if (cached) {
       setSrc(cached);
-      setFailed(false);
+      setPortraitFailed(false);
       return;
     }
 
     let cancelled = false;
-    setFailed(false);
+    setPortraitFailed(false);
     setSrc(null);
 
     fetchAuthorPortraitBlob(serverConfig, authorName)
       .then((blob) => {
         if (cancelled) return;
-        if (!blob) {
-          setFailed(true);
+        if (!blob || blob.size < 32) {
+          setPortraitFailed(true);
           return;
         }
         const url = URL.createObjectURL(blob);
@@ -52,33 +81,93 @@ export default function AuthorPortrait({
         setSrc(url);
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) setPortraitFailed(true);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [authorName, serverConfig.url, serverConfig.username, serverConfig.password]);
+  }, [authorName, serverConfig.url, serverConfig.username, serverConfig.password, serverConfig.deviceToken]);
 
-  if (src && !failed) {
+  React.useEffect(() => {
+    if (!portraitFailed || !coverId) {
+      setCoverSrc(coverId ? coverFallbackCache.get(coverId) ?? null : null);
+      setCoverFailed(false);
+      return;
+    }
+
+    const cached = coverFallbackCache.get(coverId);
+    if (cached) {
+      setCoverSrc(cached);
+      setCoverFailed(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCoverFailed(false);
+    setCoverSrc(null);
+
+    fetchCoverBlob(serverConfig, coverId, 'thumb')
+      .then((blob) => {
+        if (cancelled) return;
+        if (!blob || blob.size < 32) {
+          setCoverFailed(true);
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        coverFallbackCache.set(coverId, url);
+        setCoverSrc(url);
+      })
+      .catch(() => {
+        if (!cancelled) setCoverFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    portraitFailed,
+    coverId,
+    serverConfig.url,
+    serverConfig.username,
+    serverConfig.password,
+    serverConfig.deviceToken,
+  ]);
+
+  if (src && !portraitFailed) {
     return (
-      <img
-        src={src}
-        alt=""
-        width={size}
-        height={size}
-        className={`rounded-full object-cover border shrink-0 bg-[var(--app-panel-soft)] ${className}`}
-      />
+      <AvatarFrame size={size} className={className}>
+        <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+      </AvatarFrame>
+    );
+  }
+
+  if (portraitFailed && coverSrc && !coverFailed) {
+    return (
+      <AvatarFrame size={size} className={className}>
+        <img
+          src={coverSrc}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          draggable={false}
+          onError={() => setCoverFailed(true)}
+        />
+      </AvatarFrame>
     );
   }
 
   return (
-    <div
-      className={`rounded-full border shrink-0 flex items-center justify-center font-black text-[var(--app-text-muted)] bg-[var(--app-panel-soft)] ${className}`}
-      style={{ width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.28)) }}
-      aria-hidden
-    >
-      {failed ? <User style={{ width: size * 0.45, height: size * 0.45 }} className="opacity-60" /> : authorInitials(authorName)}
-    </div>
+    <AvatarFrame size={size} className={className}>
+      <span
+        className="absolute inset-0 flex items-center justify-center font-semibold text-[var(--app-muted)]"
+        style={{ fontSize: Math.max(10, Math.round(size * 0.28)) }}
+      >
+        {portraitFailed ? (
+          <User style={{ width: size * 0.45, height: size * 0.45 }} className="opacity-60" />
+        ) : (
+          authorInitials(authorName)
+        )}
+      </span>
+    </AvatarFrame>
   );
 }

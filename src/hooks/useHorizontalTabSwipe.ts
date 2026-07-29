@@ -2,6 +2,7 @@ import React from 'react';
 
 interface SwipeHandlers {
   onTouchStart: (e: React.TouchEvent) => void;
+  onTouchMove: (e: React.TouchEvent) => void;
   onTouchEnd: (e: React.TouchEvent) => void;
 }
 
@@ -13,7 +14,7 @@ interface Options {
 
 /**
  * Горизонтальный свайп для переключения вкладок.
- * Не срабатывает внутри элементов с data-swipe-lock или при вертикальной прокрутке.
+ * Не срабатывает внутри [data-swipe-lock] и при вертикальном жесте (axis lock на touchmove).
  */
 export function useHorizontalTabSwipe<T extends string>(
   tabs: readonly T[],
@@ -25,6 +26,8 @@ export function useHorizontalTabSwipe<T extends string>(
   const startX = React.useRef(0);
   const startY = React.useRef(0);
   const locked = React.useRef(false);
+  /** null = undecided, true = horizontal swipe, false = vertical scroll */
+  const axis = React.useRef<boolean | null>(null);
   const onChangeRef = React.useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -32,12 +35,23 @@ export function useHorizontalTabSwipe<T extends string>(
     if (!enabled) return;
     startX.current = e.touches[0].clientX;
     startY.current = e.touches[0].clientY;
+    axis.current = null;
     const target = e.target as HTMLElement;
     locked.current = !!target.closest('[data-swipe-lock]');
   }, [enabled]);
 
+  const onTouchMove = React.useCallback((e: React.TouchEvent) => {
+    if (!enabled || locked.current || axis.current !== null) return;
+    const dx = Math.abs(e.touches[0].clientX - startX.current);
+    const dy = Math.abs(e.touches[0].clientY - startY.current);
+    if (dx < 10 && dy < 10) return;
+    axis.current = dx > dy;
+    if (!axis.current) locked.current = true;
+  }, [enabled]);
+
   const onTouchEnd = React.useCallback((e: React.TouchEvent) => {
     if (!enabled || locked.current) return;
+    if (axis.current === false) return;
 
     const diffX = e.changedTouches[0].clientX - startX.current;
     const diffY = e.changedTouches[0].clientY - startY.current;
@@ -55,5 +69,5 @@ export function useHorizontalTabSwipe<T extends string>(
     }
   }, [enabled, active, tabs, minDistance, maxVerticalDrift]);
 
-  return { onTouchStart, onTouchEnd };
+  return { onTouchStart, onTouchMove, onTouchEnd };
 }

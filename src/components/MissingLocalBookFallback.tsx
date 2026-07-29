@@ -2,14 +2,15 @@ import React from 'react';
 import { BookDown } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
-import { touchMin } from '../ui/tokens';
+import { touchMin, textStyles } from '../ui/tokens';
 
 type Props = {
   title: string;
   onBack: () => void;
+  onRedownload?: () => void;
 };
 
-export function MissingLocalBookFallback({ title, onBack }: Props) {
+export function MissingLocalBookFallback({ title, onBack, onRedownload }: Props) {
   useOverlayBackHandler(true, onBack);
 
   return (
@@ -28,6 +29,15 @@ export function MissingLocalBookFallback({ title, onBack }: Props) {
         <p className={`m-0 text-sm max-w-xs leading-relaxed ${theme.textMuted}`}>
           Локальный файл не найден. Проверьте папку хранения в профиле или скачайте книгу заново из каталога.
         </p>
+        {onRedownload && (
+          <button
+            type="button"
+            onClick={onRedownload}
+            className={`${touchMin} px-4 rounded-xl ${textStyles.bodyBold} ${theme.accentBg} ${theme.focusRing}`}
+          >
+            Скачать заново
+          </button>
+        )}
       </div>
     </div>
   );

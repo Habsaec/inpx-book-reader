@@ -29,6 +29,7 @@ function localRecentToBook(item: LocalRecentReadingItem, config: ServerConfig): 
     contentUrl: `${config.url}/api/books/${item.id}/content`,
     coverUrl: `${config.url}/api/books/${item.id}/cover-thumb`,
     readProgress: item.readProgress,
+    ...(item.rating && item.rating > 0 ? { rating: item.rating } : {}),
   };
 }
 

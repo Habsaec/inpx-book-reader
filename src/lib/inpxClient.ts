@@ -1,10 +1,10 @@
 /**
  * INPX REST API клиент для мобильной читалки.
- * 
+ *
  * 📱 Только Android:
  * - В браузере (dev) — запросы через /api/proxy (server.ts)
  * - В APK (production) — напрямую через CapacitorHttp
- * 
+ *
  * @see AGENTS.md — архитектура проекта
  */
 
@@ -43,6 +43,7 @@ export interface InpxProfile {
     lastOpenedAt?: string;
     openCount?: number;
     readProgress?: number;
+    libRate?: number;
   }>;
   readerBookmarks: Array<{
     id: number;
@@ -102,17 +103,22 @@ export function normalizeBaseUrl(url: string): string {
 }
 
 export function authHeader(config: ServerConfig): Record<string, string> {
+  // Явный логин/пароль важнее device token: иначе при повторном вводе пароля
+  // устаревший Bearer перекрывает Basic и сервер отвечает 401 «неверный пароль».
+  const username = config.username?.trim();
+  if (username && config.password) {
+    const credentials = `${username}:${config.password}`;
+    const encoded = new TextEncoder().encode(credentials);
+    const token = arrayBufferToBase64(
+      encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength),
+    );
+    return { Authorization: `Basic ${token}` };
+  }
   const deviceToken = config.deviceToken?.trim();
   if (deviceToken) {
     return { Authorization: `Bearer ${deviceToken}` };
   }
-  if (!config.username || !config.password) return {};
-  const credentials = `${config.username}:${config.password}`;
-  const encoded = new TextEncoder().encode(credentials);
-  const token = arrayBufferToBase64(
-    encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength),
-  );
-  return { Authorization: `Basic ${token}` };
+  return {};
 }
 
 /** В браузере — через Node-прокси; в APK — напрямую (CapacitorHttp). */
@@ -234,6 +240,12 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
 
     const profileRes = await apiFetchWithTimeout(config, '/api/profile');
     if (profileRes.status === 401) {
+      if (config.deviceToken?.trim() && !config.password) {
+        return {
+          ok: false,
+          error: 'Сессия устройства устарела. Введите логин и пароль заново.',
+        };
+      }
       return { ok: false, error: 'Неверный логин или пароль' };
     }
     if (!profileRes.ok) {
@@ -290,11 +302,53 @@ export async function fetchProfile(config: ServerConfig): Promise<InpxProfile> {
   return apiJson(config, '/api/profile');
 }
 
+export interface FavoriteAuthorItem {
+  name: string;
+  displayName?: string;
+  bookCount?: number;
+  coverBookId?: string | null;
+}
+
+export interface FavoriteSeriesItem {
+  name: string;
+  displayName?: string;
+  bookCount?: number;
+  previewBookIds?: string[];
+}
+
+function normalizePreviewBookIds(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map(String).map((s) => s.trim()).filter(Boolean);
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw.split('|').map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 export async function fetchFavorites(config: ServerConfig): Promise<{
-  authors: Array<{ name: string; displayName?: string; bookCount?: number }>;
-  series: Array<{ name: string; displayName?: string; bookCount?: number }>;
+  authors: FavoriteAuthorItem[];
+  series: FavoriteSeriesItem[];
 }> {
-  return apiJson(config, '/api/favorites');
+  const data = await apiJson<{
+    authors?: FavoriteAuthorItem[];
+    series?: FavoriteSeriesItem[];
+  }>(config, '/api/favorites');
+  return {
+    authors: (data.authors ?? []).map((a) => ({
+      name: String(a.name ?? ''),
+      displayName: a.displayName != null ? String(a.displayName) : undefined,
+      bookCount: a.bookCount != null ? Number(a.bookCount) : undefined,
+      coverBookId:
+        a.coverBookId != null && String(a.coverBookId).trim() !== ''
+          ? String(a.coverBookId)
+          : null,
+    })).filter((a) => a.name),
+    series: (data.series ?? []).map((s) => ({
+      name: String(s.name ?? ''),
+      displayName: s.displayName != null ? String(s.displayName) : undefined,
+      bookCount: s.bookCount != null ? Number(s.bookCount) : undefined,
+      previewBookIds: normalizePreviewBookIds(s.previewBookIds),
+    })).filter((s) => s.name),
+  };
 }
 
 export async function fetchBookmarkedBooks(config: ServerConfig, page = 1, pageSize = 24): Promise<Paginated<InpxBookItem>> {
@@ -339,7 +393,14 @@ export interface ServerShelf {
 }
 
 export async function fetchShelves(config: ServerConfig): Promise<ServerShelf[]> {
-  return apiJson(config, '/api/shelves');
+  const rows = await apiJson<ServerShelf[]>(config, '/api/shelves');
+  return (Array.isArray(rows) ? rows : []).map((s) => ({
+    ...s,
+    id: Number(s.id),
+    name: String(s.name ?? ''),
+    bookCount: s.bookCount != null ? Number(s.bookCount) : undefined,
+    previewBookIds: normalizePreviewBookIds(s.previewBookIds).slice(0, 4),
+  })).filter((s) => s.name && Number.isFinite(s.id));
 }
 
 export async function createServerShelf(config: ServerConfig, name: string, description = ''): Promise<number> {
@@ -664,29 +725,66 @@ export async function searchCatalog(
     field: CatalogField;
     sort?: string;
     order?: string;
-    genre?: string;
+    /** Single code, CSV, or list — multiple genres are OR-combined (at least one match). */
+    genre?: string | string[];
     letter?: string;
     lang?: string;
     format?: string;
     year?: number;
+    /** Minimum libRate 1–5. */
+    minRate?: number;
+    /** `1` = book is in a series, `0` = standalone, omit = any. */
+    hasSeries?: 0 | 1 | boolean;
     page?: number;
     pageSize?: number;
   }
 ): Promise<CatalogSearchResult> {
-  const params = new URLSearchParams({
-    q: opts.q,
-    field: opts.field,
-    page: String(opts.page ?? 1),
-    pageSize: String(opts.pageSize ?? 24),
-    sort: opts.sort ?? (opts.field === 'books' ? 'title' : 'name'),
-  });
-  if (opts.order) params.set('order', opts.order);
-  if (opts.genre) params.set('genre', opts.genre);
-  if (opts.letter) params.set('letter', opts.letter);
-  if (opts.lang) params.set('lang', opts.lang);
-  if (opts.format) params.set('format', opts.format);
-  if (opts.year) params.set('year', String(opts.year));
-  return apiJson(config, `/api/catalog?${params}`);
+  const buildParams = (q: string) => {
+    const params = new URLSearchParams({
+      q,
+      field: opts.field,
+      page: String(opts.page ?? 1),
+      pageSize: String(opts.pageSize ?? 24),
+      sort: opts.sort ?? (opts.field === 'books' ? 'title' : 'name'),
+    });
+    if (opts.order) params.set('order', opts.order);
+    if (opts.genre != null) {
+      const genres = Array.isArray(opts.genre) ? opts.genre : [opts.genre];
+      for (const g of genres) {
+        const code = String(g || '').trim();
+        if (code) params.append('genre', code);
+      }
+    }
+    if (opts.letter) params.set('letter', opts.letter);
+    if (opts.lang) params.set('lang', opts.lang);
+    if (opts.format) params.set('format', opts.format);
+    if (opts.year) params.set('year', String(opts.year));
+    if (opts.minRate != null && opts.minRate >= 1) params.set('minRate', String(Math.floor(opts.minRate)));
+    if (opts.hasSeries === true || opts.hasSeries === 1) params.set('hasSeries', '1');
+    else if (opts.hasSeries === false || opts.hasSeries === 0) params.set('hasSeries', '0');
+    return params;
+  };
+
+  const q = String(opts.q || '').trim();
+  const result = await apiJson<CatalogSearchResult>(config, `/api/catalog?${buildParams(q)}`);
+
+  // Server FTS can be desynced (dirty=0 but MATCH empty). Prefix `*` forces LIKE and finds books.
+  if (
+    opts.field === 'books' &&
+    q &&
+    !q.startsWith('*') &&
+    !q.startsWith('=') &&
+    !q.startsWith('~') &&
+    (result.total ?? 0) === 0
+  ) {
+    const fallback = await apiJson<CatalogSearchResult>(
+      config,
+      `/api/catalog?${buildParams(`*${q}`)}`,
+    );
+    if ((fallback.total ?? 0) > 0) return fallback;
+  }
+
+  return result;
 }
 
 export interface SearchSuggestions {
@@ -697,6 +795,47 @@ export interface SearchSuggestions {
 
 export async function fetchSearchSuggestions(config: ServerConfig, q: string): Promise<SearchSuggestions> {
   return apiJson(config, `/api/search/suggest?q=${encodeURIComponent(q.trim())}`);
+}
+
+/** Unified search hub — totals before drilling into catalog field results. */
+export interface SearchOverviewResult {
+  query: string;
+  books: { total: number; capped?: boolean };
+  authors: { total: number; capped?: boolean };
+  series: { total: number; capped?: boolean };
+}
+
+export async function fetchSearchOverview(
+  config: ServerConfig,
+  q: string,
+): Promise<SearchOverviewResult> {
+  const query = String(q || '').trim();
+  if (!query) {
+    return { query: '', books: { total: 0 }, authors: { total: 0 }, series: { total: 0 } };
+  }
+  return apiJson(config, `/api/search?q=${encodeURIComponent(query)}`);
+}
+
+/** Genres present in books matching the current search/filters (faceted). */
+export async function fetchSearchGenres(
+  config: ServerConfig,
+  opts: {
+    q?: string;
+    format?: string;
+    year?: number;
+    minRate?: number;
+    hasSeries?: 0 | 1;
+  } = {},
+): Promise<{ scoped: boolean; items: Array<{ name: string; displayName?: string; bookCount?: number }> }> {
+  const params = new URLSearchParams();
+  const q = String(opts.q || '').trim();
+  if (q) params.set('q', q);
+  if (opts.format) params.set('format', opts.format);
+  if (opts.year && opts.year >= 1800 && opts.year <= 2100) params.set('year', String(opts.year));
+  if (opts.minRate != null && opts.minRate >= 1) params.set('minRate', String(Math.floor(opts.minRate)));
+  if (opts.hasSeries === 0 || opts.hasSeries === 1) params.set('hasSeries', String(opts.hasSeries));
+  if (![...params.keys()].length) return { scoped: false, items: [] };
+  return apiJson(config, `/api/search/genres?${params}`);
 }
 
 export async function fetchRecentBooks(
@@ -743,10 +882,30 @@ export async function fetchSeries(
   return res.json();
 }
 
-export async function fetchGenres(config: ServerConfig): Promise<{ groups: Array<{ groupName: string; items: Array<{ name: string; bookCount?: number }> }>; items: Array<{ name: string; bookCount?: number }> }> {
+export type GenreGroup = {
+  groupName: string;
+  items: Array<{ name: string; bookCount?: number; displayName?: string }>;
+};
+
+export async function fetchGenres(config: ServerConfig): Promise<{
+  groups: GenreGroup[];
+  items: Array<{ name: string; bookCount?: number; displayName?: string }>;
+}> {
   const res = await apiFetch(config, '/api/browse/genres?sort=count');
   if (!res.ok) throw new Error(`Жанры: HTTP ${res.status}`);
-  return res.json();
+  const data = await res.json() as {
+    groups?: GenreGroup[] | Record<string, string[]>;
+    items?: Array<{ name: string; bookCount?: number; displayName?: string }>;
+  };
+  const items = Array.isArray(data.items) ? data.items : [];
+  // Ожидаем groups: [{ groupName, items }]. Старые серверы отдавали сырой map кодов.
+  if (Array.isArray(data.groups)) {
+    return { items, groups: data.groups };
+  }
+  if (items.length) {
+    return { items, groups: [{ groupName: 'Жанры', items }] };
+  }
+  return { items, groups: [] };
 }
 
 export async function fetchFacetBooks(
@@ -938,23 +1097,56 @@ function parseSeriesNo(value: unknown): number | undefined {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
 }
 
+/** Display label for volume number (keeps non-numeric INPX values like "1-2"). */
+export function formatSeriesVolumeLabel(value: unknown): string {
+  if (value == null) return '';
+  const s = String(value).trim();
+  return s;
+}
+
 export function pickSeriesFromItem(
   item: Pick<InpxBookItem, 'series' | 'seriesNo' | 'seriesList'>,
-): { series?: string; seriesNo?: number } {
+  preferredSeries?: string,
+): { series?: string; seriesNo?: number; seriesNoLabel?: string } {
+  const prefer = preferredSeries?.trim();
+  if (prefer && Array.isArray(item.seriesList)) {
+    const match = item.seriesList.find(
+      (s) => s.name === prefer || s.displayName === prefer,
+    );
+    if (match?.name?.trim()) {
+      return {
+        series: match.name.trim(),
+        seriesNo: parseSeriesNo(match.seriesNo),
+        seriesNoLabel: formatSeriesVolumeLabel(match.seriesNo),
+      };
+    }
+  }
   if (item.series?.trim()) {
-    return { series: item.series.trim(), seriesNo: parseSeriesNo(item.seriesNo) };
+    return {
+      series: item.series.trim(),
+      seriesNo: parseSeriesNo(item.seriesNo),
+      seriesNoLabel: formatSeriesVolumeLabel(item.seriesNo),
+    };
   }
   const first = item.seriesList?.[0];
   if (first?.name?.trim()) {
-    return { series: first.name.trim(), seriesNo: parseSeriesNo(first.seriesNo) };
+    return {
+      series: first.name.trim(),
+      seriesNo: parseSeriesNo(first.seriesNo),
+      seriesNoLabel: formatSeriesVolumeLabel(first.seriesNo),
+    };
   }
   return {};
 }
 
-export function mapServerBook(item: InpxBookItem, config: ServerConfig) {
+export function mapServerBook(
+  item: InpxBookItem,
+  config: ServerConfig,
+  opts?: { preferredSeries?: string },
+) {
   const author = formatAuthorsFromItem(item);
   const genreParts = item.genresDisplayList || (item.genres ? item.genres.split(':') : []);
-  const { series, seriesNo } = pickSeriesFromItem(item);
+  const { series, seriesNo, seriesNoLabel } = pickSeriesFromItem(item, opts?.preferredSeries);
   return {
     id: item.id,
     title: item.title,
@@ -964,6 +1156,7 @@ export function mapServerBook(item: InpxBookItem, config: ServerConfig) {
     genresDisplay: genreParts.length ? genreParts : undefined,
     series,
     seriesNo,
+    seriesNoLabel: seriesNoLabel || (seriesNo != null ? String(seriesNo) : undefined),
     ext: (item.ext || 'fb2').replace(/^\./, ''),
     size: item.size,
     description: item.annotation,

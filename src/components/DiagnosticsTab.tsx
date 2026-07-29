@@ -92,10 +92,10 @@ export default function DiagnosticsTab({
   };
 
   return (
-    <div className={`p-4 border rounded-2xl space-y-3 ${theme.card}`}>
+    <div className="space-y-3">
       <div className="flex items-center gap-2">
         <Bug className={`w-4 h-4 ${theme.accentText}`} />
-        <span className={`${textStyles.captionBold} uppercase tracking-wider ${theme.textMuted}`}>Диагностика</span>
+        <span className={textStyles.sectionLabel}>Диагностика</span>
       </div>
       <p className={`${textStyles.caption} ${theme.textMuted}`}>
         Журнал не содержит паролей, текста книг и цитат.

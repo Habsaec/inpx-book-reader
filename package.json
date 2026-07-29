@@ -1,7 +1,7 @@
 {
   "name": "inpx-book-reader",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -27,6 +27,7 @@
     "@capacitor/android": "^7.6.7",
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.6.7",
+    "@capacitor/haptics": "^7.0.5",
     "@capacitor/splash-screen": "^7.0.5",
     "@capacitor/status-bar": "^7.0.6",
     "@tailwindcss/vite": "^4.1.14",

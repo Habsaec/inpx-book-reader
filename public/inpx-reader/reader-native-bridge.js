@@ -20,10 +20,45 @@
 
   const nativeApi = {
     setBrightness(level) {
-      return postNative('setBrightness', { level });
+      return postNative('setBrightness', { level }).then((ret) => {
+        try {
+          if (ret && (ret.onyx === false || ret.onyxError)) {
+            console.warn('[inpx] setBrightness', ret);
+          }
+        } catch (_) { /* */ }
+        return ret;
+      });
     },
     getBrightness() {
-      return postNative('getBrightness', {});
+      return postNative('getBrightness', {}).then((ret) => {
+        try {
+          if (ret && (ret.onyx === false || ret.onyxError)) {
+            console.warn('[inpx] getBrightness', ret);
+          }
+        } catch (_) { /* */ }
+        return ret;
+      });
+    },
+    getFrontLightState() {
+      return postNative('getFrontLightState', {});
+    },
+    adjustFrontLight(opts) {
+      return postNative('adjustFrontLight', opts || {});
+    },
+    setFrontLightRaw(opts) {
+      return postNative('setFrontLightRaw', opts || {});
+    },
+    setWarmth(level) {
+      return postNative('setWarmth', { level });
+    },
+    setLightSwipe(opts) {
+      return postNative('setLightSwipe', opts || {});
+    },
+    refreshEinkScreen() {
+      return postNative('refreshEinkScreen', {});
+    },
+    getWarmth() {
+      return postNative('getWarmth', {});
     },
     getVoices() {
       return postNative('getVoices', {});
@@ -192,21 +227,61 @@
     if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsError') {
       window.dispatchEvent(new CustomEvent('inpx-native-tts-error', { detail: e.data.data }));
     }
+    /* Итог нативного свайпа подсветки: без него слайдеры и localStorage остаются
+       со старым значением и следующее касание слайдера отбрасывает свет назад. */
+    if (e.data?.type === 'inpx-native-event' && e.data.event === 'frontLight') {
+      window.dispatchEvent(new CustomEvent('inpx-native-front-light', { detail: e.data.data }));
+    }
   });
 
+  function applyLightStateFromBridge(res, slider, val) {
+    const level = Number(res?.brightness ?? res?.level);
+    if (!Number.isFinite(level)) return false;
+    const steps = Number(res?.brightnessSteps);
+    if (slider && Number.isFinite(steps) && steps > 1) {
+      slider.step = String(1 / (steps - 1));
+    }
+    const dragging = slider && (document.activeElement === slider || slider.matches(':active'));
+    if (slider && !dragging) slider.value = String(level);
+    if (val && !dragging) {
+      val.textContent = `${Math.round(level * 100)}%`;
+    }
+    return true;
+  }
+
+  /**
+   * На e-ink (Onyx) контролы подсветки в настройках не нужны: живой драг ползунка
+   * ломает системный оверлей BOOX, а свайп у краёв уже работает. Оставляем подсказку.
+   * На телефоне — обычный слайдер яркости экрана.
+   */
   function injectBrightnessControl() {
-    if (document.getElementById('rs-brightness')) return;
+    if (document.getElementById('rs-frontlight-hint') || document.getElementById('rs-brightness')) return;
     const slot = document.getElementById('rs-brightness-slot');
     const anchor = slot || document.getElementById('rs-tts-rate')?.closest('.rs-group');
     if (!anchor) return;
 
     const group = document.createElement('div');
     group.className = 'rs-group';
+    const eink = window.__READER_APP_EINK === 1 || window.__READER_APP_EINK === true;
+
+    if (eink) {
+      group.id = 'rs-frontlight-hint';
+      group.innerHTML =
+        '<div class="rs-label">Подсветка</div>' +
+        '<div class="rs-hint">' +
+        'Яркость — свайп вверх/вниз у левого края экрана. Температура — у правого. ' +
+        'Кнопки громкости листают страницы.' +
+        '</div>';
+      if (slot) slot.appendChild(group);
+      else anchor.parentNode.insertBefore(group, anchor);
+      return;
+    }
+
     group.innerHTML =
       '<div class="rs-label">Яркость экрана</div>' +
       '<div class="rs-slider">' +
       '<input type="range" id="rs-brightness" name="readerBrightness" min="0.05" max="1" step="0.01" aria-label="Яркость">' +
-      '<span class="rs-val" id="rs-brightness-val">100%</span>' +
+      '<span class="rs-val" id="rs-brightness-val">—</span>' +
       '</div>' +
       '<div class="rs-hint">Или свайп вверх/вниз у левого края экрана</div>';
 
@@ -222,47 +297,40 @@
       settings = JSON.parse(localStorage.getItem('reader-settings') || '{}');
     } catch { /* */ }
 
-    const saved = Number(settings.brightness);
-    const initial = Number.isFinite(saved) ? Math.min(1, Math.max(0.05, saved)) : 1;
-    slider.value = String(initial);
-    if (val) val.textContent = `${Math.round(initial * 100)}%`;
+    const syncFromDevice = () => {
+      const api = nativeApi.getFrontLightState || nativeApi.getBrightness;
+      api.call(nativeApi).then((res) => {
+        applyLightStateFromBridge(res, slider, val);
+        if (Number.isFinite(Number(res?.brightness))) {
+          try {
+            settings.brightness = Number(res.brightness);
+            localStorage.setItem('reader-settings', JSON.stringify(settings));
+          } catch { /* */ }
+        }
+      }).catch(() => {});
+    };
+    syncFromDevice();
 
-    nativeApi.setBrightness(initial).catch(() => {});
-    nativeApi.getBrightness().then((res) => {
-      const level = Number(res?.level);
-      if (!Number.isFinite(level)) return;
-      slider.value = String(level);
-      if (val) val.textContent = `${Math.round(level * 100)}%`;
-    }).catch(() => {});
-
-    slider.addEventListener('input', () => {
-      const level = Number(slider.value);
-      if (val) val.textContent = `${Math.round(level * 100)}%`;
+    const applyBr = (level, persist) => {
       if (typeof window.__INPX_SET_BRIGHTNESS === 'function') {
-        window.__INPX_SET_BRIGHTNESS(level, { persist: true });
+        window.__INPX_SET_BRIGHTNESS(level, { persist });
         return;
       }
       settings.brightness = level;
       localStorage.setItem('reader-settings', JSON.stringify(settings));
-      nativeApi.setBrightness(level).catch(() => {});
-    });
+      nativeApi.setBrightness(level).then((res) => {
+        applyLightStateFromBridge(res, slider, val);
+      }).catch(() => {
+        if (val) val.textContent = `${Math.round(level * 100)}%`;
+      });
+    };
+    slider.addEventListener('input', () => applyBr(Number(slider.value), false));
+    slider.addEventListener('change', () => applyBr(Number(slider.value), true));
   }
 
   function bootNativeUi() {
+    // Только UI + чтение с устройства. Не форсируем localStorage → железу при старте.
     injectBrightnessControl();
-    /* Переключить с CSS-filter на системную яркость окна (включая status bar) */
-    try {
-      const settings = JSON.parse(localStorage.getItem('reader-settings') || '{}');
-      const saved = Number(settings.brightness);
-      const level = Number.isFinite(saved) ? Math.min(1, Math.max(0.05, saved)) : 1;
-      if (typeof window.__INPX_SET_BRIGHTNESS === 'function') {
-        window.__INPX_SET_BRIGHTNESS(level, { persist: false });
-      } else {
-        nativeApi.setBrightness(level).catch(() => {});
-      }
-    } catch {
-      nativeApi.setBrightness(1).catch(() => {});
-    }
   }
 
   window.addEventListener('message', (e) => {

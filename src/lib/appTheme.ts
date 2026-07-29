@@ -35,7 +35,7 @@ export const theme = {
   divider: 'border-[color:var(--app-border)]',
   dropdown: 'bg-[var(--app-surface)] border-[color:var(--app-border)]',
   dropdownItem: 'hover:bg-[var(--app-surface-hover)] border-[color:var(--app-border)]',
-  tabActive: 'text-[var(--app-link)] font-black',
+  tabActive: 'text-[var(--app-link)] font-semibold',
   tabInactive: 'text-[var(--app-muted)] hover:text-[var(--app-text)]',
   avatarBg: 'bg-[var(--app-panel-soft)] border-[color:var(--app-cover-border)]',
   iconBg: 'bg-[var(--app-surface-hover)] border-[color:var(--app-border)]',

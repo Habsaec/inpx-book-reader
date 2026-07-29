@@ -6,17 +6,22 @@ import { persistBookToDirectory, removeBookFromDirectory, verifyBookFileIntegrit
 import { computeBufferDigest } from '../lib/fileDigest';
 import { cacheCoverFromServer } from '../lib/coverCache';
 import type { StorageDirectory } from '../lib/storageDirectory';
+import { useSnackbar } from '../ui/Snackbar';
 
 export function useDownloadPipeline(opts: {
   serverConfig: ServerConfig;
   storageDirectory: StorageDirectory | null;
   canReadOnline: boolean;
   setDownloadedBooks: React.Dispatch<React.SetStateAction<Book[]>>;
+  onOpenDownloadedBook?: (book: Book) => void;
 }) {
-  const { serverConfig, storageDirectory, canReadOnline, setDownloadedBooks } = opts;
+  const { serverConfig, storageDirectory, canReadOnline, setDownloadedBooks, onOpenDownloadedBook } = opts;
+  const snackbar = useSnackbar();
+  const onOpenRef = React.useRef(onOpenDownloadedBook);
+  onOpenRef.current = onOpenDownloadedBook;
 
   const persistDownload = React.useCallback(
-    async (book: Book, content: string, originalBuffer?: ArrayBuffer) => {
+    async (book: Book, content: string, originalBuffer?: ArrayBuffer): Promise<Book> => {
       if (!storageDirectory?.uri) {
         throw new Error('Не настроена папка для сохранения книг');
       }
@@ -51,6 +56,8 @@ export function useDownloadPipeline(opts: {
       if (canReadOnline) {
         void cacheCoverFromServer(storageDirectory, serverConfig, enriched.id);
       }
+
+      return record;
     },
     [canReadOnline, serverConfig, setDownloadedBooks, storageDirectory],
   );
@@ -73,11 +80,15 @@ export function useDownloadPipeline(opts: {
       serverConfig,
       storageDirectory,
       canDownload: canReadOnline && Boolean(storageDirectory?.uri),
-      onComplete: async (book, content, buffer) => {
-        await persistDownload(book, content, buffer);
+      onComplete: async (book, content, buffer) => persistDownload(book, content, buffer),
+      onSaved: (book) => {
+        snackbar.show(`Скачано: ${book.title}`, {
+          label: 'Открыть',
+          onClick: () => onOpenRef.current?.(book),
+        }, 'success');
       },
     });
-  }, [canReadOnline, persistDownload, serverConfig, storageDirectory]);
+  }, [canReadOnline, persistDownload, serverConfig, snackbar, storageDirectory]);
 
   const [queueTick, setQueueTick] = React.useState(0);
   React.useEffect(() => downloadQueue.subscribe(() => setQueueTick((t) => t + 1)), []);

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, ClipboardCopy, Pencil, StickyNote, Trash2 } from 'lucide-react';
+import { ClipboardCopy, MoreHorizontal, Pencil, StickyNote, Trash2 } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import type { LocalReaderAnnotationItem } from '../../lib/offlineReaderStore';
 import type { ServerConfig } from '../../types';
@@ -38,7 +38,7 @@ export default function ReaderNotesPanel({
   const snackbar = useSnackbar();
   const [colorFilter, setColorFilter] = React.useState<AnnotationColorFilter>('all');
   const [bookFilter, setBookFilter] = React.useState<string | 'all'>('all');
-  const [focusIndex, setFocusIndex] = React.useState(0);
+  const [menuKey, setMenuKey] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState<LocalReaderAnnotationItem | null>(null);
   const [editNote, setEditNote] = React.useState('');
 
@@ -53,18 +53,10 @@ export default function ReaderNotesPanel({
     return filterAnnotationsByColor(byBook, colorFilter);
   }, [annotations, bookFilter, colorFilter]);
 
-  React.useEffect(() => {
-    setFocusIndex((i) => (filtered.length === 0 ? 0 : Math.min(i, filtered.length - 1)));
-  }, [filtered.length, colorFilter]);
-
-  const focused = filtered[focusIndex];
-
-  const goPrev = () => setFocusIndex((i) => (filtered.length ? (i - 1 + filtered.length) % filtered.length : 0));
-  const goNext = () => setFocusIndex((i) => (filtered.length ? (i + 1) % filtered.length : 0));
-
   const handleCopy = async (an: LocalReaderAnnotationItem) => {
     const ok = await copyTextToClipboard(formatAnnotationCopyText(an));
     snackbar.show(ok ? 'Скопировано' : 'Не удалось скопировать', undefined, ok ? 'success' : 'error');
+    setMenuKey(null);
   };
 
   const handleExport = async () => {
@@ -86,6 +78,7 @@ export default function ReaderNotesPanel({
   const startEdit = (an: LocalReaderAnnotationItem) => {
     setEditing(an);
     setEditNote(an.note || '');
+    setMenuKey(null);
   };
 
   const saveEdit = () => {
@@ -99,14 +92,14 @@ export default function ReaderNotesPanel({
       <EmptyState
         icon={StickyNote}
         title="Нет заметок"
-        description="Выделяйте текст в читалке и добавляйте заметки — они появятся здесь."
+        description="Откройте книгу, выделите текст и добавьте заметку — она появится здесь."
       />
     );
   }
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className={`shrink-0 px-3 py-2 border-b ${theme.header} space-y-2`}>
+      <div className={`shrink-0 px-4 py-3 border-b space-y-3 ${theme.header}`}>
         {bookOptions.length > 1 && (
           <label className={`block ${textStyles.caption} ${theme.textMuted}`}>
             Книга
@@ -122,15 +115,16 @@ export default function ReaderNotesPanel({
             </select>
           </label>
         )}
-        <div className="flex flex-wrap gap-1.5">
+
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setColorFilter('all')}
-            className={`px-2.5 py-1 rounded-full ${textStyles.microBold} ${theme.focusRing} ${
-              colorFilter === 'all' ? theme.accentMuted : `${theme.textMuted} ${theme.card}`
+            className={`min-h-9 px-2.5 rounded-full ${textStyles.caption} ${theme.focusRing} ${
+              colorFilter === 'all' ? `${theme.accentText} font-semibold` : theme.textMuted
             }`}
           >
-            Все ({annotations.length})
+            Все
           </button>
           {ANNOTATION_COLORS.map((c) => {
             const count = annotations.filter((a) => a.color === c).length;
@@ -140,126 +134,109 @@ export default function ReaderNotesPanel({
                 key={c}
                 type="button"
                 onClick={() => setColorFilter(c)}
-                className={`px-2.5 py-1 rounded-full ${textStyles.microBold} flex items-center gap-1.5 ${theme.focusRing} ${
-                  colorFilter === c ? theme.accentMuted : `${theme.textMuted} ${theme.card}`
+                title={ANNOTATION_COLOR_LABELS[c]}
+                aria-label={`${ANNOTATION_COLOR_LABELS[c]} (${count})`}
+                className={`min-h-9 min-w-9 inline-flex items-center justify-center rounded-full ${theme.focusRing} ${
+                  colorFilter === c ? 'ring-2 ring-[var(--app-link)]/50' : ''
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full ${ANNOTATION_COLOR_SWATCH[c]}`} aria-hidden />
-                {ANNOTATION_COLOR_LABELS[c]} ({count})
+                <span className={`w-2.5 h-2.5 rounded-full ${ANNOTATION_COLOR_SWATCH[c]}`} aria-hidden />
               </button>
             );
           })}
+          {filtered.length > 0 && (
+            <div className={`ml-auto flex items-center gap-3 ${textStyles.caption}`}>
+              <button type="button" onClick={() => void handleExport()} className={`${theme.accentText} ${theme.focusRing}`}>
+                MD
+              </button>
+              <button type="button" onClick={() => void handleExportJson()} className={`${theme.accentText} ${theme.focusRing}`}>
+                JSON
+              </button>
+            </div>
+          )}
         </div>
-
-        {filtered.length > 1 && (
-          <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={goPrev}
-              className={`${touchMin} px-2 rounded-lg ${theme.card} ${theme.focusRing}`}
-              aria-label="Предыдущая заметка"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <span className={`${textStyles.caption} ${theme.textMuted}`}>
-              {focusIndex + 1} / {filtered.length}
-            </span>
-            <button
-              type="button"
-              onClick={goNext}
-              className={`${touchMin} px-2 rounded-lg ${theme.card} ${theme.focusRing}`}
-              aria-label="Следующая заметка"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleExport()}
-              className={`ml-auto px-3 py-1.5 rounded-lg ${textStyles.captionBold} ${theme.accentMuted} ${theme.focusRing}`}
-            >
-              MD
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleExportJson()}
-              className={`px-3 py-1.5 rounded-lg ${textStyles.captionBold} ${theme.accentMuted} ${theme.focusRing}`}
-            >
-              JSON
-            </button>
-          </div>
-        )}
       </div>
 
-      <ul className="flex-1 min-h-0 overflow-y-auto px-4 py-2">
+      <ul className="flex-1 min-h-0 overflow-y-auto px-4">
         {filtered.length === 0 ? (
           <li className={`${textStyles.caption} ${theme.textMuted} text-center py-8`}>
             Нет заметок с выбранным цветом
           </li>
         ) : (
-          filtered.map((an, idx) => {
+          filtered.map((an) => {
+            const key = `${an.bookId}-${an.id}`;
             const swatch = ANNOTATION_COLOR_SWATCH[an.color as keyof typeof ANNOTATION_COLOR_SWATCH];
-            const isFocused = idx === focusIndex;
+            const menuOpen = menuKey === key;
             return (
-              <li key={`${an.bookId}-${an.id}`} className={`border-b last:border-b-0 py-3 ${theme.divider}`}>
-                <article
-                  className={`${isFocused ? 'ring-2 ring-[var(--app-link)]/40 rounded-xl' : ''}`}
-                >
-                  <div className="flex gap-2">
-                    <span
-                      className={`w-1 shrink-0 rounded-full ${swatch ?? 'bg-yellow-400'}`}
-                      aria-hidden
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className={`${textStyles.bookTitle} text-sm truncate`}>{an.bookTitle}</p>
-                      {an.text ? (
-                        <p className={`${textStyles.body} mt-1 line-clamp-3`}>«{an.text}»</p>
-                      ) : null}
-                      {an.note ? (
-                        <p className={`${textStyles.caption} ${theme.textMuted} mt-1 line-clamp-2`}>{an.note}</p>
-                      ) : null}
-                      <div className="flex flex-wrap gap-1 mt-2">
+              <li key={key} className={`border-b last:border-b-0 py-3 ${theme.divider}`}>
+                <div className="flex gap-2">
+                  <span className={`w-1 shrink-0 rounded-full ${swatch ?? 'bg-yellow-400'}`} aria-hidden />
+                  <button
+                    type="button"
+                    onClick={() => onOpenAnnotation(an.bookId, an.cfi, annotationToBook(an, serverConfig))}
+                    className={`flex-1 min-w-0 text-left ${theme.focusRing} rounded-lg`}
+                  >
+                    <p className={`${textStyles.bookTitle} text-sm truncate`}>{an.bookTitle}</p>
+                    {an.text ? (
+                      <p className={`${textStyles.body} mt-1 line-clamp-3`}>«{an.text}»</p>
+                    ) : null}
+                    {an.note ? (
+                      <p className={`${textStyles.caption} ${theme.textMuted} mt-1 line-clamp-2`}>{an.note}</p>
+                    ) : null}
+                  </button>
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      aria-label="Действия"
+                      aria-expanded={menuOpen}
+                      onClick={() => setMenuKey(menuOpen ? null : key)}
+                      className={`${touchMin} inline-flex items-center justify-center rounded-lg ${theme.textMuted} ${theme.focusRing}`}
+                    >
+                      <MoreHorizontal className="w-5 h-5" />
+                    </button>
+                    {menuOpen ? (
+                      <div
+                        className={`absolute right-0 top-full z-20 mt-1 min-w-[10rem] rounded-xl border py-1 shadow-sm ${theme.dropdown}`}
+                        role="menu"
+                      >
                         <button
                           type="button"
-                          onClick={() => {
-                            setFocusIndex(idx);
-                            onOpenAnnotation(an.bookId, an.cfi, annotationToBook(an, serverConfig));
-                          }}
-                          className={`px-2.5 py-1 rounded-lg ${textStyles.microBold} ${theme.accentMuted} ${theme.focusRing}`}
-                        >
-                          Открыть
-                        </button>
-                        <button
-                          type="button"
+                          role="menuitem"
                           onClick={() => void handleCopy(an)}
-                          className={`px-2.5 py-1 rounded-lg ${textStyles.microBold} ${theme.card} ${theme.focusRing} flex items-center gap-1`}
+                          className={`w-full px-3 py-2.5 text-left ${textStyles.caption} flex items-center gap-2 ${theme.rowPress}`}
                         >
-                          <ClipboardCopy className="w-3 h-3" aria-hidden />
+                          <ClipboardCopy className="w-3.5 h-3.5" aria-hidden />
                           Копировать
                         </button>
                         {onUpdateAnnotation ? (
                           <button
                             type="button"
+                            role="menuitem"
                             onClick={() => startEdit(an)}
-                            className={`px-2.5 py-1 rounded-lg ${textStyles.microBold} ${theme.card} ${theme.focusRing} flex items-center gap-1`}
+                            className={`w-full px-3 py-2.5 text-left ${textStyles.caption} flex items-center gap-2 ${theme.rowPress}`}
                           >
-                            <Pencil className="w-3 h-3" aria-hidden />
+                            <Pencil className="w-3.5 h-3.5" aria-hidden />
                             Изменить
                           </button>
                         ) : null}
                         {onRemoveAnnotation ? (
                           <button
                             type="button"
-                            onClick={() => void onRemoveAnnotation(an.bookId, an.id)}
-                            className={`px-2.5 py-1 rounded-lg ${textStyles.microBold} ${semantic.error} ${theme.focusRing} flex items-center gap-1`}
+                            role="menuitem"
+                            onClick={() => {
+                              setMenuKey(null);
+                              void onRemoveAnnotation(an.bookId, an.id);
+                            }}
+                            className={`w-full px-3 py-2.5 text-left ${textStyles.caption} flex items-center gap-2 ${semantic.error} ${theme.rowPress}`}
                           >
-                            <Trash2 className="w-3 h-3" aria-hidden />
+                            <Trash2 className="w-3.5 h-3.5" aria-hidden />
                             Удалить
                           </button>
                         ) : null}
                       </div>
-                    </div>
+                    ) : null}
                   </div>
-                </article>
+                </div>
               </li>
             );
           })
@@ -267,8 +244,8 @@ export default function ReaderNotesPanel({
       </ul>
 
       {editing ? (
-        <div className={`shrink-0 px-3 py-3 border-t ${theme.header} space-y-2`}>
-          <p className={`${textStyles.captionBold}`}>Редактировать заметку</p>
+        <div className={`shrink-0 px-4 py-3 border-t space-y-2 ${theme.header}`}>
+          <p className={textStyles.sectionLabel}>Редактировать заметку</p>
           <textarea
             value={editNote}
             onChange={(e) => setEditNote(e.target.value)}
@@ -276,25 +253,17 @@ export default function ReaderNotesPanel({
             className={`w-full rounded-xl border px-3 py-2 ${textStyles.body} ${theme.input}`}
           />
           <div className="flex gap-2">
-            <button type="button" onClick={saveEdit} className={`flex-1 py-2 rounded-xl ${textStyles.captionBold} ${theme.accentBg}`}>
+            <button type="button" onClick={saveEdit} className={`flex-1 py-2.5 rounded-xl ${textStyles.captionBold} ${theme.accentBg}`}>
               Сохранить
             </button>
-            <button type="button" onClick={() => setEditing(null)} className={`px-4 py-2 rounded-xl ${textStyles.captionBold} ${theme.card}`}>
+            <button
+              type="button"
+              onClick={() => setEditing(null)}
+              className={`px-4 py-2.5 rounded-xl ${textStyles.caption} ${theme.textMuted} ${theme.focusRing}`}
+            >
               Отмена
             </button>
           </div>
-        </div>
-      ) : null}
-
-      {focused && filtered.length > 1 && !editing ? (
-        <div className={`shrink-0 px-3 py-2 border-t ${theme.header} flex gap-2`}>
-          <button
-            type="button"
-            onClick={() => onOpenAnnotation(focused.bookId, focused.cfi, annotationToBook(focused, serverConfig))}
-            className={`flex-1 py-2.5 rounded-xl ${textStyles.captionBold} ${theme.accentBg} ${theme.focusRing}`}
-          >
-            Открыть выбранную
-          </button>
         </div>
       ) : null}
     </div>

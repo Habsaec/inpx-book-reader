@@ -4,11 +4,12 @@ import { X, RefreshCw, AlertCircle, CheckCircle2, Clock, BookOpen, Bookmark, Hig
 import { theme } from '../lib/appTheme';
 import { textStyles, semantic, touchMin, motion } from '../ui/tokens';
 import Button from '../ui/Button';
-import { SheetDragHandle, sheetBackdropClass, sheetPanelClass, sheetPanelStyle } from '../ui/SheetChrome';
+import { sheetBackdropClass, sheetPanelClass, sheetPanelStyle } from '../ui/SheetChrome';
 import { getSyncPendingBreakdown, syncOpLabel, type SyncPendingBreakdown } from '../lib/syncStats';
 import { removeSyncOp } from '../lib/localDb';
 import type { ServerConfig } from '../types';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
+import DownloadQueueWidget from './DownloadQueueWidget';
 
 interface SyncCenterSheetProps {
   open: boolean;
@@ -53,14 +54,13 @@ export default function SyncCenterSheet({
   return createPortal(
     <div className={sheetBackdropClass} onClick={onClose}>
       <div
-        className={`${sheetPanelClass} px-5 pt-0`}
+        className={`${sheetPanelClass} px-5 pt-4`}
         style={sheetPanelStyle()}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sync-center-title"
       >
-        <SheetDragHandle />
         <div className="flex items-center justify-between mb-4">
           <h2 id="sync-center-title" className={textStyles.title}>Синхронизация</h2>
           <button type="button" aria-label="Закрыть" onClick={onClose} className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-lg ${theme.chipButton} ${theme.focusRing}`}>
@@ -69,7 +69,7 @@ export default function SyncCenterSheet({
         </div>
 
         <div className="space-y-3">
-          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${theme.panel}`}>
+          <div className="flex items-center gap-2 py-1">
             {isOnline ? (
               <CheckCircle2 className={`w-4 h-4 ${semantic.success}`} aria-hidden />
             ) : (
@@ -79,15 +79,17 @@ export default function SyncCenterSheet({
           </div>
 
           {lastSynced && (
-            <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${theme.panel}`}>
+            <div className="flex items-center gap-2 py-1">
               <Clock className={`w-4 h-4 ${theme.textMuted}`} aria-hidden />
               <span className={`${textStyles.caption} ${theme.textMuted}`}>Последняя синхронизация: {lastSynced}</span>
             </div>
           )}
 
+          <DownloadQueueWidget />
+
           {breakdown && breakdown.totalPending > 0 && (
-            <div className={`px-3 py-2.5 rounded-xl ${theme.panel} space-y-2`}>
-              <p className={`${textStyles.captionBold}`}>Ожидает отправки: {breakdown.totalPending}</p>
+            <div className="space-y-2 py-1">
+              <p className={textStyles.sectionLabel}>Ожидает отправки: {breakdown.totalPending}</p>
               <ul className={`${textStyles.caption} ${theme.textMuted} space-y-1`}>
                 {breakdown.progressBooks > 0 && (
                   <li className="flex items-center gap-1.5">

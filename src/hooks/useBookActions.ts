@@ -124,10 +124,17 @@ export function useBookActions(opts: {
           ...book,
           title: book.title || dl.title,
           author: book.author || dl.author,
-          ext: (dl.ext || extFromStoragePath(dl.localFileName || '') || book.ext || 'fb2').replace(/^\./, ''),
-          localFileName: dl.localFileName ?? book.localFileName,
-          storageUri: dl.storageUri ?? book.storageUri,
-          chaptersPath: dl.chaptersPath ?? book.chaptersPath,
+          ext: (
+            book.ext
+            || dl.ext
+            || extFromStoragePath(book.localFileName || dl.localFileName || '')
+            || 'fb2'
+          ).replace(/^\./, ''),
+          // Prefer paths from the caller (e.g. just-persisted download record) —
+          // React state may still hold a stale entry without localFileName.
+          localFileName: book.localFileName?.trim() ? book.localFileName : dl.localFileName,
+          storageUri: book.storageUri?.trim() ? book.storageUri : dl.storageUri,
+          chaptersPath: book.chaptersPath?.trim() ? book.chaptersPath : dl.chaptersPath,
           series: book.series ?? dl.series,
           seriesNo: book.seriesNo ?? dl.seriesNo,
           readProgress: book.readProgress ?? dl.readProgress,
@@ -200,11 +207,20 @@ export function useBookActions(opts: {
         setDownloadedBooks((prev) =>
           prev.map((b) => (b.id === resolved.id ? clearLocalFileMeta(b) : b)),
         );
-        snackbar.show(
-          'Файл книги не найден на устройстве. Проверьте папку хранения в профиле или скачайте заново.',
-          undefined,
-          'error',
-        );
+        downloadQueue.remove(resolved.id);
+        if (canReadOnline) {
+          snackbar.show(
+            'Локальный файл недоступен — скачайте книгу заново.',
+            { label: 'Скачать', onClick: () => promptDownloadBook(resolved) },
+            'error',
+          );
+        } else {
+          snackbar.show(
+            'Файл книги не найден на устройстве. Проверьте папку хранения в профиле или скачайте заново.',
+            undefined,
+            'error',
+          );
+        }
         return;
       }
       if (storageDirectory?.uri !== loc.storageUri) {
@@ -485,13 +501,20 @@ export function useBookActions(opts: {
   );
 
   const finalizeReaderSession = React.useCallback(
-    async (bookId: string) => {
+    async (bookId: string): Promise<{ progress: number }> => {
       const book = downloadedBooks.find((b) => b.id === bookId);
       if (book) {
         setProgressList((prev) => upsertProgressFromLocalReader(prev, book));
       }
 
-      if (!canReadOnline) return;
+      const localProgress = () => {
+        const local = readOfflineReaderData(bookId);
+        return Math.round(Number(local.progress) || 0);
+      };
+
+      if (!canReadOnline) {
+        return { progress: localProgress() };
+      }
 
       try {
         await flushOfflineReaderStore();
@@ -520,8 +543,10 @@ export function useBookActions(opts: {
           touchReadingHistoryLocalRev();
           await recordReadingHistory(serverConfig, bookId);
         }
+        return { progress: Math.round(Number(local.progress) || 0) };
       } catch {
         /* sync on next connect */
+        return { progress: localProgress() };
       } finally {
         void inpxServer.refresh();
       }
@@ -529,15 +554,14 @@ export function useBookActions(opts: {
     [canReadOnline, downloadedBooks, inpxServer, serverConfig, setProgressList],
   );
 
-  const closeReader = React.useCallback(() => {
-    setActiveReader((current) => {
-      const bookId = current?.bookId;
-      if (bookId) {
-        void finalizeReaderSession(bookId);
-      }
-      return null;
-    });
-  }, [finalizeReaderSession]);
+  const closeReader = React.useCallback(async (): Promise<{ bookId: string; progress: number } | null> => {
+    const bookId = activeReader?.bookId;
+    setActiveReader(null);
+    if (!bookId) return null;
+    const { progress } = await finalizeReaderSession(bookId);
+    bumpReaderLocal();
+    return { bookId, progress };
+  }, [activeReader?.bookId, bumpReaderLocal, finalizeReaderSession]);
 
   const readerLocalFile = activeReader?.localFile ?? null;
 
@@ -778,6 +802,7 @@ export function useBookActions(opts: {
     localRecentReading,
     localReaderBookmarks,
     localReaderAnnotations,
+    bumpReaderLocal,
     handleOpenBook,
     handleOpenBookCard,
     handleContinueBook,

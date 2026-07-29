@@ -537,6 +537,33 @@ export async function syncOfflineReaderForBook(
     );
   }
 
+  // После push локальных закладок/заметок meta до push устаревает (часто EPOCH).
+  // Иначе badges считают localChangedAt > serverRev вечно.
+  let bookmarksRevStored = syncMeta.bookmarksRev;
+  let annotationsRevStored = syncMeta.annotationsRev;
+  let bookmarkCountStored = serverBookmarksNewer ? syncMeta.bookmarkCount : bookmarks.length;
+  let annotationCountStored = serverAnnotationsNewer ? syncMeta.annotationCount : annotations.length;
+  if (!serverBookmarksNewer || !serverAnnotationsNewer) {
+    const refreshed = await fetchReaderBookSyncMeta(config, bookId).catch(() => null);
+    if (refreshed) {
+      if (!serverBookmarksNewer) {
+        bookmarksRevStored = refreshed.bookmarksRev || bookmarksRevStored;
+        bookmarkCountStored = refreshed.bookmarkCount;
+      }
+      if (!serverAnnotationsNewer) {
+        annotationsRevStored = refreshed.annotationsRev || annotationsRevStored;
+        annotationCountStored = refreshed.annotationCount;
+      }
+    } else {
+      if (!serverBookmarksNewer) {
+        bookmarksRevStored = localBookmarksRev({ ...local, bookmarksChangedAt: local.bookmarksChangedAt });
+      }
+      if (!serverAnnotationsNewer) {
+        annotationsRevStored = localAnnotationsRev({ ...local, annotationsChangedAt: local.annotationsChangedAt });
+      }
+    }
+  }
+
   const serverProgress = serverPos.progress || 0;
   const serverPosUpdatedAt = serverPos.updatedAt || syncMeta.positionUpdatedAt || null;
   const serverFrac = serverPos.fraction != null && Number.isFinite(Number(serverPos.fraction))
@@ -551,13 +578,13 @@ export async function syncOfflineReaderForBook(
       annotations,
       deletedBookmarkPositions,
       deletedAnnotationCfis,
-      bookmarksChangedAt: serverBookmarksNewer ? syncMeta.bookmarksRev : fresh.bookmarksChangedAt,
-      annotationsChangedAt: serverAnnotationsNewer ? syncMeta.annotationsRev : fresh.annotationsChangedAt,
-      serverBookmarksRev: syncMeta.bookmarksRev,
-      serverAnnotationsRev: syncMeta.annotationsRev,
+      bookmarksChangedAt: bookmarksRevStored,
+      annotationsChangedAt: annotationsRevStored,
+      serverBookmarksRev: bookmarksRevStored,
+      serverAnnotationsRev: annotationsRevStored,
       serverPositionUpdatedAt: serverPosUpdatedAt,
-      serverBookmarkCount: syncMeta.bookmarkCount,
-      serverAnnotationCount: syncMeta.annotationCount,
+      serverBookmarkCount: bookmarkCountStored,
+      serverAnnotationCount: annotationCountStored,
       serverPositionProgress: serverProgress,
       serverPositionFraction: serverFrac,
       positionVersion: 4,
@@ -701,16 +728,16 @@ export async function syncOfflineReaderForBook(
       annotations,
       deletedBookmarkPositions,
       deletedAnnotationCfis,
-      bookmarksChangedAt: serverBookmarksNewer ? syncMeta.bookmarksRev : local.bookmarksChangedAt,
-      annotationsChangedAt: serverAnnotationsNewer ? syncMeta.annotationsRev : local.annotationsChangedAt,
+      bookmarksChangedAt: bookmarksRevStored,
+      annotationsChangedAt: annotationsRevStored,
       positionChangedAt: useServerPosition
         ? serverPosUpdatedAtStored || local.positionChangedAt
         : local.positionChangedAt,
-      serverBookmarksRev: syncMeta.bookmarksRev,
-      serverAnnotationsRev: syncMeta.annotationsRev,
+      serverBookmarksRev: bookmarksRevStored,
+      serverAnnotationsRev: annotationsRevStored,
       serverPositionUpdatedAt: serverPosUpdatedAtStored,
-      serverBookmarkCount: syncMeta.bookmarkCount,
-      serverAnnotationCount: syncMeta.annotationCount,
+      serverBookmarkCount: bookmarkCountStored,
+      serverAnnotationCount: annotationCountStored,
       serverPositionProgress: serverProgressStored,
       serverPositionFraction: serverFractionStored,
       serverSectionIndex: serverSectionIndexStored,

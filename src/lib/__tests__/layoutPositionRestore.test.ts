@@ -63,7 +63,7 @@ describe('layout position restore after typography change', () => {
     expect(source).toContain('scrollToPageIndex(savedPage)');
     expect(source).toContain('flush-keep-committed');
     expect(source).toContain('commitReadingPosition');
-    expect(source).toContain('let bootRestoreInProgress = needsRestore');
+    expect(source).toContain('let bootRestoreInProgress = true');
     expect(source).not.toContain('await preserveLocationAfterLayoutChange(restoreAnchor');
   });
 

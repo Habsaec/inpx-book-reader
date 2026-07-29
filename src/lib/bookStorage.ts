@@ -10,6 +10,7 @@ import { registerPlugin } from '@capacitor/core';
 import { Book } from '../types';
 import type { StorageDirectory } from './storageDirectory';
 import { computeBufferDigest } from './fileDigest';
+import { legacyStrippedBookIdFileKey, safeBookIdFileKey } from './bookRef';
 
 const META_DIR = '.inpx-reader';
 
@@ -60,7 +61,63 @@ export function bookDisplayFileName(book: Book): string {
 }
 
 export function bookChaptersPath(bookId: string): string {
-  return `${META_DIR}/${bookId}.json`;
+  return `${META_DIR}/${safeBookIdFileKey(bookId)}.json`;
+}
+
+function legacyBookChaptersPath(bookId: string): string {
+  return `${META_DIR}/${legacyStrippedBookIdFileKey(bookId)}.json`;
+}
+
+async function migrateTextMetaFile(
+  treeUri: string,
+  fromPath: string,
+  toPath: string,
+): Promise<boolean> {
+  if (!fromPath || !toPath || fromPath === toPath) return false;
+  try {
+    const dest = await BookStorage.fileExists({ treeUri, path: toPath });
+    if (dest?.exists) {
+      try {
+        await BookStorage.deleteFile({ treeUri, path: fromPath });
+      } catch {
+        /* orphan ok */
+      }
+      return true;
+    }
+    const src = await BookStorage.fileExists({ treeUri, path: fromPath });
+    if (!src?.exists) return false;
+    const { content } = await BookStorage.readTextFile({ treeUri, path: fromPath });
+    await BookStorage.writeTextFile({ treeUri, path: toPath, content });
+    try {
+      await BookStorage.deleteFile({ treeUri, path: fromPath });
+    } catch {
+      /* orphan ok */
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Move legacy chapters JSON to `safeBookIdFileKey` path; return updated book if path changed. */
+export async function migrateBookChaptersPathIfNeeded(
+  directory: StorageDirectory,
+  book: Book,
+): Promise<Book> {
+  if (!directory.uri || !book.id) return book;
+  const canonical = bookChaptersPath(book.id);
+  const candidates = new Set<string>();
+  if (book.chaptersPath?.trim()) candidates.add(book.chaptersPath.trim());
+  const legacy = legacyBookChaptersPath(book.id);
+  if (legacy !== canonical) candidates.add(legacy);
+
+  for (const from of candidates) {
+    if (from === canonical) continue;
+    await migrateTextMetaFile(directory.uri, from, canonical);
+  }
+
+  if (book.chaptersPath === canonical) return book;
+  return { ...book, chaptersPath: canonical };
 }
 
 function bufferToBase64(buffer: ArrayBuffer): string {

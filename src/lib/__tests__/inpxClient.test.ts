@@ -33,14 +33,29 @@ describe('normalizeBaseUrl', () => {
 });
 
 describe('authHeader', () => {
-  it('prefers device token over basic auth', () => {
+  it('prefers basic auth when password is present even if device token exists', () => {
     const headers = authHeader({ ...baseConfig, deviceToken: 'dev-token-abc' });
+    expect(headers.Authorization).toMatch(/^Basic /);
+  });
+
+  it('uses device token when password is absent', () => {
+    const headers = authHeader({
+      ...baseConfig,
+      password: '',
+      deviceToken: 'dev-token-abc',
+    });
     expect(headers.Authorization).toBe('Bearer dev-token-abc');
   });
 
   it('returns basic auth when credentials present', () => {
     const headers = authHeader(baseConfig);
     expect(headers.Authorization).toMatch(/^Basic /);
+  });
+
+  it('trims username for basic auth', () => {
+    const withSpaces = authHeader({ ...baseConfig, username: '  user  ' });
+    const trimmed = authHeader(baseConfig);
+    expect(withSpaces.Authorization).toBe(trimmed.Authorization);
   });
 
   it('returns empty object without credentials', () => {
@@ -69,6 +84,27 @@ describe('author and series formatting', () => {
     expect(pickSeriesFromItem({ seriesList: [{ name: 'Cycle', seriesNo: 2 }] })).toEqual({
       series: 'Cycle',
       seriesNo: 2,
+      seriesNoLabel: '2',
+    });
+  });
+
+  it('prefers seriesList entry matching preferred series name', () => {
+    expect(
+      pickSeriesFromItem(
+        {
+          series: 'Other',
+          seriesNo: 9,
+          seriesList: [
+            { name: 'Other', seriesNo: 9 },
+            { name: 'Cycle', seriesNo: 3 },
+          ],
+        },
+        'Cycle',
+      ),
+    ).toEqual({
+      series: 'Cycle',
+      seriesNo: 3,
+      seriesNoLabel: '3',
     });
   });
 });

@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">INPX Book Reader</title>
+  <desc id="desc">Android APK reader for INPX Library Server: catalog, offline shelf, and reading sync by bookId.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#241e18"/>
+      <stop offset="100%" stop-color="#15120f"/>
+    </linearGradient>
+    <linearGradient id="phoneFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2a241c"/>
+      <stop offset="100%" stop-color="#1a1612"/>
+    </linearGradient>
+    <linearGradient id="pageGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7f1e6"/>
+      <stop offset="100%" stop-color="#e8dfd0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="380" rx="28" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="1197" height="377" rx="27" fill="none" stroke="#d4ac5c" stroke-opacity="0.22" stroke-width="1.5"/>
+
+  <!-- soft shelf line -->
+  <path d="M56 318 H680" stroke="#d4ac5c" stroke-opacity="0.18" stroke-width="2"/>
+  <circle cx="56" cy="318" r="3.5" fill="#d4ac5c" fill-opacity="0.55"/>
+
+  <g id="title-block" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <rect x="56" y="48" width="148" height="34" rx="17" fill="#d4ac5c" fill-opacity="0.14" stroke="#d4ac5c" stroke-opacity="0.45"/>
+    <text x="130" y="71" text-anchor="middle" fill="#d4ac5c" font-size="15" font-weight="600" letter-spacing="0.08em">ANDROID APK</text>
+
+    <text x="56" y="140" fill="#f5f1e8" font-size="54" font-weight="700">INPX Book Reader</text>
+    <text x="56" y="188" fill="#e8e0d4" font-size="24" font-weight="500">Каталог, офлайн-полка и sync</text>
+    <text x="56" y="224" fill="#e8e0d4" font-size="24" font-weight="500">с вашей INPX-библиотекой</text>
+
+    <text x="56" y="278" fill="#9a8e7e" font-size="18" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">Capacitor · Foliate · bookId sync</text>
+  </g>
+
+  <!-- phone + open page motif -->
+  <g id="project-proof" transform="translate(760 42)">
+    <!-- book pages behind phone -->
+    <g transform="translate(168 36) rotate(8)">
+      <rect x="0" y="0" width="148" height="210" rx="8" fill="url(#pageGrad)" stroke="#c4b59a" stroke-width="1"/>
+      <line x1="22" y1="36" x2="126" y2="36" stroke="#8b7355" stroke-opacity="0.35" stroke-width="3"/>
+      <line x1="22" y1="56" x2="118" y2="56" stroke="#8b7355" stroke-opacity="0.28" stroke-width="2.5"/>
+      <line x1="22" y1="74" x2="122" y2="74" stroke="#8b7355" stroke-opacity="0.28" stroke-width="2.5"/>
+      <line x1="22" y1="92" x2="108" y2="92" stroke="#8b7355" stroke-opacity="0.28" stroke-width="2.5"/>
+      <line x1="22" y1="110" x2="120" y2="110" stroke="#8b7355" stroke-opacity="0.22" stroke-width="2.5"/>
+      <line x1="22" y1="128" x2="100" y2="128" stroke="#8b7355" stroke-opacity="0.22" stroke-width="2.5"/>
+      <text x="22" y="178" fill="#a1671b" font-size="16" font-family="Georgia, Songti SC, serif" font-style="italic">FB2 / EPUB</text>
+    </g>
+
+    <!-- phone -->
+    <g>
+      <rect x="18" y="18" width="196" height="300" rx="28" fill="#0d0b09" stroke="#d4ac5c" stroke-opacity="0.55" stroke-width="2"/>
+      <rect x="28" y="36" width="176" height="264" rx="16" fill="url(#phoneFace)"/>
+      <!-- status -->
+      <text x="44" y="58" fill="#9a8e7e" font-size="12" font-family="ui-monospace, Menlo, monospace">9:41</text>
+      <circle cx="178" cy="54" r="4" fill="#d4ac5c"/>
+      <!-- top bar -->
+      <text x="44" y="92" fill="#f5f1e8" font-size="18" font-weight="650" font-family="-apple-system, Segoe UI, sans-serif">Мои книги</text>
+      <!-- cover tiles -->
+      <rect x="42" y="112" width="68" height="96" rx="8" fill="#3a2f22" stroke="#d4ac5c" stroke-opacity="0.35"/>
+      <rect x="48" y="120" width="56" height="8" rx="2" fill="#d4ac5c" fill-opacity="0.55"/>
+      <rect x="48" y="136" width="44" height="5" rx="2" fill="#9a8e7e" fill-opacity="0.55"/>
+      <rect x="48" y="148" width="36" height="5" rx="2" fill="#9a8e7e" fill-opacity="0.35"/>
+
+      <rect x="122" y="112" width="68" height="96" rx="8" fill="#2f3a2a" stroke="#d4ac5c" stroke-opacity="0.28"/>
+      <rect x="128" y="120" width="56" height="8" rx="2" fill="#c4b59a" fill-opacity="0.55"/>
+      <rect x="128" y="136" width="44" height="5" rx="2" fill="#9a8e7e" fill-opacity="0.45"/>
+
+      <rect x="42" y="220" width="148" height="48" rx="10" fill="#241e18" stroke="#d4ac5c" stroke-opacity="0.3"/>
+      <rect x="54" y="236" width="78" height="8" rx="2" fill="#e8e0d4" fill-opacity="0.75"/>
+      <rect x="54" y="250" width="52" height="6" rx="2" fill="#d4ac5c" fill-opacity="0.55"/>
+      <rect x="148" y="234" width="30" height="20" rx="6" fill="#a1671b"/>
+
+      <!-- home indicator -->
+      <rect x="84" y="298" width="64" height="5" rx="2.5" fill="#9a8e7e" fill-opacity="0.45"/>
+    </g>
+
+    <!-- sync chip -->
+    <g transform="translate(230 250)">
+      <rect x="0" y="0" width="118" height="42" rx="12" fill="#a1671b"/>
+      <text x="59" y="27" text-anchor="middle" fill="#fff8ef" font-size="16" font-weight="650" font-family="-apple-system, Segoe UI, sans-serif">bookId sync</text>
+    </g>
+  </g>
+</svg>

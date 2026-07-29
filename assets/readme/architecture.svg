@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">INPX ecosystem architecture</title>
+  <desc id="desc">Android APK talks to INPX Library Server over REST for catalog and sync; books are read from local files after download.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#d4ac5c"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="360" rx="28" fill="#15120f"/>
+  <rect x="1.5" y="1.5" width="1197" height="357" rx="27" fill="none" stroke="#d4ac5c" stroke-opacity="0.2" stroke-width="1.5"/>
+
+  <text x="56" y="58" fill="#d4ac5c" font-size="16" font-weight="600" letter-spacing="0.08em" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">HOW IT WORKS</text>
+  <text x="56" y="98" fill="#f5f1e8" font-size="28" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">Одна экосистема, чтение только с диска</text>
+
+  <!-- Card: APK -->
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <rect x="56" y="140" width="300" height="160" rx="20" fill="#1e1a16" stroke="#d4ac5c" stroke-opacity="0.4" stroke-width="1.5"/>
+    <text x="80" y="180" fill="#d4ac5c" font-size="15" font-weight="600" letter-spacing="0.06em">ANDROID</text>
+    <text x="80" y="220" fill="#f5f1e8" font-size="24" font-weight="700">Book Reader APK</text>
+    <text x="80" y="258" fill="#9a8e7e" font-size="18">UI · SAF · Foliate</text>
+  </g>
+
+  <!-- Card: Server -->
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <rect x="450" y="140" width="300" height="160" rx="20" fill="#1e1a16" stroke="#d4ac5c" stroke-opacity="0.4" stroke-width="1.5"/>
+    <text x="474" y="180" fill="#d4ac5c" font-size="15" font-weight="600" letter-spacing="0.06em">SERVER</text>
+    <text x="474" y="220" fill="#f5f1e8" font-size="24" font-weight="700">INPX Library</text>
+    <text x="474" y="258" fill="#9a8e7e" font-size="18">/api · index · sync</text>
+  </g>
+
+  <!-- Card: Local files -->
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <rect x="844" y="140" width="300" height="160" rx="20" fill="#1e1a16" stroke="#d4ac5c" stroke-opacity="0.4" stroke-width="1.5"/>
+    <text x="868" y="180" fill="#d4ac5c" font-size="15" font-weight="600" letter-spacing="0.06em">DEVICE</text>
+    <text x="868" y="220" fill="#f5f1e8" font-size="24" font-weight="700">Local FB2/EPUB</text>
+    <text x="868" y="258" fill="#9a8e7e" font-size="18">offline reading</text>
+  </g>
+
+  <!-- Flow arrows + labels -->
+  <line x1="356" y1="220" x2="450" y2="220" stroke="#d4ac5c" stroke-width="2.5" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <text x="403" y="205" text-anchor="middle" fill="#e8e0d4" font-size="16" font-weight="600" font-family="-apple-system, Segoe UI, sans-serif">REST</text>
+
+  <line x1="750" y1="220" x2="844" y2="220" stroke="#d4ac5c" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="797" y="205" text-anchor="middle" fill="#e8e0d4" font-size="16" font-weight="600" font-family="-apple-system, Segoe UI, sans-serif">download</text>
+
+  <text x="600" y="330" text-anchor="middle" fill="#9a8e7e" font-size="18" font-family="-apple-system, Segoe UI, sans-serif">Позиция, закладки и заметки синхронизируются по bookId — не по пути файла</text>
+</svg>

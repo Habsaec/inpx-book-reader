@@ -1,11 +1,12 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, type DragControls } from 'motion/react';
-import { BookOpen, Download, Check, Heart, MessageSquare, CloudUpload } from 'lucide-react';
+import { BookOpen, Download, Check, Heart, MessageSquare, CloudUpload, X } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
-import { textStyles, semantic } from '../../ui/tokens';
+import { textStyles, semantic, touchMin } from '../../ui/tokens';
 import Button from '../../ui/Button';
 import { TextBlockSkeleton } from '../../ui/Skeleton';
+import { sheetBackdropClass, sheetPanelStyle } from '../../ui/SheetChrome';
 import { Book, ServerConfig } from '../../types';
 import { fetchBookDetails, fetchBookReviewHtml } from '../../lib/inpxClient';
 import BookCover from '../BookCover';
@@ -102,16 +103,9 @@ export default function BookDetailsSheet({
     <AnimatePresence>
       {book && (
         <div
-          className="fixed inset-0 bg-stone-950/60 flex items-end justify-center z-[9999]"
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          className={sheetBackdropClass}
+          onClick={onClose}
         >
-          <button
-            type="button"
-            className="absolute inset-0 border-0 p-0 bg-transparent cursor-pointer"
-            aria-label="Закрыть"
-            onClick={onClose}
-          />
-
           <motion.div
             key="book-sheet"
             role="dialog"
@@ -129,13 +123,24 @@ export default function BookDetailsSheet({
             onDragEnd={(_, info) => {
               if (info.offset.y > 72 || info.velocity.y > 420) onClose();
             }}
-            className={`w-full max-w-lg rounded-t-3xl max-h-[90vh] relative z-10 border-t flex flex-col overflow-hidden ${theme.sheet}`}
+            onClick={(e) => e.stopPropagation()}
+            className={`w-full rounded-t-3xl max-h-[85vh] relative z-10 border-t flex flex-col overflow-hidden ${theme.sheet}`}
+            style={sheetPanelStyle()}
           >
             <div
-              className="shrink-0 pt-3 pb-2 cursor-grab active:cursor-grabbing touch-none"
+              className="shrink-0 pt-3 pb-1 cursor-grab active:cursor-grabbing touch-none relative"
               onPointerDown={(e) => dragControls.start(e)}
             >
               <div className="w-12 h-1.5 bg-[var(--app-panel-soft)]/40 rounded-full mx-auto" />
+              <button
+                type="button"
+                aria-label="Закрыть"
+                onClick={onClose}
+                onPointerDown={(e) => e.stopPropagation()}
+                className={`absolute right-3 top-1 ${touchMin} inline-flex items-center justify-center rounded-lg ${theme.chipButton} ${theme.focusRing}`}
+              >
+                <X className="w-5 h-5" aria-hidden />
+              </button>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-3 flex flex-col gap-4">
@@ -198,6 +203,9 @@ export default function BookDetailsSheet({
                   {isServerConnected && (
                     <DownloadStatusLabel
                       isDownloaded={downloadedBookIds.includes(book.id)}
+                      isDownloading={
+                        downloadingId === book.id || Boolean(queuedBookIds?.has(book.id))
+                      }
                       showNotDownloaded
                     />
                   )}
@@ -213,82 +221,65 @@ export default function BookDetailsSheet({
                     </button>
                   )}
 
-                  <div className={`leading-relaxed ${themeTextMuted}`}>
-                    <span className={`font-bold ${theme.text}`}>Автор: </span>
-                    <button
-                      type="button"
-                      onClick={() => onOpenAuthor(book.author)}
-                      className={`hover:underline font-semibold active:opacity-80 ${themeAccentText} ${theme.focusRing}`}
-                    >
-                      {book.author}
-                    </button>
-                  </div>
-
-                  {book.genresDisplay?.length ? (
-                    <div className={`leading-relaxed ${themeTextMuted}`}>
-                      <span className={`font-bold ${theme.text}`}>Жанры: </span>
-                      {book.genresDisplay.slice(0, 6).join(', ')}
-                    </div>
-                  ) : book.genre ? (
-                    <div className={`leading-relaxed ${themeTextMuted}`}>
-                      <span className={`font-bold ${theme.text}`}>Жанры: </span>
-                      {book.genre}{book.subgenre && book.subgenre !== book.genre ? `, ${book.subgenre}` : ''}
-                    </div>
-                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onOpenAuthor(book.author)}
+                    className={`block text-left ${textStyles.body} ${themeAccentText} ${theme.focusRing}`}
+                  >
+                    {book.author}
+                  </button>
 
                   {book.series && (
-                    <div className={`leading-relaxed ${themeTextMuted}`}>
-                      <span className={`font-bold ${theme.text}`}>Серия: </span>
-                      <button
-                        type="button"
-                        onClick={() => onOpenSeries(book.series!)}
-                        className={`hover:underline font-semibold active:opacity-80 ${themeAccentText} ${theme.focusRing}`}
-                      >
-                        {book.series}{book.seriesNo ? ` #${book.seriesNo}` : ''}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onOpenSeries(book.series!)}
+                      className={`block text-left ${textStyles.caption} ${themeTextMuted} ${theme.focusRing}`}
+                    >
+                      {book.series}{book.seriesNo ? ` · том ${book.seriesNo}` : ''}
+                    </button>
                   )}
 
-                  {book.year && (
-                    <div className={themeTextMuted}>Год: <strong>{book.year} г.</strong></div>
+                  {(book.genresDisplay?.length || book.genre || book.year) && (
+                    <p className={`${textStyles.caption} ${themeTextMuted} leading-relaxed`}>
+                      {[
+                        book.genresDisplay?.length
+                          ? book.genresDisplay.slice(0, 4).join(', ')
+                          : book.genre
+                            ? `${book.genre}${book.subgenre && book.subgenre !== book.genre ? `, ${book.subgenre}` : ''}`
+                            : null,
+                        book.year ? String(book.year) : null,
+                        book.ext?.toUpperCase(),
+                      ].filter(Boolean).join(' · ')}
+                    </p>
                   )}
-
-                  <div className={`flex gap-1.5 pt-1 ${textStyles.micro}`}>
-                    <span className={`px-2 py-0.5 rounded-full font-bold uppercase ${theme.chip}`}>{book.ext}</span>
-                    {book.size ? (
-                      <span className={`px-2 py-0.5 rounded-full font-bold ${theme.chip}`}>
-                        {(book.size / 1024).toFixed(0)} КБ
-                      </span>
-                    ) : null}
-                  </div>
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <span className={`${textStyles.sectionLabel} ${theme.textMuted}`}>Аннотация</span>
-                <p className={`${textStyles.caption} leading-relaxed opacity-90 pr-1 select-text`}>
+              <div className="space-y-1.5">
+                <span className={`${textStyles.bodyBold} ${theme.textMuted}`}>О книге</span>
+                <p className={`${textStyles.body} leading-relaxed ${theme.text} select-text`}>
                   {description || 'Аннотация отсутствует.'}
                 </p>
               </div>
 
-              <div className="space-y-3 pt-1 border-t border-[color:var(--app-border)]/15">
-                <h4 className={`${textStyles.sectionLabel} ${theme.textMuted} flex items-center gap-1`}>
-                  <MessageSquare className="w-3.5 h-3.5" aria-hidden /> Рецензия
-                </h4>
-                {bookReviewLoading ? (
-                  <TextBlockSkeleton lines={4} />
-                ) : bookReviewHtml ? (
-                  <div
-                    className={`text-xs leading-relaxed max-h-48 overflow-y-auto prose prose-sm ${isAppDark ? 'prose-invert' : ''}`}
-                    dangerouslySetInnerHTML={{ __html: bookReviewHtml }}
-                  />
-                ) : (
-                  <p className={`text-xs ${theme.textMuted} italic text-center py-4`}>Рецензия не найдена</p>
-                )}
-              </div>
+              {(bookReviewLoading || bookReviewHtml) && (
+                <div className="space-y-2 pt-1">
+                  <h4 className={`${textStyles.bodyBold} ${themeTextMuted} flex items-center gap-1.5`}>
+                    <MessageSquare className="w-4 h-4" aria-hidden /> Рецензия
+                  </h4>
+                  {bookReviewLoading ? (
+                    <TextBlockSkeleton lines={4} />
+                  ) : (
+                    <div
+                      className={`text-sm leading-relaxed max-h-48 overflow-y-auto prose prose-sm ${isAppDark ? 'prose-invert' : ''}`}
+                      dangerouslySetInnerHTML={{ __html: bookReviewHtml }}
+                    />
+                  )}
+                </div>
+              )}
             </div>
 
-            <div className={`shrink-0 px-5 pt-3 pb-4 border-t ${themeSheetFooter}`}>
+            <div className={`shrink-0 px-5 pt-3 pb-1 border-t relative z-20 ${themeSheetFooter}`}>
               {downloadError && (
                 <p className={`${textStyles.caption} mb-2 text-center ${semantic.error}`} role="alert">{downloadError}</p>
               )}
@@ -304,8 +295,18 @@ export default function BookDetailsSheet({
                 <Button fullWidth disabled>
                   В очереди
                 </Button>
+              ) : !isServerConnected ? (
+                <Button fullWidth disabled>
+                  Нужен интернет для скачивания
+                </Button>
               ) : (
-                <Button fullWidth onClick={() => onDownload(book)}>
+                <Button
+                  fullWidth
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDownload(book);
+                  }}
+                >
                   <Download className="w-4 h-4" aria-hidden /> Скачать
                 </Button>
               )}

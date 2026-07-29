@@ -4,6 +4,9 @@ export const CATALOG_SUB_TABS: CatalogSubTab[] = ['books', 'authors', 'series', 
 
 export type CatalogFormatFilter = 'all' | 'fb2' | 'epub' | 'txt';
 
+/** Series presence filter for `/api/catalog?hasSeries=` */
+export type CatalogHasSeriesFilter = 'any' | 'yes' | 'no';
+
 export type DemoBookSort = 'rating' | 'downloads' | 'title' | 'year' | 'size';
 
 export type CatalogViewMode = 'list' | 'grid';

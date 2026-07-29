@@ -1,5 +1,6 @@
 import { registerPlugin } from '@capacitor/core';
 import { fetchCoverBlob } from './inpxClient';
+import { legacyStrippedBookIdFileKey, safeBookIdFileKey } from './bookRef';
 import type { ServerConfig } from '../types';
 import type { StorageDirectory } from './storageDirectory';
 
@@ -9,6 +10,7 @@ interface BookStoragePlugin {
   writeBinaryFile(options: { treeUri: string; path: string; data: string }): Promise<void>;
   readBinaryFile(options: { treeUri: string; path: string }): Promise<{ data: string }>;
   deleteFile(options: { treeUri: string; path: string }): Promise<void>;
+  fileExists(options: { treeUri: string; path: string }): Promise<{ exists: boolean }>;
 }
 
 const BookStorage = registerPlugin<BookStoragePlugin>('BookStorage');
@@ -39,7 +41,39 @@ function cacheKey(bookId: string, variant: 'thumb' | 'full'): string {
 
 export function coverRelativePath(bookId: string, variant: 'thumb' | 'full'): string {
   const suffix = variant === 'full' ? 'full' : 'thumb';
-  return `${META_DIR}/${bookId}_${suffix}.jpg`;
+  return `${META_DIR}/${safeBookIdFileKey(bookId)}_${suffix}.jpg`;
+}
+
+function legacyCoverRelativePath(bookId: string, variant: 'thumb' | 'full'): string {
+  const suffix = variant === 'full' ? 'full' : 'thumb';
+  return `${META_DIR}/${legacyStrippedBookIdFileKey(bookId)}_${suffix}.jpg`;
+}
+
+async function migrateCoverFile(treeUri: string, fromPath: string, toPath: string): Promise<boolean> {
+  if (!fromPath || !toPath || fromPath === toPath) return false;
+  try {
+    const dest = await BookStorage.fileExists({ treeUri, path: toPath });
+    if (dest?.exists) {
+      try {
+        await BookStorage.deleteFile({ treeUri, path: fromPath });
+      } catch {
+        /* orphan ok */
+      }
+      return true;
+    }
+    const src = await BookStorage.fileExists({ treeUri, path: fromPath });
+    if (!src?.exists) return false;
+    const result = await BookStorage.readBinaryFile({ treeUri, path: fromPath });
+    await BookStorage.writeBinaryFile({ treeUri, path: toPath, data: result.data });
+    try {
+      await BookStorage.deleteFile({ treeUri, path: fromPath });
+    } catch {
+      /* orphan ok */
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function bufferToBase64(buffer: ArrayBuffer): string {
@@ -73,10 +107,17 @@ export async function readCoverFromDirectory(
   }
 
   if (!directory.uri) return null;
+  const path = coverRelativePath(bookId, variant);
+  const legacyPath = legacyCoverRelativePath(bookId, variant);
   try {
+    if (legacyPath !== path) {
+      await migrateCoverFile(directory.uri, legacyPath, path);
+    }
+    const exists = await BookStorage.fileExists({ treeUri: directory.uri, path });
+    if (!exists?.exists) return null;
     const result = await BookStorage.readBinaryFile({
       treeUri: directory.uri,
-      path: coverRelativePath(bookId, variant),
+      path,
     });
     const blob = new Blob([base64ToArrayBuffer(result.data)], { type: 'image/jpeg' });
     const url = URL.createObjectURL(blob);

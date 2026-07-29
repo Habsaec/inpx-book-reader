@@ -157,7 +157,10 @@ public class BookStoragePlugin extends Plugin {
     @PluginMethod
     public void getAvailableBytes(PluginCall call) {
         try {
-            File path = Environment.getDataDirectory();
+            File path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (path == null || (!path.exists() && !path.mkdirs())) {
+                path = Environment.getDataDirectory();
+            }
             StatFs stat = new StatFs(path.getPath());
             long bytes = stat.getAvailableBlocksLong() * stat.getBlockSizeLong();
             JSObject ret = new JSObject();

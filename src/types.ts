@@ -6,6 +6,8 @@ export interface Book {
   subgenre?: string;
   series?: string;
   seriesNo?: number;
+  /** Raw volume label for UI (may be non-numeric, e.g. "1-2") */
+  seriesNoLabel?: string;
   ext: string;
   size?: number;
   description?: string;
@@ -15,7 +17,7 @@ export interface Book {
   content?: string; // Parsed chapters JSON (in-app storage only)
   localFileName?: string; // Relative path in picked folder, e.g. "Author/Series/1-Title.fb2"
   storageUri?: string;
-  chaptersPath?: string; // Parsed chapters in .inpx-reader/{id}.json
+  chaptersPath?: string; // Parsed chapters in .inpx-reader/{safeBookIdFileKey}.json
   rating?: number; // Public rating
   userRating?: number; // User personal rating (1-5)
   downloadsCount?: number;

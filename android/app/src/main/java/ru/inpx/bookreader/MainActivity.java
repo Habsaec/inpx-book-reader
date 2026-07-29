@@ -8,16 +8,19 @@ import android.os.Looper;
 import android.view.ActionMode;
 import android.view.KeyEvent;
 import android.view.Menu;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.PluginHandle;
 
 public class MainActivity extends BridgeActivity {
 
     private static final long SPLASH_MAX_MS = 15000;
 
+    private FrontLightSwipe lightSwipe;
     private View splashOverlay;
     private boolean splashIsDark = true;
     private final Handler splashHandler = new Handler(Looper.getMainLooper());
@@ -32,6 +35,8 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // До любого вызова Onyx DeviceController (blacklist на Android 13 / BOOX 4.2)
+        OnyxFrontLight.applyHiddenApiExemptions();
         splashIsDark = SplashThemeResolver.useDarkSplash(this);
         setTheme(
             splashIsDark
@@ -45,6 +50,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DownloadNotificationPlugin.class);
         registerPlugin(LaunchIntentPlugin.class);
         super.onCreate(savedInstanceState);
+        lightSwipe = new FrontLightSwipe(this, lightSwipeHost);
         showNativeSplashOverlay();
         splashHandler.post(splashPollRunnable);
         splashTimeoutRunnable = this::hideNativeSplashOverlay;
@@ -150,6 +156,35 @@ public class MainActivity extends BridgeActivity {
                 + "'}}))";
         bridge.getWebView().evaluateJavascript(js, null);
     }
+
+    /**
+     * Подсветка свайпом у края обрабатывается здесь, до WebView: так жест не зависит
+     * от JS и рендера страницы. Пока жест не «наш», события уходят в WebView как обычно.
+     */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        FrontLightSwipe swipe = lightSwipe;
+        if (swipe != null && swipe.onTouch(ev)) return true;
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private final FrontLightSwipe.Host lightSwipeHost = new FrontLightSwipe.Host() {
+        @Override
+        public void cancelWebViewTouch(MotionEvent source) {
+            MotionEvent cancel = MotionEvent.obtain(source);
+            cancel.setAction(MotionEvent.ACTION_CANCEL);
+            try {
+                MainActivity.super.dispatchTouchEvent(cancel);
+            } finally {
+                cancel.recycle();
+            }
+        }
+
+        @Override
+        public void onFrontLightState(JSObject state) {
+            runOnUiThread(() -> ReaderNativePlugin.emitFrontLightState(state));
+        }
+    };
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {

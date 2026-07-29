@@ -2,16 +2,23 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { touchMin } from '../../ui/tokens';
-import type { CatalogFormatFilter } from './catalogTypes';
+import type { CatalogFormatFilter, CatalogHasSeriesFilter } from './catalogTypes';
 
 interface CatalogActiveFilterChipsProps {
   minRating: number;
   formatFilter: CatalogFormatFilter;
+  genreFilters: string[];
+  genreLabels?: Record<string, string>;
+  yearFilter: number;
+  hasSeriesFilter: CatalogHasSeriesFilter;
   selectedAuthor: string | null;
   selectedSeries: string | null;
   selectedSubgenre: { parent: string; name: string } | null;
   onClearMinRating: () => void;
   onClearFormat: () => void;
+  onClearGenre: (code: string) => void;
+  onClearYear: () => void;
+  onClearHasSeries: () => void;
   onClearAuthor: () => void;
   onClearSeries: () => void;
   onClearSubgenre: () => void;
@@ -26,7 +33,7 @@ function Chip({
   onRemove: () => void;
 }) {
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${theme.chip}`}>
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs ${theme.chip}`}>
       {label}
       <button
         type="button"
@@ -43,11 +50,18 @@ function Chip({
 export default function CatalogActiveFilterChips({
   minRating,
   formatFilter,
+  genreFilters,
+  genreLabels = {},
+  yearFilter,
+  hasSeriesFilter,
   selectedAuthor,
   selectedSeries,
   selectedSubgenre,
   onClearMinRating,
   onClearFormat,
+  onClearGenre,
+  onClearYear,
+  onClearHasSeries,
   onClearAuthor,
   onClearSeries,
   onClearSubgenre,
@@ -57,6 +71,21 @@ export default function CatalogActiveFilterChips({
 
   if (minRating > 0) {
     chips.push({ key: 'rating', label: `★ ${minRating}+`, onRemove: onClearMinRating });
+  }
+  for (const code of genreFilters) {
+    chips.push({
+      key: `genre:${code}`,
+      label: genreLabels[code] || code,
+      onRemove: () => onClearGenre(code),
+    });
+  }
+  if (yearFilter >= 1800 && yearFilter <= 2100) {
+    chips.push({ key: 'year', label: String(yearFilter), onRemove: onClearYear });
+  }
+  if (hasSeriesFilter === 'yes') {
+    chips.push({ key: 'series-yes', label: 'В серии', onRemove: onClearHasSeries });
+  } else if (hasSeriesFilter === 'no') {
+    chips.push({ key: 'series-no', label: 'Без серии', onRemove: onClearHasSeries });
   }
   if (formatFilter !== 'all') {
     chips.push({ key: 'format', label: formatFilter.toUpperCase(), onRemove: onClearFormat });
@@ -81,7 +110,7 @@ export default function CatalogActiveFilterChips({
       <button
         type="button"
         onClick={onClearAll}
-        className={`min-h-12 px-3 text-xs font-bold rounded-lg ${theme.textMuted} hover:opacity-80 ${theme.focusRing}`}
+        className={`min-h-12 px-3 text-xs rounded-lg ${theme.textMuted} hover:opacity-80 ${theme.focusRing}`}
       >
         Сбросить всё
       </button>

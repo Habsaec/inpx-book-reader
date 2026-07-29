@@ -1,8 +1,9 @@
 import type { Book } from '../types';
-import { bookFileExists } from './bookStorage';
+import { bookFileExists, migrateBookChaptersPathIfNeeded } from './bookStorage';
 import {
   getDefaultStorageDirectory,
   isValidStorageDirectory,
+  normalizeStorageDirectory,
   readStoredStorageDirectory,
   type StorageDirectory,
 } from './storageDirectory';
@@ -30,9 +31,10 @@ export function clearLocalFileMeta(book: Book): Book {
 }
 
 function pushCandidate(list: StorageDirectory[], dir: StorageDirectory | null | undefined): void {
-  if (!isValidStorageDirectory(dir)) return;
-  if (list.some((c) => c.uri === dir.uri)) return;
-  list.push(dir);
+  const normalized = normalizeStorageDirectory(dir);
+  if (!isValidStorageDirectory(normalized)) return;
+  if (list.some((c) => c.uri === normalized.uri)) return;
+  list.push(normalized);
 }
 
 /** Найти фактическое расположение локального файла книги (с fallback по папкам). */
@@ -79,10 +81,12 @@ export async function verifyDownloadedBooksLocalFiles(
 
       if (!resolvedDirectory) resolvedDirectory = loc.directory;
 
+      let next: Book = book;
       if (loc.storageUri !== book.storageUri) {
-        return { ...book, storageUri: loc.storageUri };
+        next = { ...next, storageUri: loc.storageUri };
       }
-      return book;
+      next = await migrateBookChaptersPathIfNeeded(loc.directory, next);
+      return next;
     }),
   );
 

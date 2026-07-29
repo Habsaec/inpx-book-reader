@@ -6,7 +6,7 @@
 
 ## ⚡ Контракт разработки (не забывать)
 
-> **Приложение разрабатывается исключительно для Android.** iOS, десктоп и веб как продукт не учитываем.  
+> **Приложение разрабатывается исключительно для Android.** iOS, десктоп и веб как продукт не учитываем.
 > **Приложение и сервер — единая экосистема.** Любая задача выполняется с учётом обоих репозиториев.
 
 | Принцип | Суть |
@@ -75,7 +75,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/profile` — данные профиля пользователя
 - `POST /api/auth/device` — выдать device token (Android, после Basic Auth)
 - `DELETE /api/auth/device/:tokenId` — отозвать device token
-- `GET /api/favorites` — избранные авторы и серии
+- `GET /api/favorites` — избранные авторы и серии (`authors`: `name`, `displayName`, `bookCount`, `coverBookId`; `series`: `name`, `displayName`, `bookCount`, `previewBookIds`)
 - `POST /api/favorites/authors` — добавить/удалить автора в избранное
 - `POST /api/favorites/series` — добавить/удалить серию в избранное
 
@@ -84,7 +84,9 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/library/continue` — продолжить чтение
 - `GET /api/library/read` — прочитанные книги
 - `GET /api/library/recommended` — рекомендации
-- `GET /api/catalog` — поиск по каталогу
+- `GET /api/catalog` — поиск по каталогу; additive filters: `genre` (CSV/repeated, OR — хотя бы один), `lang`, `format`, `year`, `minRate`, `hasSeries` (1/0)
+- `GET /api/search?q=` — единый поиск: totals `{ books, authors, series }`; затем drilldown через `/api/catalog?field=`
+- `GET /api/search/genres?q=` — жанры среди книг текущей выдачи (фасет для фильтра; опционально format/year/minRate/hasSeries)
 - `GET /api/search/suggest` — подсказки поиска
 - `GET /api/browse/authors` — список авторов
 - `GET /api/browse/series` — список серий
@@ -343,7 +345,7 @@ npm run lint
 
 ### Брендинг библиотеки (опционально)
 
-Если нужно подтянуть название/логотип с сервера — `GET /api/settings/ui`.  
+Если нужно подтянуть название/логотип с сервера — `GET /api/settings/ui`.
 Синхронизация палитры с `styles.css` сервера **не обязательна**; Android-тема живёт в `src/index.css` и `src/lib/appTheme.ts` независимо от `/lite/`.
 
 ### При добавлении нового API endpoint на сервере

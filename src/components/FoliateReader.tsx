@@ -1,5 +1,6 @@
 import React from 'react';
 import { Capacitor } from '@capacitor/core';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { StatusBar } from '@capacitor/status-bar';
 import { readBinaryFileFromDirectory, arrayBufferToBase64 } from '../lib/bookStorage';
 import { debugSessionLog } from '../lib/debugSessionLog';
@@ -42,10 +43,13 @@ export interface FoliateReaderConfig {
   bookTitle?: string;
   initialPosition?: string | null;
   localFile: LocalBookFile;
+  einkActive?: boolean;
 }
 
 interface FoliateReaderProps extends FoliateReaderConfig {
   onClose: () => void;
+  /** Вызывается после применения store из iframe (закладки/заметки/позиция). */
+  onStoreSynced?: () => void;
 }
 
 export function readLocalReaderPosition(bookId: string): string | null {
@@ -57,6 +61,7 @@ export function readLocalReaderPosition(bookId: string): string | null {
 export const readOfflineReaderPosition = readLocalReaderPosition;
 
 export function writeFoliateReaderSession(config: FoliateReaderConfig) {
+  seedReaderThemeFromApp();
   localStorage.setItem(
     'INPX_READER_CONFIG',
     JSON.stringify({
@@ -66,8 +71,26 @@ export function writeFoliateReaderSession(config: FoliateReaderConfig) {
       initialPosition: config.initialPosition || null,
       storageUri: config.localFile.storageUri,
       localFileName: config.localFile.localFileName,
+      einkActive: Boolean(config.einkActive),
     }),
   );
+}
+
+/** Align reader light/dark/sepia with app theme; keep night/eink prefs. */
+function seedReaderThemeFromApp() {
+  try {
+    const appTheme = document.documentElement.dataset.theme;
+    if (appTheme !== 'light' && appTheme !== 'dark' && appTheme !== 'sepia') return;
+    const raw = localStorage.getItem('reader-settings');
+    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    const current = typeof settings.theme === 'string' ? settings.theme : '';
+    if (current === 'night' || current === 'eink') return;
+    if (current === appTheme) return;
+    settings.theme = appTheme;
+    localStorage.setItem('reader-settings', JSON.stringify(settings));
+  } catch {
+    /* ignore */
+  }
 }
 
 export default function FoliateReader({
@@ -76,7 +99,9 @@ export default function FoliateReader({
   bookTitle = 'Книга',
   initialPosition,
   localFile,
+  einkActive = false,
   onClose,
+  onStoreSynced,
 }: FoliateReaderProps) {
   const dialog = useDialog();
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
@@ -91,6 +116,7 @@ export default function FoliateReader({
   const [loadError, setLoadError] = React.useState('');
   const readerPrefsRef = React.useRef(readReaderPrefs());
   const iframeOriginRef = React.useRef<string | null>(null);
+  const lastHapticAtRef = React.useRef(0);
 
   React.useEffect(() => {
     if (!iframeSrc) {
@@ -228,6 +254,9 @@ export default function FoliateReader({
     })();
 
     return () => {
+      // Свайп подсветки перехватывает касания в dispatchTouchEvent на всё приложение,
+      // поэтому вне читалки он обязан быть выключен — иначе ломает прокрутку списков.
+      void ReaderNative.setLightSwipe({ enabled: false }).catch(() => {});
       void ReaderNative.setBrightness({ level: -1 }).catch(() => {});
       void (async () => {
         try {
@@ -300,6 +329,7 @@ export default function FoliateReader({
           bookTitle,
           initialPosition,
           localFile: { storageUri, localFileName },
+          einkActive,
         });
         if (cancelled) return;
 
@@ -314,6 +344,7 @@ export default function FoliateReader({
           if (frac > 0.001) query.set('frac', String(frac));
           if (readerData.fb2Href) query.set('fb2', String(readerData.fb2Href));
         }
+        if (einkActive) query.set('eink', '1');
         query.set('session', String(Date.now()));
         setIframeSrc(`./inpx-reader/index.html?${query.toString()}`);
         debugSessionLog('H1', 'FoliateReader:init', 'iframe src set', { bookId });
@@ -333,7 +364,7 @@ export default function FoliateReader({
         setIframeSrc(null);
       });
     };
-  }, [bookId, bookExt, bookTitle, initialPosition, storageUri, localFileName, flushReaderPositionAndWait]);
+  }, [bookId, bookExt, bookTitle, initialPosition, storageUri, localFileName, einkActive, flushReaderPositionAndWait]);
 
   React.useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -424,6 +455,7 @@ export default function FoliateReader({
       if (event.data?.type === 'inpx-reader-sync-store' && event.data.bookId === bookId) {
         if (!isTrustedReaderMessage(event)) return;
         applyIframeReaderStore(bookId, event.data.data || {});
+        onStoreSynced?.();
         if (flushAckRef.current) {
           clearTimeout(flushAckRef.current.timer);
           const { resolve } = flushAckRef.current;
@@ -443,6 +475,21 @@ export default function FoliateReader({
       }
 
       if (event.data?.type === 'inpx-reader-close') requestClose();
+
+      if (
+        event.data?.type === 'inpx-reader-haptic'
+        && event.source === iframeRef.current?.contentWindow
+        && Capacitor.isNativePlatform()
+      ) {
+        if (einkActive) return;
+        const now = Date.now();
+        // Защита от пачки relocate при открытии книги / быстром листании.
+        if (now - lastHapticAtRef.current < 220) return;
+        lastHapticAtRef.current = now;
+        const kind = event.data.kind === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light;
+        void Haptics.impact({ style: kind }).catch(() => {});
+        return;
+      }
 
       if (
         event.data?.type === 'inpx-reader-immersive'
@@ -485,7 +532,7 @@ export default function FoliateReader({
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [bookId, enqueuePositionPrompt, isTrustedReaderMessage, requestClose]);
+  }, [bookId, einkActive, enqueuePositionPrompt, isTrustedReaderMessage, onStoreSynced, requestClose]);
 
   React.useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -529,16 +576,23 @@ export default function FoliateReader({
 
   if (loadError) {
     return (
-      <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-3 p-6 bg-[var(--app-bg)] text-[var(--app-text)]">
-        <p className="text-sm text-center">{loadError}</p>
-        <button type="button" className={`text-sm font-bold text-[var(--app-link)] px-3 py-2 rounded-lg ${theme.focusRing}`} onClick={onClose}>← Назад</button>
+      <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 p-6 bg-[var(--app-bg)] text-[var(--app-text)]">
+        <p className="text-base font-semibold text-center">Не удалось открыть книгу</p>
+        <p className="text-sm text-center text-[var(--app-muted)] max-w-sm">{loadError}</p>
+        <button
+          type="button"
+          className={`min-h-12 px-4 text-sm font-bold text-[var(--app-link)] rounded-lg ${theme.focusRing}`}
+          onClick={onClose}
+        >
+          ← Назад
+        </button>
       </div>
     );
   }
 
   if (!iframeSrc) {
     return (
-      <div className="fixed inset-0 z-[200] flex flex-col bg-[var(--app-bg)] text-[var(--app-text)]">
+      <div className="fixed inset-0 z-[200] flex flex-col bg-[var(--app-bg)] text-[var(--app-text)]" aria-busy aria-label="Загрузка книги">
         <ScreenLoader label="Загрузка книги…" />
       </div>
     );
