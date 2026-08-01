@@ -75,6 +75,8 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/profile` — данные профиля пользователя
 - `POST /api/auth/device` — выдать device token (Android, после Basic Auth)
 - `DELETE /api/auth/device/:tokenId` — отозвать device token
+- `POST /api/auth/pairing` — создать одноразовый QR pairing-код (на сайте; пароль не включается)
+- `POST /api/auth/pairing/redeem` — обменять pairing `code` на device Bearer (`deviceToken`, `username`, `serverUrl`); вход через «Сканировать QR» в онбординге и настройках
 - `GET /api/favorites` — избранные авторы и серии (`authors`: `name`, `displayName`, `bookCount`, `coverBookId`; `series`: `name`, `displayName`, `bookCount`, `previewBookIds`)
 - `POST /api/favorites/authors` — добавить/удалить автора в избранное
 - `POST /api/favorites/series` — добавить/удалить серию в избранное

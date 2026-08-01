@@ -28,6 +28,7 @@ import {
 import { useDialog } from '../ui/Dialog';
 import { finalizeReadingPositionSync, syncOfflineReaderForBook } from '../lib/offlineSync';
 import { runBookOpenOnlineSync } from '../lib/bookOpenSync';
+import { notifyBookOpenSyncDone } from '../lib/bookOpenSyncNotify';
 import {
   applyServerActivitySyncMeta,
   buildSyncActivityOptions,
@@ -240,37 +241,10 @@ export function useBookActions(opts: {
       }
       const resolvedExt = (resolved.ext || extFromStoragePath(loc.localFileName) || 'fb2').replace(/^\./, '');
       migrateOfflineReaderPositionForFormat(resolved.id, resolvedExt);
-      if (canReadOnline) {
-        const { positionChoice } = await runBookOpenOnlineSync(
-          canReadOnline,
-          serverConfig,
-          resolved.id,
-          initialPosition,
-          {
-            syncReaderData: (bookId) => syncBookReaderData(bookId, { includePosition: false }),
-            yieldForUi: () =>
-              new Promise<void>((resolve) => {
-                requestAnimationFrame(() => resolve());
-              }),
-          },
-        );
-        if (positionChoice) {
-          debugSessionLog('P5', 'App:handleOpenBook', 'position on open', {
-            bookId: resolved.id,
-            positionChoice,
-          });
-        }
-      }
-      const localAfterSync = readOfflineReaderData(resolved.id);
-      debugSessionLog('P5', 'App:handleOpenBook', 'synced before open', {
-        bookId: resolved.id,
-        fraction: localAfterSync.fraction ?? null,
-        progress: localAfterSync.progress,
-        fb2Href: localAfterSync.fb2Href ? String(localAfterSync.fb2Href).slice(0, 40) : null,
-      });
+      const explicitPos = initialPosition?.trim() || null;
       setProgressList((prev) => upsertProgressFromLocalReader(prev, resolved));
       primeReaderLocalStorage(resolved.id);
-      const explicitPos = initialPosition?.trim() || null;
+      // Open immediately from local file — never wait on network sync.
       setActiveReader({
         bookId: resolved.id,
         title: resolved.title,
@@ -278,8 +252,43 @@ export function useBookActions(opts: {
         initialPosition: explicitPos,
         localFile: { storageUri: loc.storageUri, localFileName: loc.localFileName },
       });
+      if (canReadOnline) {
+        const openedBookId = resolved.id;
+        void (async () => {
+          try {
+            const { positionChoice } = await runBookOpenOnlineSync(
+              canReadOnline,
+              serverConfig,
+              openedBookId,
+              initialPosition,
+              {
+                syncReaderData: (bookId) => syncBookReaderData(bookId, { includePosition: false }),
+              },
+            );
+            if (positionChoice) {
+              debugSessionLog('P5', 'App:handleOpenBook', 'position on open (bg)', {
+                bookId: openedBookId,
+                positionChoice,
+              });
+            }
+          } finally {
+            const localAfterSync = readOfflineReaderData(openedBookId);
+            debugSessionLog('P5', 'App:handleOpenBook', 'synced after open', {
+              bookId: openedBookId,
+              fraction: localAfterSync.fraction ?? null,
+              progress: localAfterSync.progress,
+              fb2Href: localAfterSync.fb2Href ? String(localAfterSync.fb2Href).slice(0, 40) : null,
+            });
+            setProgressList((prev) =>
+              upsertProgressFromLocalReader(prev, { ...resolved, id: openedBookId }),
+            );
+            primeReaderLocalStorage(openedBookId);
+            notifyBookOpenSyncDone(openedBookId);
+          }
+        })();
+      }
     },
-    [canReadOnline, dialog, enrichBookMeta, onStorageDirectoryResolved, promptDownloadBook, serverConfig, setDownloadedBooks, setProgressList, snackbar, storageDirectory, syncBookReaderData],
+    [canReadOnline, enrichBookMeta, onStorageDirectoryResolved, promptDownloadBook, serverConfig, setDownloadedBooks, setProgressList, snackbar, storageDirectory, syncBookReaderData],
   );
 
   const handleOpenBook = React.useCallback(

@@ -1209,3 +1209,125 @@ export async function revokeDeviceToken(config: ServerConfig, tokenId: string): 
     throw new Error(`Не удалось отозвать device token (HTTP ${res.status})`);
   }
 }
+
+export interface AppPairingPayload {
+  type: 'inpx-pair';
+  v: number;
+  url: string;
+  code: string;
+  user?: string;
+}
+
+export interface AppPairingRedeemResult {
+  serverUrl: string;
+  username: string;
+  deviceToken: string;
+  deviceTokenId: string;
+  deviceName: string;
+}
+
+export function parsePairingQrPayload(raw: string): AppPairingPayload {
+  const text = String(raw || '').trim();
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error('QR-код не похож на код входа INPX');
+  }
+  if (!data || typeof data !== 'object') {
+    throw new Error('QR-код не похож на код входа INPX');
+  }
+  const obj = data as Record<string, unknown>;
+  if (obj.type !== 'inpx-pair') {
+    throw new Error('QR-код не похож на код входа INPX');
+  }
+  const url = String(obj.url || '').trim();
+  const code = String(obj.code || '').trim();
+  if (!url || !code) {
+    throw new Error('В QR-коде нет адреса сервера или кода');
+  }
+  return {
+    type: 'inpx-pair',
+    v: Number(obj.v) || 1,
+    url,
+    code,
+    user: obj.user != null ? String(obj.user) : undefined,
+  };
+}
+
+export async function redeemPairingCode(
+  serverUrl: string,
+  code: string,
+  deviceName = 'INPX Reader',
+): Promise<AppPairingRedeemResult> {
+  const base = normalizeBaseUrl(serverUrl);
+  if (!base) {
+    throw new Error('Не указан адрес сервера в QR-коде');
+  }
+  if (isNativeApp() && /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(serverUrl.trim())) {
+    throw new Error('На телефоне нельзя использовать localhost. Обновите Public site URL на сервере.');
+  }
+
+  const fullUrl = `${base}/api/auth/pairing/redeem`;
+  const init: RequestInit = {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-Request-ID': getDebugRequestId(),
+    },
+    body: JSON.stringify({ code, deviceName }),
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CONNECTION_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = isNativeApp()
+      ? await fetch(fullUrl, { ...init, signal: controller.signal })
+      : await fetch(`/api/proxy?url=${encodeURIComponent(fullUrl)}`, {
+          ...init,
+          signal: controller.signal,
+        });
+  } catch (e: unknown) {
+    if (controller.signal.aborted) {
+      throw new Error(`Timeout: сервер не ответил за ${Math.round(CONNECTION_TIMEOUT_MS / 1000)} с`);
+    }
+    if (isUnreachableServerError(e)) {
+      throw new Error(`Нет связи с ${base}. Проверьте, что телефон в той же сети или указан внешний адрес.`);
+    }
+    throw e instanceof Error ? e : new Error(String(e));
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const data = await res.json().catch(() => ({})) as {
+    ok?: boolean;
+    error?: string;
+    code?: string;
+    serverUrl?: string;
+    username?: string;
+    deviceToken?: string;
+    deviceTokenId?: string;
+    deviceName?: string;
+  };
+  if (!res.ok || !data.ok) {
+    if (data.code === 'PAIRING_INVALID' || res.status === 400) {
+      throw new Error(data.error || 'Код недействителен или истёк');
+    }
+    if (res.status === 429) {
+      throw new Error(data.error || 'Слишком много попыток. Попробуйте позже.');
+    }
+    throw new Error(data.error || `Не удалось войти по QR (HTTP ${res.status})`);
+  }
+  if (!data.deviceToken || !data.deviceTokenId || !data.username) {
+    throw new Error('Сервер не вернул device token');
+  }
+  return {
+    serverUrl: normalizeBaseUrl(data.serverUrl || base),
+    username: data.username,
+    deviceToken: data.deviceToken,
+    deviceTokenId: data.deviceTokenId,
+    deviceName: data.deviceName || deviceName,
+  };
+}

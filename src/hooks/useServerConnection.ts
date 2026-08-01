@@ -138,6 +138,24 @@ export function useServerConnection() {
     setServerConfig((prev) => ({ ...prev, connectionStatus: 'testing' }));
   }, [serverConfig.url]);
 
+  const applyPairingLogin = React.useCallback((result: {
+    url: string;
+    username: string;
+    deviceToken: string;
+    deviceTokenId: string;
+  }) => {
+    setConnectionError(null);
+    setServerConfig((prev) => ({
+      ...prev,
+      url: result.url,
+      username: result.username,
+      password: '',
+      deviceToken: result.deviceToken,
+      deviceTokenId: result.deviceTokenId,
+      connectionStatus: 'testing',
+    }));
+  }, []);
+
   const isVerifyingConnection = serverConfig.connectionStatus === 'testing';
 
   return {
@@ -149,6 +167,7 @@ export function useServerConnection() {
     markServerDisconnected,
     handleServerConfigChange,
     handleTestConnection,
+    applyPairingLogin,
     isVerifyingConnection,
   };
 }

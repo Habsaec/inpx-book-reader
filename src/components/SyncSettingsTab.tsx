@@ -9,6 +9,7 @@ import {
   Palette,
   LogOut,
   AlertTriangle,
+  QrCode,
 } from 'lucide-react';
 import { ServerConfig } from '../types';
 import {
@@ -23,6 +24,8 @@ import {
 import { isAndroid } from '../lib/platform';
 import { insecureHttpWarning } from '../lib/serverUrl';
 import { clearServerCredentials } from '../lib/secureServerConfig';
+import { parsePairingQrPayload, redeemPairingCode } from '../lib/inpxClient';
+import { scanAppPairingQr } from '../lib/scanAppPairingQr';
 import type { AppThemeMode } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
 import DiagnosticsTab from './DiagnosticsTab';
@@ -42,6 +45,12 @@ interface SyncSettingsTabProps {
   serverConfig: ServerConfig;
   onChangeServerConfig: (config: Partial<ServerConfig>) => void;
   onTestConnection: () => void;
+  onPairingLogin: (result: {
+    url: string;
+    username: string;
+    deviceToken: string;
+    deviceTokenId: string;
+  }) => void;
   onForgetServer?: () => void;
   connectionError?: string | null;
   lastSynced: string | null;
@@ -60,6 +69,7 @@ export default function SyncSettingsTab({
   serverConfig,
   onChangeServerConfig,
   onTestConnection,
+  onPairingLogin,
   onForgetServer,
   connectionError,
   lastSynced,
@@ -67,6 +77,7 @@ export default function SyncSettingsTab({
 }: SyncSettingsTabProps) {
   const [pickingFolder, setPickingFolder] = React.useState(false);
   const [forgetting, setForgetting] = React.useState(false);
+  const [scanning, setScanning] = React.useState(false);
   const snackbar = useSnackbar();
   const themeInput = theme.input;
   const themeAccentText = theme.accentText;
@@ -114,6 +125,26 @@ export default function SyncSettingsTab({
       onForgetServer?.();
     } finally {
       setForgetting(false);
+    }
+  };
+
+  const handleScanQr = async () => {
+    setScanning(true);
+    try {
+      const raw = await scanAppPairingQr();
+      const payload = parsePairingQrPayload(raw);
+      const redeemed = await redeemPairingCode(payload.url, payload.code);
+      onPairingLogin({
+        url: redeemed.serverUrl || payload.url,
+        username: redeemed.username,
+        deviceToken: redeemed.deviceToken,
+        deviceTokenId: redeemed.deviceTokenId,
+      });
+      snackbar.show('Вход по QR выполнен', undefined, 'success');
+    } catch (error) {
+      snackbar.show(error instanceof Error ? error.message : 'Не удалось войти по QR', undefined, 'error');
+    } finally {
+      setScanning(false);
     }
   };
 
@@ -226,6 +257,13 @@ export default function SyncSettingsTab({
                   Пароль защищён Android Keystore
                 </p>
               </div>
+            )}
+
+            {isAndroid() && (
+              <Button fullWidth variant="secondary" onClick={() => void handleScanQr()} loading={scanning} disabled={scanning}>
+                <QrCode className="w-4 h-4 inline mr-1" aria-hidden />
+                Сканировать QR
+              </Button>
             )}
 
             <Button fullWidth onClick={onTestConnection} disabled={serverConfig.connectionStatus === 'testing' || !serverConfig.url} loading={serverConfig.connectionStatus === 'testing'}>

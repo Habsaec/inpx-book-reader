@@ -157,6 +157,7 @@ export default function App() {
     markServerDisconnected,
     handleServerConfigChange,
     handleTestConnection,
+    applyPairingLogin,
     isVerifyingConnection,
   } = useServerConnection();
 
@@ -523,6 +524,7 @@ export default function App() {
           serverConfig={serverConfig}
           onChangeServerConfig={handleServerConfigChange}
           onTestConnection={handleTestConnection}
+          onPairingLogin={applyPairingLogin}
           connectionError={connectionError}
           storageDirectory={storageDirectory}
           onChangeStorageDirectory={setStorageDirectory}
@@ -681,6 +683,7 @@ export default function App() {
               serverConfig={serverConfig}
               onChangeServerConfig={handleServerConfigChange}
               onTestConnection={handleTestConnection}
+              onPairingLogin={applyPairingLogin}
               onForgetServer={() => setConnectionError(null)}
               connectionError={connectionError}
               lastSynced={inpxServer.lastSynced}

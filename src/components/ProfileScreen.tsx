@@ -17,6 +17,12 @@ interface ProfileScreenProps {
   serverConfig: ServerConfig;
   onChangeServerConfig: (config: Partial<ServerConfig>) => void;
   onTestConnection: () => void;
+  onPairingLogin: (result: {
+    url: string;
+    username: string;
+    deviceToken: string;
+    deviceTokenId: string;
+  }) => void;
   onForgetServer?: () => void;
   connectionError?: string | null;
   lastSynced: string | null;
@@ -38,6 +44,7 @@ export default function ProfileScreen({
   serverConfig,
   onChangeServerConfig,
   onTestConnection,
+  onPairingLogin,
   onForgetServer,
   connectionError,
   lastSynced,
@@ -90,6 +97,7 @@ export default function ProfileScreen({
         serverConfig={serverConfig}
         onChangeServerConfig={onChangeServerConfig}
         onTestConnection={onTestConnection}
+        onPairingLogin={onPairingLogin}
         onForgetServer={onForgetServer}
         connectionError={connectionError}
         lastSynced={lastSynced}

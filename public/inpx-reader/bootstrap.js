@@ -1007,8 +1007,42 @@ function debugLog(hypothesisId, location, message, data) {
       return;
     }
     if (e.data?.type === 'inpx-reader-seed-store' && e.data.bookId === bookId && e.data.data) {
-      const merged = mergeReaderStores(readReaderData(), e.data.data);
+      const before = readReaderData();
+      const merged = mergeReaderStores(before, e.data.data);
       writeReaderData(merged, { skipParentNotify: true });
+      if (merged.pendingCrossDevicePrompt) {
+        positionPromptResolved = false;
+        void maybeShowDeferredCrossDevicePrompt();
+        return;
+      }
+      const beforeFrac = Number(before.fraction);
+      const afterFrac = Number(merged.fraction);
+      const beforeProgress = Number(before.progress) || 0;
+      const afterProgress = Number(merged.progress) || 0;
+      const fracBefore = Number.isFinite(beforeFrac) ? beforeFrac : beforeProgress / 100;
+      const fracAfter = Number.isFinite(afterFrac) ? afterFrac : afterProgress / 100;
+      const moved = Math.abs(fracBefore - fracAfter) > 0.002
+        || String(before.fb2Href || '') !== String(merged.fb2Href || '')
+        || String(before.position || '') !== String(merged.position || '')
+        || Number(before.sectionIndex) !== Number(merged.sectionIndex)
+        || Number(before.textOffset) !== Number(merged.textOffset);
+      if (moved && typeof window.__READER_RESTORE_SAVED__ === 'function') {
+        // Late silent pull after open: jump to the updated local/server coords.
+        void window.__READER_RESTORE_SAVED__({
+          position: merged.position || '',
+          progress: afterProgress,
+          fraction: fracAfter,
+          fb2Href: merged.fb2Href || null,
+          sectionIndex: merged.sectionIndex ?? null,
+          textOffset: merged.textOffset ?? null,
+          textQuote: merged.textQuote ?? null,
+          textSectionLength: merged.textSectionLength ?? null,
+          sectionPageFraction: merged.sectionPageFraction ?? null,
+          paginatorPage: merged.paginatorPage ?? null,
+          paginatorPages: merged.paginatorPages ?? null,
+          layoutMode: merged.layoutMode ?? null,
+        });
+      }
       return;
     }
     if (e.data?.type === 'inpx-reader-back') {

@@ -12,6 +12,7 @@ import { ScreenLoader } from '../ui/Skeleton';
 import { applyReaderOrientationLock } from '../lib/readerOrientation';
 import { APP_SETTING_KEYS, getAppSettingJson } from '../lib/appSettings';
 import { applyIframeReaderStore, primeReaderLocalStorage, readOfflineReaderData } from '../lib/offlineReaderStore';
+import { BOOK_OPEN_SYNC_DONE_EVENT, peekRecentBookOpenSyncDone } from '../lib/bookOpenSyncNotify';
 import {
   CROSS_DEVICE_POSITION_ACCEPT,
   CROSS_DEVICE_POSITION_DECLINE,
@@ -427,11 +428,26 @@ export default function FoliateReader({
         type: 'inpx-native-ready',
         ready: Capacitor.isNativePlatform(),
       }, '*');
+      // Open-sync may have finished before the iframe listener was ready.
+      if (peekRecentBookOpenSyncDone(bookId)) {
+        postReaderSeed(win);
+      }
     };
 
     iframe.addEventListener('load', onLoad);
     return () => iframe.removeEventListener('load', onLoad);
-  }, [iframeSrc, postReaderChromeInsets, postReaderSeed]);
+  }, [iframeSrc, bookId, postReaderChromeInsets, postReaderSeed]);
+
+  React.useEffect(() => {
+    const onSyncDone = (event: Event) => {
+      const detail = (event as CustomEvent<{ bookId?: string }>).detail;
+      if (String(detail?.bookId || '') !== bookId) return;
+      const win = iframeRef.current?.contentWindow ?? null;
+      postReaderSeed(win);
+    };
+    window.addEventListener(BOOK_OPEN_SYNC_DONE_EVENT, onSyncDone);
+    return () => window.removeEventListener(BOOK_OPEN_SYNC_DONE_EVENT, onSyncDone);
+  }, [bookId, postReaderSeed]);
 
   React.useEffect(() => {
     void getSafeAreaInsets().then((insets) => {

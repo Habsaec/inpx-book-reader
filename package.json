@@ -1,7 +1,7 @@
 {
   "name": "inpx-book-reader",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^7.0.3",
+    "@capacitor-mlkit/barcode-scanning": "^7.5.0",
     "@capacitor/android": "^7.6.7",
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.6.7",

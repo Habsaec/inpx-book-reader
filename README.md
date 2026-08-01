@@ -67,7 +67,7 @@ npm run android:open
 
 Позже то же в **Настройки → Сервер**.
 
-> HTTP без HTTPS для домашней сети разрешён (`cleartext: true` в Capacitor).  
+> HTTP без HTTPS для домашней сети разрешён (`cleartext: true` в Capacitor).
 > Если нет связи: IP ПК вместо `127.0.0.1` / `localhost`, файрвол Windows для порта `3000`.
 
 Сервер (кратко; полная инструкция в его README):

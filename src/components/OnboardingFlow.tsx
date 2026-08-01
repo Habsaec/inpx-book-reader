@@ -1,5 +1,5 @@
 import React from 'react';
-import { Server, FolderOpen, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Server, FolderOpen, CheckCircle2, ArrowRight, QrCode } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, semantic } from '../ui/tokens';
 import Button from '../ui/Button';
@@ -14,11 +14,19 @@ import {
 import { isAndroid } from '../lib/platform';
 import { insecureHttpWarning } from '../lib/serverUrl';
 import { BRAND_LOCKUP_SRC } from '../lib/brand';
+import { parsePairingQrPayload, redeemPairingCode } from '../lib/inpxClient';
+import { scanAppPairingQr } from '../lib/scanAppPairingQr';
 
 interface OnboardingFlowProps {
   serverConfig: ServerConfig;
   onChangeServerConfig: (config: Partial<ServerConfig>) => void;
   onTestConnection: () => void;
+  onPairingLogin: (result: {
+    url: string;
+    username: string;
+    deviceToken: string;
+    deviceTokenId: string;
+  }) => void;
   connectionError?: string | null;
   storageDirectory: StorageDirectory | null;
   onChangeStorageDirectory: (dir: StorageDirectory | null) => void;
@@ -29,6 +37,7 @@ export default function OnboardingFlow({
   serverConfig,
   onChangeServerConfig,
   onTestConnection,
+  onPairingLogin,
   connectionError,
   storageDirectory,
   onChangeStorageDirectory,
@@ -36,9 +45,31 @@ export default function OnboardingFlow({
 }: OnboardingFlowProps) {
   const [step, setStep] = React.useState<1 | 2 | 3>(1);
   const [picking, setPicking] = React.useState(false);
+  const [scanning, setScanning] = React.useState(false);
+  const [scanError, setScanError] = React.useState<string | null>(null);
   const httpWarning = insecureHttpWarning(serverConfig.url);
   const connected = serverConfig.connectionStatus === 'connected';
   const testing = serverConfig.connectionStatus === 'testing';
+
+  const handleScanQr = async () => {
+    setScanning(true);
+    setScanError(null);
+    try {
+      const raw = await scanAppPairingQr();
+      const payload = parsePairingQrPayload(raw);
+      const redeemed = await redeemPairingCode(payload.url, payload.code);
+      onPairingLogin({
+        url: redeemed.serverUrl || payload.url,
+        username: redeemed.username,
+        deviceToken: redeemed.deviceToken,
+        deviceTokenId: redeemed.deviceTokenId,
+      });
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Не удалось войти по QR');
+    } finally {
+      setScanning(false);
+    }
+  };
 
   React.useEffect(() => {
     if (step === 2 && isAndroid() && !isValidStorageDirectory(storageDirectory)) {
@@ -85,8 +116,18 @@ export default function OnboardingFlow({
               <h1 className={textStyles.title}>Сервер библиотеки</h1>
             </div>
             <p className={`${textStyles.body} ${theme.textMuted}`}>
-              Укажите адрес INPX Library Server и учётные данные.
+              Укажите адрес INPX Library Server и учётные данные — или отсканируйте QR из настроек профиля на сайте.
             </p>
+            {isAndroid() && (
+              <Button fullWidth variant="secondary" loading={scanning} onClick={() => void handleScanQr()}>
+                <QrCode className="w-4 h-4" aria-hidden /> Сканировать QR
+              </Button>
+            )}
+            {(scanError || connectionError) && (
+              <p className={`${textStyles.caption} ${semantic.error}`} role="alert">
+                {scanError || connectionError}
+              </p>
+            )}
             <label className={`block ${textStyles.caption} ${theme.textMuted}`}>
               URL
               <input
@@ -120,9 +161,6 @@ export default function OnboardingFlow({
                 onChange={(e) => onChangeServerConfig({ password: e.target.value })}
               />
             </label>
-            {connectionError && (
-              <p className={`${textStyles.caption} ${semantic.error}`} role="alert">{connectionError}</p>
-            )}
             {connected && (
               <p className={`${textStyles.caption} ${semantic.success} inline-flex items-center gap-1`}>
                 <CheckCircle2 className="w-4 h-4" aria-hidden /> Подключено

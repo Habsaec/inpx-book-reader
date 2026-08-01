@@ -10,7 +10,7 @@ export type BookOpenOnlineSyncResult = {
   syncFailed: boolean;
 };
 
-/** Online-only prelude before mounting the reader; must never block opening the book file. */
+/** Online prelude for reader open. Callers must not await this before mounting the reader. */
 export async function runBookOpenOnlineSync(
   canReadOnline: boolean,
   serverConfig: ServerConfig,
