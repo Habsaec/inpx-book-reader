@@ -394,6 +394,7 @@ export default function MyBooksTab({
                       name={s.name}
                       count={s.bookCount ?? 0}
                       serverConfig={serverConfig}
+                      storageDirectory={storageDirectory}
                       previewBookIds={s.previewBookIds}
                       onClick={() => setActiveShelfId(s.id)}
                     />
@@ -518,6 +519,7 @@ export default function MyBooksTab({
                             name={a.displayName || a.name}
                             count={a.bookCount}
                             serverConfig={isOnline ? serverConfig : null}
+                            storageDirectory={storageDirectory}
                             authorKey={a.name}
                             coverBookId={a.coverBookId}
                             onClick={() => onOpenAuthor?.(a.name)}
@@ -534,6 +536,7 @@ export default function MyBooksTab({
                             name={s.displayName || s.name}
                             count={s.bookCount}
                             serverConfig={isOnline ? serverConfig : null}
+                            storageDirectory={storageDirectory}
                             previewBookIds={s.previewBookIds}
                             onClick={() => onOpenSeries?.(s.name)}
                           />

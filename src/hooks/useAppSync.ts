@@ -7,7 +7,6 @@ import { flushOfflineReaderStore } from '../lib/offlineReaderStore';
 import { getPendingSyncCount } from '../lib/localDb';
 import { processSyncQueue } from '../lib/syncQueueProcessor';
 import { formatSuggestCount } from '../lib/catalogBookPool';
-import { useSnackbar } from '../ui/Snackbar';
 
 interface InpxServerSync {
   refresh: () => Promise<void>;
@@ -32,7 +31,6 @@ export function useAppSync(opts: {
     activeReaderRef,
     onReaderStoreSynced,
   } = opts;
-  const snackbar = useSnackbar();
 
   const [syncing, setSyncing] = React.useState(false);
   const [syncError, setSyncError] = React.useState<string | null>(null);
@@ -99,12 +97,11 @@ export function useAppSync(opts: {
         bumpAfterReaderSync();
         const summary = `Синхронизировано ${pending + queueProcessed} изменений`;
         setLastSyncSummary(summary);
-        snackbar.show(summary, undefined, 'success');
       } catch {
         /* пользователь может синхронизировать вручную */
       }
     })();
-  }, [connectionStatus, canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, snackbar, bumpAfterReaderSync]);
+  }, [connectionStatus, canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, bumpAfterReaderSync]);
 
   const handleSyncNow = React.useCallback(async () => {
     if (!canReadOnline) return;
@@ -116,20 +113,17 @@ export function useAppSync(opts: {
       const queueProcessed = await processSyncQueue(serverConfig);
       await inpxServer.refresh();
       bumpAfterReaderSync();
-      setLastSyncSummary(`Синхронизировано: ${formatSuggestCount(bookIds.length)}`);
-      snackbar.show(
+      setLastSyncSummary(
         queueProcessed > 0
           ? `Синхронизировано: ${formatSuggestCount(bookIds.length)} и ${queueProcessed} операций`
           : `Синхронизировано: ${formatSuggestCount(bookIds.length)}`,
-        undefined,
-        'success',
       );
     } catch (e) {
       setSyncError(e instanceof Error ? e.message : 'Ошибка синхронизации');
     } finally {
       setSyncing(false);
     }
-  }, [canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, snackbar, bumpAfterReaderSync]);
+  }, [canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, bumpAfterReaderSync]);
 
   return { syncing, syncError, lastSyncSummary, handleSyncNow, setSyncError };
 }

@@ -1,10 +1,13 @@
 package ru.inpx.bookreader;
 
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Insets;
 import android.os.Build;
-import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
+import android.util.Base64;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -17,13 +20,18 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
-import java.util.Set;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @CapacitorPlugin(name = "ReaderNative")
 public class ReaderNativePlugin extends Plugin {
 
     private TtsPlaybackManager ttsManager;
     private static ReaderNativePlugin instance;
+    private final ExecutorService coverExecutor = Executors.newSingleThreadExecutor();
 
     private void applySystemTextSelectionMenu(boolean enabled) {
         ReaderCapacitorWebView.setSystemTextSelectionMenuEnabled(enabled);
@@ -158,10 +166,13 @@ public class ReaderNativePlugin extends Plugin {
                 WindowInsets wi = decor.getRootWindowInsets();
                 if (wi != null) {
                     Insets bars = wi.getInsets(WindowInsets.Type.systemBars());
-                    topPx = bars.top;
-                    bottomPx = bars.bottom;
-                    leftPx = bars.left;
-                    rightPx = bars.right;
+                    Insets cutout = wi.getInsets(WindowInsets.Type.displayCutout());
+                    // Punch-hole / notch: берём max(systemBars, cutout), иначе текст
+                    // уезжает под камеру при edge-to-edge.
+                    topPx = Math.max(bars.top, cutout.top);
+                    bottomPx = Math.max(bars.bottom, cutout.bottom);
+                    leftPx = Math.max(bars.left, cutout.left);
+                    rightPx = Math.max(bars.right, cutout.right);
                 }
             } else {
                 WindowInsets wi = decor.getRootWindowInsets();
@@ -170,6 +181,12 @@ public class ReaderNativePlugin extends Plugin {
                     bottomPx = wi.getSystemWindowInsetBottom();
                     leftPx = wi.getSystemWindowInsetLeft();
                     rightPx = wi.getSystemWindowInsetRight();
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && wi.getDisplayCutout() != null) {
+                        topPx = Math.max(topPx, wi.getDisplayCutout().getSafeInsetTop());
+                        bottomPx = Math.max(bottomPx, wi.getDisplayCutout().getSafeInsetBottom());
+                        leftPx = Math.max(leftPx, wi.getDisplayCutout().getSafeInsetLeft());
+                        rightPx = Math.max(rightPx, wi.getDisplayCutout().getSafeInsetRight());
+                    }
                 }
             }
 
@@ -454,33 +471,30 @@ public class ReaderNativePlugin extends Plugin {
 
     @PluginMethod
     public void getVoices(PluginCall call) {
-        TextToSpeech tts = ttsManager.getTts();
-        if (!ttsManager.isReady() || tts == null) {
-            call.resolve(new JSObject().put("voices", new JSArray()));
-            return;
-        }
-        JSArray voices = new JSArray();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            Set<Voice> set = tts.getVoices();
-            if (set != null) {
-                for (Voice voice : set) {
+        // Пересоздаём TTS, если в настройках телефона сменили движок —
+        // иначе список голосов остаётся от старого системного TTS.
+        ttsManager.ensureSystemDefault(() -> {
+            JSArray voices = new JSArray();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                for (Voice voice : ttsManager.listVoices()) {
                     JSObject item = new JSObject();
                     item.put("name", voice.getName());
                     item.put("lang", voice.getLocale() != null ? voice.getLocale().toLanguageTag() : "");
                     item.put("uri", voice.getName());
                     voices.put(item);
                 }
+            } else {
+                JSObject item = new JSObject();
+                item.put("name", "default");
+                item.put("lang", "ru-RU");
+                item.put("uri", "default");
+                voices.put(item);
             }
-        } else {
-            JSObject item = new JSObject();
-            item.put("name", "default");
-            item.put("lang", "ru-RU");
-            item.put("uri", "default");
-            voices.put(item);
-        }
-        JSObject ret = new JSObject();
-        ret.put("voices", voices);
-        call.resolve(ret);
+            JSObject ret = new JSObject();
+            ret.put("voices", voices);
+            ret.put("engine", ttsManager.getBoundEngine());
+            call.resolve(ret);
+        });
     }
 
     @PluginMethod
@@ -521,5 +535,154 @@ public class ReaderNativePlugin extends Plugin {
         ret.put("speaking", ttsManager.isSpeaking());
         ret.put("paused", ttsManager.isPaused());
         call.resolve(ret);
+    }
+
+    /**
+     * Sync Android MediaSession / MediaStyle notification for lock screen and system media capsule.
+     * Optional cover: coverBase64 (raw or data-URL) preferred; else coverUrl (+ authHeader).
+     */
+    @PluginMethod
+    public void updateTtsMediaSession(PluginCall call) {
+        Boolean activeObj = call.getBoolean("active", Boolean.FALSE);
+        boolean active = Boolean.TRUE.equals(activeObj);
+        Boolean playingObj = call.getBoolean("playing", Boolean.FALSE);
+        boolean playing = Boolean.TRUE.equals(playingObj);
+        String title = call.getString("title", "");
+        String artist = call.getString("artist", "");
+        String coverBase64 = call.getString("coverBase64", null);
+        String coverUrl = call.getString("coverUrl", null);
+        String authHeader = call.getString("authHeader", null);
+
+        TtsMediaState.update(title, artist, playing, active);
+
+        if (!active) {
+            Intent stop = new Intent(getContext(), TtsForegroundService.class);
+            getContext().stopService(stop);
+            call.resolve();
+            return;
+        }
+
+        Intent refresh = new Intent(getContext(), TtsForegroundService.class);
+        refresh.setAction(TtsForegroundService.ACTION_REFRESH);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getContext().startForegroundService(refresh);
+        } else {
+            getContext().startService(refresh);
+        }
+
+        if (coverBase64 != null && !coverBase64.trim().isEmpty()) {
+            final String b64 = coverBase64.trim();
+            coverExecutor.execute(() -> {
+                Bitmap bmp = decodeCoverBase64(b64);
+                if (bmp != null) {
+                    TtsMediaState.setCover(bmp, "b64:" + b64.hashCode());
+                    refreshTtsForeground();
+                }
+            });
+        } else if (coverUrl != null && !coverUrl.trim().isEmpty()) {
+            final String url = coverUrl.trim();
+            final String auth = authHeader;
+            coverExecutor.execute(() -> {
+                Bitmap bmp = downloadCoverBitmap(url, auth);
+                if (bmp != null) {
+                    TtsMediaState.setCover(bmp, "url:" + url);
+                    refreshTtsForeground();
+                }
+            });
+        }
+
+        call.resolve();
+    }
+
+    static void emitTtsMediaAction(String action) {
+        ReaderNativePlugin plugin = instance;
+        if (plugin == null || action == null || action.isEmpty()) return;
+        JSObject data = new JSObject();
+        data.put("action", action);
+        plugin.notifyListeners("ttsMediaAction", data);
+        if (plugin.getBridge() == null || plugin.getBridge().getWebView() == null) return;
+        String safe = action.replace("\\", "\\\\").replace("'", "\\'");
+        String js =
+            "(function(){"
+                + "var payload={type:'inpx-native-event',event:'ttsMediaAction',data:{action:'"
+                + safe
+                + "'}};"
+                + "window.postMessage(payload,'*');"
+                + "var iframe=document.querySelector('iframe[title]');"
+                + "if(iframe&&iframe.contentWindow){iframe.contentWindow.postMessage(payload,'*');}"
+                + "})();";
+        plugin.getActivity().runOnUiThread(
+            () -> plugin.getBridge().getWebView().evaluateJavascript(js, null)
+        );
+    }
+
+    private void refreshTtsForeground() {
+        Intent refresh = new Intent(getContext(), TtsForegroundService.class);
+        refresh.setAction(TtsForegroundService.ACTION_REFRESH);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getContext().startForegroundService(refresh);
+        } else {
+            getContext().startService(refresh);
+        }
+    }
+
+    private static Bitmap decodeCoverBase64(String raw) {
+        try {
+            String data = raw;
+            int comma = data.indexOf(',');
+            if (data.startsWith("data:") && comma > 0) {
+                data = data.substring(comma + 1);
+            }
+            byte[] bytes = Base64.decode(data, Base64.DEFAULT);
+            if (bytes == null || bytes.length == 0) return null;
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inPreferredConfig = Bitmap.Config.RGB_565;
+            Bitmap full = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
+            return scaleCover(full);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Bitmap downloadCoverBitmap(String coverUrl, String authHeader) {
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(coverUrl);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.setInstanceFollowRedirects(true);
+            if (authHeader != null && !authHeader.isEmpty()) {
+                conn.setRequestProperty("Authorization", authHeader);
+            }
+            conn.setRequestProperty("Accept", "image/*");
+            int code = conn.getResponseCode();
+            if (code < 200 || code >= 300) return null;
+            try (InputStream in = conn.getInputStream()) {
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inPreferredConfig = Bitmap.Config.RGB_565;
+                Bitmap full = BitmapFactory.decodeStream(in, null, opts);
+                return scaleCover(full);
+            }
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static Bitmap scaleCover(Bitmap full) {
+        if (full == null) return null;
+        int max = 512;
+        int w = full.getWidth();
+        int h = full.getHeight();
+        if (w <= 0 || h <= 0) return full;
+        if (w <= max && h <= max) return full;
+        float scale = Math.min(max / (float) w, max / (float) h);
+        int nw = Math.max(1, Math.round(w * scale));
+        int nh = Math.max(1, Math.round(h * scale));
+        Bitmap scaled = Bitmap.createScaledBitmap(full, nw, nh, true);
+        if (scaled != full) full.recycle();
+        return scaled;
     }
 }

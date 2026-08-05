@@ -954,7 +954,14 @@ export async function fetchAuthorGrouped(
   return res.json();
 }
 
-export async function fetchBookDetails(config: ServerConfig, bookId: string): Promise<{ annotation?: string; title?: string }> {
+export interface BookDetailsResponse {
+  annotation?: string;
+  /** true — аннотация HTML (как на сервере: sanitize + render, не plain text). */
+  annotationIsHtml?: boolean;
+  title?: string;
+}
+
+export async function fetchBookDetails(config: ServerConfig, bookId: string): Promise<BookDetailsResponse> {
   const res = await apiFetch(config, apiBookPath(bookId, 'details'));
   if (!res.ok) return {};
   return res.json();

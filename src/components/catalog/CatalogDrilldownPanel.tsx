@@ -5,6 +5,7 @@ import { theme } from '../../lib/appTheme';
 import { ServerConfig } from '../../types';
 import { displayAuthorName } from '../../lib/inpxClient';
 import type { AuthorGroupedState } from '../../hooks/useCatalogData';
+import type { StorageDirectory } from '../../lib/storageDirectory';
 import AuthorPortrait from '../AuthorPortrait';
 import LiteEntityRow from '../LiteEntityRow';
 import { textStyles } from '../../ui/tokens';
@@ -19,6 +20,7 @@ interface CatalogDrilldownPanelProps {
   isServerBrowse: boolean;
   isAppDark: boolean;
   serverConfig: ServerConfig;
+  storageDirectory?: StorageDirectory | null;
   favoriteAuthors: string[];
   favoriteSeries: string[];
   onDrillDownBack: () => void;
@@ -74,6 +76,7 @@ export default function CatalogDrilldownPanel({
   isServerBrowse,
   isAppDark,
   serverConfig,
+  storageDirectory,
   favoriteAuthors,
   favoriteSeries,
   onDrillDownBack,
@@ -129,6 +132,7 @@ export default function CatalogDrilldownPanel({
                 <AuthorPortrait
                   authorName={authorGrouped?.authorName || selectedAuthor}
                   serverConfig={serverConfig}
+                  storageDirectory={storageDirectory}
                   size={56}
                   className={`landscape:max-[500px]:!w-10 landscape:max-[500px]:!h-10 ${theme.coverBorder}`}
                 />

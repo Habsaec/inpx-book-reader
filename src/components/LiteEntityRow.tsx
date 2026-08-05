@@ -3,6 +3,7 @@ import { theme } from '../lib/appTheme';
 import { textStyles, motion } from '../ui/tokens';
 import { ChevronRight } from 'lucide-react';
 import { ServerConfig } from '../types';
+import type { StorageDirectory } from '../lib/storageDirectory';
 import AuthorPortrait from './AuthorPortrait';
 
 interface LiteEntityRowProps {
@@ -12,6 +13,7 @@ interface LiteEntityRowProps {
   onClick?: () => void;
   authorKey?: string;
   serverConfig?: ServerConfig;
+  storageDirectory?: StorageDirectory | null;
 }
 
 function bookCountLabel(n: number): string {
@@ -30,6 +32,7 @@ export default function LiteEntityRow({
   onClick,
   authorKey,
   serverConfig,
+  storageDirectory,
 }: LiteEntityRowProps) {
   const borderColor = theme.divider;
   const titleColor = theme.text;
@@ -41,7 +44,12 @@ export default function LiteEntityRow({
       className={`w-full flex items-center gap-3 py-3 landscape:max-[500px]:py-2 px-1 rounded-xl -mx-1 border-b last:border-b-0 text-left ${borderColor} ${theme.rowPress} ${motion.colors} ${theme.focusRing}`}
     >
       {authorKey && serverConfig ? (
-        <AuthorPortrait authorName={authorKey} serverConfig={serverConfig} size={36} />
+        <AuthorPortrait
+          authorName={authorKey}
+          serverConfig={serverConfig}
+          storageDirectory={storageDirectory}
+          size={36}
+        />
       ) : null}
       <span className={`flex-1 min-w-0 ${textStyles.bodyBold} landscape:max-[500px]:text-xs truncate ${titleColor}`}>{name}</span>
       <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted}`}>

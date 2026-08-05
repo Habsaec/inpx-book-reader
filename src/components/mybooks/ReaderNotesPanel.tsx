@@ -55,24 +55,20 @@ export default function ReaderNotesPanel({
 
   const handleCopy = async (an: LocalReaderAnnotationItem) => {
     const ok = await copyTextToClipboard(formatAnnotationCopyText(an));
-    snackbar.show(ok ? 'Скопировано' : 'Не удалось скопировать', undefined, ok ? 'success' : 'error');
+    if (!ok) snackbar.show('Не удалось скопировать', undefined, 'error');
     setMenuKey(null);
   };
 
   const handleExport = async () => {
     if (!filtered.length) return;
     const ok = await copyTextToClipboard(exportAnnotationsMarkdown(filtered));
-    snackbar.show(
-      ok ? `Экспортировано ${filtered.length} заметок` : 'Не удалось экспортировать',
-      undefined,
-      ok ? 'success' : 'error',
-    );
+    if (!ok) snackbar.show('Не удалось экспортировать', undefined, 'error');
   };
 
   const handleExportJson = async () => {
     if (!filtered.length) return;
     const ok = await copyTextToClipboard(exportAnnotationsJson(filtered));
-    snackbar.show(ok ? `JSON: ${filtered.length} заметок` : 'Не удалось экспортировать', undefined, ok ? 'success' : 'error');
+    if (!ok) snackbar.show('Не удалось экспортировать', undefined, 'error');
   };
 
   const startEdit = (an: LocalReaderAnnotationItem) => {

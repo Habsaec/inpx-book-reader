@@ -15,21 +15,24 @@
   --r-safe-left: env(safe-area-inset-left, 0px);
   --r-toolbar-body: 44px;
   --r-footer-body: 44px;
-  --r-status-body: 24px;
-  /* Нижний бар (статус) всегда у низа; сикбар — над ним */
+  --r-status-body: 28px;
+  /* Нижний бар (статус) всегда у низа; сикбар — над ним.
+     --r-status-h задаёт JS (syncStatusStrip) — надёжнее, чем :has() в WebView. */
   --r-status-h: 0px;
   --r-footer-stack: 0px;
   --r-toolbar-h: calc(var(--r-toolbar-body) + var(--r-safe-top));
   --r-footer-h: var(--r-footer-body);
   --r-bottom-reserve: max(var(--r-safe-bottom), calc(var(--r-status-h) + var(--r-footer-stack)));
 }
+/* Fallback, если JS ещё не выставил высоту */
+html.status-strip-on,
 html:has(.reader-status-strip.is-visible){
   --r-status-h: calc(var(--r-status-body) + var(--r-safe-bottom));
 }
 body:not(.chrome-hidden){
   --r-footer-stack: var(--r-footer-body);
 }
-html:not(:has(.reader-status-strip.is-visible)) body:not(.chrome-hidden){
+html:not(.status-strip-on):not(:has(.reader-status-strip.is-visible)) body:not(.chrome-hidden){
   --r-footer-stack: calc(var(--r-footer-body) + var(--r-safe-bottom));
 }
 [data-reader-theme="light"] {
@@ -130,18 +133,17 @@ html[data-reader-theme="night"].has-bg-image .reader-status-strip{
   text-shadow:0 0 3px rgba(0,0,0,.65), 0 1px 2px rgba(0,0,0,.45);
 }
 /* Дубль % в сикбаре не нужен — он уже в статус-баре справа */
+html.status-strip-on .reader-footer .ft-pct,
 body:has(.reader-status-strip.is-visible) .reader-footer .ft-pct{
   display:none;
 }
+html.has-bg-image.status-strip-on .reader-footer .ft-pct,
 html.has-bg-image body:has(.reader-status-strip.is-visible) .reader-footer .ft-pct{
   display:none;
 }
-/* Фон на весь экран; текст книги чуть выше wallpaper */
+/* Текстура — отдельный #reader-wallpaper (inset:0). Текст остаётся
+   в safe-area + --r-bottom-reserve, иначе лезет на камеру и строку статуса. */
 html.has-bg-image #reader-body{
-  top:0;
-  right:0;
-  bottom:0;
-  left:0;
   z-index:1;
   background:transparent !important;
 }
@@ -255,19 +257,27 @@ body.chrome-hidden .reader-tts-dock{
   display:flex;pointer-events:auto;
 }
 .reader-tts-dock-inner{
-  display:flex;align-items:center;gap:10px;
-  padding:6px 12px;border-radius:999px;
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  max-width:calc(100vw - 24px);
+  padding:6px 14px 8px;border-radius:22px;
   background:var(--r-bar);
   backdrop-filter:blur(20px) saturate(1.4);
   -webkit-backdrop-filter:blur(20px) saturate(1.4);
   border:1px solid var(--r-border);
   box-shadow:none;
 }
+.reader-tts-dock-row{
+  display:flex;align-items:center;justify-content:center;
+  flex-wrap:nowrap;gap:4px;
+}
 .reader-tts-dock-btn{
   color:var(--r-fg);background:none;border:none;border-radius:999px;
   min-width:48px;min-height:48px;padding:8px;
   cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
   transition:background .15s, transform 0.15s ease;
+}
+.reader-tts-dock-rate-group .reader-tts-dock-btn{
+  min-width:44px;min-height:40px;padding:6px;
 }
 .reader-tts-dock-btn:hover{background:var(--r-hover)}
 .reader-tts-dock-btn:active{transform:scale(0.95)}
@@ -277,6 +287,15 @@ body.chrome-hidden .reader-tts-dock{
 .reader-tts-dock-btn svg{width:26px;height:26px;fill:currentColor;stroke:none}
 .reader-tts-dock-btn .tts-main-icon{width:26px;height:26px}
 .reader-tts-dock-btn .tts-main-icon .tts-main-path{fill:currentColor;stroke:none}
+.reader-tts-dock-rate{
+  min-width:3.6em;padding:0 4px;
+  text-align:center;font-size:13px;font-variant-numeric:tabular-nums;
+  font-weight:500;letter-spacing:-0.01em;opacity:.85;
+  color:var(--r-fg);user-select:none;pointer-events:none;
+}
+.reader-tts-dock-rate-sym{
+  font-size:22px;line-height:1;font-weight:500;
+}
 
 /* ================================================================
    VIEWPORT — foliate-view fills the remaining space
@@ -400,12 +419,13 @@ html.is-restoring-position #reader-body{
   border-top:1px solid var(--r-border);
   font-size:11px;color:var(--r-fg);
 }
-html:not(:has(.reader-status-strip.is-visible)) .reader-footer{
+html:not(.status-strip-on):not(:has(.reader-status-strip.is-visible)) .reader-footer{
   bottom:0;
   height:calc(var(--r-footer-body) + var(--r-safe-bottom));
   padding-bottom:var(--r-safe-bottom);
 }
 /* Дубль главы в сикбаре не нужен, пока есть статус-бар */
+html.status-strip-on .reader-footer .ft-chapter,
 body:has(.reader-status-strip.is-visible) .reader-footer .ft-chapter{
   display:none;
 }
@@ -465,7 +485,8 @@ body:has(.reader-status-strip.is-visible) .reader-footer .ft-chapter{
   display:none;
   grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
   align-items:center;column-gap:6px;
-  min-height:var(--r-status-h);
+  /* min-height от токена тела, не от --r-status-h (иначе цикл с JS-замером) */
+  min-height:calc(var(--r-status-body) + var(--r-safe-bottom));
   padding:4px calc(12px + var(--r-safe-right)) var(--r-safe-bottom) calc(12px + var(--r-safe-left));
   font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;
   color:var(--r-fg);opacity:.9;letter-spacing:.01em;
@@ -530,7 +551,7 @@ body:has(.reader-status-strip.is-visible) .reader-footer .ft-chapter{
     padding:0 calc(10px + env(safe-area-inset-right,0)) 0 calc(10px + env(safe-area-inset-left,0));
     gap:6px;
   }
-  html:not(:has(.reader-status-strip.is-visible)) .reader-footer{
+  html:not(.status-strip-on):not(:has(.reader-status-strip.is-visible)) .reader-footer{
     padding-bottom:env(safe-area-inset-bottom,0);
   }
   .ft-chapter{display:none}
@@ -870,9 +891,14 @@ body.chrome-hidden .reader-book-pages{
   height:3px;background:var(--r-border);border-radius:2px;outline:none;
 }
 @media(max-width:640px){
+  /* Вертикальный жест уходит в прокрутку панели; горизонталь — в ползунок (JS-guard). */
   .panel-body input[type="range"]{
     touch-action:pan-y;
   }
+  .panel-body .rs-slider input[type="range"]::-webkit-slider-thumb{
+    width:22px;height:22px;
+  }
+}
   .panel-body[data-panel-tab="settings"] .rs-seg button,
   .panel-body[data-panel-tab="settings"] .rs-theme-dot,
   .panel-body[data-panel-tab="settings"] .rs-check,
@@ -1790,7 +1816,7 @@ html[data-eink="1"] .reader-tts-dock-inner {
   border: 2px solid var(--lite-line);
   border-radius: var(--lite-radius);
   padding: 8px 10px;
-  gap: 8px;
+  gap: 4px;
   background: var(--lite-surface);
 }
 
@@ -1859,6 +1885,12 @@ html[data-eink="1"] .reader-tts-dock .reader-tts-dock-btn:active {
   color: var(--lite-ink) !important;
   border: 3px solid var(--lite-line) !important;
   box-shadow: none;
+}
+
+html[data-eink="1"] .reader-tts-dock-rate {
+  color: var(--lite-ink);
+  opacity: 1;
+  font-weight: 700;
 }
 
 html[data-eink="1"] .bm-primary-btn {

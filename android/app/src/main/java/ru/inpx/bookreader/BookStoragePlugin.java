@@ -170,4 +170,70 @@ public class BookStoragePlugin extends Plugin {
             call.reject(e.getMessage(), e);
         }
     }
+
+    /** App-private cover/portrait cache (files/image-cache), not SAF. */
+    @PluginMethod
+    public void appCacheFileExists(PluginCall call) {
+        try {
+            String path = call.getString("path");
+            if (path == null) {
+                call.reject("Missing path");
+                return;
+            }
+            JSObject ret = new JSObject();
+            ret.put("exists", BookStorageAccess.appCacheFileExists(getContext(), path));
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject(e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
+    public void writeAppCacheFile(PluginCall call) {
+        try {
+            String path = call.getString("path");
+            String data = call.getString("data");
+            if (path == null || data == null) {
+                call.reject("Missing arguments");
+                return;
+            }
+            byte[] bytes = Base64.decode(data, Base64.DEFAULT);
+            BookStorageAccess.writeAppCacheFile(getContext(), path, bytes);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
+    public void readAppCacheFile(PluginCall call) {
+        try {
+            String path = call.getString("path");
+            if (path == null) {
+                call.reject("Missing path");
+                return;
+            }
+            byte[] bytes = BookStorageAccess.readAppCacheFile(getContext(), path);
+            JSObject ret = new JSObject();
+            ret.put("data", Base64.encodeToString(bytes, Base64.NO_WRAP));
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject(e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
+    public void deleteAppCacheFile(PluginCall call) {
+        try {
+            String path = call.getString("path");
+            if (path == null) {
+                call.reject("Missing path");
+                return;
+            }
+            BookStorageAccess.deleteAppCacheFile(getContext(), path);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage(), e);
+        }
+    }
 }

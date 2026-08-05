@@ -9,6 +9,8 @@ import { TextBlockSkeleton } from '../../ui/Skeleton';
 import { sheetBackdropClass, sheetPanelStyle } from '../../ui/SheetChrome';
 import { Book, ServerConfig } from '../../types';
 import { fetchBookDetails, fetchBookReviewHtml } from '../../lib/inpxClient';
+import { looksLikeHtml, sanitizeHtml } from '../../lib/sanitizeHtml';
+import type { StorageDirectory } from '../../lib/storageDirectory';
 import BookCover from '../BookCover';
 import DownloadStatusLabel from '../DownloadStatusLabel';
 import { useOverlayBackHandler } from '../../hooks/useBackHandler';
@@ -17,6 +19,7 @@ export interface BookDetailsSheetProps {
   book: Book | null;
   onClose: () => void;
   serverConfig: ServerConfig;
+  storageDirectory?: StorageDirectory | null;
   isServerConnected: boolean;
   downloadedBookIds: string[];
   downloadingId: string | null;
@@ -40,6 +43,7 @@ export default function BookDetailsSheet({
   book,
   onClose,
   serverConfig,
+  storageDirectory,
   isServerConnected,
   downloadedBookIds,
   downloadingId,
@@ -59,11 +63,13 @@ export default function BookDetailsSheet({
   onOpenSyncCenter,
 }: BookDetailsSheetProps) {
   const [annotation, setAnnotation] = React.useState<string | null>(null);
+  const [annotationIsHtml, setAnnotationIsHtml] = React.useState(false);
   const [bookReviewHtml, setBookReviewHtml] = React.useState('');
   const [bookReviewLoading, setBookReviewLoading] = React.useState(false);
 
   React.useEffect(() => {
     setAnnotation(null);
+    setAnnotationIsHtml(false);
     setBookReviewHtml('');
     if (!book || !isServerConnected) return;
     let cancelled = false;
@@ -71,6 +77,7 @@ export default function BookDetailsSheet({
       .then((details) => {
         if (cancelled || !details.annotation) return;
         setAnnotation(details.annotation);
+        setAnnotationIsHtml(Boolean(details.annotationIsHtml) || looksLikeHtml(details.annotation));
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -93,6 +100,9 @@ export default function BookDetailsSheet({
   if (typeof document === 'undefined' || !book) return null;
 
   const description = annotation ?? book.description;
+  const descriptionIsHtml =
+    (annotation != null ? annotationIsHtml : looksLikeHtml(book.description || ''))
+    && Boolean(description?.trim());
 
   const themeAccentBg = theme.accentBg;
   const themeAccentText = theme.accentText;
@@ -148,6 +158,7 @@ export default function BookDetailsSheet({
                 <BookCover
                   bookId={book.id}
                   serverConfig={isServerConnected ? serverConfig : null}
+                  storageDirectory={storageDirectory}
                   variant="full"
                   title={book.title}
                   author={book.author}
@@ -257,9 +268,16 @@ export default function BookDetailsSheet({
 
               <div className="space-y-1.5">
                 <span className={`${textStyles.bodyBold} ${theme.textMuted}`}>О книге</span>
-                <p className={`${textStyles.body} leading-relaxed ${theme.text} select-text`}>
-                  {description || 'Аннотация отсутствует.'}
-                </p>
+                {descriptionIsHtml && description ? (
+                  <div
+                    className={`${textStyles.body} leading-relaxed max-h-48 overflow-y-auto select-text prose prose-sm ${isAppDark ? 'prose-invert' : ''} ${theme.text}`}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
+                  />
+                ) : (
+                  <p className={`${textStyles.body} leading-relaxed ${theme.text} select-text`}>
+                    {description || 'Аннотация отсутствует.'}
+                  </p>
+                )}
               </div>
 
               {(bookReviewLoading || bookReviewHtml) && (

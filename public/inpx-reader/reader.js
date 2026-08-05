@@ -1,4 +1,4 @@
-import '/foliate/view.js?v=fb2seek4';
+import '/foliate/view.js?v=tts-hl1';
 import { createTOCView } from '/foliate/ui/tree.js?v=fb2seek4';
 import { Overlayer } from '/foliate/overlayer.js?v=fb2seek4';
 import {
@@ -278,6 +278,9 @@ import {
   let ttsKeepaliveUrl = null;
   let ttsKeepaliveEl = null;
   let ttsMediaSessionHandlers = false;
+  let ttsNativeMediaActionBound = false;
+  let ttsCoverBase64Cache = '';
+  let ttsCoverArtworkUrl = '';
   let ttsBgMaintainTimer = null;
   let ttsKickSpeak = null;
   let lastTtsSpeechAt = 0;
@@ -389,30 +392,154 @@ import {
     else void startTtsKeepalivePlayback();
   }
 
-  function syncTtsMediaSessionPlayback() {
-    if (!('mediaSession' in navigator)) return;
+  function ttsMediaTitleArtist() {
+    const title =
+      document.querySelector('.tb-title')?.textContent?.trim()
+      || String(window.__READER_BOOK_TITLE || '').trim()
+      || document.title
+      || 'Озвучка';
+    const artist =
+      document.getElementById('toc-book-author')?.textContent?.trim()
+      || document.querySelector('.tb-kicker')?.textContent?.trim()
+      || String(window.__READER_BOOK_AUTHOR || '').trim()
+      || '';
+    return { title, artist };
+  }
+
+  async function ensureTtsCoverForMedia() {
+    if (ttsCoverBase64Cache) return ttsCoverBase64Cache;
+    const toBase64 = async (blob) => {
+      if (!blob) return '';
+      const buf = await blob.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    };
     try {
-      if (!ttsChainActive) {
-        navigator.mediaSession.playbackState = 'none';
-      } else {
-        navigator.mediaSession.playbackState = ttsPausedByUser ? 'paused' : 'playing';
+      const img = document.getElementById('toc-cover');
+      if (img?.src) {
+        const res = await fetch(img.src);
+        if (res.ok) {
+          const blob = await res.blob();
+          ttsCoverArtworkUrl = img.src;
+          ttsCoverBase64Cache = await toBase64(blob);
+          if (ttsCoverBase64Cache) return ttsCoverBase64Cache;
+        }
       }
     } catch { /* */ }
+    try {
+      const blob = await view?.book?.getCover?.();
+      if (blob) {
+        ttsCoverArtworkUrl = URL.createObjectURL(blob);
+        ttsCoverBase64Cache = await toBase64(blob);
+      }
+    } catch { /* */ }
+    return ttsCoverBase64Cache;
+  }
+
+  function syncTtsMediaSessionPlayback() {
+    if ('mediaSession' in navigator) {
+      try {
+        if (!ttsChainActive) {
+          navigator.mediaSession.playbackState = 'none';
+        } else {
+          navigator.mediaSession.playbackState = ttsPausedByUser ? 'paused' : 'playing';
+        }
+      } catch { /* */ }
+    }
+    void syncNativeTtsMediaSession();
   }
 
   function syncTtsMediaMetadata() {
-    if (!('mediaSession' in navigator) || !ttsChainActive) return;
+    if (!ttsChainActive) return;
+    const { title, artist } = ttsMediaTitleArtist();
+    if ('mediaSession' in navigator) {
+      try {
+        const meta = {
+          title: title || 'Озвучка',
+          artist: artist || '',
+        };
+        if (ttsCoverArtworkUrl) {
+          meta.artwork = [{ src: ttsCoverArtworkUrl, sizes: '512x512', type: 'image/jpeg' }];
+        }
+        navigator.mediaSession.metadata = new MediaMetadata(meta);
+      } catch { /* */ }
+    }
+    void syncNativeTtsMediaSession();
+  }
+
+  async function syncNativeTtsMediaSession() {
+    const native = window.__INPX_NATIVE;
+    if (!native?.updateTtsMediaSession) return;
+    const { title, artist } = ttsMediaTitleArtist();
+    let coverB64 = '';
+    let coverUrl = '';
+    let auth = '';
+    if (ttsChainActive) {
+      coverB64 = await ensureTtsCoverForMedia();
+      if (!coverB64) {
+        coverUrl = String(window.__READER_COVER_URL || '').trim();
+        auth = String(window.__READER_COVER_AUTH || '').trim();
+      }
+    }
+    // Re-read after await — user may have stopped TTS meanwhile.
+    const payload = {
+      title: title || 'Озвучка',
+      artist: artist || '',
+      playing: ttsChainActive && !ttsPausedByUser,
+      active: ttsChainActive,
+    };
+    if (ttsChainActive && coverB64) payload.coverBase64 = coverB64;
+    if (ttsChainActive && !coverB64 && coverUrl) {
+      payload.coverUrl = coverUrl;
+      if (auth) payload.authHeader = auth;
+    }
     try {
-      const title = document.querySelector('.tb-title')?.textContent?.trim() || '';
-      const kicker = document.querySelector('.tb-kicker')?.textContent?.trim() || '';
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: title || document.title || 'Read aloud',
-        artist: kicker || '',
-      });
-    } catch { /* */ }
+      await native.updateTtsMediaSession(payload);
+    } catch (e) {
+      console.warn('[reader TTS media session]', e);
+    }
+  }
+
+  function handleNativeTtsMediaAction(action) {
+    const a = String(action || '');
+    // play/pause/stop уже применены в TtsPlaybackManager — здесь только UI/цепочка JS.
+    if (a === 'play') {
+      if (!ttsChainActive) {
+        void startReaderTts();
+        return;
+      }
+      if (!ttsPausedByUser) return;
+      ttsPausedByUser = false;
+      void acquireReaderWakeLock();
+      syncTtsKeepaliveWithSpeech();
+      updateTtsButtons();
+    } else if (a === 'pause') {
+      if (!ttsChainActive || ttsPausedByUser) return;
+      ttsPausedByUser = true;
+      releaseReaderWakeLock();
+      syncTtsKeepaliveWithSpeech();
+      updateTtsButtons();
+    } else if (a === 'stop') {
+      stopReaderTts();
+    } else if (a === 'prev') {
+      if (ttsChainActive) ttsNav.skipBack();
+    } else if (a === 'next') {
+      if (ttsChainActive) ttsNav.skipForward();
+    }
   }
 
   function initReaderMediaSessionHandlers() {
+    if (!ttsNativeMediaActionBound) {
+      ttsNativeMediaActionBound = true;
+      window.addEventListener('inpx-native-tts-media-action', (e) => {
+        handleNativeTtsMediaAction(e.detail?.action);
+      });
+    }
     if (ttsMediaSessionHandlers || !('mediaSession' in navigator)) return;
     ttsMediaSessionHandlers = true;
     try {
@@ -464,7 +591,8 @@ import {
   /* ===== Settings ===== */
   const defaults = {
     theme: 'sepia', font: 'serif', fontSize: 18, lineHeight: 1.6,
-    pageMargin: 32, verticalMargin: 32, columnGap: 7, maxWidth: 99999, maxBlockSize: 1440,
+    /* verticalMargin — дыхание текста внутри view; камера/safe-area — снаружи (#reader-body). */
+    pageMargin: 32, verticalMargin: 16, columnGap: 7, maxWidth: 99999, maxBlockSize: 1440,
     layout: 'paginated', textColor: '', bgColor: '', linkColor: '',
     bgImage: '', bgImageFit: 'cover', bgImagePaper: 0.35,
     justify: true, hyphenate: true,
@@ -618,7 +746,17 @@ import {
     const mode = layoutMode();
     view.style.boxSizing = 'border-box';
     view.style.paddingInline = `${side}px`;
-    view.renderer.setAttribute('margin', `${vert}px`);
+    /* На телефоне (paginated): нижняя полоса статуса снаружи #reader-body —
+       Foliate footer margin только дублирует пустоту. Верх = verticalMargin. */
+    if (mobileMq.matches && mode !== 'scrolled') {
+      view.renderer.setAttribute('margin', '0px');
+      view.renderer.setAttribute('margin-top', `${vert}px`);
+      view.renderer.setAttribute('margin-bottom', '0px');
+    } else {
+      view.renderer.setAttribute('margin', `${vert}px`);
+      view.renderer.removeAttribute('margin-top');
+      view.renderer.removeAttribute('margin-bottom');
+    }
     // В одноколоночном режиме gap paginator даёт доп. боковые поля (~7% по умолчанию).
     // Горизонтальные поля — только через paddingInline (pageMargin).
     view.renderer.setAttribute('gap', mode === 'dual' ? `${gapPct}%` : '0%');
@@ -628,7 +766,7 @@ import {
     if (mode === 'scrolled') {
       view.renderer.setAttribute('max-block-size', `${Math.round(S.maxBlockSize || defaults.maxBlockSize)}px`);
     } else {
-      view.renderer.removeAttribute('max-block-size');
+      view.renderer.setAttribute('max-block-size', '100%');
     }
   }
 
@@ -1575,12 +1713,33 @@ import {
     if (rssPct.parentElement !== right) right.appendChild(rssPct);
   }
 
+  /** #reader-body.bottom = --r-bottom-reserve; без этого текст лезет под «Глава / стр.». */
+  function applyStatusStripReserve(show) {
+    const root = document.documentElement;
+    root.classList.toggle('status-strip-on', Boolean(show));
+    const prev = root.style.getPropertyValue('--r-status-h').trim();
+    if (!show || !statusStripEl) {
+      root.style.setProperty('--r-status-h', '0px');
+      return prev !== '0px';
+    }
+    const measured = statusStripEl.getBoundingClientRect().height;
+    const cs = getComputedStyle(root);
+    const bodyTok = parseFloat(cs.getPropertyValue('--r-status-body')) || 28;
+    const safeBottom = parseFloat(cs.getPropertyValue('--r-safe-bottom')) || 0;
+    const fallback = bodyTok + safeBottom;
+    const h = Math.max(1, Math.ceil(measured > 0 ? measured : fallback));
+    const next = `${h}px`;
+    root.style.setProperty('--r-status-h', next);
+    return prev !== next;
+  }
+
   function syncStatusStrip() {
     if (!statusStripEl) return;
     ensureStatusPctOnRight();
     const mode = S.statusMode || 'withChrome';
     statusStripEl.dataset.mode = mode;
     const show = mode !== 'hidden';
+    const wasVisible = statusStripEl.classList.contains('is-visible');
     statusStripEl.classList.toggle('is-visible', show);
     statusStripEl.setAttribute('aria-hidden', show ? 'false' : 'true');
 
@@ -1628,7 +1787,20 @@ import {
         if (rssClock && !rssClock.hidden) rssClock.textContent = formatStatusClock();
       }, 30_000);
     }
+
+    const applyReserveAndRelayout = () => {
+      const changed = applyStatusStripReserve(show) || wasVisible !== show;
+      if (!changed) return;
+      try { applyRendererLayout(); } catch { /* view may be absent */ }
+      try { window.dispatchEvent(new Event('resize')); } catch { /* ignore */ }
+    };
+    if (show) {
+      requestAnimationFrame(applyReserveAndRelayout);
+    } else {
+      applyReserveAndRelayout();
+    }
   }
+  window.__READER_SYNC_STATUS_STRIP__ = syncStatusStrip;
 
   function autoFlipBlocked() {
     if (!autoFlipArmed || !(S.autoFlipSec > 0)) return true;
@@ -2771,6 +2943,8 @@ import {
     m.style.top = top + 'px';
   }
   function maybeShowSelMenu(doc) {
+    // Во время TTS фразы раньше выделялись через Selection — меню заметок всплывало само.
+    if (ttsChainActive) { hideSelMenu(); return; }
     if (panelOverlay.classList.contains('is-open') || isFootnoteOverlayOpen()) { hideSelMenu(); return; }
     const sel = doc.getSelection?.();
     if (!sel || sel.isCollapsed || !sel.rangeCount) {
@@ -2788,6 +2962,7 @@ import {
     showSelMenuAt(rectToPage(rect, doc), false);
   }
   function openSelMenuForExisting(a, range) {
+    if (ttsChainActive) return;
     if (panelOverlay.classList.contains('is-open')) return;
     const doc = range?.startContainer?.ownerDocument || range?.commonAncestorContainer?.ownerDocument;
     activeSel = { doc, index: doc ? docIndexMap.get(doc) : null, range, text: a.text, existing: a };
@@ -3082,6 +3257,7 @@ import {
     refreshTriggers();
     syncPanelChrome(tab);
     if (tab === 'settings') {
+      document.querySelectorAll('.panel-body input[type="range"]').forEach(guardRangeSliderTouchScroll);
       void ensureTtsVoices().then(() => {
         try {
           populateTtsVoiceList();
@@ -3136,14 +3312,23 @@ import {
     }
   }
 
+  /**
+   * На таче вертикальный свайп по ползунку = прокрутка панели, не смена значения.
+   * Важно: откат value в capture ДО bubble-слушателей applySettings — иначе
+   * «ползунок визуально на месте», а настройка уже записана с чужим значением.
+   * Меняем значение только после явного горизонтального drag (не тапом по треку).
+   */
   function guardRangeSliderTouchScroll(slider) {
     if (!isTouch.matches || slider.dataset.scrollGuardWired) return;
     slider.dataset.scrollGuardWired = '1';
     let startX = 0;
     let startY = 0;
     let startVal = '';
-    let moved = false;
     let mode = 'idle'; // idle | pending | scroll | slide
+
+    const restore = () => {
+      if (slider.value !== startVal) slider.value = startVal;
+    };
 
     slider.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
@@ -3151,13 +3336,20 @@ import {
       startX = t.clientX;
       startY = t.clientY;
       startVal = slider.value;
-      moved = false;
       mode = 'pending';
-    }, { passive: true });
+      // WebView иногда прыгает value в том же кадре — вернём до bubble applySettings.
+      queueMicrotask(() => {
+        if (mode === 'pending' || mode === 'scroll') restore();
+      });
+    }, { capture: true, passive: true });
 
     slider.addEventListener('input', () => {
-      if (mode === 'pending' || mode === 'scroll') slider.value = startVal;
-    });
+      if (mode === 'pending' || mode === 'scroll') restore();
+    }, { capture: true });
+
+    slider.addEventListener('change', () => {
+      if (mode === 'pending' || mode === 'scroll') restore();
+    }, { capture: true });
 
     slider.addEventListener('touchmove', (e) => {
       if (mode !== 'pending' && mode !== 'slide') return;
@@ -3165,38 +3357,32 @@ import {
       const t = e.touches[0];
       const adx = Math.abs(t.clientX - startX);
       const ady = Math.abs(t.clientY - startY);
-      if (adx > 4 || ady > 4) moved = true;
       if (mode === 'pending') {
-        if (ady > 8 && ady > adx * 1.35) {
+        if (ady > 6 && ady >= adx) {
           mode = 'scroll';
-          slider.value = startVal;
+          restore();
           slider.style.pointerEvents = 'none';
           return;
         }
-        if (adx > 14 && adx >= ady * 1.2) mode = 'slide';
-        else return;
+        if (adx > 12 && adx > ady * 1.25) {
+          mode = 'slide';
+        } else {
+          return;
+        }
       }
       if (mode === 'slide') setRangeFromClientX(slider, t.clientX);
     }, { passive: true });
 
-    const end = (e) => {
-      if (mode === 'slide') {
-        /* значение уже выставлено горизонтальным жестом */
-      } else {
-        slider.value = startVal;
-        if (mode === 'pending' && !moved && e.changedTouches?.[0]) {
-          const t = e.changedTouches[0];
-          if (Math.hypot(t.clientX - startX, t.clientY - startY) < 8) {
-            setRangeFromClientX(slider, t.clientX);
-          }
-        }
-      }
+    const end = () => {
+      if (mode !== 'slide') restore();
       mode = 'idle';
       slider.style.pointerEvents = '';
     };
-    slider.addEventListener('touchend', end, { passive: true });
-    slider.addEventListener('touchcancel', end, { passive: true });
+    slider.addEventListener('touchend', end, { capture: true, passive: true });
+    slider.addEventListener('touchcancel', end, { capture: true, passive: true });
   }
+
+  window.__INPX_GUARD_RANGE_SLIDER = guardRangeSliderTouchScroll;
 
   function bindSeg(sel, prop) {
     document.querySelectorAll(sel).forEach(btn => btn.addEventListener('click', () => {
@@ -3255,10 +3441,10 @@ import {
       const label = pageMarginGroup.querySelector('.rs-label');
       if (label) label.textContent = 'Боковые поля';
       pageMarginGroup.insertAdjacentHTML('afterend',
-        '<div class="rs-group"><div class="rs-label">Вертикальные поля</div><div class="rs-slider">' +
+        '<div class="rs-group"><div class="rs-label">Верхнее поле</div><div class="rs-slider">' +
         '<span class="rs-icon" aria-hidden="true">—</span>' +
-        '<input type="range" id="rs-vertical-margin" name="readerVerticalMargin" min="0" max="96" step="4" aria-label="Вертикальные поля">' +
-        '<span class="rs-val" id="rs-vertical-margin-val">32 px</span><span class="rs-icon" aria-hidden="true">≡</span></div></div>' +
+        '<input type="range" id="rs-vertical-margin" name="readerVerticalMargin" min="0" max="96" step="4" aria-label="Верхнее поле">' +
+        '<span class="rs-val" id="rs-vertical-margin-val">16 px</span><span class="rs-icon" aria-hidden="true">≡</span></div></div>' +
         '<div class="rs-group"><div class="rs-label">Типографика</div>' +
         '<label class="rs-check"><input type="checkbox" id="rs-justify" name="readerJustify" checked><span>Выравнивание по ширине</span></label>' +
         '<label class="rs-check"><input type="checkbox" id="rs-hyphenate" name="readerHyphenate" checked><span>Переносы (дефисы)</span></label>' +
@@ -3533,9 +3719,7 @@ import {
     const ttsRateVal = $('rs-tts-rate-val');
     if (ttsRateEl) {
       ttsRateEl.addEventListener('input', () => {
-        S.ttsRate = Number(ttsRateEl.value);
-        if (ttsRateVal) ttsRateVal.textContent = Number(S.ttsRate).toFixed(2);
-        saveSettings();
+        setTtsRate(Number(ttsRateEl.value), { persist: true, fromSlider: true });
       });
     }
     const ttsVoiceEl = $('rs-tts-voice');
@@ -3749,6 +3933,7 @@ import {
       ttsR.value = String(Number.isFinite(r) ? Math.min(2, Math.max(0.5, r)) : 1);
       if (ttsRV) ttsRV.textContent = Number(ttsR.value).toFixed(2);
     }
+    updateTtsDockRateUi();
     const ttsV = $('rs-tts-voice');
     if (ttsV && S.ttsVoice && [...ttsV.options].some(o => o.value === S.ttsVoice)) ttsV.value = S.ttsVoice;
     else if (ttsV) ttsV.value = '';
@@ -3874,9 +4059,44 @@ import {
     else sel.value = '';
   }
 
+  const TTS_RATE_MIN = 0.5;
+  const TTS_RATE_MAX = 2;
+  const TTS_RATE_STEP = 0.1;
+
+  function clampTtsRate(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 1;
+    return Math.min(TTS_RATE_MAX, Math.max(TTS_RATE_MIN, Math.round(n * 100) / 100));
+  }
+
+  function updateTtsDockRateUi() {
+    const rate = clampTtsRate(S.ttsRate);
+    const label = $('tts-dock-rate');
+    if (label) label.textContent = `${rate.toFixed(2)}×`;
+    const slower = $('btn-tts-dock-slower');
+    const faster = $('btn-tts-dock-faster');
+    if (slower) slower.disabled = rate <= TTS_RATE_MIN + 1e-9;
+    if (faster) faster.disabled = rate >= TTS_RATE_MAX - 1e-9;
+  }
+
+  function setTtsRate(next, opts = {}) {
+    const rate = clampTtsRate(next);
+    S.ttsRate = rate;
+    if (!opts.fromSlider) {
+      const ttsR = $('rs-tts-rate');
+      const ttsRV = $('rs-tts-rate-val');
+      if (ttsR) ttsR.value = String(rate);
+      if (ttsRV) ttsRV.textContent = rate.toFixed(2);
+    } else {
+      const ttsRV = $('rs-tts-rate-val');
+      if (ttsRV) ttsRV.textContent = rate.toFixed(2);
+    }
+    updateTtsDockRateUi();
+    if (opts.persist !== false) saveSettings();
+  }
+
   function applyTtsUtteranceSettings(u) {
-    const r = Number(S.ttsRate);
-    u.rate = Number.isFinite(r) ? Math.min(2, Math.max(0.5, r)) : 1;
+    u.rate = clampTtsRate(S.ttsRate);
     const uri = S.ttsVoice && String(S.ttsVoice).trim();
     if (uri && window.speechSynthesis) {
       const v = speechSynthesis.getVoices().find((x) => x.voiceURI === uri);
@@ -3887,6 +4107,12 @@ import {
   function ensureTtsVoices() {
     return new Promise((resolve) => {
       try {
+        // На Android — всегда перезапросить голоса: системный TTS могли сменить
+        // в настройках телефона, а кэш speechSynthesis остаётся от старого движка.
+        if (window.__INPX_USE_NATIVE_TTS && typeof window.__INPX_RELOAD_TTS_VOICES === 'function') {
+          window.__INPX_RELOAD_TTS_VOICES().then(() => resolve()).catch(() => resolve());
+          return;
+        }
         if (!window.speechSynthesis) {
           resolve();
           return;
@@ -3941,6 +4167,7 @@ import {
       ttsDockEl.classList.toggle('is-visible', ttsChainActive);
       ttsDockEl.setAttribute('aria-hidden', ttsChainActive ? 'false' : 'true');
     }
+    updateTtsDockRateUi();
     document.body.classList.toggle('reader-tts-active', ttsChainActive);
     if (!ttsChainActive) pauseTtsKeepalive();
     syncTtsMediaSessionPlayback();
@@ -3972,6 +4199,10 @@ import {
     try {
       window.speechSynthesis?.cancel();
     } catch { /* */ }
+    try { view?.tts?.clearHighlight?.(); } catch { /* */ }
+    try { view?.deselect?.(); } catch { /* */ }
+    hideSelMenu();
+    activeSel = null;
     ttsChainActive = false;
     ttsPausedByUser = false;
     ttsAdvancingSection = false;
@@ -4220,6 +4451,9 @@ import {
     ttsChainActive = true;
     ttsPausedByUser = false;
     lastTtsSpeechAt = Date.now();
+    try { view?.deselect?.(); } catch { /* */ }
+    hideSelMenu();
+    activeSel = null;
     void acquireReaderWakeLock();
     setChromeVisible(true);
     updateTtsButtons();
@@ -4326,6 +4560,24 @@ import {
       scheduleChromeHide();
     });
   });
+
+  const btnTtsDockSlower = $('btn-tts-dock-slower');
+  const btnTtsDockFaster = $('btn-tts-dock-faster');
+  if (btnTtsDockSlower) {
+    btnTtsDockSlower.title = rt('reader.ttsSlower');
+    btnTtsDockSlower.setAttribute('aria-label', rt('reader.ttsSlower'));
+    btnTtsDockSlower.addEventListener('click', () => {
+      setTtsRate(clampTtsRate(S.ttsRate) - TTS_RATE_STEP);
+    });
+  }
+  if (btnTtsDockFaster) {
+    btnTtsDockFaster.title = rt('reader.ttsFaster');
+    btnTtsDockFaster.setAttribute('aria-label', rt('reader.ttsFaster'));
+    btnTtsDockFaster.addEventListener('click', () => {
+      setTtsRate(clampTtsRate(S.ttsRate) + TTS_RATE_STEP);
+    });
+  }
+  updateTtsDockRateUi();
 
   /* ===== Toolbar buttons ===== */
   const btnFullscreen = $('btn-fullscreen');

@@ -1,10 +1,13 @@
 import React from 'react';
 import { User } from 'lucide-react';
 import { ServerConfig } from '../types';
-import { fetchAuthorPortraitBlob, fetchCoverBlob } from '../lib/inpxClient';
-
-const portraitCache = new Map<string, string>();
-const coverFallbackCache = new Map<string, string>();
+import type { StorageDirectory } from '../lib/storageDirectory';
+import {
+  peekCoverMemory,
+  peekPortraitMemory,
+  resolveAuthorPortraitUrl,
+  resolveCoverUrl,
+} from '../lib/coverCache';
 
 function authorInitials(name: string): string {
   const parts = name.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
@@ -16,6 +19,7 @@ function authorInitials(name: string): string {
 interface AuthorPortraitProps {
   authorName: string;
   serverConfig: ServerConfig;
+  storageDirectory?: StorageDirectory | null;
   className?: string;
   size?: number;
   /** Fallback: cover of most popular book (server favorites parity). */
@@ -45,82 +49,86 @@ function AvatarFrame({
 export default function AuthorPortrait({
   authorName,
   serverConfig,
+  storageDirectory,
   className = '',
   size = 48,
   coverBookId,
 }: AuthorPortraitProps) {
   const coverId = coverBookId != null && String(coverBookId).trim() ? String(coverBookId) : '';
-  const [src, setSrc] = React.useState<string | null>(() => portraitCache.get(authorName) ?? null);
+  const [src, setSrc] = React.useState<string | null>(() => peekPortraitMemory(authorName));
   const [coverSrc, setCoverSrc] = React.useState<string | null>(() =>
-    coverId ? coverFallbackCache.get(coverId) ?? null : null,
+    coverId ? peekCoverMemory(coverId, 'thumb') : null,
   );
   const [portraitFailed, setPortraitFailed] = React.useState(false);
   const [coverFailed, setCoverFailed] = React.useState(false);
 
   React.useEffect(() => {
-    const cached = portraitCache.get(authorName);
-    if (cached) {
-      setSrc(cached);
-      setPortraitFailed(false);
-      return;
-    }
-
     let cancelled = false;
     setPortraitFailed(false);
+
+    const mem = peekPortraitMemory(authorName);
+    if (mem) {
+      setSrc(mem);
+      return;
+    }
     setSrc(null);
 
-    fetchAuthorPortraitBlob(serverConfig, authorName)
-      .then((blob) => {
-        if (cancelled) return;
-        if (!blob || blob.size < 32) {
-          setPortraitFailed(true);
-          return;
-        }
-        const url = URL.createObjectURL(blob);
-        portraitCache.set(authorName, url);
+    void resolveAuthorPortraitUrl({
+      authorName,
+      directory: storageDirectory,
+      config: serverConfig,
+    }).then((url) => {
+      if (cancelled) return;
+      if (url) {
         setSrc(url);
-      })
-      .catch(() => {
-        if (!cancelled) setPortraitFailed(true);
-      });
+        return;
+      }
+      setPortraitFailed(true);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [authorName, serverConfig.url, serverConfig.username, serverConfig.password, serverConfig.deviceToken]);
+  }, [
+    authorName,
+    storageDirectory?.uri,
+    serverConfig.url,
+    serverConfig.username,
+    serverConfig.password,
+    serverConfig.deviceToken,
+    serverConfig.connectionStatus,
+  ]);
 
   React.useEffect(() => {
     if (!portraitFailed || !coverId) {
-      setCoverSrc(coverId ? coverFallbackCache.get(coverId) ?? null : null);
-      setCoverFailed(false);
-      return;
-    }
-
-    const cached = coverFallbackCache.get(coverId);
-    if (cached) {
-      setCoverSrc(cached);
+      setCoverSrc(coverId ? peekCoverMemory(coverId, 'thumb') : null);
       setCoverFailed(false);
       return;
     }
 
     let cancelled = false;
     setCoverFailed(false);
+
+    const mem = peekCoverMemory(coverId, 'thumb');
+    if (mem) {
+      setCoverSrc(mem);
+      return;
+    }
     setCoverSrc(null);
 
-    fetchCoverBlob(serverConfig, coverId, 'thumb')
-      .then((blob) => {
-        if (cancelled) return;
-        if (!blob || blob.size < 32) {
-          setCoverFailed(true);
-          return;
-        }
-        const url = URL.createObjectURL(blob);
-        coverFallbackCache.set(coverId, url);
+    void resolveCoverUrl({
+      bookId: coverId,
+      variant: 'thumb',
+      directory: storageDirectory,
+      config: serverConfig,
+    }).then((url) => {
+      if (cancelled) return;
+      if (url) {
         setCoverSrc(url);
-      })
-      .catch(() => {
-        if (!cancelled) setCoverFailed(true);
-      });
+        return;
+      }
+      setCoverFailed(true);
+    });
 
     return () => {
       cancelled = true;
@@ -128,10 +136,12 @@ export default function AuthorPortrait({
   }, [
     portraitFailed,
     coverId,
+    storageDirectory?.uri,
     serverConfig.url,
     serverConfig.username,
     serverConfig.password,
     serverConfig.deviceToken,
+    serverConfig.connectionStatus,
   ]);
 
   if (src && !portraitFailed) {

@@ -373,9 +373,8 @@ export function useBookActions(opts: {
       });
       if (!ok) return;
       await performRemoveBook(bookId, mode);
-      snackbar.show(mode === 'file' ? 'Файл удалён' : 'Книга и данные удалены');
     },
-    [dialog, downloadedBooks, performRemoveBook, removingBookIds, snackbar],
+    [dialog, downloadedBooks, performRemoveBook, removingBookIds],
   );
 
   const handleToggleFavorite = React.useCallback(
@@ -680,9 +679,8 @@ export function useBookActions(opts: {
           /* local saved */
         }
       }
-      snackbar.show('Заметка сохранена', undefined, 'success');
     },
-    [bumpReaderLocal, canReadOnline, inpxServer, snackbar],
+    [bumpReaderLocal, canReadOnline, inpxServer],
   );
 
   const handleRemoveReadingHistory = React.useCallback(

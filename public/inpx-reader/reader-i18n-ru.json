@@ -8,6 +8,8 @@
     "reader.ttsPause": "Пауза",
     "reader.tts": "Озвучка",
     "reader.ttsPlay": "Читать вслух",
+    "reader.ttsSlower": "Медленнее",
+    "reader.ttsFaster": "Быстрее",
     "reader.ttsNoPrev": "Нет предыдущего фрагмента",
     "reader.ttsFixedLayout": "Озвучка недоступна для фиксированной вёрстки",
     "reader.ttsUnavailable": "Озвучка недоступна",

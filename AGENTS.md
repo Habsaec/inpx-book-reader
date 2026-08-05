@@ -82,14 +82,15 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `POST /api/favorites/series` — добавить/удалить серию в избранное
 
 #### Библиотека и каталог
-- `GET /api/library/recent` — недавние книги
+- `GET /api/library/recent` — новинки по дате INPX (`date`, окно 30 дней от самой свежей даты в каталоге), не весь каталог и не штамп переиндексации
 - `GET /api/library/continue` — продолжить чтение
 - `GET /api/library/read` — прочитанные книги
 - `GET /api/library/recommended` — рекомендации
-- `GET /api/catalog` — поиск по каталогу; additive filters: `genre` (CSV/repeated, OR — хотя бы один), `lang`, `format`, `year`, `minRate`, `hasSeries` (1/0)
-- `GET /api/search?q=` — единый поиск: totals `{ books, authors, series }`; затем drilldown через `/api/catalog?field=`
+- `GET /api/catalog` — поиск/просмотр каталога (без `q` тоже отдаёт книги); additive filters: `genre` (CSV/repeated, OR — хотя бы один), `lang`, `format`, `year`, `minRate`, `hasSeries` (1/0)
+- `GET /api/search?q=` — totals разделов `{ books, authors, series, preferredField?, routeField: null }`; drilldown через `/api/catalog?field=`; веб Enter всегда открывает книги с чипами Авторы/Серии (без hub / smart redirect)
 - `GET /api/search/genres?q=` — жанры среди книг текущей выдачи (фасет для фильтра; опционально format/year/minRate/hasSeries)
-- `GET /api/search/suggest` — подсказки поиска
+- `GET /api/search/suggest` — подсказки поиска (книги/авторы/серии)
+- `GET /api/catalog` — при пустой/слабой выдаче может быть additive `searchHints` (`tip`, `didYouMean`, `weak?`)
 - `GET /api/browse/authors` — список авторов
 - `GET /api/browse/series` — список серий
 - `GET /api/browse/genres` — список жанров

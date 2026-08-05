@@ -388,6 +388,9 @@ public final class BookStorageAccess {
         if (name.endsWith(".fb2") || name.endsWith(".fbz")) return "application/x-fictionbook+xml";
         if (name.endsWith(".txt")) return "text/plain";
         if (name.endsWith(".pdf")) return "application/pdf";
+        if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+        if (name.endsWith(".png")) return "image/png";
+        if (name.endsWith(".webp")) return "image/webp";
         return "application/octet-stream";
     }
 
@@ -856,5 +859,78 @@ public final class BookStorageAccess {
         }
         writeBinaryFile(context, treeUri, relativePath, bytes);
         return relativePath;
+    }
+
+    /**
+     * App-private image cache under {@code files/image-cache/}.
+     * Independent of SAF/Downloads — reliable offline cover/portrait storage.
+     */
+    private static File appImageCacheRoot(Context context) throws Exception {
+        File dir = new File(context.getFilesDir(), "image-cache");
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new Exception("Could not create image cache directory");
+        }
+        return dir;
+    }
+
+    private static File resolveAppCacheFile(Context context, String relativePath) throws Exception {
+        if (relativePath == null || relativePath.isEmpty() || relativePath.contains("..")) {
+            throw new Exception("Invalid cache path");
+        }
+        File root = appImageCacheRoot(context);
+        String normalized = relativePath.replace('\\', '/');
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        File file = new File(root, normalized.replace('/', File.separatorChar));
+        String rootPath = root.getCanonicalPath();
+        String filePath = file.getCanonicalPath();
+        if (!filePath.equals(rootPath) && !filePath.startsWith(rootPath + File.separator)) {
+            throw new Exception("Invalid cache path");
+        }
+        return file;
+    }
+
+    public static boolean appCacheFileExists(Context context, String relativePath) {
+        try {
+            File file = resolveAppCacheFile(context, relativePath);
+            return file.isFile() && file.length() > 0;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    public static void writeAppCacheFile(Context context, String relativePath, byte[] bytes)
+        throws Exception {
+        File file = resolveAppCacheFile(context, relativePath);
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new Exception("Could not create cache subdirectory");
+        }
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            out.write(bytes != null ? bytes : new byte[0]);
+        }
+    }
+
+    public static byte[] readAppCacheFile(Context context, String relativePath) throws Exception {
+        File file = resolveAppCacheFile(context, relativePath);
+        if (!file.isFile()) {
+            throw new Exception("Cache file not found");
+        }
+        try (FileInputStream in = new FileInputStream(file)) {
+            return readStreamBytes(in);
+        }
+    }
+
+    public static void deleteAppCacheFile(Context context, String relativePath) {
+        try {
+            File file = resolveAppCacheFile(context, relativePath);
+            if (file.isFile()) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            }
+        } catch (Exception ignored) {
+            /* best-effort */
+        }
     }
 }

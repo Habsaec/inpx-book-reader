@@ -77,6 +77,9 @@ function debugLog(hypothesisId, location, message, data) {
   window.__READER_BOOK_ID = bookId;
   window.__READER_BOOK_EXT = bookExt;
   window.__READER_BOOK_TITLE = bookTitle;
+  window.__READER_COVER_URL = String(config?.coverUrl || '').trim();
+  window.__READER_COVER_AUTH = String(config?.coverAuthHeader || '').trim();
+  window.__READER_BOOK_AUTHOR = String(config?.bookAuthor || '').trim();
   window.__READER_APP = 1;
   document.documentElement.dataset.inpxApp = '1';
 
@@ -162,6 +165,22 @@ function debugLog(hypothesisId, location, message, data) {
     root.style.setProperty('--r-safe-bottom', bottom + 'px');
     root.style.setProperty('--r-safe-left', left + 'px');
     root.style.setProperty('--r-safe-right', right + 'px');
+    try {
+      localStorage.setItem('INPX_SAFE_AREA', JSON.stringify({ top, bottom, left, right }));
+    } catch {
+      /* ignore */
+    }
+    // Пересчитать колонки Foliate после сдвига #reader-body.
+    try {
+      window.__READER_SYNC_STATUS_STRIP__?.();
+    } catch {
+      /* ignore */
+    }
+    try {
+      window.dispatchEvent(new Event('resize'));
+    } catch {
+      /* ignore */
+    }
   }
 
   try {

@@ -52,6 +52,14 @@ export async function getSafeAreaInsets(): Promise<SafeAreaInsets> {
 
 export function storeReaderSafeArea(insets: SafeAreaInsets) {
   setAppSettingJson(APP_SETTING_KEYS.safeArea, insets);
+  // iframe bootstrap читает localStorage до postMessage; SQLite ему недоступен.
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('INPX_SAFE_AREA', JSON.stringify(insets));
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function prepareReaderSafeArea(): Promise<SafeAreaInsets> {

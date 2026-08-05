@@ -6,6 +6,12 @@ export interface ReaderVoice {
   uri: string;
 }
 
+export interface ReaderVoicesResult {
+  voices: ReaderVoice[];
+  /** Package системного TTS-движка (из настроек телефона). */
+  engine?: string;
+}
+
 export interface SafeAreaInsets {
   top: number;
   bottom: number;
@@ -53,17 +59,30 @@ interface ReaderNativePlugin {
   setLightSwipe(options: { enabled: boolean }): Promise<{ active: boolean; supported: boolean }>;
   refreshEinkScreen(): Promise<{ ok: boolean; supported: boolean; error?: string }>;
   getWarmth(): Promise<FrontLightState & { supported?: boolean }>;
-  getVoices(): Promise<{ voices: ReaderVoice[] }>;
+  getVoices(): Promise<ReaderVoicesResult>;
   speak(options: { text: string; utteranceId?: string; rate?: number; voice?: string }): Promise<void>;
   stopTts(): Promise<void>;
   pauseTts(): Promise<void>;
   resumeTts(): Promise<void>;
   getTtsState(): Promise<{ speaking: boolean; paused: boolean }>;
+  updateTtsMediaSession(options: {
+    title?: string;
+    artist?: string;
+    coverUrl?: string;
+    coverBase64?: string;
+    authHeader?: string;
+    playing: boolean;
+    active: boolean;
+  }): Promise<void>;
   setSystemTextSelectionMenuEnabled(options: { enabled: boolean }): Promise<void>;
   setOrientationLock(options: { mode: 'auto' | 'portrait' | 'landscape' }): Promise<void>;
   addListener(
     event: 'ttsStart' | 'ttsEnd' | 'ttsError',
     handler: (data: { utteranceId: string }) => void,
+  ): Promise<{ remove: () => void }>;
+  addListener(
+    event: 'ttsMediaAction',
+    handler: (data: { action: 'play' | 'pause' | 'stop' | 'prev' | 'next' }) => void,
   ): Promise<{ remove: () => void }>;
 }
 

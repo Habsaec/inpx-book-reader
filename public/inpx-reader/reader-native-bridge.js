@@ -78,6 +78,9 @@
     getTtsState() {
       return postNative('getTtsState', {});
     },
+    updateTtsMediaSession(opts) {
+      return postNative('updateTtsMediaSession', opts || {});
+    },
   };
 
   function installNativeBridge() {
@@ -116,8 +119,9 @@
   let currentUtterance = null;
   let voicesCache = [];
 
+  /** Заново спросить натив: подтянет системный TTS, если его сменили в настройках телефона. */
   function loadVoices() {
-    nativeApi.getVoices().then((res) => {
+    return nativeApi.getVoices().then((res) => {
       const list = Array.isArray(res?.voices) ? res.voices : [];
       voicesCache = list.map((v) => ({
         name: v.name,
@@ -127,8 +131,11 @@
         default: false,
       }));
       window.dispatchEvent(new Event('voiceschanged'));
-    }).catch(() => {});
+      return voicesCache.slice();
+    }).catch(() => voicesCache.slice());
   }
+
+  window.__INPX_RELOAD_TTS_VOICES = loadVoices;
 
   function finishUtterance(err) {
     const u = currentUtterance;
@@ -227,6 +234,9 @@
     if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsError') {
       window.dispatchEvent(new CustomEvent('inpx-native-tts-error', { detail: e.data.data }));
     }
+    if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsMediaAction') {
+      window.dispatchEvent(new CustomEvent('inpx-native-tts-media-action', { detail: e.data.data }));
+    }
     /* Итог нативного свайпа подсветки: без него слайдеры и localStorage остаются
        со старым значением и следующее касание слайдера отбрасывает свет назад. */
     if (e.data?.type === 'inpx-native-event' && e.data.event === 'frontLight') {
@@ -291,6 +301,9 @@
     const slider = document.getElementById('rs-brightness');
     const val = document.getElementById('rs-brightness-val');
     if (!slider) return;
+    try {
+      window.__INPX_GUARD_RANGE_SLIDER?.(slider);
+    } catch { /* */ }
 
     let settings = {};
     try {

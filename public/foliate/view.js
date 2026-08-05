@@ -705,8 +705,30 @@ export class View extends HTMLElement {
         const doc = first.doc
         if (!force && this.tts && this.tts.doc === doc) return
         const { TTS } = await import('./tts.js')
-        this.tts = new TTS(doc, textWalker, range =>
-            this.renderer.scrollToAnchor(range, true), granularity)
+        const TTS_HL = 'foliate-tts-highlight'
+        // Не использовать Selection: на Android это открывает меню заметок.
+        // Скролл без select + подсветка через Overlayer.
+        this.tts = new TTS(doc, textWalker, range => {
+            this.renderer.scrollToAnchor(range, false)
+            try {
+                const contents = this.renderer.getContents?.() || []
+                const hit = contents.find(c => c.doc === doc) || contents[0]
+                const overlayer = hit?.overlayer
+                if (overlayer && range) {
+                    overlayer.remove(TTS_HL)
+                    overlayer.add(TTS_HL, range.cloneRange(), Overlayer.highlight, {
+                        color: 'rgba(100, 100, 100, 0.35)',
+                    })
+                }
+                doc.defaultView?.getSelection?.()?.removeAllRanges?.()
+            } catch { /* */ }
+        }, granularity)
+        this.tts.clearHighlight = () => {
+            try {
+                const contents = this.renderer.getContents?.() || []
+                for (const c of contents) c?.overlayer?.remove(TTS_HL)
+            } catch { /* */ }
+        }
     }
     startMediaOverlay() {
         const { index } = this.renderer.getContents()[0]

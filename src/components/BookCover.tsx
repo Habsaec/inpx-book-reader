@@ -1,16 +1,9 @@
 import React from 'react';
 import { ServerConfig } from '../types';
-import { fetchCoverBlob } from '../lib/inpxClient';
 import type { StorageDirectory } from '../lib/storageDirectory';
-import { readCoverFromDirectory, saveCoverToDirectory } from '../lib/coverCache';
+import { peekCoverMemory, resolveCoverUrl } from '../lib/coverCache';
 /** Same asset as INPX Library Server `public/book-fallback.png` — bundled for APK. */
 import bookFallbackPng from '../assets/book-fallback.png';
-
-const blobCache = new Map<string, string>();
-
-function cacheKey(bookId: string, variant: 'thumb' | 'full') {
-  return `${variant}:${bookId}`;
-}
 
 function fillsParent(className: string): boolean {
   return (
@@ -127,79 +120,48 @@ export default function BookCover({
   width,
   height,
 }: BookCoverProps) {
-  const [src, setSrc] = React.useState<string | null>(() => blobCache.get(cacheKey(bookId, variant)) ?? null);
+  const [src, setSrc] = React.useState<string | null>(() => peekCoverMemory(bookId, variant));
   const [failed, setFailed] = React.useState(false);
-
-  const useServer =
-    serverConfig &&
-    serverConfig.url &&
-    serverConfig.connectionStatus === 'connected';
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setFailed(false);
-
-      const key = cacheKey(bookId, variant);
-      const memCached = blobCache.get(key);
-      if (memCached) {
-        setSrc(memCached);
+      const mem = peekCoverMemory(bookId, variant);
+      if (mem) {
+        setSrc(mem);
         return;
       }
 
-      if (storageDirectory?.uri) {
-        const localUrl = await readCoverFromDirectory(storageDirectory, bookId, variant);
-        if (cancelled) return;
-        if (localUrl) {
-          blobCache.set(key, localUrl);
-          setSrc(localUrl);
-          return;
-        }
-      }
-
-      if (!useServer) {
-        setSrc(null);
-        setFailed(true);
+      const url = await resolveCoverUrl({
+        bookId,
+        variant,
+        directory: storageDirectory,
+        config: serverConfig,
+      });
+      if (cancelled) return;
+      if (url) {
+        setSrc(url);
         return;
       }
-
-      try {
-        const blob = await fetchCoverBlob(serverConfig!, bookId, variant);
-        if (cancelled || !blob || blob.size < 32) {
-          if (!cancelled) {
-            setSrc(null);
-            setFailed(true);
-          }
-          return;
-        }
-        if (storageDirectory?.uri) {
-          void saveCoverToDirectory(storageDirectory, bookId, blob, variant);
-        }
-        const url = URL.createObjectURL(blob);
-        blobCache.set(key, url);
-        if (!cancelled) setSrc(url);
-      } catch {
-        if (!cancelled) {
-          setSrc(null);
-          setFailed(true);
-        }
-      }
+      setSrc(null);
+      setFailed(true);
     }
 
     void load();
-
     return () => {
       cancelled = true;
     };
   }, [
     bookId,
     variant,
-    useServer,
     storageDirectory?.uri,
     serverConfig?.url,
     serverConfig?.username,
     serverConfig?.password,
+    serverConfig?.deviceToken,
+    serverConfig?.connectionStatus,
   ]);
 
   if (src && !failed) {

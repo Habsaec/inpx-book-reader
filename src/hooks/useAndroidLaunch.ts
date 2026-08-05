@@ -93,7 +93,6 @@ export function useAndroidLaunch({
           try {
             const imported = await importExternalBookFromUri(storageDirectory, payload.uri);
             onRegisterImportedBook(imported);
-            snackbar.show(`Импортировано: ${imported.title}`, undefined, 'success');
             onOpenBook(imported);
           } catch {
             snackbar.show('Не удалось импортировать файл');

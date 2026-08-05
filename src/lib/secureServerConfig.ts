@@ -54,6 +54,26 @@ function hasReconnectCredentials(
   return Boolean(deviceToken.trim() || (username.trim() && password));
 }
 
+/**
+ * Auto-reconnect on boot/resume when credentials exist.
+ * Last live status must not block retries: temporary server downtime used to
+ * persist `disconnected` and skip the next launch probe forever.
+ */
+export function shouldAutoReconnect(options: {
+  url?: string;
+  username?: string;
+  password?: string;
+  deviceToken?: string;
+}): boolean {
+  const url = String(options.url || '').trim();
+  if (!url) return false;
+  return hasReconnectCredentials(
+    options.username || '',
+    options.password || '',
+    options.deviceToken || '',
+  );
+}
+
 export function credentialsForPersist(config: ServerConfig): {
   username: string;
   password: string;
@@ -84,7 +104,11 @@ export function initialServerConfig(): ServerConfig {
 
   const username = stored.username || '';
   const password = stored.password || '';
-  const shouldReconnect = stored.connectionStatus === 'connected' && Boolean(username.trim() && password);
+  const shouldReconnect = shouldAutoReconnect({
+    url: stored.url || DEFAULT_URL,
+    username,
+    password,
+  });
   return {
     url: stored.url || DEFAULT_URL,
     username,
@@ -124,9 +148,12 @@ export async function loadServerConfig(): Promise<ServerConfig> {
     password = stored.password || '';
   }
 
-  const shouldReconnect =
-    stored.connectionStatus === 'connected' &&
-    hasReconnectCredentials(username, password, deviceToken);
+  const shouldReconnect = shouldAutoReconnect({
+    url: stored.url || DEFAULT_URL,
+    username,
+    password: deviceToken ? '' : password,
+    deviceToken,
+  });
 
   return {
     url: stored.url || DEFAULT_URL,

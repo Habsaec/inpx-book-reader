@@ -42,6 +42,9 @@ export interface FoliateReaderConfig {
   bookId: string;
   bookExt?: string;
   bookTitle?: string;
+  bookAuthor?: string;
+  coverUrl?: string;
+  coverAuthHeader?: string;
   initialPosition?: string | null;
   localFile: LocalBookFile;
   einkActive?: boolean;
@@ -62,13 +65,16 @@ export function readLocalReaderPosition(bookId: string): string | null {
 export const readOfflineReaderPosition = readLocalReaderPosition;
 
 export function writeFoliateReaderSession(config: FoliateReaderConfig) {
-  seedReaderThemeFromApp();
+  // Тема читалки (reader-settings.theme) независима от темы приложения.
   localStorage.setItem(
     'INPX_READER_CONFIG',
     JSON.stringify({
       bookId: config.bookId,
       bookExt: config.bookExt || 'fb2',
       bookTitle: config.bookTitle || '',
+      bookAuthor: config.bookAuthor || '',
+      coverUrl: config.coverUrl || '',
+      coverAuthHeader: config.coverAuthHeader || '',
       initialPosition: config.initialPosition || null,
       storageUri: config.localFile.storageUri,
       localFileName: config.localFile.localFileName,
@@ -77,27 +83,13 @@ export function writeFoliateReaderSession(config: FoliateReaderConfig) {
   );
 }
 
-/** Align reader light/dark/sepia with app theme; keep night/eink prefs. */
-function seedReaderThemeFromApp() {
-  try {
-    const appTheme = document.documentElement.dataset.theme;
-    if (appTheme !== 'light' && appTheme !== 'dark' && appTheme !== 'sepia') return;
-    const raw = localStorage.getItem('reader-settings');
-    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    const current = typeof settings.theme === 'string' ? settings.theme : '';
-    if (current === 'night' || current === 'eink') return;
-    if (current === appTheme) return;
-    settings.theme = appTheme;
-    localStorage.setItem('reader-settings', JSON.stringify(settings));
-  } catch {
-    /* ignore */
-  }
-}
-
 export default function FoliateReader({
   bookId,
   bookExt = 'fb2',
   bookTitle = 'Книга',
+  bookAuthor = '',
+  coverUrl = '',
+  coverAuthHeader = '',
   initialPosition,
   localFile,
   einkActive = false,
@@ -247,7 +239,10 @@ export default function FoliateReader({
 
     void (async () => {
       try {
-        await StatusBar.setOverlaysWebView({ overlay: false });
+        // Edge-to-edge: #reader-body сдвигает текст на --r-safe-top (камера/cutout).
+        // overlay:false на Android 15 часто всё равно рисует под статус-баром,
+        // а inset при этом = 0 → текст лезет в punch-hole.
+        await StatusBar.setOverlaysWebView({ overlay: true });
         await StatusBar.show();
       } catch {
         // ignore
@@ -328,6 +323,9 @@ export default function FoliateReader({
           bookId,
           bookExt,
           bookTitle,
+          bookAuthor,
+          coverUrl,
+          coverAuthHeader,
           initialPosition,
           localFile: { storageUri, localFileName },
           einkActive,
@@ -365,7 +363,19 @@ export default function FoliateReader({
         setIframeSrc(null);
       });
     };
-  }, [bookId, bookExt, bookTitle, initialPosition, storageUri, localFileName, einkActive, flushReaderPositionAndWait]);
+  }, [
+    bookId,
+    bookExt,
+    bookTitle,
+    bookAuthor,
+    coverUrl,
+    coverAuthHeader,
+    initialPosition,
+    storageUri,
+    localFileName,
+    einkActive,
+    flushReaderPositionAndWait,
+  ]);
 
   React.useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -515,12 +525,11 @@ export default function FoliateReader({
         if (Capacitor.getPlatform() === 'android') {
           void (async () => {
             try {
+              await StatusBar.setOverlaysWebView({ overlay: true });
               if (enabled) {
-                await StatusBar.setOverlaysWebView({ overlay: true });
                 await StatusBar.hide();
               } else {
                 await StatusBar.show();
-                await StatusBar.setOverlaysWebView({ overlay: false });
               }
             } catch {
               // ignore
@@ -567,9 +576,18 @@ export default function FoliateReader({
         data,
       }, '*');
     });
+    const ttsMediaAction = ReaderNative.addListener('ttsMediaAction', (data) => {
+      iframeRef.current?.contentWindow?.postMessage({
+        type: 'inpx-native-event',
+        event: 'ttsMediaAction',
+        data,
+      }, '*');
+    });
     return () => {
       void ttsEnd.then((h) => h.remove());
       void ttsStart.then((h) => h.remove());
+      void ttsMediaAction.then((h) => h.remove());
+      void ReaderNative.updateTtsMediaSession({ active: false, playing: false }).catch(() => {});
     };
   }, []);
 

@@ -6,19 +6,14 @@ import { persistBookToDirectory, removeBookFromDirectory, verifyBookFileIntegrit
 import { computeBufferDigest } from '../lib/fileDigest';
 import { cacheCoverFromServer } from '../lib/coverCache';
 import type { StorageDirectory } from '../lib/storageDirectory';
-import { useSnackbar } from '../ui/Snackbar';
 
 export function useDownloadPipeline(opts: {
   serverConfig: ServerConfig;
   storageDirectory: StorageDirectory | null;
   canReadOnline: boolean;
   setDownloadedBooks: React.Dispatch<React.SetStateAction<Book[]>>;
-  onOpenDownloadedBook?: (book: Book) => void;
 }) {
-  const { serverConfig, storageDirectory, canReadOnline, setDownloadedBooks, onOpenDownloadedBook } = opts;
-  const snackbar = useSnackbar();
-  const onOpenRef = React.useRef(onOpenDownloadedBook);
-  onOpenRef.current = onOpenDownloadedBook;
+  const { serverConfig, storageDirectory, canReadOnline, setDownloadedBooks } = opts;
 
   const persistDownload = React.useCallback(
     async (book: Book, content: string, originalBuffer?: ArrayBuffer): Promise<Book> => {
@@ -81,14 +76,10 @@ export function useDownloadPipeline(opts: {
       storageDirectory,
       canDownload: canReadOnline && Boolean(storageDirectory?.uri),
       onComplete: async (book, content, buffer) => persistDownload(book, content, buffer),
-      onSaved: (book) => {
-        snackbar.show(`Скачано: ${book.title}`, {
-          label: 'Открыть',
-          onClick: () => onOpenRef.current?.(book),
-        }, 'success');
-      },
+      // Без snackbar: перекрывает «Читать» в карточке книги; кнопка и так появляется после скачивания.
+      onSaved: () => {},
     });
-  }, [canReadOnline, persistDownload, serverConfig, snackbar, storageDirectory]);
+  }, [canReadOnline, persistDownload, serverConfig, storageDirectory]);
 
   const [queueTick, setQueueTick] = React.useState(0);
   React.useEffect(() => downloadQueue.subscribe(() => setQueueTick((t) => t + 1)), []);

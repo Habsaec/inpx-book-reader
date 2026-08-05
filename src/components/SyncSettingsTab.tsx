@@ -91,7 +91,6 @@ export default function SyncSettingsTab({
       const picked = await pickStorageDirectory();
       if (picked) {
         onChangeStorageDirectory(picked);
-        snackbar.show(`Папка выбрана: ${picked.label}`, undefined, 'success');
       }
     } catch (error) {
       snackbar.show(error instanceof Error ? error.message : 'Не удалось выбрать папку', undefined, 'error');
@@ -140,7 +139,6 @@ export default function SyncSettingsTab({
         deviceToken: redeemed.deviceToken,
         deviceTokenId: redeemed.deviceTokenId,
       });
-      snackbar.show('Вход по QR выполнен', undefined, 'success');
     } catch (error) {
       snackbar.show(error instanceof Error ? error.message : 'Не удалось войти по QR', undefined, 'error');
     } finally {

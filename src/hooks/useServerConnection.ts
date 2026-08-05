@@ -1,9 +1,11 @@
 import React from 'react';
-import { isAndroid } from '../lib/platform';
+import { App as CapApp } from '@capacitor/app';
+import { isAndroid, isNativeApp } from '../lib/platform';
 import {
   initialServerConfig,
   loadServerConfig,
   persistServerConfig,
+  shouldAutoReconnect,
 } from '../lib/secureServerConfig';
 import {
   testConnection,
@@ -137,6 +139,32 @@ export function useServerConnection() {
     setConnectionError(null);
     setServerConfig((prev) => ({ ...prev, connectionStatus: 'testing' }));
   }, [serverConfig.url]);
+
+  const serverConfigRef = React.useRef(serverConfig);
+  serverConfigRef.current = serverConfig;
+
+  const tryAutoReconnect = React.useCallback(() => {
+    const prev = serverConfigRef.current;
+    if (prev.connectionStatus === 'connected' || prev.connectionStatus === 'testing') return;
+    if (!shouldAutoReconnect(prev)) return;
+    setConnectionError(null);
+    setServerConfig((cur) =>
+      cur.connectionStatus === 'connected' || cur.connectionStatus === 'testing'
+        ? cur
+        : { ...cur, connectionStatus: 'testing' },
+    );
+  }, []);
+
+  // Foreground resume: server may have come back after a failed boot probe.
+  React.useEffect(() => {
+    if (!serverConfigReady || !isNativeApp()) return;
+    const sub = CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) tryAutoReconnect();
+    });
+    return () => {
+      void sub.then((h) => h.remove());
+    };
+  }, [serverConfigReady, tryAutoReconnect]);
 
   const applyPairingLogin = React.useCallback((result: {
     url: string;

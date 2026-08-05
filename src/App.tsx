@@ -57,6 +57,8 @@ import { bookHasPendingSync, getSyncPendingBreakdown } from './lib/syncStats';
 import { resolveNextInSeries, type NextInSeriesResult } from './lib/seriesNavigation';
 import { useDownloadQueue } from './hooks/useDownloadQueue';
 import { useSnackbar } from './ui/Snackbar';
+import { authHeader, coverUrl } from './lib/inpxClient';
+import { warmCoverCache } from './lib/coverCache';
 import type { Book } from './types';
 
 const CatalogTab = React.lazy(() => import('./components/CatalogTab'));
@@ -78,7 +80,6 @@ export default function App() {
       shelfName: context?.shelfName,
     });
   }, []);
-  const openDownloadedBookRef = React.useRef<(book: Book) => void>(() => {});
   const bookDetailsDrag = useDragControls();
 
   const library = useLocalLibrary();
@@ -224,6 +225,36 @@ export default function App() {
     }
   }, [libraryReady, storageDirectoryReady, storageDirectory]);
 
+  const downloadedCoverIds = React.useMemo(
+    () =>
+      downloadedBooks
+        .filter((b) => Boolean(b.localFileName?.trim()))
+        .map((b) => b.id)
+        .filter(Boolean),
+    [downloadedBooks],
+  );
+
+  // Prefill IndexedDB cover cache for on-device books (offline covers after first warm).
+  React.useEffect(() => {
+    if (!libraryReady || !storageDirectoryReady || !downloadedCoverIds.length) return;
+    void warmCoverCache({
+      bookIds: downloadedCoverIds,
+      directory: storageDirectory,
+      config: isOnline ? serverConfig : null,
+      concurrency: 4,
+    });
+    // serverConfig object identity changes often — only reconnect / url matter for fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional narrow deps
+  }, [
+    libraryReady,
+    storageDirectoryReady,
+    storageDirectory?.uri,
+    isOnline,
+    serverConfig.connectionStatus,
+    serverConfig.url,
+    downloadedCoverIds,
+  ]);
+
   const profile = isOnline ? inpxServer.profile : null;
   // Never block Home on connection check — local recent is ready after library boot.
   // inpxServer.loading clears after fast profile fetch; heavy ID maps run in background.
@@ -273,7 +304,6 @@ export default function App() {
     storageDirectory,
     canReadOnline,
     setDownloadedBooks,
-    onOpenDownloadedBook: (book) => openDownloadedBookRef.current(book),
   });
 
   const bookActions = useBookActions({
@@ -294,8 +324,6 @@ export default function App() {
     inpxServer,
     profile,
   });
-
-  openDownloadedBookRef.current = bookActions.handleContinueBook;
 
   const {
     activeReader,
@@ -537,7 +565,16 @@ export default function App() {
               <FoliateReader
                 bookId={activeReader.bookId}
                 bookTitle={activeReader.title}
+                bookAuthor={
+                  downloadedBooks.find((b) => b.id === activeReader.bookId)?.author || ''
+                }
                 bookExt={activeReader.ext}
+                coverUrl={
+                  serverConfig.connectionStatus === 'connected'
+                    ? coverUrl(serverConfig, activeReader.bookId, 'thumb')
+                    : ''
+                }
+                coverAuthHeader={authHeader(serverConfig).Authorization || ''}
                 initialPosition={activeReader.initialPosition}
                 localFile={resolvedReaderFile}
                 einkActive={einkActive}
@@ -737,6 +774,7 @@ export default function App() {
           setDownloadPromptError(null);
         }}
         serverConfig={serverConfig}
+        storageDirectory={storageDirectory}
         isServerConnected={isOnline}
         downloadedBookIds={downloadedBookIdsWithFile}
         downloadingId={downloadingId}

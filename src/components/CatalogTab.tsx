@@ -766,6 +766,7 @@ export default function CatalogTab({
               isServerBrowse={isServerBrowse}
               isAppDark={isAppDark}
               serverConfig={serverConfig}
+              storageDirectory={storageDirectory}
               favoriteAuthors={favoriteAuthors}
               favoriteSeries={favoriteSeries}
               onDrillDownBack={handleDrillDownBack}
@@ -833,6 +834,7 @@ export default function CatalogTab({
                 isServerBrowse={isServerBrowse}
                 isAppDark={isAppDark}
                 serverConfig={serverConfig}
+                storageDirectory={storageDirectory}
                 authors={authors}
                 series={series}
                 genres={genres}
@@ -864,6 +866,7 @@ export default function CatalogTab({
         book={selectedBook}
         onClose={() => setSelectedBook(null)}
         serverConfig={serverConfig}
+        storageDirectory={storageDirectory}
         isServerConnected={isServerConnected}
         downloadedBookIds={downloadedBookIds}
         downloadingId={downloadingId}

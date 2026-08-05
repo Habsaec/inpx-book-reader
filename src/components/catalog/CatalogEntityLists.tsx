@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, ChevronDown, Tag, Library, User, Inbox } from 'lucide-react';
 import { ServerConfig } from '../../types';
 import { theme } from '../../lib/appTheme';
+import type { StorageDirectory } from '../../lib/storageDirectory';
 import LiteEntityRow from '../LiteEntityRow';
 import CatalogPagination from './CatalogPagination';
 import type { LocalGenreAgg } from '../../lib/catalogAggregations';
@@ -32,6 +33,7 @@ interface CatalogEntityListsProps {
   isServerBrowse: boolean;
   isAppDark: boolean;
   serverConfig: ServerConfig;
+  storageDirectory?: StorageDirectory | null;
   authors: CatalogEntityAuthor[];
   series: CatalogEntitySeries[];
   genres: LocalGenreAgg[];
@@ -94,6 +96,7 @@ export default function CatalogEntityLists({
   isServerBrowse,
   isAppDark,
   serverConfig,
+  storageDirectory,
   authors,
   series,
   genres,
@@ -136,6 +139,7 @@ export default function CatalogEntityLists({
                     count={author.bookCount}
                     authorKey={authorKey}
                     serverConfig={serverConfig}
+                    storageDirectory={storageDirectory}
                     isAppDark={isAppDark}
                     onClick={() => onOpenAuthor(authorKey)}
                   />

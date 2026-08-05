@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, motion } from '../ui/tokens';
 import { ServerConfig } from '../types';
+import type { StorageDirectory } from '../lib/storageDirectory';
 import AuthorPortrait from './AuthorPortrait';
 import BookCover from './BookCover';
 
@@ -19,9 +20,11 @@ function bookCountLabel(n: number): string {
 function CoverStrip({
   bookIds,
   serverConfig,
+  storageDirectory,
 }: {
   bookIds: string[];
   serverConfig: ServerConfig;
+  storageDirectory?: StorageDirectory | null;
 }) {
   const ids = bookIds.map(String).filter(Boolean).slice(0, 4);
   if (!ids.length) return null;
@@ -32,6 +35,7 @@ function CoverStrip({
           key={id}
           bookId={id}
           serverConfig={serverConfig}
+          storageDirectory={storageDirectory}
           variant="thumb"
           width={36}
           height={52}
@@ -47,6 +51,7 @@ export interface EntityPreviewRowProps {
   count?: number;
   onClick?: () => void;
   serverConfig?: ServerConfig | null;
+  storageDirectory?: StorageDirectory | null;
   /** Author portrait key; when set, shows avatar (+ optional coverBookId fallback). */
   authorKey?: string;
   coverBookId?: string | null;
@@ -59,6 +64,7 @@ export default function EntityPreviewRow({
   count,
   onClick,
   serverConfig,
+  storageDirectory,
   authorKey,
   coverBookId,
   previewBookIds,
@@ -78,6 +84,7 @@ export default function EntityPreviewRow({
         <AuthorPortrait
           authorName={authorKey!}
           serverConfig={serverConfig!}
+          storageDirectory={storageDirectory}
           coverBookId={coverBookId}
           size={48}
         />
@@ -89,7 +96,13 @@ export default function EntityPreviewRow({
         {showCount ? (
           <span className={`block ${textStyles.caption} ${theme.textMuted}`}>{bookCountLabel(count!)}</span>
         ) : null}
-        {showStrip ? <CoverStrip bookIds={previewIds} serverConfig={serverConfig!} /> : null}
+        {showStrip ? (
+          <CoverStrip
+            bookIds={previewIds}
+            serverConfig={serverConfig!}
+            storageDirectory={storageDirectory}
+          />
+        ) : null}
       </span>
       <ChevronRight className={`w-4 h-4 shrink-0 opacity-40 ${theme.text}`} aria-hidden />
     </button>

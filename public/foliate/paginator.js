@@ -415,7 +415,7 @@ class View {
 // NOTE: everything here assumes the so-called "negative scroll type" for RTL
 export class Paginator extends HTMLElement {
     static observedAttributes = [
-        'flow', 'gap', 'margin',
+        'flow', 'gap', 'margin', 'margin-top', 'margin-bottom',
         'max-inline-size', 'max-block-size', 'max-column-count',
     ]
     #root = this.attachShadow({ mode: 'closed' })
@@ -473,10 +473,15 @@ export class Paginator extends HTMLElement {
                 minmax(0, calc(var(--_max-width) - var(--_gap)))
                 var(--_half-gap)
                 minmax(var(--_half-gap), 1fr);
+            /* Fixed margins (not minmax(_, 1fr)): expanding fr tracks left huge
+               uneven empty bands on phone pages. Top/bottom can differ — phone
+               reader keeps bottom at 0 (status strip lives outside the view). */
+            --_margin-top: var(--_margin);
+            --_margin-bottom: var(--_margin);
             grid-template-rows:
-                minmax(var(--_margin), 1fr)
-                minmax(0, var(--_max-height))
-                minmax(var(--_margin), 1fr);
+                var(--_margin-top)
+                minmax(0, 1fr)
+                var(--_margin-bottom);
             &.vertical {
                 --_max-column-count-spread: var(--_max-column-count-portrait);
                 --_max-width: var(--_max-block-size);
@@ -514,9 +519,13 @@ export class Paginator extends HTMLElement {
             grid-row: 3;
             align-self: end;
         }
-        #header, #footer {
+        #header {
             display: grid;
-            height: var(--_margin);
+            height: var(--_margin-top);
+        }
+        #footer {
+            display: grid;
+            height: var(--_margin-bottom);
         }
         :is(#header, #footer) > * {
             display: flex;
@@ -624,9 +633,15 @@ export class Paginator extends HTMLElement {
                 break
             case 'gap':
             case 'margin':
+            case 'margin-top':
+            case 'margin-bottom':
             case 'max-block-size':
             case 'max-column-count':
-                this.#top.style.setProperty('--_' + name, value)
+                if ((name === 'margin-top' || name === 'margin-bottom') && !value) {
+                    this.#top.style.removeProperty('--_' + name)
+                } else {
+                    this.#top.style.setProperty('--_' + name, value)
+                }
                 this.render()
                 break
             case 'max-inline-size':
@@ -704,7 +719,14 @@ export class Paginator extends HTMLElement {
         const maxInlineSize = parseFloat(style.getPropertyValue('--_max-inline-size'))
         const maxColumnCount = parseInt(style.getPropertyValue('--_max-column-count-spread'))
         const margin = parseFloat(style.getPropertyValue('--_margin'))
-        this.#margin = margin
+        const marginTop = parseFloat(style.getPropertyValue('--_margin-top'))
+        const marginBottom = parseFloat(style.getPropertyValue('--_margin-bottom'))
+        // Selection/range inset: use the larger edge so top-only phone margins still work.
+        this.#margin = Math.max(
+            Number.isFinite(margin) ? margin : 0,
+            Number.isFinite(marginTop) ? marginTop : 0,
+            Number.isFinite(marginBottom) ? marginBottom : 0,
+        )
 
         const g = parseFloat(style.getPropertyValue('--_gap')) / 100
         // The gap will be a percentage of the #container, not the whole view.
