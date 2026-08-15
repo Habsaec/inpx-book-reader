@@ -98,7 +98,7 @@ public class ContinueReadingWidgetProvider extends AppWidgetProvider {
             views.setImageViewResource(R.id.widget_cover, R.drawable.widget_cover_placeholder);
         }
         if (Build.VERSION.SDK_INT >= 31) {
-            views.setBoolean(android.R.id.background, "setClipToOutline", true);
+            views.setBoolean(R.id.widget_root, "setClipToOutline", true);
         }
 
         Intent intent = new Intent(context, MainActivity.class);
@@ -113,7 +113,7 @@ public class ContinueReadingWidgetProvider extends AppWidgetProvider {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
-        views.setOnClickPendingIntent(android.R.id.background, pending);
+        views.setOnClickPendingIntent(R.id.widget_root, pending);
 
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }

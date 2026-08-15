@@ -99,12 +99,6 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_continue_reading_info" />
-            <meta-data
-                android:name="android.appwidget.honor.provider"
-                android:resource="@xml/widget_continue_reading_info" />
-            <meta-data
-                android:name="com.hihonor.widget.type"
-                android:value="honorcard" />
         </receiver>
     </application>
 
