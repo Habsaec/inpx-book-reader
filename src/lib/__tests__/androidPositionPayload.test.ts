@@ -50,7 +50,7 @@ describe('Android reader position payload', () => {
     })).toBe(false);
   });
 
-  it('waits for an explicit parent prompt response without an 8s timeout', () => {
+  it('waits for parent prompt response without a short auto-decline timeout', () => {
     const bootstrapPath = fileURLToPath(
       new URL('../../../public/inpx-reader/bootstrap.js', import.meta.url),
     );
@@ -61,8 +61,10 @@ describe('Android reader position payload', () => {
 
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
-    expect(promptSource).not.toContain('setTimeout');
+    // Safety unload timeout is OK; do not auto-decline after a few seconds.
     expect(promptSource).not.toContain('8000');
+    expect(promptSource).toContain('120_000');
+    expect(promptSource).toContain('pagehide');
   });
 
   it('forces every iframe store write to positionVersion 4', () => {

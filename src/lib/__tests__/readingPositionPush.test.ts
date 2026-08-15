@@ -10,6 +10,14 @@ vi.mock('../inpxClient', () => ({
       this.name = 'ReadingPositionProtocolError';
     }
   },
+  ReadingPositionConflictError: class ReadingPositionConflictError extends Error {
+    current: unknown;
+    constructor(current: unknown) {
+      super('conflict');
+      this.name = 'ReadingPositionConflictError';
+      this.current = current;
+    }
+  },
 }));
 
 import {
@@ -56,9 +64,11 @@ describe('pushReadingPositionWithRecovery', () => {
         revision: 5,
         updatedAt: '2026-07-12T12:00:00.000Z',
       });
+    // Same coords as local — only baseRevision was stale (protocol 428).
     vi.mocked(fetchReadingPosition).mockResolvedValue({
-      position: '',
-      progress: 0,
+      position: 'epubcfi(/6/8)',
+      progress: 40,
+      fraction: 0.4,
       positionVersion: 4,
       revision: 4,
     });

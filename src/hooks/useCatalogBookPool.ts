@@ -70,8 +70,8 @@ export function useCatalogBookPool(input: CatalogBookPoolInput) {
         key: a.key,
         name: a.label,
         bookCount: a.bookCount,
-        avgRating: 4.5,
-        totalDownloads: a.bookCount * 50,
+        avgRating: 0,
+        totalDownloads: 0,
         books: [] as Book[],
       }))
     : aggregations?.authors ?? [];
@@ -81,8 +81,8 @@ export function useCatalogBookPool(input: CatalogBookPoolInput) {
         key: s.key,
         name: s.label,
         bookCount: s.bookCount,
-        avgRating: 4.5,
-        totalDownloads: s.bookCount * 50,
+        avgRating: 0,
+        totalDownloads: 0,
         books: [] as Book[],
       }))
     : aggregations?.series ?? [];
@@ -91,7 +91,7 @@ export function useCatalogBookPool(input: CatalogBookPoolInput) {
     ? serverGenreGroups.map((g) => ({
         name: g.groupName,
         count: g.items.reduce((sum, i) => sum + (i.bookCount || 0), 0),
-        avgRating: 4.5,
+        avgRating: 0,
         subgenres: Object.fromEntries(
           g.items.map((item) => [
             item.name,
@@ -99,7 +99,7 @@ export function useCatalogBookPool(input: CatalogBookPoolInput) {
               // ключ Record — код жанра для /api/facet-books; name — подпись
               name: item.displayName?.trim() || item.name,
               count: item.bookCount || 0,
-              avgRating: 4.5,
+              avgRating: 0,
               books: [] as Book[],
             },
           ]),

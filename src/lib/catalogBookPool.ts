@@ -40,7 +40,8 @@ export function getActiveBookPool(ctx: CatalogBookPoolContext): Book[] {
     if (authorOutsideSeries) return authorGrouped.standaloneBooks;
     return [];
   }
-  if (isServerBrowse && (selectedAuthor || selectedSeries || selectedSubgenre) && facetBooks.length) {
+  // Server drill-down must never fall back to the hub/search list (empty facet ≠ hub books).
+  if (isServerBrowse && (selectedAuthor || selectedSeries || selectedSubgenre)) {
     return facetBooks;
   }
   if (selectedAuthor) {

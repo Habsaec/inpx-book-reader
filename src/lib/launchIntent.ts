@@ -7,7 +7,7 @@ import { registerPlugin } from '@capacitor/core';
 import { Book } from '../types';
 
 export type LaunchIntentPayload =
-  | { action: 'continue' }
+  | { action: 'continue'; bookId?: string }
   | { action: 'view'; uri: string; mimeType?: string };
 
 interface LaunchIntentPlugin {
@@ -23,7 +23,10 @@ export const LaunchIntent = registerPlugin<LaunchIntentPlugin>('LaunchIntent');
 export function isLaunchPayload(value: unknown): value is LaunchIntentPayload {
   if (!value || typeof value !== 'object') return false;
   const action = (value as LaunchIntentPayload).action;
-  if (action === 'continue') return true;
+  if (action === 'continue') {
+    const bookId = (value as { bookId?: unknown }).bookId;
+    return bookId === undefined || typeof bookId === 'string';
+  }
   if (action === 'view') {
     return typeof (value as { uri?: unknown }).uri === 'string';
   }
@@ -34,7 +37,7 @@ export function isLaunchPayload(value: unknown): value is LaunchIntentPayload {
 export function fileNameFromLaunchUri(uri: string): string {
   try {
     const decoded = decodeURIComponent(uri);
-    const withoutQuery = decoded.split('?')[0] ?? decoded;
+    const withoutQuery = decoded.split(/[?#]/)[0] ?? decoded;
     const segment = withoutQuery.split('/').pop() ?? '';
     return segment.replace(/^\//, '').toLowerCase();
   } catch {
@@ -46,20 +49,26 @@ export function fileNameFromLaunchUri(uri: string): string {
 export function findBookByLaunchUri(uri: string, books: Book[]): Book | null {
   const name = fileNameFromLaunchUri(uri);
   if (!name) return null;
+  const withFile = books.filter((b) => b.localFileName?.trim());
 
-  const exact = books.find((b) => {
-    const local = b.localFileName?.toLowerCase();
-    if (!local) return false;
+  // Сначала полный суффикс пути — одинаковые имена файлов в разных папках не путаем.
+  let decodedPath = '';
+  try {
+    decodedPath = (decodeURIComponent(uri).split(/[?#]/)[0] ?? '').toLowerCase();
+  } catch {
+    /* имя файла уже извлечено выше */
+  }
+  if (decodedPath) {
+    const suffixMatches = withFile.filter((b) => decodedPath.endsWith(b.localFileName!.toLowerCase()));
+    if (suffixMatches.length > 0) {
+      return suffixMatches.sort((a, b) => b.localFileName!.length - a.localFileName!.length)[0];
+    }
+  }
+
+  const nameMatches = withFile.filter((b) => {
+    const local = b.localFileName!.toLowerCase();
     return local === name || local.endsWith(`/${name}`);
   });
-  if (exact) return exact;
-
-  return (
-    books.find((b) => {
-      const local = b.localFileName?.toLowerCase();
-      if (!local) return false;
-      const base = local.split('/').pop() ?? local;
-      return base === name || base.includes(name) || name.includes(base);
-    }) ?? null
-  );
+  // Несколько книг с одинаковым именем файла — не угадываем, иначе откроется чужая.
+  return nameMatches.length === 1 ? nameMatches[0] : null;
 }

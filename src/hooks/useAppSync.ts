@@ -2,16 +2,23 @@ import React from 'react';
 import { App as CapApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { Book, ServerConfig } from '../types';
-import { syncDownloadedBooksOnline } from '../lib/offlineSync';
 import { flushOfflineReaderStore } from '../lib/offlineReaderStore';
-import { getPendingSyncCount } from '../lib/localDb';
-import { processSyncQueue } from '../lib/syncQueueProcessor';
-import { formatSuggestCount } from '../lib/catalogBookPool';
+import {
+  requestBackgroundSync,
+  shouldRunPeriodicSync,
+  type BackgroundSyncReason,
+} from '../lib/backgroundSync';
 
 interface InpxServerSync {
   refresh: () => Promise<void>;
 }
 
+const PERIODIC_MS = 60_000;
+
+/**
+ * Silent background sync only — no Sync Center UI, badges, or user-facing progress.
+ * Auth expiry still surfaces via onAuthExpired (re-login), not as a sync banner.
+ */
 export function useAppSync(opts: {
   canReadOnline: boolean;
   serverConfig: ServerConfig;
@@ -21,6 +28,7 @@ export function useAppSync(opts: {
   activeReaderRef: React.RefObject<{ bookId: string } | null>;
   /** Invalidate library notes/bookmarks memos after reader store sync. */
   onReaderStoreSynced?: () => void;
+  onAuthExpired?: () => void;
 }) {
   const {
     canReadOnline,
@@ -30,50 +38,79 @@ export function useAppSync(opts: {
     inpxServer,
     activeReaderRef,
     onReaderStoreSynced,
+    onAuthExpired,
   } = opts;
-
-  const [syncing, setSyncing] = React.useState(false);
-  const [syncError, setSyncError] = React.useState<string | null>(null);
-  const [lastSyncSummary, setLastSyncSummary] = React.useState<string | null>(null);
 
   const onSyncedRef = React.useRef(onReaderStoreSynced);
   onSyncedRef.current = onReaderStoreSynced;
+  const onAuthExpiredRef = React.useRef(onAuthExpired);
+  onAuthExpiredRef.current = onAuthExpired;
+  const refreshRef = React.useRef(inpxServer.refresh);
+  refreshRef.current = inpxServer.refresh;
+  const serverConfigRef = React.useRef(serverConfig);
+  serverConfigRef.current = serverConfig;
+  const closingBookIdRef = React.useRef<string | null>(null);
 
-  const bumpAfterReaderSync = React.useCallback(() => {
-    onSyncedRef.current?.();
+  const bookIdsRef = React.useRef<string[]>([]);
+  bookIdsRef.current = downloadedBooksWithFile
+    .map((b) => b.id)
+    .filter((id) => !String(id).startsWith('local:import:'));
+
+  const setClosingBookId = React.useCallback((bookId: string | null) => {
+    closingBookIdRef.current = bookId;
   }, []);
+
+  const runSilent = React.useCallback(
+    async (reason: BackgroundSyncReason) => {
+      if (!canReadOnline) return;
+      const result = await requestBackgroundSync({
+        reason,
+        bookIds: bookIdsRef.current,
+        excludeBookId: activeReaderRef.current?.bookId ?? closingBookIdRef.current,
+        serverConfig: serverConfigRef.current,
+        refresh: () => refreshRef.current(),
+        onReaderStoreSynced: () => onSyncedRef.current?.(),
+      });
+      if (result.authExpired) {
+        onAuthExpiredRef.current?.();
+      }
+    },
+    [activeReaderRef, canReadOnline],
+  );
+
+  const runSilentSafe = React.useCallback(
+    (reason: BackgroundSyncReason) => {
+      void runSilent(reason).catch((err) => console.warn('[useAppSync] silent sync failed:', err));
+    },
+    [runSilent],
+  );
 
   const wasOnlineRef = React.useRef(false);
   React.useEffect(() => {
     const justConnected = canReadOnline && !wasOnlineRef.current;
     wasOnlineRef.current = canReadOnline;
-    if (!justConnected || downloadedBooksWithFile.length === 0) return;
-    const activeBookId = activeReaderRef.current?.bookId;
-    const bookIds = downloadedBooksWithFile.map((b) => b.id).filter((id) => id !== activeBookId);
-    void syncDownloadedBooksOnline(serverConfig, bookIds).then(bumpAfterReaderSync);
-  }, [canReadOnline, serverConfig, downloadedBooksWithFile, activeReaderRef, bumpAfterReaderSync]);
+    if (!justConnected) return;
+    runSilentSafe('online');
+  }, [canReadOnline, runSilentSafe]);
 
   React.useEffect(() => {
     if (!canReadOnline || !Capacitor.isNativePlatform()) return;
     const subPromise = CapApp.addListener('appStateChange', ({ isActive }) => {
-      if (downloadedBooksWithFile.length === 0) return;
       if (!isActive) {
-        void flushOfflineReaderStore();
+        void flushOfflineReaderStore().catch(() => {});
         return;
       }
-      const activeBookId = activeReaderRef.current?.bookId;
-      const bookIds = downloadedBooksWithFile.map((b) => b.id).filter((id) => id !== activeBookId);
-      void syncDownloadedBooksOnline(serverConfig, bookIds).then(bumpAfterReaderSync);
+      runSilentSafe('resume');
     });
     return () => {
-      void subPromise.then((sub) => sub.remove());
+      void subPromise.then((sub) => sub.remove()).catch(() => {});
     };
-  }, [canReadOnline, serverConfig, downloadedBooksWithFile, activeReaderRef, bumpAfterReaderSync]);
+  }, [canReadOnline, runSilentSafe]);
 
   React.useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const onVisibilityChange = () => {
-      if (document.hidden) void flushOfflineReaderStore();
+      if (document.hidden) void flushOfflineReaderStore().catch(() => {});
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -84,46 +121,28 @@ export function useAppSync(opts: {
     const prev = prevConnectionStatusRef.current;
     prevConnectionStatusRef.current = connectionStatus;
     if (prev === 'connected' || connectionStatus !== 'connected' || !canReadOnline) return;
+    runSilentSafe('connected');
+  }, [connectionStatus, canReadOnline, runSilentSafe]);
 
-    void (async () => {
-      const pending = await getPendingSyncCount();
-      if (pending <= 0) return;
-      const bookIds = downloadedBooksWithFile.map((b) => b.id);
-      if (!bookIds.length) return;
-      try {
-        await syncDownloadedBooksOnline(serverConfig, bookIds);
-        const queueProcessed = await processSyncQueue(serverConfig);
-        await inpxServer.refresh();
-        bumpAfterReaderSync();
-        const summary = `Синхронизировано ${pending + queueProcessed} изменений`;
-        setLastSyncSummary(summary);
-      } catch {
-        /* пользователь может синхронизировать вручную */
-      }
-    })();
-  }, [connectionStatus, canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, bumpAfterReaderSync]);
-
-  const handleSyncNow = React.useCallback(async () => {
+  React.useEffect(() => {
     if (!canReadOnline) return;
-    setSyncing(true);
-    setSyncError(null);
-    try {
-      const bookIds = downloadedBooksWithFile.map((b) => b.id);
-      await syncDownloadedBooksOnline(serverConfig, bookIds);
-      const queueProcessed = await processSyncQueue(serverConfig);
-      await inpxServer.refresh();
-      bumpAfterReaderSync();
-      setLastSyncSummary(
-        queueProcessed > 0
-          ? `Синхронизировано: ${formatSuggestCount(bookIds.length)} и ${queueProcessed} операций`
-          : `Синхронизировано: ${formatSuggestCount(bookIds.length)}`,
-      );
-    } catch (e) {
-      setSyncError(e instanceof Error ? e.message : 'Ошибка синхронизации');
-    } finally {
-      setSyncing(false);
-    }
-  }, [canReadOnline, downloadedBooksWithFile, inpxServer, serverConfig, bumpAfterReaderSync]);
+    const timer = window.setInterval(() => {
+      void (async () => {
+        const ids = bookIdsRef.current;
+        if (!(await shouldRunPeriodicSync(ids))) return;
+        await runSilent('periodic');
+      })().catch((err) => console.warn('[useAppSync] periodic sync failed:', err));
+    }, PERIODIC_MS);
+    return () => window.clearInterval(timer);
+  }, [canReadOnline, runSilent]);
 
-  return { syncing, syncError, lastSyncSummary, handleSyncNow, setSyncError };
+  /** After closing a book — silent full cycle (includes queue + soft refresh). */
+  const requestSyncAfterClose = React.useCallback(() => {
+    runSilentSafe('after-close');
+  }, [runSilentSafe]);
+
+  return {
+    requestSyncAfterClose,
+    setClosingBookId,
+  };
 }

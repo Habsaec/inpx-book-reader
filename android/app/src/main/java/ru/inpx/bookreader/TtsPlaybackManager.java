@@ -45,6 +45,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
     private Runnable pendingStopService;
     private UtteranceCallback utteranceCallback;
     private final List<Runnable> readyWaiters = new ArrayList<>();
+    private int initGeneration = 0;
 
     private TtsPlaybackManager(Context context) {
         appContext = context.getApplicationContext();
@@ -113,71 +114,99 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
 
     @Override
     public void onInit(int status) {
-        ready = status == TextToSpeech.SUCCESS;
-        if (ready && tts != null) {
-            if (boundEngine.isEmpty()) {
-                boundEngine = resolvePreferredEngine();
+        final int gen = initGeneration;
+        handler.post(() -> {
+            if (gen != initGeneration) return;
+            ready = status == TextToSpeech.SUCCESS;
+            if (ready && tts != null) {
+                if (boundEngine.isEmpty()) {
+                    boundEngine = resolvePreferredEngine();
+                }
+
+                try {
+                    tts.setLanguage(new Locale("ru", "RU"));
+                } catch (Exception ignored) { /* */ }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    try {
+                        AudioAttributes attrs = new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build();
+                        tts.setAudioAttributes(attrs);
+                    } catch (Exception ignored) { /* */ }
+                }
+
+                tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                    @Override
+                    public void onStart(String utteranceId) {
+                        handler.post(() -> {
+                            speaking = true;
+                            paused = false;
+                            emitEvent("ttsStart", utteranceId);
+                        });
+                    }
+
+                    @Override
+                    public void onDone(String utteranceId) {
+                        handler.post(() -> {
+                            if (pauseRequested) {
+                                pauseRequested = false;
+                                speaking = false;
+                                paused = true;
+                                return;
+                            }
+                            speaking = false;
+                            paused = false;
+                            emitEvent("ttsEnd", utteranceId);
+                            scheduleStopService();
+                        });
+                    }
+
+                    @Override
+                    public void onError(String utteranceId) {
+                        handler.post(() -> {
+                            if (pauseRequested) {
+                                pauseRequested = false;
+                                speaking = false;
+                                paused = true;
+                                return;
+                            }
+                            speaking = false;
+                            paused = false;
+                            emitEvent("ttsError", utteranceId);
+                            scheduleStopService();
+                        });
+                    }
+
+                    @Override
+                    public void onStop(String utteranceId, boolean interrupted) {
+                        handler.post(() -> {
+                            if (pauseRequested) {
+                                pauseRequested = false;
+                                speaking = false;
+                                paused = true;
+                                return;
+                            }
+                            speaking = false;
+                            paused = false;
+                            if (interrupted) {
+                                emitEvent("ttsEnd", utteranceId);
+                            }
+                            scheduleStopService();
+                        });
+                    }
+                });
             }
 
-            try {
-                tts.setLanguage(new Locale("ru", "RU"));
-            } catch (Exception ignored) { /* */ }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            List<Runnable> waiters = new ArrayList<>(readyWaiters);
+            readyWaiters.clear();
+            for (Runnable waiter : waiters) {
                 try {
-                    AudioAttributes attrs = new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build();
-                    tts.setAudioAttributes(attrs);
+                    waiter.run();
                 } catch (Exception ignored) { /* */ }
             }
-
-            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                @Override
-                public void onStart(String utteranceId) {
-                    speaking = true;
-                    paused = false;
-                    emitEvent("ttsStart", utteranceId);
-                }
-
-                @Override
-                public void onDone(String utteranceId) {
-                    if (pauseRequested) {
-                        pauseRequested = false;
-                        speaking = false;
-                        paused = true;
-                        return;
-                    }
-                    speaking = false;
-                    paused = false;
-                    emitEvent("ttsEnd", utteranceId);
-                    scheduleStopService();
-                }
-
-                @Override
-                public void onError(String utteranceId) {
-                    if (pauseRequested) {
-                        pauseRequested = false;
-                        speaking = false;
-                        paused = true;
-                        return;
-                    }
-                    speaking = false;
-                    paused = false;
-                    emitEvent("ttsError", utteranceId);
-                    scheduleStopService();
-                }
-            });
-        }
-
-        List<Runnable> waiters = new ArrayList<>(readyWaiters);
-        readyWaiters.clear();
-        for (Runnable waiter : waiters) {
-            try {
-                waiter.run();
-            } catch (Exception ignored) { /* */ }
-        }
+        });
     }
 
     public void speak(String text, String utteranceId, float speechRate, String voice) {
@@ -291,6 +320,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
     }
 
     private void recreateWithSystemDefault() {
+        initGeneration++;
         if (tts != null) {
             try {
                 tts.stop();

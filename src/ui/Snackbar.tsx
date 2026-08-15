@@ -2,7 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { textStyles, radii, touchMin, motion } from './tokens';
+import { textStyles, radii, touchMin, motion, elevation } from './tokens';
 
 export interface SnackbarAction {
   label: string;
@@ -59,12 +59,12 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
 
   const variantBg = (v: SnackbarItem['variant']) => {
     if (v === 'success') {
-      return 'bg-[color-mix(in_srgb,var(--app-success)_92%,black)] text-white border-transparent';
+      return 'bg-[color-mix(in_srgb,var(--app-success)_88%,var(--app-surface))] text-[var(--app-success)] border-[color-mix(in_srgb,var(--app-success)_35%,transparent)]';
     }
     if (v === 'error') {
-      return 'bg-[color-mix(in_srgb,var(--app-danger)_92%,black)] text-white border-transparent';
+      return 'bg-[color-mix(in_srgb,var(--app-danger)_88%,var(--app-surface))] text-[var(--app-danger)] border-[color-mix(in_srgb,var(--app-danger)_35%,transparent)]';
     }
-    return `${theme.sheet} ${theme.text} border-[color:var(--app-border)]`;
+    return `${theme.sheet} ${theme.text} border-[color:var(--app-border)] backdrop-blur-md`;
   };
 
   const variantIcon = (v: SnackbarItem['variant']) => {
@@ -73,13 +73,15 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
     return null;
   };
 
+  const contextValue = React.useMemo(() => ({ show }), [show]);
+
   return (
-    <SnackbarContext.Provider value={{ show }}>
+    <SnackbarContext.Provider value={contextValue}>
       {children}
       {queue.length > 0 &&
         createPortal(
           <div
-            className="fixed left-0 right-0 z-[700] flex flex-col gap-2 px-4 pointer-events-none"
+            className="fixed left-0 right-0 z-[700] flex flex-col gap-2 px-5 pointer-events-none"
             style={{ bottom: 'max(var(--app-tab-bar-height), calc(env(safe-area-inset-bottom) + 3.5rem))' }}
             aria-live="polite"
           >
@@ -88,14 +90,14 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
               return (
               <div
                 key={item.id}
-                className={`pointer-events-auto flex items-center gap-3 px-4 py-3 ${radii.lg} border shadow-lg ${variantBg(item.variant)}`}
+                className={`pointer-events-auto flex items-center gap-3 px-4 py-3.5 ${radii.lg} border ${elevation.sheet} inpx-enter-y ${variantBg(item.variant)}`}
               >
-                {StatusIcon && <StatusIcon className="w-5 h-5 shrink-0 opacity-90" aria-hidden />}
+                {StatusIcon && <StatusIcon className="w-5 h-5 shrink-0" aria-hidden />}
                 <p className={`${textStyles.body} flex-1 min-w-0`}>{item.message}</p>
                 {item.action && (
                   <button
                     type="button"
-                    className={`${touchMin} inline-flex items-center justify-center px-3 ${textStyles.captionBold} shrink-0 uppercase tracking-wide rounded-lg ${motion.colors} hover:bg-white/10 active:scale-[0.98] ${theme.focusRing}`}
+                    className={`${touchMin} inline-flex items-center justify-center px-3 ${textStyles.captionBold} shrink-0 ${radii.button} ${theme.accentMuted} ${theme.accentText} ${motion.press} ${theme.focusRing}`}
                     onClick={() => {
                       item.action!.onClick();
                       dismiss(item.id);
@@ -108,7 +110,7 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     aria-label="Закрыть"
-                    className={`${touchMin} inline-flex items-center justify-center shrink-0 rounded-lg hover:bg-[color-mix(in_srgb,var(--app-text)_8%,transparent)] ${motion.press} ${theme.focusRing}`}
+                    className={`${touchMin} inline-flex items-center justify-center shrink-0 ${radii.button} ${theme.panel} ${motion.press} ${theme.focusRing}`}
                     onClick={() => dismiss(item.id)}
                   >
                     <X className="w-5 h-5" aria-hidden />

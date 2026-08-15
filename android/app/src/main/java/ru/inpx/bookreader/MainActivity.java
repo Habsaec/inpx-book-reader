@@ -2,6 +2,7 @@ package ru.inpx.bookreader;
 
 import android.content.Intent;
 import android.graphics.drawable.ColorDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -11,8 +12,13 @@ import android.view.Menu;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PluginHandle;
 
@@ -25,6 +31,19 @@ public class MainActivity extends BridgeActivity {
     private boolean splashIsDark = true;
     private final Handler splashHandler = new Handler(Looper.getMainLooper());
     private Runnable splashTimeoutRunnable;
+
+    /** <input type="file"> из WebView (импорт заметок, фоновая картинка читалки). */
+    private ValueCallback<Uri[]> pendingFileChooser;
+
+    private final ActivityResultLauncher<Intent> fileChooserLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+            ValueCallback<Uri[]> callback = pendingFileChooser;
+            pendingFileChooser = null;
+            if (callback == null) return;
+            callback.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(result.getResultCode(), result.getData())
+            );
+        });
 
     private final Runnable splashPollRunnable = new Runnable() {
         @Override
@@ -49,8 +68,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(SecureCredentialsPlugin.class);
         registerPlugin(DownloadNotificationPlugin.class);
         registerPlugin(LaunchIntentPlugin.class);
+        registerPlugin(ContinueWidgetPlugin.class);
         super.onCreate(savedInstanceState);
         lightSwipe = new FrontLightSwipe(this, lightSwipeHost);
+        installWebViewFileChooser();
         showNativeSplashOverlay();
         splashHandler.post(splashPollRunnable);
         splashTimeoutRunnable = this::hideNativeSplashOverlay;
@@ -75,6 +96,43 @@ public class MainActivity extends BridgeActivity {
                 }
             }
         );
+    }
+
+    /**
+     * Стоковый WebView не обрабатывает <input type="file"> без onShowFileChooser —
+     * иначе «Импорт заметок» и выбор фонового изображения в читалке молча мертвы в APK.
+     */
+    private void installWebViewFileChooser() {
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView == null) return;
+        webView.setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
+            @Override
+            public boolean onShowFileChooser(
+                WebView view,
+                ValueCallback<Uri[]> callback,
+                FileChooserParams params
+            ) {
+                if (pendingFileChooser != null) {
+                    pendingFileChooser.onReceiveValue(null);
+                }
+                pendingFileChooser = callback;
+                final Intent intent;
+                try {
+                    intent = params.createIntent();
+                } catch (Exception e) {
+                    pendingFileChooser = null;
+                    return false;
+                }
+                try {
+                    fileChooserLauncher.launch(intent);
+                    return true;
+                } catch (Exception e) {
+                    pendingFileChooser = null;
+                    callback.onReceiveValue(null);
+                    return false;
+                }
+            }
+        });
     }
 
     private void showNativeSplashOverlay() {
@@ -121,6 +179,8 @@ public class MainActivity extends BridgeActivity {
             splashHandler.removeCallbacks(splashTimeoutRunnable);
         }
         splashOverlay = null;
+        ReaderNativePlugin.resetVolumeKeysCapture();
+        FrontLightSwipe.setEnabled(false);
         super.onDestroy();
     }
 
@@ -132,7 +192,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void handleLaunchIntent(Intent intent) {
-        LaunchIntentPlugin.capture(intent);
+        LaunchIntentPlugin.capture(this, intent);
         if (bridge == null) return;
         PluginHandle handle = bridge.getPlugin("LaunchIntent");
         if (handle != null && handle.getInstance() instanceof LaunchIntentPlugin plugin) {
@@ -150,6 +210,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void dispatchVolumePageTurn(String direction) {
+        if (bridge == null || bridge.getWebView() == null) return;
         String js =
             "window.dispatchEvent(new CustomEvent('reader-volume-key',{detail:{direction:'"
                 + direction
@@ -188,7 +249,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN && ReaderNativePlugin.isVolumeKeysCaptureEnabled()) {
             int keyCode = event.getKeyCode();
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
                 dispatchVolumePageTurn("next");

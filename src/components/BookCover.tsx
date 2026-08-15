@@ -129,24 +129,29 @@ export default function BookCover({
     async function load() {
       setFailed(false);
       const mem = peekCoverMemory(bookId, variant);
-      if (mem) {
-        setSrc(mem);
-        return;
-      }
+      setSrc(mem);
+      if (mem) return;
 
-      const url = await resolveCoverUrl({
-        bookId,
-        variant,
-        directory: storageDirectory,
-        config: serverConfig,
-      });
-      if (cancelled) return;
-      if (url) {
-        setSrc(url);
-        return;
+      try {
+        const url = await resolveCoverUrl({
+          bookId,
+          variant,
+          directory: storageDirectory,
+          config: serverConfig,
+        });
+        if (cancelled) return;
+        if (url) {
+          setSrc(url);
+          return;
+        }
+        setSrc(null);
+        setFailed(true);
+      } catch {
+        if (!cancelled) {
+          setSrc(null);
+          setFailed(true);
+        }
       }
-      setSrc(null);
-      setFailed(true);
     }
 
     void load();

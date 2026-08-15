@@ -16,7 +16,8 @@ export async function syncAndroidStatusBar(isDark: boolean, opts?: { eink?: bool
   const bg = eink ? '#ffffff' : isDark ? '#1e1a16' : '#f5f1e8';
   try {
     await StatusBar.setBackgroundColor({ color: bg });
-    await StatusBar.setStyle({ style: eink || !isDark ? Style.Dark : Style.Light });
+    // Capacitor: Style.Light = тёмные иконки (светлый фон); Style.Dark = светлые иконки (тёмный фон).
+    await StatusBar.setStyle({ style: isDark && !eink ? Style.Dark : Style.Light });
   } catch {
     // вне APK (редкая отладка в WebView) — игнорируем
   }

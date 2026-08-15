@@ -90,6 +90,8 @@ export interface Paginated<T> {
   total: number;
   page: number;
   pageSize: number;
+  /** Recommended list may be building on the server. */
+  computing?: boolean;
 }
 
 export function normalizeBaseUrl(url: string): string {
@@ -98,6 +100,17 @@ export function normalizeBaseUrl(url: string): string {
   if (!/^https?:\/\//i.test(u)) {
     const looksLocal = /^(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(u);
     u = `${looksLocal ? 'http' : 'https'}://${u}`;
+  }
+  try {
+    const parsed = new URL(u);
+    // userinfo в URL ломает fetch («URL cannot include credentials») и утекает в логи/DNS.
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    u = parsed.toString();
+  } catch {
+    /* невалидный URL — оставляем как есть, дальше сработает валидация подключения */
   }
   return u.replace(/\/+$/, '').replace(/\/opds\/v2$/i, '');
 }
@@ -149,6 +162,7 @@ export async function apiFetch(
 export interface ConnectionTestResult {
   ok: boolean;
   error?: string;
+  authExpired?: boolean;
 }
 
 /** Сеть недоступна или сервер не отвечает (не путать с 401/404). */
@@ -168,8 +182,53 @@ export interface ServerBranding {
 const BRANDING_FALLBACK_NAME = 'Библиотека';
 const DEFAULT_LOGO_PATH = '/logo.png';
 const CONNECTION_TIMEOUT_MS = 8_000;
+/** Default timeout for catalog/sync/profile JSON API calls. */
+const API_TIMEOUT_MS = 20_000;
 
-export { CONNECTION_TIMEOUT_MS };
+/** Макс. пауза между чанками тела при скачивании книги. */
+const DOWNLOAD_IDLE_TIMEOUT_MS = 30_000;
+
+export { CONNECTION_TIMEOUT_MS, API_TIMEOUT_MS };
+
+/** HTTP error with status — used for 401 recovery and UI messaging. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+export function isAuthError(err: unknown): boolean {
+  if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return true;
+  // Native download / Capacitor bridge often surfaces plain "HTTP 401" strings.
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\bHTTP\s+40[13]\b/i.test(msg);
+}
+
+async function withTimeoutSignal<T>(
+  timeoutMs: number,
+  callerSignal: AbortSignal | undefined,
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onCallerAbort = () => controller.abort();
+  callerSignal?.addEventListener('abort', onCallerAbort);
+  try {
+    return await work(controller.signal);
+  } catch (e: unknown) {
+    if (controller.signal.aborted && !callerSignal?.aborted) {
+      throw new Error(`Timeout: сервер не ответил за ${Math.round(timeoutMs / 1000)} с`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', onCallerAbort);
+  }
+}
 
 async function apiFetchWithTimeout(
   config: ServerConfig,
@@ -177,18 +236,9 @@ async function apiFetchWithTimeout(
   init: RequestInit = {},
   timeoutMs = CONNECTION_TIMEOUT_MS,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await apiFetch(config, targetPath, { ...init, signal: controller.signal });
-  } catch (e: unknown) {
-    if (controller.signal.aborted) {
-      throw new Error(`Timeout: сервер не ответил за ${Math.round(timeoutMs / 1000)} с`);
-    }
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
+  return withTimeoutSignal(timeoutMs, init.signal ?? undefined, (signal) =>
+    apiFetch(config, targetPath, { ...init, signal }),
+  );
 }
 
 export async function fetchServerBranding(config: ServerConfig): Promise<ServerBranding> {
@@ -202,9 +252,18 @@ export async function fetchServerBranding(config: ServerConfig): Promise<ServerB
 }
 
 export async function fetchServerLogoBlob(config: ServerConfig, logoPath: string): Promise<Blob | null> {
-  const res = await apiFetch(config, logoPath, { headers: { Accept: 'image/*' } });
-  if (!res.ok) return null;
-  return res.blob();
+  try {
+    return await withTimeoutSignal(API_TIMEOUT_MS, undefined, async (signal) => {
+      const res = await apiFetch(config, logoPath, {
+        headers: { Accept: 'image/*' },
+        signal,
+      });
+      if (!res.ok) return null;
+      return await res.blob();
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function testConnection(config: ServerConfig): Promise<ConnectionTestResult> {
@@ -243,6 +302,7 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
       if (config.deviceToken?.trim() && !config.password) {
         return {
           ok: false,
+          authExpired: true,
           error: 'Сессия устройства устарела. Введите логин и пароль заново.',
         };
       }
@@ -268,14 +328,50 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
   }
 }
 
-async function apiJson<T>(config: ServerConfig, path: string, init: RequestInit = {}): Promise<T> {
-  const res = await apiFetch(config, path, init);
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(text || `HTTP ${res.status}`);
+function statusFallbackMessage(status: number): string {
+  if (status === 401) return 'Сессия устройства устарела. Введите логин и пароль заново.';
+  if (status === 403) return 'Недостаточно прав для этого действия.';
+  if (status === 404) return 'Не найдено на сервере.';
+  if (status === 429) return 'Слишком много запросов. Подождите немного и повторите.';
+  if (status >= 500) return `Ошибка сервера (HTTP ${status}). Попробуйте позже.`;
+  return `HTTP ${status}`;
+}
+
+function messageFromErrorBody(text: string, status: number): string {
+  const raw = String(text || '').trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown };
+      const fromJson = parsed.error ?? parsed.message;
+      if (fromJson != null && String(fromJson).trim()) return String(fromJson).trim();
+    } catch {
+      /* plain text body */
+    }
+    // Avoid dumping HTML error pages into snackbars.
+    if (raw.startsWith('<') || /<!DOCTYPE/i.test(raw)) {
+      return statusFallbackMessage(status);
+    }
+    if (!raw.startsWith('{')) {
+      return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
+    }
   }
-  if (res.status === 204) return undefined as T;
-  return res.json();
+  return statusFallbackMessage(status);
+}
+
+async function apiJson<T>(config: ServerConfig, path: string, init: RequestInit = {}): Promise<T> {
+  return withTimeoutSignal(API_TIMEOUT_MS, init.signal ?? undefined, async (signal) => {
+    const res = await apiFetch(config, path, { ...init, signal });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new ApiError(messageFromErrorBody(text, res.status), res.status);
+    }
+    if (res.status === 204) return undefined as T;
+    try {
+      return (await res.json()) as T;
+    } catch {
+      throw new ApiError('Сервер вернул некорректный ответ', res.status);
+    }
+  });
 }
 
 async function apiPostJson<T>(config: ServerConfig, path: string, body?: unknown): Promise<T> {
@@ -359,9 +455,41 @@ export async function fetchLibraryView(
   config: ServerConfig,
   view: 'recent' | 'continue' | 'read' | 'recommended',
   page = 1,
-  pageSize = 24
+  pageSize = 24,
+  opts: {
+    /** Single code, CSV, or list — OR (at least one genre). */
+    genre?: string | string[];
+    lang?: string;
+    format?: string;
+    year?: number;
+    /** Minimum libRate 1–5. */
+    minRate?: number;
+    /** `1` = in a series, `0` = standalone. */
+    hasSeries?: 0 | 1 | boolean;
+    sort?: string;
+    order?: string;
+  } = {},
 ): Promise<Paginated<InpxBookItem>> {
-  return apiJson(config, `/api/library/${view}?page=${page}&pageSize=${pageSize}`);
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  if (opts.sort) params.set('sort', opts.sort);
+  if (opts.order) params.set('order', opts.order);
+  if (opts.genre != null) {
+    const genres = Array.isArray(opts.genre) ? opts.genre : [opts.genre];
+    for (const g of genres) {
+      const code = String(g || '').trim();
+      if (code) params.append('genre', code);
+    }
+  }
+  if (opts.lang) params.set('lang', opts.lang);
+  if (opts.format) params.set('format', opts.format);
+  if (opts.year) params.set('year', String(opts.year));
+  if (opts.minRate != null && opts.minRate >= 1) params.set('minRate', String(Math.floor(opts.minRate)));
+  if (opts.hasSeries === true || opts.hasSeries === 1) params.set('hasSeries', '1');
+  else if (opts.hasSeries === false || opts.hasSeries === 0) params.set('hasSeries', '0');
+  return apiJson(config, `/api/library/${view}?${params}`);
 }
 
 export async function toggleBookBookmark(config: ServerConfig, bookId: string): Promise<boolean> {
@@ -372,6 +500,25 @@ export async function toggleBookBookmark(config: ServerConfig, bookId: string): 
 export async function toggleBookRead(config: ServerConfig, bookId: string): Promise<boolean> {
   const data = await apiPostJson<{ read: boolean }>(config, apiReadPath(bookId));
   return data.read;
+}
+
+/** Idempotent desired read state — avoids stranded toggle_read queue ops. */
+export async function ensureBookReadState(
+  config: ServerConfig,
+  bookId: string,
+  markRead: boolean,
+): Promise<void> {
+  if (markRead) {
+    await apiPostJson(config, '/api/read/batch', { ids: [bookId] });
+    return;
+  }
+  // Unmark: one toggle if currently read; if we accidentally marked, toggle again.
+  let isRead = await toggleBookRead(config, bookId);
+  if (!isRead) return;
+  isRead = await toggleBookRead(config, bookId);
+  if (isRead) {
+    throw new Error('Не удалось снять отметку «прочитано»');
+  }
 }
 
 export async function toggleFavoriteAuthorApi(config: ServerConfig, name: string): Promise<boolean> {
@@ -391,6 +538,14 @@ export interface ServerShelf {
   bookCount?: number;
   previewBookIds?: string[];
 }
+
+/** Shelf row for library UI — server numeric id or local string id. */
+export type UiShelf = {
+  id: number | string;
+  name: string;
+  bookCount?: number;
+  previewBookIds?: string[];
+};
 
 export async function fetchShelves(config: ServerConfig): Promise<ServerShelf[]> {
   const rows = await apiJson<ServerShelf[]>(config, '/api/shelves');
@@ -505,6 +660,8 @@ export interface ReaderBookSyncMeta {
   annotationsRev: string;
   positionUpdatedAt: string | null;
   positionProgress?: number;
+  /** Integer CAS revision from reading_positions (0 if none). */
+  positionRevision?: number;
   bookmarkCount: number;
   annotationCount: number;
 }
@@ -518,7 +675,8 @@ export async function fetchReaderBookSyncMeta(
       config,
       apiBookPath(bookId, 'reader-sync-meta'),
     );
-  } catch {
+  } catch (e: unknown) {
+    if (isAuthError(e)) throw e;
     return null;
   }
 }
@@ -530,12 +688,38 @@ export interface ReaderActivitySyncMeta {
   readingHistoryCount: number;
 }
 
+export interface ReaderSyncIndexBook extends ReaderBookSyncMeta {
+  bookId: string;
+}
+
+export interface ReaderSyncIndex {
+  activity: ReaderActivitySyncMeta;
+  books: ReaderSyncIndexBook[];
+}
+
 export async function fetchReaderActivitySyncMeta(
   config: ServerConfig,
 ): Promise<ReaderActivitySyncMeta | null> {
   try {
     return await apiJson<ReaderActivitySyncMeta>(config, '/api/reader-activity-sync-meta');
-  } catch {
+  } catch (e: unknown) {
+    if (isAuthError(e)) throw e;
+    return null;
+  }
+}
+
+/** Bulk dirty-check for silent background sync. */
+export async function fetchReaderSyncIndex(
+  config: ServerConfig,
+  bookIds: string[],
+): Promise<ReaderSyncIndex | null> {
+  const ids = [...new Set(bookIds.map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 200);
+  try {
+    const q = ids.length ? `?ids=${ids.map(encodeURIComponent).join(',')}` : '';
+    return await apiJson<ReaderSyncIndex>(config, `/api/reader-sync-index${q}`);
+  } catch (e: unknown) {
+    // Auth failures must not look like "no index" (that triggers a full sync storm).
+    if (isAuthError(e)) throw e;
     return null;
   }
 }
@@ -569,23 +753,38 @@ export async function saveReadingPosition(
     body.fb2Href = String(fb2Href).trim();
   }
   appendReadingPositionAnchors(body, anchors);
-  const response = await apiFetch(config, apiBookPath(bookId, 'position'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const response = await apiFetchWithTimeout(
+    config,
+    apiBookPath(bookId, 'position'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    API_TIMEOUT_MS,
+  );
   if (response.status === 409) {
     const payload = await response.json().catch(() => null) as { current?: ServerReadingPosition } | null;
     if (payload?.current) throw new ReadingPositionConflictError(payload.current);
+    // Контракт: 409 всегда уходит в путь разрешения конфликта. Если тело без
+    // `current` (прокси/старый сервер) — дочитываем позицию отдельно.
+    const current = await fetchReadingPosition(config, bookId).catch(
+      (): ServerReadingPosition => ({ position: '', progress: 0 }),
+    );
+    throw new ReadingPositionConflictError(current);
   }
   if (response.status === 428) {
     throw new ReadingPositionProtocolError();
   }
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new Error(text || `HTTP ${response.status}`);
+    throw new ApiError(messageFromErrorBody(text, response.status), response.status);
   }
-  return response.json();
+  try {
+    return await response.json();
+  } catch {
+    throw new ApiError('Сервер вернул некорректный ответ', response.status);
+  }
 }
 
 export async function recordReadingHistory(config: ServerConfig, bookId: string): Promise<void> {
@@ -626,6 +825,38 @@ export async function deleteReaderBookmarkApi(config: ServerConfig, bookId: stri
   await apiDelete(config, apiBookPath(bookId, `bookmarks/${bmId}`));
 }
 
+export interface ReaderBookmarkListItem {
+  id: number;
+  bookId: string;
+  bookTitle: string;
+  label: string;
+  position: string;
+  ext?: string;
+  createdAt?: string;
+}
+
+export async function fetchReaderBookmarkList(
+  config: ServerConfig,
+  page = 1,
+  pageSize = 200,
+): Promise<Paginated<ReaderBookmarkListItem>> {
+  return apiJson(config, `/api/reader-bookmarks?page=${page}&pageSize=${pageSize}`);
+}
+
+export async function fetchAllReaderBookmarkList(config: ServerConfig): Promise<ReaderBookmarkListItem[]> {
+  const pageSize = 200;
+  const first = await fetchReaderBookmarkList(config, 1, pageSize);
+  const items = [...(first.items || [])];
+  const total = Number(first.total) || items.length;
+  for (let page = 2; items.length < total && page <= 25; page++) {
+    const next = await fetchReaderBookmarkList(config, page, pageSize);
+    const chunk = next.items || [];
+    if (!chunk.length) break;
+    items.push(...chunk);
+  }
+  return items;
+}
+
 export interface ServerAnnotation {
   id: number;
   cfi: string;
@@ -660,22 +891,51 @@ export async function deleteReaderAnnotationApi(config: ServerConfig, bookId: st
   await apiDelete(config, apiBookPath(bookId, `annotations/${aid}`));
 }
 
+export interface ReaderAnnotationListItem {
+  id: number;
+  bookId: string;
+  bookTitle: string;
+  text: string;
+  note: string;
+  cfi: string;
+  color: string;
+  ext?: string;
+  createdAt?: string;
+}
+
+export async function fetchReaderAnnotationList(
+  config: ServerConfig,
+  page = 1,
+  pageSize = 200,
+): Promise<Paginated<ReaderAnnotationListItem>> {
+  return apiJson(config, `/api/reader-annotations?page=${page}&pageSize=${pageSize}`);
+}
+
+export async function fetchAllReaderAnnotationList(config: ServerConfig): Promise<ReaderAnnotationListItem[]> {
+  const pageSize = 200;
+  const first = await fetchReaderAnnotationList(config, 1, pageSize);
+  const items = [...(first.items || [])];
+  const total = Number(first.total) || items.length;
+  for (let page = 2; items.length < total && page <= 25; page++) {
+    const next = await fetchReaderAnnotationList(config, page, pageSize);
+    const chunk = next.items || [];
+    if (!chunk.length) break;
+    items.push(...chunk);
+  }
+  return items;
+}
+
 export async function patchReaderAnnotationApi(
   config: ServerConfig,
   bookId: string,
   aid: number,
   patch: { note?: string; color?: string },
 ): Promise<void> {
-  const res = await apiFetch(
-    config,
-    apiBookPath(bookId, `annotations/${aid}`),
-    {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    },
-  );
-  if (!res.ok) throw new Error(`Заметка: HTTP ${res.status}`);
+  await apiJson(config, apiBookPath(bookId, `annotations/${aid}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
 }
 
 const APP_READER_POS_RE = /^(?:app:)?ch(\d+):p(\d+)$/;
@@ -710,12 +970,20 @@ export type CatalogField = 'books' | 'authors' | 'series';
 export type CatalogBookSort = 'recent' | 'title' | 'author' | 'series' | 'rating';
 export type CatalogEntitySort = 'name' | 'count';
 
+export interface CatalogSearchHints {
+  tip?: string | null;
+  didYouMean?: string[];
+  weak?: boolean;
+  alternateModes?: Array<{ field?: string; label?: string; q?: string }>;
+}
+
 export interface CatalogSearchResult {
   items: InpxBookItem[] | Array<{ name: string; displayName?: string; bookCount?: number; count?: number }>;
   total: number;
   page: number;
   pageSize: number;
   field: CatalogField;
+  searchHints?: CatalogSearchHints;
 }
 
 export async function searchCatalog(
@@ -864,9 +1132,7 @@ export async function fetchAuthors(
 ): Promise<Paginated<{ name: string; displayName?: string; bookCount?: number }>> {
   const params = new URLSearchParams({ page: String(page), sort });
   if (q) params.set('q', q);
-  const res = await apiFetch(config, `/api/browse/authors?${params}`);
-  if (!res.ok) throw new Error(`Авторы: HTTP ${res.status}`);
-  return res.json();
+  return apiJson(config, `/api/browse/authors?${params}`);
 }
 
 export async function fetchSeries(
@@ -877,9 +1143,7 @@ export async function fetchSeries(
 ): Promise<Paginated<{ name: string; displayName?: string; bookCount?: number }>> {
   const params = new URLSearchParams({ page: String(page), sort });
   if (q) params.set('q', q);
-  const res = await apiFetch(config, `/api/browse/series?${params}`);
-  if (!res.ok) throw new Error(`Серии: HTTP ${res.status}`);
-  return res.json();
+  return apiJson(config, `/api/browse/series?${params}`);
 }
 
 export type GenreGroup = {
@@ -887,16 +1151,18 @@ export type GenreGroup = {
   items: Array<{ name: string; bookCount?: number; displayName?: string }>;
 };
 
-export async function fetchGenres(config: ServerConfig): Promise<{
+export async function fetchGenres(
+  config: ServerConfig,
+  sort: CatalogEntitySort = 'count',
+): Promise<{
   groups: GenreGroup[];
   items: Array<{ name: string; bookCount?: number; displayName?: string }>;
 }> {
-  const res = await apiFetch(config, '/api/browse/genres?sort=count');
-  if (!res.ok) throw new Error(`Жанры: HTTP ${res.status}`);
-  const data = await res.json() as {
+  const sortParam = sort === 'name' ? 'name' : 'count';
+  const data = await apiJson<{
     groups?: GenreGroup[] | Record<string, string[]>;
     items?: Array<{ name: string; bookCount?: number; displayName?: string }>;
-  };
+  }>(config, `/api/browse/genres?sort=${sortParam}`);
   const items = Array.isArray(data.items) ? data.items : [];
   // Ожидаем groups: [{ groupName, items }]. Старые серверы отдавали сырой map кодов.
   if (Array.isArray(data.groups)) {
@@ -913,18 +1179,36 @@ export async function fetchFacetBooks(
   facet: 'authors' | 'series' | 'genres',
   value: string,
   page = 1,
-  opts?: { author?: string; sort?: string }
+  opts?: {
+    author?: string;
+    sort?: string;
+    format?: string;
+    year?: number;
+    minRate?: number;
+    hasSeries?: 0 | 1 | boolean;
+    lang?: string;
+  },
 ): Promise<Paginated<InpxBookItem>> {
   const params = new URLSearchParams({ facet, value, page: String(page), pageSize: '24' });
   if (opts?.author) params.set('author', opts.author);
   if (opts?.sort) params.set('sort', opts.sort);
-  const res = await apiFetch(config, `/api/facet-books?${params}`);
-  if (!res.ok) throw new Error(`Книги: HTTP ${res.status}`);
-  return res.json();
+  if (opts?.lang) params.set('lang', opts.lang);
+  if (opts?.format) params.set('format', opts.format);
+  if (opts?.year) params.set('year', String(opts.year));
+  if (opts?.minRate != null && opts.minRate >= 1) params.set('minRate', String(Math.floor(opts.minRate)));
+  if (opts?.hasSeries === true || opts?.hasSeries === 1) params.set('hasSeries', '1');
+  else if (opts?.hasSeries === false || opts?.hasSeries === 0) params.set('hasSeries', '0');
+  return apiJson(config, `/api/facet-books?${params}`);
 }
 
 export interface AuthorGroupedResult {
-  series: Array<{ name: string; displayName?: string; bookCount: number }>;
+  series: Array<{
+    name: string;
+    displayName?: string;
+    bookCount: number;
+    /** Present when requested with view=list */
+    books?: InpxBookItem[];
+  }>;
   standaloneBooks: InpxBookItem[];
   total: number;
   bioHtml?: string;
@@ -933,25 +1217,46 @@ export interface AuthorGroupedResult {
 }
 
 export async function fetchAuthorPortraitBlob(config: ServerConfig, authorName: string): Promise<Blob | null> {
-  const res = await apiFetch(config, `/api/authors/portrait?name=${encodeURIComponent(authorName)}`, {
-    headers: { Accept: 'image/*' },
-  });
-  if (!res.ok) return null;
-  return res.blob();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await apiFetch(config, `/api/authors/portrait?name=${encodeURIComponent(authorName)}`, {
+      headers: { Accept: 'image/*' },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      if (res.status === 401 || res.status === 403) {
+        const text = await res.text().catch(() => '');
+        throw new ApiError(messageFromErrorBody(text, res.status), res.status);
+      }
+      throw new ApiError(`Портрет: HTTP ${res.status}`, res.status);
+    }
+    return await res.blob();
+  } catch (e: unknown) {
+    if (isAuthError(e)) throw e;
+    if (controller.signal.aborted) {
+      throw new Error(`Timeout: сервер не ответил за ${Math.round(API_TIMEOUT_MS / 1000)} с`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function fetchAuthorGrouped(
   config: ServerConfig,
   authorName: string,
-  sort: CatalogBookSort = 'title'
+  sort: CatalogBookSort = 'title',
+  _opts?: { view?: 'list' | 'series' },
 ): Promise<AuthorGroupedResult> {
   const params = new URLSearchParams({ sort });
-  const res = await apiFetch(
+  // Older servers only attached books[] when view=list; current servers always include them.
+  params.set('view', 'list');
+  return apiJson(
     config,
-    `/api/browse/authors/${encodeURIComponent(authorName)}/grouped?${params}`
+    `/api/browse/authors/${encodeURIComponent(authorName)}/grouped?${params}`,
   );
-  if (!res.ok) throw new Error(`Автор: HTTP ${res.status}`);
-  return res.json();
 }
 
 export interface BookDetailsResponse {
@@ -961,31 +1266,88 @@ export interface BookDetailsResponse {
   title?: string;
 }
 
+/**
+ * Soft-fail GET JSON: empty on network/4xx/5xx, but rethrow 401/403 so callers
+ * can run auth recovery instead of treating auth failure as "no data".
+ */
+async function softFetchJson<T>(
+  config: ServerConfig,
+  path: string,
+  empty: T,
+): Promise<T> {
+  try {
+    return await withTimeoutSignal(API_TIMEOUT_MS, undefined, async (signal) => {
+      const res = await apiFetch(config, path, { signal });
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          const text = await res.text().catch(() => '');
+          throw new ApiError(messageFromErrorBody(text, res.status), res.status);
+        }
+        return empty;
+      }
+      try {
+        return (await res.json()) as T;
+      } catch {
+        return empty;
+      }
+    });
+  } catch (e: unknown) {
+    if (isAuthError(e)) throw e;
+    return empty;
+  }
+}
+
 export async function fetchBookDetails(config: ServerConfig, bookId: string): Promise<BookDetailsResponse> {
-  const res = await apiFetch(config, apiBookPath(bookId, 'details'));
-  if (!res.ok) return {};
-  return res.json();
+  return softFetchJson(config, apiBookPath(bookId, 'details'), {} as BookDetailsResponse);
 }
 
 /** Полные метаданные книги с серии из INPX (getBookById + book_series). */
 export async function fetchBookMeta(config: ServerConfig, bookId: string): Promise<InpxBookItem | null> {
-  const res = await apiFetch(config, apiBookPath(bookId, 'meta'));
-  if (!res.ok) return null;
-  return res.json();
+  const data = await softFetchJson<InpxBookItem | null>(
+    config,
+    apiBookPath(bookId, 'meta'),
+    null,
+  );
+  if (!data || typeof data !== 'object') return null;
+  // Minimal shape check — avoid treating HTML error pages / empty objects as meta.
+  if (!String((data as InpxBookItem).id ?? '').trim() && !String((data as InpxBookItem).title ?? '').trim()) {
+    return null;
+  }
+  return data;
 }
 
 export async function downloadBookBinary(
   config: ServerConfig,
   bookId: string,
   onProgress?: (loaded: number, total: number) => void,
+  opts?: { signal?: AbortSignal },
 ): Promise<ArrayBuffer> {
-  const res = await apiFetch(config, apiBookPath(bookId, 'content'), {
-    headers: { Accept: '*/*' },
-  });
+  // Timeout covers connect + headers only; body transfer can be long and uses caller signal.
+  const headerController = new AbortController();
+  const headerTimer = setTimeout(() => headerController.abort(), API_TIMEOUT_MS);
+  const onCallerAbort = () => headerController.abort();
+  opts?.signal?.addEventListener('abort', onCallerAbort);
+  let res: Response;
+  try {
+    res = await apiFetch(config, apiBookPath(bookId, 'content'), {
+      headers: { Accept: '*/*' },
+      signal: headerController.signal,
+    });
+  } catch (e: unknown) {
+    if (headerController.signal.aborted && !opts?.signal?.aborted) {
+      throw new Error(`Timeout: сервер не ответил за ${Math.round(API_TIMEOUT_MS / 1000)} с`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(headerTimer);
+    opts?.signal?.removeEventListener('abort', onCallerAbort);
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    const hint = detail.trim().slice(0, 120);
-    throw new Error(hint ? `Загрузка: HTTP ${res.status} — ${hint}` : `Загрузка: HTTP ${res.status}`);
+    throw new ApiError(
+      `Загрузка: ${messageFromErrorBody(detail, res.status)}`,
+      res.status,
+    );
   }
   const totalHeader = res.headers.get('content-length');
   const total = totalHeader ? Number(totalHeader) : 0;
@@ -995,12 +1357,32 @@ export async function downloadBookBinary(
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let loaded = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    loaded += value.length;
-    onProgress(loaded, total || loaded);
+  try {
+    while (true) {
+      if (opts?.signal?.aborted) {
+        await reader.cancel().catch(() => {});
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      // Idle-сторож: зависший сокет посреди тела (WebView держит соединение)
+      // без этого не даёт ни прогресса, ни ошибки — загрузка висит вечно.
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      const idleTimeout = new Promise<never>((_, reject) => {
+        idleTimer = setTimeout(() => {
+          void reader.cancel().catch(() => {});
+          reject(new Error('Загрузка остановилась: сервер не присылает данные'));
+        }, DOWNLOAD_IDLE_TIMEOUT_MS);
+      });
+      const { done, value } = await Promise.race([reader.read(), idleTimeout]).finally(() => {
+        if (idleTimer !== undefined) clearTimeout(idleTimer);
+      });
+      if (done) break;
+      chunks.push(value);
+      loaded += value.length;
+      onProgress(loaded, total || loaded);
+    }
+  } catch (e) {
+    await reader.cancel().catch(() => {});
+    throw e;
   }
   const out = new Uint8Array(loaded);
   let offset = 0;
@@ -1008,6 +1390,7 @@ export async function downloadBookBinary(
     out.set(chunk, offset);
     offset += chunk.length;
   }
+  chunks.length = 0;
   return out.buffer;
 }
 
@@ -1030,11 +1413,28 @@ export async function fetchCoverBlob(
   variant: 'thumb' | 'full' = 'thumb'
 ): Promise<Blob | null> {
   const suffix = variant === 'full' ? 'cover' : 'cover-thumb';
-  const res = await apiFetch(config, apiBookPath(bookId, suffix), {
-    headers: { Accept: 'image/*' },
-  });
-  if (!res.ok) return null;
-  return res.blob();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await apiFetch(config, apiBookPath(bookId, suffix), {
+      headers: { Accept: 'image/*' },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      if (res.status === 401 || res.status === 403) {
+        const text = await res.text().catch(() => '');
+        throw new ApiError(messageFromErrorBody(text, res.status), res.status);
+      }
+      return null;
+    }
+    return await res.blob();
+  } catch (e: unknown) {
+    if (isAuthError(e)) throw e;
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function bookContentUrl(config: ServerConfig, bookId: string): string {
@@ -1146,6 +1546,18 @@ export function pickSeriesFromItem(
   return {};
 }
 
+/**
+ * INPX `libRate` → 1..5 stars for cover ribbon.
+ * Server badge: `Math.floor` + clamp 0..5 (`public/app.js` renderCoverRatingBadgeHtml).
+ * Values > 5 treated as legacy 0..100 (e.g. 80 → 4).
+ */
+export function starsFromLibRate(libRate: unknown): number | undefined {
+  const n = Number(libRate);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  if (n <= 5) return Math.min(5, Math.max(1, Math.floor(n)));
+  return Math.min(5, Math.max(1, Math.round(n / 20)));
+}
+
 export function mapServerBook(
   item: InpxBookItem,
   config: ServerConfig,
@@ -1154,6 +1566,7 @@ export function mapServerBook(
   const author = formatAuthorsFromItem(item);
   const genreParts = item.genresDisplayList || (item.genres ? item.genres.split(':') : []);
   const { series, seriesNo, seriesNoLabel } = pickSeriesFromItem(item, opts?.preferredSeries);
+  const rawRate = item.libRate ?? (item as { lib_rate?: unknown }).lib_rate;
   return {
     id: item.id,
     title: item.title,
@@ -1167,7 +1580,7 @@ export function mapServerBook(
     ext: (item.ext || 'fb2').replace(/^\./, ''),
     size: item.size,
     description: item.annotation,
-    rating: item.libRate ? Math.min(5, item.libRate > 5 ? item.libRate / 20 : item.libRate) : undefined,
+    rating: starsFromLibRate(rawRate),
     date: item.date,
     year: Number(String(item.date || '').match(/\b(18|19|20)\d{2}\b/)?.[0]) || undefined,
     coverUrl: displayCoverUrl(config, item.id),
@@ -1186,7 +1599,7 @@ export async function exchangeDeviceToken(
   config: ServerConfig,
   deviceName = 'INPX Reader',
 ): Promise<DeviceTokenExchange> {
-  const res = await apiFetch(config, '/api/auth/device', {
+  const res = await apiFetchWithTimeout(config, '/api/auth/device', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ deviceName }),
@@ -1208,7 +1621,7 @@ export async function exchangeDeviceToken(
 export async function revokeDeviceToken(config: ServerConfig, tokenId: string): Promise<void> {
   const id = tokenId.trim();
   if (!id) return;
-  const res = await apiFetch(config, `/api/auth/device/${encodeURIComponent(id)}`, {
+  const res = await apiFetchWithTimeout(config, `/api/auth/device/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { Accept: 'application/json' },
   });
@@ -1253,10 +1666,31 @@ export function parsePairingQrPayload(raw: string): AppPairingPayload {
   if (!url || !code) {
     throw new Error('В QR-коде нет адреса сервера или кода');
   }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
+    const proto = url.split('://', 1)[0]!.toLowerCase();
+    if (proto !== 'http' && proto !== 'https') {
+      throw new Error('В QR-коде некорректный адрес сервера');
+    }
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^[a-z0-9.-]+:\d+/i.test(url)) {
+    throw new Error('В QR-коде некорректный адрес сервера');
+  }
+  const normalized = normalizeBaseUrl(url);
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error('В QR-коде некорректный адрес сервера');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('В QR-коде некорректный адрес сервера');
+  }
+  if (!parsed.hostname) {
+    throw new Error('В QR-коде некорректный адрес сервера');
+  }
   return {
     type: 'inpx-pair',
     v: Number(obj.v) || 1,
-    url,
+    url: normalized,
     code,
     user: obj.user != null ? String(obj.user) : undefined,
   };
@@ -1286,29 +1720,8 @@ export async function redeemPairingCode(
     body: JSON.stringify({ code, deviceName }),
   };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CONNECTION_TIMEOUT_MS);
   let res: Response;
-  try {
-    res = isNativeApp()
-      ? await fetch(fullUrl, { ...init, signal: controller.signal })
-      : await fetch(`/api/proxy?url=${encodeURIComponent(fullUrl)}`, {
-          ...init,
-          signal: controller.signal,
-        });
-  } catch (e: unknown) {
-    if (controller.signal.aborted) {
-      throw new Error(`Timeout: сервер не ответил за ${Math.round(CONNECTION_TIMEOUT_MS / 1000)} с`);
-    }
-    if (isUnreachableServerError(e)) {
-      throw new Error(`Нет связи с ${base}. Проверьте, что телефон в той же сети или указан внешний адрес.`);
-    }
-    throw e instanceof Error ? e : new Error(String(e));
-  } finally {
-    clearTimeout(timer);
-  }
-
-  const data = await res.json().catch(() => ({})) as {
+  let data: {
     ok?: boolean;
     error?: string;
     code?: string;
@@ -1318,6 +1731,25 @@ export async function redeemPairingCode(
     deviceTokenId?: string;
     deviceName?: string;
   };
+  try {
+    ({ res, data } = await withTimeoutSignal(CONNECTION_TIMEOUT_MS, undefined, async (signal) => {
+      const response = isNativeApp()
+        ? await fetch(fullUrl, { ...init, signal })
+        : await fetch(`/api/proxy?url=${encodeURIComponent(fullUrl)}`, {
+            ...init,
+            signal,
+          });
+      const body = await response.json().catch(() => ({})) as typeof data;
+      return { res: response, data: body };
+    }));
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message.startsWith('Timeout:')) throw e;
+    if (isUnreachableServerError(e)) {
+      throw new Error(`Нет связи с ${base}. Проверьте, что телефон в той же сети или указан внешний адрес.`);
+    }
+    throw e instanceof Error ? e : new Error(String(e));
+  }
+
   if (!res.ok || !data.ok) {
     if (data.code === 'PAIRING_INVALID' || res.status === 400) {
       throw new Error(data.error || 'Код недействителен или истёк');
@@ -1330,8 +1762,21 @@ export async function redeemPairingCode(
   if (!data.deviceToken || !data.deviceTokenId || !data.username) {
     throw new Error('Сервер не вернул device token');
   }
+  // serverUrl из ответа принимаем только с того же origin, куда отправили код:
+  // на http:// (LAN) MITM мог бы подменить адрес и собирать device token дальше.
+  let redeemedUrl = base;
+  if (data.serverUrl) {
+    const candidate = normalizeBaseUrl(data.serverUrl);
+    try {
+      if (new URL(candidate).origin === new URL(base).origin) {
+        redeemedUrl = candidate;
+      }
+    } catch {
+      /* невалидный serverUrl — остаёмся на base */
+    }
+  }
   return {
-    serverUrl: normalizeBaseUrl(data.serverUrl || base),
+    serverUrl: redeemedUrl,
     username: data.username,
     deviceToken: data.deviceToken,
     deviceTokenId: data.deviceTokenId,

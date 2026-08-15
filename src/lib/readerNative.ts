@@ -57,6 +57,7 @@ interface ReaderNativePlugin {
   setFrontLightRaw(options: { brightnessRaw?: number; warmthRaw?: number }): Promise<FrontLightState>;
   setWarmth(options: { level: number }): Promise<FrontLightState | void>;
   setLightSwipe(options: { enabled: boolean }): Promise<{ active: boolean; supported: boolean }>;
+  setVolumeKeysCapture(options: { enabled: boolean }): Promise<{ enabled: boolean }>;
   refreshEinkScreen(): Promise<{ ok: boolean; supported: boolean; error?: string }>;
   getWarmth(): Promise<FrontLightState & { supported?: boolean }>;
   getVoices(): Promise<ReaderVoicesResult>;
@@ -87,6 +88,32 @@ interface ReaderNativePlugin {
 }
 
 export const ReaderNative = registerPlugin<ReaderNativePlugin>('ReaderNative');
+
+/** Methods the Foliate iframe may invoke via postMessage. Parent-only APIs stay off this list. */
+export const READER_NATIVE_BRIDGE_METHODS = [
+  'setBrightness',
+  'getBrightness',
+  'getFrontLightState',
+  'adjustFrontLight',
+  'setFrontLightRaw',
+  'setWarmth',
+  'setLightSwipe',
+  'refreshEinkScreen',
+  'getWarmth',
+  'getVoices',
+  'speak',
+  'stopTts',
+  'pauseTts',
+  'resumeTts',
+  'getTtsState',
+  'updateTtsMediaSession',
+] as const satisfies ReadonlyArray<keyof ReaderNativePlugin>;
+
+const BRIDGE_METHOD_SET = new Set<string>(READER_NATIVE_BRIDGE_METHODS);
+
+export function isReaderNativeBridgeMethod(method: unknown): method is typeof READER_NATIVE_BRIDGE_METHODS[number] {
+  return typeof method === 'string' && BRIDGE_METHOD_SET.has(method);
+}
 
 export async function callReaderNative(
   method: keyof ReaderNativePlugin,

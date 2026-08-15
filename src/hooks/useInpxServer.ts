@@ -13,6 +13,7 @@ import {
   fetchShelves,
   toggleBookBookmark,
   toggleBookRead,
+  ensureBookReadState,
   toggleFavoriteAuthorApi,
   toggleFavoriteSeriesApi,
   createServerShelf,
@@ -33,8 +34,10 @@ import {
   deleteReadingHistoryApi,
   mapServerBook,
   isUnreachableServerError,
+  isAuthError,
 } from '../lib/inpxClient';
 import { applyServerActivitySyncMeta } from '../lib/readerActivitySync';
+import { dropQueuedToggleReadOps } from '../lib/syncQueueProcessor';
 
 export function isServerOnline(config: ServerConfig): boolean {
   return config.connectionStatus === 'connected' && Boolean(config.url);
@@ -77,10 +80,21 @@ async function loadReadingProgressMap(config: ServerConfig): Promise<Map<string,
 export function useInpxServer(
   config: ServerConfig,
   onConnectionLost?: () => void,
+  onAuthExpired?: () => void,
 ) {
   const online = isServerOnline(config);
   const onConnectionLostRef = React.useRef(onConnectionLost);
   onConnectionLostRef.current = onConnectionLost;
+  const onAuthExpiredRef = React.useRef(onAuthExpired);
+  onAuthExpiredRef.current = onAuthExpired;
+
+  const withAuthGuard = React.useCallback(<T,>(fn: () => Promise<T>): Promise<T> => {
+    return fn().catch((e: unknown) => {
+      if (isAuthError(e)) onAuthExpiredRef.current?.();
+      else if (isUnreachableServerError(e)) onConnectionLostRef.current?.();
+      throw e;
+    });
+  }, []);
 
   const [profile, setProfile] = React.useState<InpxProfile | null>(null);
   const [bookmarkIds, setBookmarkIds] = React.useState<Set<string>>(() => new Set());
@@ -98,6 +112,8 @@ export function useInpxServer(
 
   // Request ID для защиты от гонок данных при изменении config во время запроса
   const refreshRequestId = React.useRef(0);
+  /** Bumped on bookmark/read toggles so slow-path dumps don't clobber optimistic UI. */
+  const collectionsMutationEpoch = React.useRef(0);
 
   const refresh = React.useCallback(async () => {
     if (!online) return;
@@ -138,7 +154,9 @@ export function useInpxServer(
       setLoading(false);
     } catch (err: unknown) {
       if (!isCurrent()) return;
-      if (isUnreachableServerError(err)) {
+      if (isAuthError(err)) {
+        onAuthExpiredRef.current?.();
+      } else if (isUnreachableServerError(err)) {
         onConnectionLostRef.current?.();
       }
       const msg = err instanceof Error ? err.message : String(err);
@@ -149,6 +167,7 @@ export function useInpxServer(
     }
 
     /** Slow path: full bookmark/read/progress ID maps (can be many pages). */
+    const collectionsEpoch = collectionsMutationEpoch.current;
     try {
       const [bmIds, rdIds, progressMap] = await Promise.all([
         loadAllIds(config, (p) => fetchBookmarkedBooks(config, p, 24)),
@@ -157,22 +176,26 @@ export function useInpxServer(
       ]);
       if (!isCurrent()) return;
 
-      setBookmarkIds(bmIds);
-      setReadIds(rdIds);
-      const mergedProgress = new Map(progressMap);
-      prof.recentBooks.forEach((book) => {
-        const progress = Math.round(Number(book.readProgress) || 0);
-        if (progress > 0) mergedProgress.set(book.id, progress);
-      });
-      rdIds.forEach((id) => {
-        if (!mergedProgress.has(id)) mergedProgress.set(id, 100);
-      });
-      setReadingProgress(mergedProgress);
+      if (collectionsEpoch === collectionsMutationEpoch.current) {
+        setBookmarkIds(bmIds);
+        setReadIds(rdIds);
+        const mergedProgress = new Map(progressMap);
+        prof.recentBooks.forEach((book) => {
+          const progress = Math.round(Number(book.readProgress) || 0);
+          if (progress > 0) mergedProgress.set(book.id, progress);
+        });
+        rdIds.forEach((id) => {
+          if (!mergedProgress.has(id)) mergedProgress.set(id, 100);
+        });
+        setReadingProgress(mergedProgress);
+      }
       setLastSynced(new Date().toLocaleTimeString('ru-RU'));
       setSyncStatus('success');
     } catch (err: unknown) {
       if (!isCurrent()) return;
-      if (isUnreachableServerError(err)) {
+      if (isAuthError(err)) {
+        onAuthExpiredRef.current?.();
+      } else if (isUnreachableServerError(err)) {
         onConnectionLostRef.current?.();
       }
       // Keep fast-path profile; only mark sync soft-failed.
@@ -182,7 +205,7 @@ export function useInpxServer(
   }, [config, online]);
 
   React.useEffect(() => {
-    if (online) refresh();
+    if (online) void refresh();
     else {
       setProfile(null);
       setBookmarkIds(new Set());
@@ -194,11 +217,15 @@ export function useInpxServer(
       setFavoriteSeriesItems([]);
       setShelves([]);
     }
+    return () => {
+      refreshRequestId.current += 1;
+    };
   }, [online, config.url, config.username, config.password, config.deviceToken, refresh]);
 
   const toggleBookmark = React.useCallback(async (bookId: string) => {
     if (!online) return false;
-    const bookmarked = await toggleBookBookmark(config, bookId);
+    collectionsMutationEpoch.current += 1;
+    const bookmarked = await withAuthGuard(() => toggleBookBookmark(config, bookId));
     setBookmarkIds((prev) => {
       const next = new Set(prev);
       if (bookmarked) next.add(bookId);
@@ -221,7 +248,9 @@ export function useInpxServer(
 
   const toggleRead = React.useCallback(async (bookId: string) => {
     if (!online) return false;
-    const read = await toggleBookRead(config, bookId);
+    collectionsMutationEpoch.current += 1;
+    const read = await withAuthGuard(() => toggleBookRead(config, bookId));
+    void dropQueuedToggleReadOps(bookId).catch(() => {});
     setReadIds((prev) => {
       const next = new Set(prev);
       if (read) next.add(bookId);
@@ -233,7 +262,7 @@ export function useInpxServer(
 
   const toggleFavoriteAuthor = React.useCallback(async (name: string) => {
     if (!online) return false;
-    const favorite = await toggleFavoriteAuthorApi(config, name);
+    const favorite = await withAuthGuard(() => toggleFavoriteAuthorApi(config, name));
     setFavoriteAuthors((prev) =>
       favorite ? (prev.includes(name) ? prev : [...prev, name]) : prev.filter((a) => a !== name)
     );
@@ -247,7 +276,7 @@ export function useInpxServer(
 
   const toggleFavoriteSeries = React.useCallback(async (name: string) => {
     if (!online) return false;
-    const favorite = await toggleFavoriteSeriesApi(config, name);
+    const favorite = await withAuthGuard(() => toggleFavoriteSeriesApi(config, name));
     setFavoriteSeries((prev) =>
       favorite ? (prev.includes(name) ? prev : [...prev, name]) : prev.filter((s) => s !== name)
     );
@@ -261,21 +290,25 @@ export function useInpxServer(
 
   const addShelf = React.useCallback(async (name: string) => {
     if (!online) return null;
-    const id = await createServerShelf(config, name);
-    await refresh();
+    const id = await withAuthGuard(() => createServerShelf(config, name));
+    setShelves((prev) => {
+      if (prev.some((s) => s.id === id)) return prev;
+      return [...prev, { id, name, bookCount: 0, previewBookIds: [] }];
+    });
     return id;
-  }, [config, online, refresh]);
+  }, [config, online]);
 
   const removeShelf = React.useCallback(async (shelfId: number) => {
     if (!online) return;
-    await deleteServerShelf(config, shelfId);
+    refreshRequestId.current += 1;
+    await withAuthGuard(() => deleteServerShelf(config, shelfId));
     setShelves((prev) => prev.filter((s) => s.id !== shelfId));
   }, [config, online]);
 
   const loadShelfBooks = React.useCallback(
     async (shelfId: number) => {
       if (!online) return [];
-      const items = await fetchShelfBooks(config, shelfId);
+      const items = await withAuthGuard(() => fetchShelfBooks(config, shelfId));
       return items.map((b) => mapServerBook(b, config));
     },
     [config, online]
@@ -283,7 +316,7 @@ export function useInpxServer(
 
   const removeFromShelf = React.useCallback(async (shelfId: number, bookId: string) => {
     if (!online) return;
-    await removeBookFromServerShelf(config, shelfId, bookId);
+    await withAuthGuard(() => removeBookFromServerShelf(config, shelfId, bookId));
     setShelves((prev) =>
       prev.map((s) => {
         if (s.id !== shelfId) return s;
@@ -296,12 +329,18 @@ export function useInpxServer(
 
   const addToShelf = React.useCallback(async (shelfId: number, bookId: string) => {
     if (!online) return;
-    await addBookToServerShelf(config, shelfId, bookId);
+    await withAuthGuard(() => addBookToServerShelf(config, shelfId, bookId));
     setShelves((prev) =>
       prev.map((s) => {
         if (s.id !== shelfId) return s;
-        const preview = [bookId, ...(s.previewBookIds || []).filter((id) => id !== bookId)].slice(0, 4);
-        return { ...s, bookCount: (s.bookCount ?? 0) + 1, previewBookIds: preview };
+        const preview = s.previewBookIds || [];
+        const already = preview.includes(bookId);
+        const nextPreview = [bookId, ...preview.filter((id) => id !== bookId)].slice(0, 4);
+        return {
+          ...s,
+          bookCount: already ? s.bookCount : (s.bookCount ?? 0) + 1,
+          previewBookIds: nextPreview,
+        };
       }),
     );
   }, [config, online]);
@@ -309,43 +348,45 @@ export function useInpxServer(
   const touchReadingHistory = React.useCallback(
     async (bookId: string) => {
       if (!online) return;
-      await recordReadingHistory(config, bookId);
+      await withAuthGuard(() => recordReadingHistory(config, bookId));
     },
-    [config, online]
+    [config, online, withAuthGuard],
   );
 
   const loadPosition = React.useCallback(
     async (bookId: string) => {
       if (!online) return null;
-      return fetchReadingPosition(config, bookId);
+      return withAuthGuard(() => fetchReadingPosition(config, bookId));
     },
-    [config, online]
+    [config, online, withAuthGuard],
   );
 
   const loadReaderData = React.useCallback(
     async (bookId: string) => {
       if (!online) return { bookmarks: [], annotations: [] };
-      const [bookmarks, annotations] = await Promise.all([
-        fetchReaderBookmarks(config, bookId),
-        fetchReaderAnnotations(config, bookId),
-      ]);
-      return { bookmarks, annotations };
+      return withAuthGuard(async () => {
+        const [bookmarks, annotations] = await Promise.all([
+          fetchReaderBookmarks(config, bookId),
+          fetchReaderAnnotations(config, bookId),
+        ]);
+        return { bookmarks, annotations };
+      });
     },
-    [config, online]
+    [config, online, withAuthGuard],
   );
 
   const addReaderBookmark = React.useCallback(
     async (bookId: string, position: string, title: string) => {
       if (!online) return null;
-      return addReaderBookmarkApi(config, bookId, position, title);
+      return withAuthGuard(() => addReaderBookmarkApi(config, bookId, position, title));
     },
-    [config, online]
+    [config, online, withAuthGuard],
   );
 
   const deleteReaderBookmark = React.useCallback(
     async (bookId: string, bmId: number) => {
       if (!online) return false;
-      await deleteReaderBookmarkApi(config, bookId, bmId);
+      await withAuthGuard(() => deleteReaderBookmarkApi(config, bookId, bmId));
       setProfile((p) =>
         p
           ? {
@@ -360,21 +401,21 @@ export function useInpxServer(
       );
       return true;
     },
-    [config, online],
+    [config, online, withAuthGuard],
   );
 
   const addAnnotation = React.useCallback(
     async (bookId: string, cfi: string, text: string, note: string, color: string) => {
       if (!online) return null;
-      return addReaderAnnotationApi(config, bookId, cfi, text, note, color);
+      return withAuthGuard(() => addReaderAnnotationApi(config, bookId, cfi, text, note, color));
     },
-    [config, online]
+    [config, online, withAuthGuard],
   );
 
   const deleteAnnotation = React.useCallback(
     async (bookId: string, aid: number) => {
       if (!online) return false;
-      await deleteReaderAnnotationApi(config, bookId, aid);
+      await withAuthGuard(() => deleteReaderAnnotationApi(config, bookId, aid));
       setProfile((p) =>
         p
           ? {
@@ -389,13 +430,13 @@ export function useInpxServer(
       );
       return true;
     },
-    [config, online],
+    [config, online, withAuthGuard],
   );
 
   const patchAnnotation = React.useCallback(
     async (bookId: string, aid: number, patch: { note?: string; color?: string }) => {
       if (!online) return false;
-      await patchReaderAnnotationApi(config, bookId, aid, patch);
+      await withAuthGuard(() => patchReaderAnnotationApi(config, bookId, aid, patch));
       setProfile((p) =>
         p
           ? {
@@ -414,13 +455,13 @@ export function useInpxServer(
       );
       return true;
     },
-    [config, online],
+    [config, online, withAuthGuard],
   );
 
   const removeReadingHistory = React.useCallback(
     async (bookId: string) => {
       if (!online) return false;
-      await deleteReadingHistoryApi(config, bookId);
+      await withAuthGuard(() => deleteReadingHistoryApi(config, bookId));
       setProfile((p) =>
         p
           ? {
@@ -440,14 +481,15 @@ export function useInpxServer(
       });
       return true;
     },
-    [config, online],
+    [config, online, withAuthGuard],
   );
 
   const removeReadBook = React.useCallback(
     async (bookId: string) => {
       if (!online) return false;
-      if (!readIds.has(bookId)) return false;
-      await toggleBookRead(config, bookId);
+      // Do not gate on readIds — the set can lag soft refresh while local UI already unmarked.
+      await withAuthGuard(() => ensureBookReadState(config, bookId, false));
+      void dropQueuedToggleReadOps(bookId).catch(() => {});
       setReadIds((prev) => {
         const next = new Set(prev);
         next.delete(bookId);
@@ -471,20 +513,22 @@ export function useInpxServer(
       );
       return true;
     },
-    [config, online, readIds],
+    [config, online, withAuthGuard],
   );
 
   const fetchSectionBooks = React.useCallback(
     async (section: 'bookmarks' | 'read' | 'continue' | 'recent' | 'recommended', page = 1): Promise<InpxBookItem[]> => {
       if (!online) return [];
-      if (section === 'bookmarks') {
-        const res = await fetchBookmarkedBooks(config, page, 24);
+      return withAuthGuard(async () => {
+        if (section === 'bookmarks') {
+          const res = await fetchBookmarkedBooks(config, page, 24);
+          return res.items;
+        }
+        const res = await fetchLibraryView(config, section, page, 24);
         return res.items;
-      }
-      const res = await fetchLibraryView(config, section, page, 24);
-      return res.items;
+      });
     },
-    [config, online]
+    [config, online, withAuthGuard],
   );
 
   return {

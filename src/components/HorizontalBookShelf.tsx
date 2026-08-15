@@ -71,11 +71,16 @@ export default function HorizontalBookShelf({
     <div
       ref={scrollerRef}
       data-swipe-lock
-      className="flex gap-3 overflow-x-auto scrollbar-none snap-x snap-mandatory pb-1 -mx-1 px-1"
+      className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-mandatory pb-2 -mx-1 px-1"
       role="list"
     >
-      {books.map((book) => (
-        <div key={book.id} className="snap-start shrink-0" role="listitem">
+      {books.map((book, index) => (
+        <div
+          key={book.id}
+          className="snap-start shrink-0 inpx-enter-y"
+          role="listitem"
+          style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}
+        >
           <BookCoverTile
             book={book}
             size="shelf"

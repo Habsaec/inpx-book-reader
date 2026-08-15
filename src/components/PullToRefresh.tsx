@@ -29,6 +29,14 @@ export default function PullToRefresh({
   const pullingRef = React.useRef(false);
   const [pullOffset, setPullOffset] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
+  const mountedRef = React.useRef(true);
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     if (disabled || refreshing) return;
@@ -60,6 +68,7 @@ export default function PullToRefresh({
       setRefreshing(true);
       setPullOffset(PULL_THRESHOLD * 0.6);
       void Promise.resolve(onRefresh()).finally(() => {
+        if (!mountedRef.current) return;
         setRefreshing(false);
         setPullOffset(0);
       });

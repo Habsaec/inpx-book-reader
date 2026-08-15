@@ -21,6 +21,8 @@ interface DbMeta {
 let sqliteConn: SQLiteDBConnection | null = null;
 let useIndexedDb = false;
 let initPromise: Promise<void> | null = null;
+let syncQueueIdSeq = 0;
+let syncConflictIdSeq = 0;
 
 async function openSqlite(): Promise<SQLiteDBConnection | null> {
   if (!isNativeApp()) return null;
@@ -347,10 +349,27 @@ export async function initLocalDb(): Promise<void> {
         await migrateFromLocalStorage();
         await migrateReaderDataFromLocalStorage();
       }
-    } catch {
-      await recoverCorruptedDb();
-      await migrateFromLocalStorage();
-      await migrateReaderDataFromLocalStorage();
+    } catch (err) {
+      // Деструктивное восстановление — только при реальном признаке коррупции
+      // (БД не открылась или probe-запрос не проходит). Сбой миграции/миграционного
+      // шага — не повод затирать данные: пробрасываем ошибку, boot повторится.
+      let probeOk = false;
+      if (sqliteConn) {
+        try {
+          await getAllBooks();
+          probeOk = true;
+        } catch {
+          probeOk = false;
+        }
+      }
+      if (!sqliteConn || !probeOk) {
+        await recoverCorruptedDb();
+        await migrateFromLocalStorage();
+        await migrateReaderDataFromLocalStorage();
+      } else {
+        console.warn('[localDb] init step failed, existing data kept:', err);
+        throw err;
+      }
     }
   })();
   return initPromise;
@@ -573,7 +592,8 @@ export async function enqueueSyncOp(
       [opType, bookId, json, now],
     );
   } else {
-    const id = now;
+    // Date.now() alone collides when two ops enqueue in the same ms.
+    const id = now * 1000 + (syncQueueIdSeq++ % 1000);
     await idbSet('sync_queue', String(id), {
       id,
       opType,
@@ -594,7 +614,8 @@ export async function getPendingSyncOps(): Promise<SyncQueueItem[]> {
       payload: string;
       created_at: number;
       attempts: number;
-    }>('SELECT * FROM sync_queue ORDER BY created_at ASC');
+      // id ASC: две операции в одну миллисекунду должны идти в порядке вставки.
+    }>('SELECT * FROM sync_queue ORDER BY created_at ASC, id ASC');
     return rows.map((r) => ({
       id: r.id,
       opType: r.op_type,
@@ -605,7 +626,7 @@ export async function getPendingSyncOps(): Promise<SyncQueueItem[]> {
     }));
   }
   const items = await idbGetAll<SyncQueueItem>('sync_queue');
-  return items.sort((a, b) => a.createdAt - b.createdAt);
+  return items.sort((a, b) => a.createdAt - b.createdAt || a.id - b.id);
 }
 
 export async function getPendingSyncCount(): Promise<number> {
@@ -683,8 +704,10 @@ export async function addSyncConflict(
       [bookId, conflictType, localJson, serverJson, now],
     );
   } else {
-    await idbSet('sync_conflicts', String(now), {
-      id: now,
+    // Date.now() коллидирует при двух конфликтах в одну миллисекунду — как в sync_queue.
+    const id = now * 1000 + (syncConflictIdSeq++ % 1000);
+    await idbSet('sync_conflicts', String(id), {
+      id,
       bookId,
       conflictType,
       localJson,
@@ -716,7 +739,9 @@ export async function purgeLegacyPositionConflicts(): Promise<void> {
   );
 }
 
-/** Persist full library snapshot (transactional replace). */
+/** Persist full library snapshot (replace missing rows — books deleted in UI must leave DB). */
+let persistLibraryChain: Promise<void> = Promise.resolve();
+
 export async function persistLibrarySnapshot(data: {
   books: Book[];
   progress: ReadingProgress[];
@@ -724,11 +749,48 @@ export async function persistLibrarySnapshot(data: {
   highlights: Highlight[];
   shelves: Shelf[];
 }): Promise<void> {
-  for (const b of data.books) await upsertBook(b);
-  for (const p of data.progress) await upsertProgress(p);
-  for (const bm of data.bookmarks) await upsertBookmark(bm);
-  for (const h of data.highlights) await upsertHighlight(h);
-  for (const s of data.shelves) await upsertShelf(s);
+  const run = async () => {
+    const keepBooks = new Set(data.books.map((b) => b.id));
+    const keepProgress = new Set(data.progress.map((p) => p.bookId));
+    const keepBookmarks = new Set(data.bookmarks.map((bm) => bm.id));
+    const keepHighlights = new Set(data.highlights.map((h) => h.id));
+    const keepShelves = new Set(data.shelves.map((s) => s.id));
+
+    const [existingBooks, existingProgress, existingBookmarks, existingHighlights, existingShelves] =
+      await Promise.all([
+        getAllBooks(),
+        getAllProgress(),
+        getAllBookmarks(),
+        getAllHighlights(),
+        getAllShelves(),
+      ]);
+
+    for (const b of existingBooks) {
+      if (!keepBooks.has(b.id)) await deleteBook(b.id);
+    }
+    for (const p of existingProgress) {
+      if (!keepProgress.has(p.bookId)) await deleteProgress(p.bookId);
+    }
+    for (const bm of existingBookmarks) {
+      if (!keepBookmarks.has(bm.id)) await deleteBookmark(bm.id);
+    }
+    for (const h of existingHighlights) {
+      if (!keepHighlights.has(h.id)) await deleteHighlight(h.id);
+    }
+    for (const s of existingShelves) {
+      if (!keepShelves.has(s.id)) await deleteShelf(s.id);
+    }
+
+    for (const b of data.books) await upsertBook(b);
+    for (const p of data.progress) await upsertProgress(p);
+    for (const bm of data.bookmarks) await upsertBookmark(bm);
+    for (const h of data.highlights) await upsertHighlight(h);
+    for (const s of data.shelves) await upsertShelf(s);
+  };
+
+  const next = persistLibraryChain.then(run, run);
+  persistLibraryChain = next.catch(() => {});
+  await next;
 }
 
 export async function loadLibrarySnapshot(): Promise<{
@@ -758,6 +820,7 @@ export async function __resetLocalDbForTests(): Promise<void> {
   initPromise = null;
   sqliteConn = null;
   useIndexedDb = false;
+  persistLibraryChain = Promise.resolve();
   try {
     const allKeys = await keys();
     for (const k of allKeys) {

@@ -1,8 +1,28 @@
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function readerAssetVersion() {
+  const hash = createHash('sha256');
+  for (const rel of [
+    'public/inpx-reader/reader.js',
+    'public/inpx-reader/bootstrap.js',
+    'public/inpx-reader/reader-native-bridge.js',
+    'public/inpx-reader/reader.css',
+    'public/foliate/view.js',
+    'public/foliate/paginator.js',
+  ]) {
+    const file = path.join(root, rel);
+    if (!fs.existsSync(file)) throw new Error(`Missing reader asset: ${rel}`);
+    hash.update(fs.readFileSync(file));
+  }
+  return hash.digest('hex').slice(0, 12);
+}
+
+const version = readerAssetVersion();
 const libPath = path.resolve(root, '../inpx-library-server/src/templates/library.js');
 const lib = fs.readFileSync(libPath, 'utf8');
 const marker = 'export function renderReader';
@@ -20,7 +40,7 @@ const replacements = [
   [/\$\{escapeHtml\(siteTitleForDisplay\(\)\)\} \\u2014 \$\{escapeHtml\(title\)\}/g, 'Читалка'],
   [/\$\{renderFaviconLinks\(\)\}/g, ''],
   [/\$\{fontPreconnect\}/g, ''],
-  [/\$\{STATIC_ASSET_VERSION\}/g, '1'],
+  [/\$\{STATIC_ASSET_VERSION\}/g, version],
   [/\$\{themeBoot\}/g, "try{var _t=JSON.parse(localStorage.getItem('reader-settings')||'{}').theme||'sepia';document.documentElement.dataset.readerTheme=_t}catch(e){document.documentElement.dataset.readerTheme='sepia'}"],
   [/\$\{lite \? ' reader-lite' : ''\}/g, ''],
   [/\$\{serializeClientI18n\(\)\}/g, '{"locale":"ru","strings":{}}'],
@@ -115,7 +135,7 @@ const replacements = [
   [/\$\{readerBackClick\}/g, ''],
   [/<script src="\/book-ref\.js[^"]*" defer><\/script>\s*/g, ''],
   [/<script>window\.__READER_BOOK_ID=[\s\S]*?<\/script>\s*<script type="module" src="\/reader\.js[^"]*"><\/script>/,
-    '<script>window.__READER_APP=1;</script>\n<script type="module" src="/inpx-reader/bootstrap.js"></script>\n<script src="/inpx-reader/reader-native-bridge.js"></script>\n<script type="module" src="/inpx-reader/reader.js"></script>'],
+    `<script>window.__READER_APP=1;window.__READER_ASSET_V__=${JSON.stringify(version)};</script>\n<script type="module" src="/inpx-reader/bootstrap.js?v=${version}"></script>\n<script src="/inpx-reader/reader-native-bridge.js?v=${version}"></script>\n<script type="module" src="/inpx-reader/reader.js?v=${version}"></script>`],
   [/href="\/reader\.css/g, 'href="/inpx-reader/reader.css'],
   [/<a href="#" class="tb-btn"([^>]*)><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"\/><\/svg><\/a>/,
     '<button type="button" class="tb-btn" id="btn-app-back"$1 aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>'],
@@ -531,7 +551,11 @@ html = html.replace(/\$\{[^}]+\}/g, '');
 
 const out = path.join(root, 'public/inpx-reader/index.html');
 fs.writeFileSync(out, html);
-console.log('Wrote', out, html.length, 'bytes');
+console.log('Wrote', out, html.length, 'bytes', `v=${version}`);
+if (!html.includes(`src="/inpx-reader/reader.js?v=${version}"`)) {
+  console.error('Reader script is missing a cache-busting query; WebView will keep stale JS');
+  process.exit(1);
+}
 if (!html.includes('id="rs-tap-grid"') || !html.includes('id="reader-goto"') || !html.includes('id="ft-goto"')) {
   console.error('AlReaderX chrome markup missing after generate-reader-html');
   process.exit(1);

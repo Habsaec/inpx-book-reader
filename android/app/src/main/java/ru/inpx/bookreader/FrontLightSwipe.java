@@ -101,9 +101,13 @@ final class FrontLightSwipe {
         return lastTrace;
     }
 
-    boolean onTouch(MotionEvent ev) {
+        boolean onTouch(MotionEvent ev) {
         if (!enabled) {
-            if (tracking || claimed) reset();
+            // Teardown may disable mid-gesture — commit HW steps so JS state stays in sync.
+            if (claimed) {
+                commit();
+            }
+            reset();
             return false;
         }
         switch (ev.getActionMasked()) {

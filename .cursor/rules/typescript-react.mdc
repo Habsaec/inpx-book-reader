@@ -20,7 +20,7 @@ alwaysApply: false
 ## React
 
 - Функциональные компоненты
-- `MotionConfig reducedMotion="always"` — WebView не доигрывает анимации
+- Motion: `reducedMotion="user"`, transform/scale only — без enter через `opacity: 0`
 - Цепочка высот: `html`, `body`, `#root`, flex + `min-h-0`
 
 ## Типы

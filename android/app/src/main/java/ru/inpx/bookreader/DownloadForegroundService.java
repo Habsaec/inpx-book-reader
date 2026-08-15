@@ -28,10 +28,16 @@ public class DownloadForegroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
-        String text = intent != null ? intent.getStringExtra(EXTRA_TEXT) : null;
-        int progress = intent != null ? intent.getIntExtra(EXTRA_PROGRESS, 0) : 0;
-        boolean indeterminate = intent != null && intent.getBooleanExtra(EXTRA_INDETERMINATE, false);
+        // Sticky restart with null Intent would leave a ghost "Подготовка…" notification.
+        if (intent == null) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
+        String title = intent.getStringExtra(EXTRA_TITLE);
+        String text = intent.getStringExtra(EXTRA_TEXT);
+        int progress = intent.getIntExtra(EXTRA_PROGRESS, 0);
+        boolean indeterminate = intent.getBooleanExtra(EXTRA_INDETERMINATE, false);
 
         Notification notification = buildNotification(
             title != null ? title : "Загрузка книг",
@@ -49,7 +55,7 @@ public class DownloadForegroundService extends Service {
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     @Override

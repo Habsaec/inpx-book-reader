@@ -32,7 +32,12 @@ public class SecureCredentialsPlugin extends Plugin {
         KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
         keyStore.load(null);
         if (keyStore.containsAlias(KEY_ALIAS)) {
-            return (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+            SecretKey existing = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+            if (existing != null) {
+                return existing;
+            }
+            // Alias present but key unusable — delete so we can recreate.
+            keyStore.deleteEntry(KEY_ALIAS);
         }
         KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
         generator.init(new KeyGenParameterSpec.Builder(
@@ -107,14 +112,22 @@ public class SecureCredentialsPlugin extends Plugin {
             result.put("deviceTokenId", payload.optString("deviceTokenId", ""));
             call.resolve(result);
         } catch (Exception error) {
-            prefs.edit().clear().commit();
+            // Do not wipe ciphertext on transient Keystore/decrypt flakes — logout clears explicitly.
             call.reject("Unable to unlock server credentials", error);
         }
     }
 
     @PluginMethod
     public void clear(PluginCall call) {
-        if (preferences().edit().clear().commit()) {
+        boolean prefsCleared = preferences().edit().clear().commit();
+        try {
+            KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+            keyStore.load(null);
+            if (keyStore.containsAlias(KEY_ALIAS)) {
+                keyStore.deleteEntry(KEY_ALIAS);
+            }
+        } catch (Exception ignored) { /* best-effort key wipe */ }
+        if (prefsCleared) {
             call.resolve();
         } else {
             call.reject("Unable to clear server credentials");

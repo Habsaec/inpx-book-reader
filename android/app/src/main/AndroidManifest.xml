@@ -10,8 +10,10 @@
 
     <application
         android:name=".BookReaderApp"
+        android:largeHeap="true"
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -86,6 +88,24 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <receiver
+            android:name=".ContinueReadingWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_continue_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_continue_reading_info" />
+            <meta-data
+                android:name="android.appwidget.honor.provider"
+                android:resource="@xml/widget_continue_reading_info" />
+            <meta-data
+                android:name="com.hihonor.widget.type"
+                android:value="honorcard" />
+        </receiver>
     </application>
 
     <!-- Permissions -->

@@ -1,7 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
-import { touchMin } from '../../ui/tokens';
+import { touchMin, radii, motion } from '../../ui/tokens';
 import type { CatalogFormatFilter, CatalogHasSeriesFilter } from './catalogTypes';
 
 interface CatalogActiveFilterChipsProps {
@@ -33,15 +33,15 @@ function Chip({
   onRemove: () => void;
 }) {
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs ${theme.chip}`}>
+    <span className={`inline-flex items-center gap-1.5 min-h-10 pl-4 pr-2 ${radii.button} text-xs font-semibold ${theme.accentMuted} ${theme.accentText}`}>
       {label}
       <button
         type="button"
         aria-label={`Убрать фильтр ${label}`}
         onClick={onRemove}
-        className={`${touchMin} inline-flex items-center justify-center -m-2 rounded-full ${theme.focusRing}`}
+        className={`${touchMin} inline-flex items-center justify-center -m-1 ${radii.full} ${theme.focusRing} ${motion.press}`}
       >
-        <X className="w-3 h-3" aria-hidden />
+        <X className="w-3.5 h-3.5" aria-hidden />
       </button>
     </span>
   );
@@ -103,14 +103,14 @@ export default function CatalogActiveFilterChips({
   if (!chips.length) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 mb-3">
+    <div className="flex flex-wrap items-center gap-2 mb-4">
       {chips.map((chip) => (
         <Chip key={chip.key} label={chip.label} onRemove={chip.onRemove} />
       ))}
       <button
         type="button"
         onClick={onClearAll}
-        className={`min-h-12 px-3 text-xs rounded-lg ${theme.textMuted} hover:opacity-80 ${theme.focusRing}`}
+        className={`min-h-10 px-4 text-xs font-semibold ${radii.button} ${theme.chip} ${theme.chipHover} ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
       >
         Сбросить всё
       </button>

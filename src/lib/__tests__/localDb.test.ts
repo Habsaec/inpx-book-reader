@@ -132,4 +132,20 @@ describe('localDb migration', () => {
     expect(restored.paginatorPage).toBe(12);
     expect(restored.position).toBe('epubcfi(/6/8!)');
   });
+
+  it('persistLibrarySnapshot deletes books removed from the snapshot', async () => {
+    const { initLocalDb, persistLibrarySnapshot, getAllBooks, upsertBook } = await import('../localDb');
+    await initLocalDb();
+    await upsertBook({ id: 'keep', title: 'Keep', author: 'A', ext: 'fb2' });
+    await upsertBook({ id: 'gone', title: 'Gone', author: 'B', ext: 'fb2' });
+    await persistLibrarySnapshot({
+      books: [{ id: 'keep', title: 'Keep', author: 'A', ext: 'fb2' }],
+      progress: [],
+      bookmarks: [],
+      highlights: [],
+      shelves: [],
+    });
+    const books = await getAllBooks();
+    expect(books.map((b) => b.id).sort()).toEqual(['keep']);
+  });
 });

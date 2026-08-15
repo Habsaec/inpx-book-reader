@@ -67,6 +67,15 @@ describe('syncMerge', () => {
     ).toBe(false);
   });
 
+  it('does not wipe local bookmarks when empty server is older than local edits', () => {
+    expect(
+      isServerCollectionNewer('2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', 0, 3),
+    ).toBe(false);
+    expect(
+      isServerCollectionNewer('2026-01-02T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 0, 3),
+    ).toBe(true);
+  });
+
   it('uses newer server position by timestamp when server edit is newer', () => {
     const input = posInput({
       localFraction: 0.2,

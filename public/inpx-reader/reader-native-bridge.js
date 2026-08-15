@@ -181,7 +181,7 @@
       nativeApi.pauseTts().catch(() => {});
     },
     resume() {
-      if (!paused) return;
+      if (!speaking) return;
       paused = false;
       nativeApi.resumeTts().catch(() => {});
     },
@@ -225,6 +225,7 @@
   });
 
   window.addEventListener('message', (e) => {
+    if (e.source !== window.parent) return;
     if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsEnd') {
       window.dispatchEvent(new CustomEvent('inpx-native-tts-end', { detail: e.data.data }));
     }
@@ -347,6 +348,7 @@
   }
 
   window.addEventListener('message', (e) => {
+    if (e.source !== window.parent) return;
     if (e.data?.type === 'inpx-native-ready') {
       nativeReady = Boolean(e.data.ready);
       if (nativeReady) {

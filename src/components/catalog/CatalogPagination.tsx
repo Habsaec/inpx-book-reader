@@ -1,5 +1,6 @@
 import React from 'react';
 import { theme } from '../../lib/appTheme';
+import { radii, motion } from '../../ui/tokens';
 
 interface CatalogPaginationProps {
   page: number;
@@ -32,12 +33,12 @@ export default function CatalogPagination({
     pageItems.push(totalPages);
   }
 
-  const btnBase = `min-w-12 min-h-12 px-2 rounded-full text-xs font-medium transition-colors cursor-pointer active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed ${theme.focusRing}`;
+  const btnBase = `min-w-11 min-h-11 px-3 ${radii.button} text-xs font-semibold transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${theme.focusRing}`;
 
   return (
-    <div className="flex flex-wrap gap-1.5 mt-3 mb-1 justify-center items-center">
+    <div className="flex flex-wrap gap-2 mt-4 mb-2 justify-center items-center">
       {page > 1 && (
-        <button type="button" className={btnBase} onClick={() => onPageChange(page - 1)} aria-label="Предыдущая страница">
+        <button type="button" className={`${btnBase} ${theme.chip} ${theme.chipHover}`} onClick={() => onPageChange(page - 1)} aria-label="Предыдущая страница">
           ‹
         </button>
       )}
@@ -48,7 +49,7 @@ export default function CatalogPagination({
           <button
             key={item}
             type="button"
-            className={`${btnBase} ${item === page ? theme.accentActive : theme.chip}`}
+            className={`${btnBase} ${motion.press} ${item === page ? theme.accentActive : `${theme.chip} ${theme.chipHover}`}`}
             onClick={() => onPageChange(item)}
             aria-current={item === page ? 'page' : undefined}
           >
@@ -57,7 +58,7 @@ export default function CatalogPagination({
         ),
       )}
       {page < totalPages && (
-        <button type="button" className={btnBase} onClick={() => onPageChange(page + 1)} aria-label="Следующая страница">
+        <button type="button" className={`${btnBase} ${theme.chip} ${theme.chipHover}`} onClick={() => onPageChange(page + 1)} aria-label="Следующая страница">
           ›
         </button>
       )}

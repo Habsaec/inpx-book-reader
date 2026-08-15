@@ -22,12 +22,16 @@ public class DownloadNotificationPlugin extends Plugin {
         intent.putExtra(DownloadForegroundService.EXTRA_PROGRESS, progress);
         intent.putExtra(DownloadForegroundService.EXTRA_INDETERMINATE, indeterminate);
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            getContext().startForegroundService(intent);
-        } else {
-            getContext().startService(intent);
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                getContext().startForegroundService(intent);
+            } else {
+                getContext().startService(intent);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Unable to start download notification", e);
         }
-        call.resolve();
     }
 
     @PluginMethod
@@ -43,12 +47,16 @@ public class DownloadNotificationPlugin extends Plugin {
         intent.putExtra(DownloadForegroundService.EXTRA_PROGRESS, progress);
         intent.putExtra(DownloadForegroundService.EXTRA_INDETERMINATE, indeterminate);
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            getContext().startForegroundService(intent);
-        } else {
-            getContext().startService(intent);
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                getContext().startForegroundService(intent);
+            } else {
+                getContext().startService(intent);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Unable to update download notification", e);
         }
-        call.resolve();
     }
 
     @PluginMethod

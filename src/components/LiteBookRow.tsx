@@ -1,6 +1,6 @@
 import React from 'react';
 import { theme } from '../lib/appTheme';
-import { textStyles, semantic, motion } from '../ui/tokens';
+import { textStyles, semantic, motion, radii, elevation } from '../ui/tokens';
 import { ChevronRight, Check, Download, Trash2, CloudUpload } from 'lucide-react';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
@@ -26,7 +26,6 @@ interface LiteBookRowProps {
   subtitle?: string;
   onRemove?: () => void;
   removeLabel?: string;
-  /** Компактная строка для главной (меньше обложка, serif-заголовок) */
   compact?: boolean;
   onLongPress?: () => void;
 }
@@ -84,14 +83,13 @@ export default function LiteBookRow({
 
   React.useEffect(() => () => clearLongPress(), []);
 
-  const borderColor = theme.divider;
   const metaColor = theme.textMuted;
   const titleColor = theme.text;
   const coverW = compact ? 64 : 72;
   const coverH = compact ? 96 : 108;
 
   return (
-    <div className={`flex items-center gap-3 ${compact ? 'py-3' : 'items-start py-3.5'} border-b last:border-b-0 ${borderColor}`}>
+    <div className={`flex items-center gap-3 mb-3 p-3 ${radii.lg} ${theme.card} ${elevation.card}`}>
       <button
         type="button"
         onClick={handleClick}
@@ -100,29 +98,33 @@ export default function LiteBookRow({
         onPointerLeave={clearLongPress}
         onPointerCancel={clearLongPress}
         aria-label={onClick ? `Открыть: ${book.title}` : undefined}
-        className={`flex flex-1 min-w-0 items-center gap-3.5 text-left select-none touch-manipulation rounded-xl -mx-1 px-1 ${theme.rowPress} ${motion.colors} ${theme.focusRing}`}
+        className={`flex flex-1 min-w-0 items-center gap-3.5 text-left select-none touch-manipulation ${radii.md} ${theme.rowPress} ${motion.bookPress} ${theme.focusRing}`}
       >
-        <div className={`relative shrink-0 pointer-events-none ${compact ? 'w-16 h-24' : 'w-[72px] h-[108px]'}`}>
-          <BookCover
-            bookId={book.id}
-            serverConfig={serverConfig}
-            storageDirectory={storageDirectory}
-            variant="thumb"
-            title={book.title}
-            author={book.author}
-            width={coverW}
-            height={coverH}
-            className={`w-full h-full rounded-lg ${theme.coverBorder}`}
-          />
-          {isFullyRead && (
-            <span
-              className="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-[var(--app-success)] text-white flex items-center justify-center shadow-sm border border-white/30"
-              title="Прочитано"
-              aria-label="Прочитано"
-            >
-              <Check className="w-3 h-3" strokeWidth={3} />
-            </span>
-          )}
+        <div
+          className={`book-cover shrink-0 pointer-events-none ${compact ? 'w-16 h-24' : 'w-[72px] h-[108px]'}`}
+        >
+          <span className="book-cover-inner">
+            <BookCover
+              bookId={book.id}
+              serverConfig={serverConfig}
+              storageDirectory={storageDirectory}
+              variant="thumb"
+              title={book.title}
+              author={book.author}
+              width={coverW}
+              height={coverH}
+              className="absolute inset-0 w-full h-full !rounded-none !border-0"
+            />
+            {isFullyRead && (
+              <span
+                className="absolute bottom-1 right-1 z-[6] w-5 h-5 rounded-full bg-[var(--app-success)] text-white flex items-center justify-center shadow-sm border border-white/30"
+                title="Прочитано"
+                aria-label="Прочитано"
+              >
+                <Check className="w-3 h-3" strokeWidth={3} />
+              </span>
+            )}
+          </span>
         </div>
 
         <span className="flex-1 min-w-0 block pointer-events-none text-left">
@@ -180,7 +182,7 @@ export default function LiteBookRow({
             e.stopPropagation();
             onDownload();
           }}
-          className={`shrink-0 ${theme.touchTarget} rounded-xl flex items-center justify-center ${theme.accentBg} text-white disabled:opacity-50 disabled:cursor-not-allowed ${motion.press} ${theme.focusRing}`}
+          className={`shrink-0 ${theme.touchTarget} ${radii.button} flex items-center justify-center ${theme.accentBg} text-white disabled:opacity-50 disabled:cursor-not-allowed ${motion.press} ${theme.focusRing}`}
           title="Скачать"
           aria-label="Скачать"
         >
@@ -193,14 +195,14 @@ export default function LiteBookRow({
             e.stopPropagation();
             onRemove();
           }}
-          className={`shrink-0 ${theme.touchTarget} rounded-xl flex items-center justify-center text-[var(--app-danger)] hover:bg-[color-mix(in_srgb,var(--app-danger)_10%,transparent)] active:bg-[color-mix(in_srgb,var(--app-danger)_15%,transparent)] ${motion.press} ${theme.focusRing}`}
+          className={`shrink-0 ${theme.touchTarget} ${radii.button} flex items-center justify-center text-[var(--app-danger)] hover:bg-[color-mix(in_srgb,var(--app-danger)_10%,transparent)] active:bg-[color-mix(in_srgb,var(--app-danger)_15%,transparent)] ${motion.press} ${theme.focusRing}`}
           title={removeLabel}
           aria-label={removeLabel}
         >
           <Trash2 className="w-4 h-4" aria-hidden />
         </button>
       ) : (
-        <ChevronRight className={`w-4 h-4 shrink-0 opacity-40 pointer-events-none ${metaColor}`} aria-hidden />
+        <ChevronRight className={`w-5 h-5 shrink-0 ${metaColor} pointer-events-none`} aria-hidden />
       )}
     </div>
   );

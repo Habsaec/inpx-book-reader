@@ -51,12 +51,37 @@ public class FolderPickerPlugin extends Plugin {
                 takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
             }
             getContext().getContentResolver().takePersistableUriPermission(uri, takeFlags);
-        } catch (Exception ignored) {
-            // Permission may already be granted or unsupported on some devices.
+        } catch (Exception e) {
+            call.reject("Не удалось закрепить постоянный доступ к папке. Выберите другую папку.");
+            return;
+        }
+
+        boolean persisted = false;
+        for (android.content.UriPermission perm : getContext().getContentResolver().getPersistedUriPermissions()) {
+            if (perm.getUri().equals(uri) && perm.isReadPermission() && perm.isWritePermission()) {
+                persisted = true;
+                break;
+            }
+        }
+        if (!persisted) {
+            try {
+                getContext().getContentResolver().releasePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                );
+            } catch (Exception ignored) { /* best-effort */ }
+            call.reject("Система не сохранила доступ к папке. Выберите папку ещё раз.");
+            return;
         }
 
         DocumentFile directory = DocumentFile.fromTreeUri(getContext(), uri);
         if (directory == null || !directory.exists() || !directory.canRead() || !directory.canWrite()) {
+            try {
+                getContext().getContentResolver().releasePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                );
+            } catch (Exception ignored) { /* best-effort */ }
             call.reject("Нет доступа на чтение и запись в выбранную папку");
             return;
         }

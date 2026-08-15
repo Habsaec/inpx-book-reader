@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { theme } from '../lib/appTheme';
 import { isUsingIndexedDbFallback, LOCAL_DB_VERSION } from '../lib/localDb';
 import { isNativeApp } from '../lib/platform';
-import { textStyles } from '../ui/tokens';
+import { textStyles, radii, elevation } from '../ui/tokens';
 import Button from '../ui/Button';
 import { Bug, Copy, Trash2 } from 'lucide-react';
 import {
@@ -74,13 +74,22 @@ export default function DiagnosticsTab({
     return lines.join('\n');
   };
 
+  const copiedTimer = React.useRef<number | null>(null);
+  React.useEffect(
+    () => () => {
+      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
   const handleCopy = async () => {
     const report = buildReport();
     try {
       await navigator.clipboard.writeText(report);
       setCopied(true);
       debugSessionLog('DIAG', 'DiagnosticsTab:export', 'copied', { len: report.length });
-      window.setTimeout(() => setCopied(false), 2000);
+      if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 2000);
     } catch {
       /* ignore */
     }
@@ -92,15 +101,17 @@ export default function DiagnosticsTab({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <Bug className={`w-4 h-4 ${theme.accentText}`} />
+    <div className={`${radii.lg} ${theme.card} ${elevation.card} p-5 space-y-4`}>
+      <div className="flex items-center gap-3">
+        <span className={`inline-flex items-center justify-center w-10 h-10 ${radii.md} ${theme.accentMuted}`}>
+          <Bug className={`w-5 h-5 ${theme.accentText}`} />
+        </span>
         <span className={textStyles.sectionLabel}>Диагностика</span>
       </div>
       <p className={`${textStyles.caption} ${theme.textMuted}`}>
         Журнал не содержит паролей, текста книг и цитат.
       </p>
-      <ul className={`${textStyles.caption} ${theme.textMuted} space-y-1 font-mono text-[11px]`}>
+      <ul className={`${radii.lg} ${theme.panel} px-4 py-3 ${textStyles.caption} ${theme.textMuted} space-y-1.5 font-mono text-[11px]`}>
         <li>APK: {appVersion} ({build})</li>
         <li>DB: v{LOCAL_DB_VERSION}</li>
         <li>Platform: {Capacitor.getPlatform()}</li>

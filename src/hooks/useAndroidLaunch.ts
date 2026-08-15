@@ -58,93 +58,150 @@ export function useAndroidLaunch({
 }: UseAndroidLaunchOptions) {
   const snackbar = useSnackbar();
   const handledRef = React.useRef(new Set<string>());
+  const lastContinueAtRef = React.useRef(0);
+
+  // Keep volatile data in refs so the launch listener effect does not remount
+  // on every books/recent update (which used to cancel in-flight VIEW imports).
+  const serverConfigRef = React.useRef(serverConfig);
+  const storageDirectoryRef = React.useRef(storageDirectory);
+  const localRecentReadingRef = React.useRef(localRecentReading);
+  const downloadedBooksRef = React.useRef(downloadedBooks);
+  const onContinueBookRef = React.useRef(onContinueBook);
+  const onOpenBookRef = React.useRef(onOpenBook);
+  const onRegisterImportedBookRef = React.useRef(onRegisterImportedBook);
+  const onTabChangeRef = React.useRef(onTabChange);
+  const snackbarRef = React.useRef(snackbar);
+
+  serverConfigRef.current = serverConfig;
+  storageDirectoryRef.current = storageDirectory;
+  localRecentReadingRef.current = localRecentReading;
+  downloadedBooksRef.current = downloadedBooks;
+  onContinueBookRef.current = onContinueBook;
+  onOpenBookRef.current = onOpenBook;
+  onRegisterImportedBookRef.current = onRegisterImportedBook;
+  onTabChangeRef.current = onTabChange;
+  snackbarRef.current = snackbar;
 
   const dispatch = React.useCallback(
-    (payload: LaunchIntentPayload) => {
-      const key = JSON.stringify(payload);
-      if (handledRef.current.has(key)) return;
-      handledRef.current.add(key);
+    (payload: LaunchIntentPayload, opts?: { isCancelled?: () => boolean }) => {
+      const isCancelled = opts?.isCancelled ?? (() => false);
 
       if (payload.action === 'continue') {
-        const recent = localRecentReading[0];
-        if (!recent) {
-          snackbar.show('Нет книги для продолжения чтения');
-          onTabChange('home');
+        // Constant JSON key — debounce only; never permanent handled, or widget taps die after first use.
+        const now = Date.now();
+        if (now - lastContinueAtRef.current < 1200) return;
+        lastContinueAtRef.current = now;
+        const recentList = localRecentReadingRef.current;
+        const wantedId = payload.bookId;
+        if (wantedId) {
+          const fromDownloaded = downloadedBooksRef.current.find(
+            (b) => b.id === wantedId && Boolean(b.localFileName?.trim()),
+          );
+          if (fromDownloaded) {
+            onContinueBookRef.current(fromDownloaded);
+            return;
+          }
+          const fromRecent = recentList.find((item) => item.id === wantedId);
+          if (fromRecent) {
+            // Recent metadata without a local file — don't open a broken reader.
+            snackbarRef.current.show('Файл книги недоступен — скачайте снова');
+            onTabChangeRef.current('library');
+            return;
+          }
+          snackbarRef.current.show('Книга с виджета ещё не доступна локально');
+          onTabChangeRef.current('home');
           return;
         }
-        onContinueBook(localRecentToBook(recent, serverConfig));
+        const recent = recentList[0];
+        if (!recent) {
+          snackbarRef.current.show('Нет книги для продолжения чтения');
+          onTabChangeRef.current('home');
+          return;
+        }
+        const recentOnDisk = downloadedBooksRef.current.find(
+          (b) => b.id === recent.id && Boolean(b.localFileName?.trim()),
+        );
+        if (!recentOnDisk) {
+          snackbarRef.current.show('Файл книги недоступен — скачайте снова');
+          onTabChangeRef.current('library');
+          return;
+        }
+        onContinueBookRef.current(recentOnDisk);
         return;
       }
 
+      const key = JSON.stringify(payload);
+      if (handledRef.current.has(key)) return;
+
       if (payload.action === 'view') {
         void (async () => {
+          if (isCancelled()) return;
+          const books = downloadedBooksRef.current;
           const existing =
-            findBookByLaunchUri(payload.uri, downloadedBooks) ??
-            findImportedBookByUri(downloadedBooks, payload.uri);
+            findBookByLaunchUri(payload.uri, books) ??
+            findImportedBookByUri(books, payload.uri);
           if (existing) {
-            onOpenBook(existing);
+            handledRef.current.add(key);
+            onOpenBookRef.current(existing);
             return;
           }
-          if (!storageDirectory?.uri) {
-            snackbar.show('Выберите папку хранения в настройках');
-            onTabChange('profile');
+          const dir = storageDirectoryRef.current;
+          if (!dir?.uri) {
+            if (isCancelled()) return;
+            // Don't mark handled — user may pick a folder and re-launch the same URI.
+            snackbarRef.current.show('Выберите папку хранения в настройках');
+            onTabChangeRef.current('profile');
             return;
           }
           try {
-            const imported = await importExternalBookFromUri(storageDirectory, payload.uri);
-            onRegisterImportedBook(imported);
-            onOpenBook(imported);
+            const imported = await importExternalBookFromUri(dir, payload.uri);
+            // Import finished — deliver even if the effect rebind cancelled the old listener.
+            handledRef.current.add(key);
+            onRegisterImportedBookRef.current(imported);
+            onOpenBookRef.current(imported);
           } catch {
-            snackbar.show('Не удалось импортировать файл');
-            onTabChange('library');
+            if (isCancelled()) return;
+            snackbarRef.current.show('Не удалось импортировать файл');
+            onTabChangeRef.current('library');
           }
         })();
       }
     },
-    [
-      downloadedBooks,
-      localRecentReading,
-      onContinueBook,
-      onOpenBook,
-      onRegisterImportedBook,
-      onTabChange,
-      serverConfig,
-      snackbar,
-      storageDirectory,
-    ],
+    [],
   );
 
   React.useEffect(() => {
     if (!isNativeApp() || !ready) return;
 
-    let removeListener: (() => void) | undefined;
-
-    const attach = async () => {
+    let cancelled = false;
+    const isCancelled = () => cancelled;
+    const listenerPromise = (async () => {
       try {
         const pending = await LaunchIntent.consumePending();
-        if (isLaunchPayload(pending)) dispatch(pending);
+        if (!cancelled && isLaunchPayload(pending)) dispatch(pending, { isCancelled });
 
-        const handle = await LaunchIntent.addListener('launchIntent', (payload) => {
-          if (isLaunchPayload(payload)) dispatch(payload);
+        return await LaunchIntent.addListener('launchIntent', (payload) => {
+          if (isLaunchPayload(payload)) dispatch(payload, { isCancelled });
         });
-        removeListener = () => handle.remove();
       } catch (err: unknown) {
         console.warn('LaunchIntent unavailable:', err);
+        return null;
       }
-    };
-
-    void attach();
+    })();
 
     const resume = CapApp.addListener('appStateChange', ({ isActive }) => {
       if (!isActive) return;
-      void LaunchIntent.consumePending().then((pending) => {
-        if (isLaunchPayload(pending)) dispatch(pending);
-      });
+      void LaunchIntent.consumePending()
+        .then((pending) => {
+          if (!cancelled && isLaunchPayload(pending)) dispatch(pending, { isCancelled });
+        })
+        .catch(() => {});
     });
 
     return () => {
-      removeListener?.();
-      void resume.then((h) => h.remove());
+      cancelled = true;
+      void listenerPromise.then((handle) => handle?.remove()).catch(() => {});
+      void resume.then((h) => h.remove()).catch(() => {});
     };
   }, [dispatch, ready]);
 }

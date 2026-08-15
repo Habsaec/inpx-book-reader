@@ -368,13 +368,24 @@ html.annotation-goto-flash foliate-view {
   outline: 3px solid var(--r-accent);
   outline-offset: -3px;
 }
-/* Скрыть текст до завершения restore — иначе мелькает начало главы. */
-html.is-restoring-position foliate-view{
-  visibility:hidden;
-}
-html.is-restoring-position #reader-body{
+/* Cover the view while restore runs — never visibility:hidden on foliate-view.
+   Android WebView often fails to paint nested Foliate iframes after unhiding. */
+.reader-restore-veil{
+  position:fixed;
+  top:var(--r-safe-top);
+  right:var(--r-safe-right);
+  bottom:var(--r-bottom-reserve);
+  left:var(--r-safe-left);
+  z-index:60;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:16px;
   background:var(--r-bg);
+  pointer-events:auto;
 }
+.reader-restore-veil[hidden]{display:none !important}
 
 /* ================================================================
    LOADING / ERROR
@@ -499,6 +510,35 @@ body:has(.reader-status-strip.is-visible) .reader-footer .ft-chapter{
     0 1px 2px color-mix(in srgb, var(--r-bg) 55%, transparent);
 }
 .reader-status-strip.is-visible{display:grid}
+
+.reader-offline-banner{
+  position:fixed;left:0;right:0;top:0;z-index:230;
+  padding:calc(6px + var(--r-safe-top)) 12px 6px;
+  text-align:center;font-size:12px;font-weight:600;line-height:1.3;
+  color:var(--r-fg);
+  background:color-mix(in srgb, var(--r-bg) 88%, #c9a227);
+  border-bottom:1px solid color-mix(in srgb, var(--r-fg) 12%, transparent);
+}
+.reader-offline-banner[hidden]{display:none!important}
+
+.reader-gesture-hint{
+  position:fixed;inset:0;z-index:400;
+  display:flex;align-items:center;justify-content:center;
+  padding:24px;background:rgba(0,0,0,.45);
+}
+.reader-gesture-hint[hidden]{display:none!important}
+.rgh-card{
+  width:min(100%,320px);border-radius:16px;padding:20px 18px 16px;
+  background:var(--r-bg);color:var(--r-fg);
+  box-shadow:0 12px 40px rgba(0,0,0,.28);
+}
+.rgh-title{margin:0 0 8px;font-size:17px;font-weight:700}
+.rgh-text{margin:0 0 16px;font-size:14px;line-height:1.45;opacity:.85}
+.rgh-ok{
+  width:100%;min-height:44px;border:0;border-radius:12px;
+  font-size:15px;font-weight:700;cursor:pointer;
+  background:var(--r-accent);color:#fff;
+}
 /* withChrome: бар остаётся на месте и при скрытом chrome */
 .reader-status-strip[data-mode="withChrome"],
 .reader-status-strip[data-mode="always"]{
@@ -2061,6 +2101,7 @@ html[data-eink="1"] .rne-text {
   .reader-spinner,
   .reader-hud-flash,
   .reader-loading,
+  .reader-restore-veil,
   body{
     transition:none !important;
     animation:none !important;

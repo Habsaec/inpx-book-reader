@@ -1,35 +1,61 @@
-import { describe, expect, it } from 'vitest';
-import { mergeRecentReadingLists, type LocalRecentReadingItem } from '../localReadingProgress';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type { Book, ReadingProgress } from '../../types';
 
-function item(overrides: Partial<LocalRecentReadingItem> = {}): LocalRecentReadingItem {
+const readerData = new Map<string, Record<string, unknown>>();
+
+vi.mock('../offlineReaderStore', () => ({
+  readOfflineReaderData: (id: string) =>
+    readerData.get(id) ?? { positionVersion: 4, position: '', progress: 0 },
+}));
+
+import { upsertProgressFromLocalReader } from '../localReadingProgress';
+
+const book: Book = { id: 'b1', title: 'T', author: 'A', ext: 'fb2' };
+
+function serverEntry(overrides: Partial<ReadingProgress> = {}): ReadingProgress {
   return {
-    id: 'book-1',
-    title: 'Book',
-    authorsDisplay: 'Author',
-    ext: 'fb2',
-    readProgress: 100,
-    lastOpenedAt: '2026-07-12T10:00:00.000Z',
+    bookId: 'b1',
+    bookTitle: 'T',
+    authorName: 'A',
+    currentChapter: 0,
+    percentage: 80,
+    scrollPosition: 0,
+    charPosition: 0,
+    lastRead: Date.parse('2025-06-01T00:00:00Z'),
+    finished: false,
     ...overrides,
   };
 }
 
-describe('mergeRecentReadingLists', () => {
-  it('lets newer rereading progress replace an older completed value', () => {
-    const merged = mergeRecentReadingLists(
-      [item({ readProgress: 100 })],
-      [item({ readProgress: 85, lastOpenedAt: '2026-07-12T11:00:00.000Z' })],
-    );
-
-    expect(merged[0].readProgress).toBe(85);
-    expect(merged[0].lastOpenedAt).toBe('2026-07-12T11:00:00.000Z');
+describe('upsertProgressFromLocalReader', () => {
+  beforeEach(() => {
+    readerData.clear();
   });
 
-  it('keeps server progress when the server entry is newer', () => {
-    const merged = mergeRecentReadingLists(
-      [item({ readProgress: 80, lastOpenedAt: '2026-07-12T12:00:00.000Z' })],
-      [item({ readProgress: 40, lastOpenedAt: '2026-07-12T11:00:00.000Z' })],
-    );
+  it('ignores corrupt timestamps instead of treating them as "now"', () => {
+    readerData.set('b1', { position: 'x', progress: 40, positionChangedAt: 'not-a-date' });
+    const list = upsertProgressFromLocalReader([], book);
+    expect(list).toHaveLength(0);
+  });
 
-    expect(merged[0].readProgress).toBe(80);
+  it('does not regress server percentage with an older local snapshot (LWW)', () => {
+    readerData.set('b1', { position: 'x', progress: 30, positionChangedAt: '2024-01-01T00:00:00Z' });
+    const [merged] = upsertProgressFromLocalReader([serverEntry()], book);
+    expect(merged.percentage).toBe(80);
+    expect(merged.lastRead).toBe(Date.parse('2025-06-01T00:00:00Z'));
+  });
+
+  it('applies local progress when local snapshot is newer', () => {
+    readerData.set('b1', { position: 'x', progress: 90, positionChangedAt: '2026-01-01T00:00:00Z' });
+    const [merged] = upsertProgressFromLocalReader([serverEntry()], book);
+    expect(merged.percentage).toBe(90);
+    expect(merged.finished).toBe(false);
+    expect(merged.lastRead).toBe(Date.parse('2026-01-01T00:00:00Z'));
+  });
+
+  it('marks finished at >= 95% when local wins', () => {
+    readerData.set('b1', { position: 'x', progress: 97, positionChangedAt: '2026-01-01T00:00:00Z' });
+    const [merged] = upsertProgressFromLocalReader([serverEntry()], book);
+    expect(merged.finished).toBe(true);
   });
 });

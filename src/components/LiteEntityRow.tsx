@@ -1,6 +1,6 @@
 import React from 'react';
 import { theme } from '../lib/appTheme';
-import { textStyles, motion } from '../ui/tokens';
+import { textStyles, motion, radii, elevation } from '../ui/tokens';
 import { ChevronRight } from 'lucide-react';
 import { ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
@@ -28,20 +28,16 @@ function bookCountLabel(n: number): string {
 export default function LiteEntityRow({
   name,
   count,
-  isAppDark = false,
   onClick,
   authorKey,
   serverConfig,
   storageDirectory,
 }: LiteEntityRowProps) {
-  const borderColor = theme.divider;
-  const titleColor = theme.text;
-
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`w-full flex items-center gap-3 py-3 landscape:max-[500px]:py-2 px-1 rounded-xl -mx-1 border-b last:border-b-0 text-left ${borderColor} ${theme.rowPress} ${motion.colors} ${theme.focusRing}`}
+      className={`w-full flex items-center gap-3 p-4 mb-3 ${radii.lg} ${theme.card} ${elevation.card} text-left ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
     >
       {authorKey && serverConfig ? (
         <AuthorPortrait
@@ -51,11 +47,11 @@ export default function LiteEntityRow({
           size={36}
         />
       ) : null}
-      <span className={`flex-1 min-w-0 ${textStyles.bodyBold} landscape:max-[500px]:text-xs truncate ${titleColor}`}>{name}</span>
+      <span className={`flex-1 min-w-0 ${textStyles.bodyBold} landscape:max-[500px]:text-xs truncate ${theme.text}`}>{name}</span>
       <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted}`}>
         {bookCountLabel(count)}
       </span>
-      <ChevronRight className={`w-4 h-4 shrink-0 opacity-40 ${titleColor}`} aria-hidden />
+      <ChevronRight className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
     </button>
   );
 }

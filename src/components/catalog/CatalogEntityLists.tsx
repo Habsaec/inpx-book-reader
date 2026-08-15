@@ -6,6 +6,7 @@ import { theme } from '../../lib/appTheme';
 import type { StorageDirectory } from '../../lib/storageDirectory';
 import LiteEntityRow from '../LiteEntityRow';
 import CatalogPagination from './CatalogPagination';
+import BookSortBar from './BookSortBar';
 import type { LocalGenreAgg } from '../../lib/catalogAggregations';
 import type { AuthorSeriesSort } from '../../lib/catalogAggregations';
 import type { CatalogSubTab } from './catalogTypes';
@@ -55,6 +56,12 @@ interface CatalogEntityListsProps {
   selectedSubgenre: { parent: string; name: string } | null;
 }
 
+const ENTITY_SORT_OPTIONS: { id: AuthorSeriesSort; label: string }[] = [
+  { id: 'count', label: 'Книг' },
+  { id: 'rating', label: 'Рейтинг' },
+  { id: 'name', label: 'А-Я' },
+];
+
 function EntitySortBar({
   label,
   sortBy,
@@ -66,27 +73,13 @@ function EntitySortBar({
 }) {
   return (
     <div className="flex items-center justify-between gap-2 py-1">
-      <span className={`${textStyles.caption} ${theme.textMuted}`}>{label}</span>
-      <div className="flex gap-1">
-        {(
-          [
-            { id: 'count' as const, label: 'Книг' },
-            { id: 'rating' as const, label: 'Рейтинг' },
-            { id: 'name' as const, label: 'А-Я' },
-          ] as const
-        ).map((btn) => (
-          <button
-            key={btn.id}
-            type="button"
-            onClick={() => onChange(btn.id)}
-            className={`min-h-12 px-2.5 rounded-full transition-colors ${textStyles.caption} cursor-pointer ${
-              sortBy === btn.id ? `${theme.accentText} font-semibold` : theme.textMuted
-            }`}
-          >
-            {btn.label}
-          </button>
-        ))}
-      </div>
+      <span className={`min-w-0 truncate ${textStyles.caption} ${theme.textMuted}`}>{label}</span>
+      <BookSortBar
+        value={sortBy}
+        options={ENTITY_SORT_OPTIONS}
+        onChange={(id) => onChange(id as AuthorSeriesSort)}
+        ariaLabel={label}
+      />
     </div>
   );
 }
@@ -162,7 +155,7 @@ export default function CatalogEntityLists({
                       </div>
                     </div>
                     <div className={`flex items-center gap-1.5 shrink-0 ${textStyles.caption} ${theme.textMuted}`}>
-                      ★ {author.avgRating}
+                      {author.avgRating > 0 ? <>★ {author.avgRating}</> : null}
                       <ChevronRight className="w-3.5 h-3.5" aria-hidden />
                     </div>
                   </button>
@@ -224,7 +217,7 @@ export default function CatalogEntityLists({
                   </div>
                 </div>
                 <div className={`flex items-center gap-1.5 shrink-0 ${textStyles.caption} ${theme.textMuted}`}>
-                  ★ {item.avgRating}
+                  {item.avgRating > 0 ? <>★ {item.avgRating}</> : null}
                   <ChevronRight className="w-3.5 h-3.5" aria-hidden />
                 </div>
               </button>
@@ -246,7 +239,9 @@ export default function CatalogEntityLists({
     );
   }
 
-  if (subTab === 'genres' && !selectedSubgenre) {
+  // Also hide when a series/author drilldown is open while still on the Genres tab
+  // (e.g. series opened from a book card inside a genre).
+  if (subTab === 'genres' && !selectedSubgenre && !selectedSeries && !selectedAuthor) {
     return (
       <div className="space-y-2.5">
         {genres.length === 0 ? (
@@ -272,16 +267,11 @@ export default function CatalogEntityLists({
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`${textStyles.microBold} px-1.5 py-0.5 rounded-full bg-[var(--app-panel-soft)]`}>
-                    ★ {genreItem.avgRating}
-                  </span>
-                  {isExpanded ? (
-                    <ChevronDown className={`w-4 h-4 ${theme.textMuted}`} aria-hidden />
-                  ) : (
-                    <ChevronRight className={`w-4 h-4 ${theme.textMuted}`} aria-hidden />
-                  )}
-                </div>
+                {isExpanded ? (
+                  <ChevronDown className={`w-4 h-4 shrink-0 ${theme.textMuted}`} aria-hidden />
+                ) : (
+                  <ChevronRight className={`w-4 h-4 shrink-0 ${theme.textMuted}`} aria-hidden />
+                )}
               </button>
               <AnimatePresence initial={false}>
                 {isExpanded && (
@@ -302,10 +292,7 @@ export default function CatalogEntityLists({
                           <span className={textStyles.bodyBold}>{sub.name}</span>
                           <span className={`${textStyles.micro} ${theme.textMuted} ml-1.5`}>({sub.count} кн.)</span>
                         </div>
-                        <div className={`flex items-center gap-1.5 ${textStyles.microBold} ${theme.accentText}`}>
-                          ★ {sub.avgRating}
-                          <ChevronRight className={`w-3.5 h-3.5 ${theme.textMuted}/40`} aria-hidden />
-                        </div>
+                        <ChevronRight className={`w-3.5 h-3.5 shrink-0 ${theme.textMuted}/40`} aria-hidden />
                       </button>
                     ))}
                   </motion.div>

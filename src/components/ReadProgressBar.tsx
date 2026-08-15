@@ -15,7 +15,7 @@ export default function ReadProgressBar({ value, showLabel = true, className = '
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <div
-        className="flex-1 h-1.5 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden"
+        className="flex-1 h-1 rounded-full bg-[var(--app-surface-container-highest)] overflow-hidden"
         role="progressbar"
         aria-valuenow={pct}
         aria-valuemin={0}

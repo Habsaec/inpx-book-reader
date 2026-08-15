@@ -11,7 +11,7 @@ import {
   FolderMinus,
 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { textStyles, elevation } from '../ui/tokens';
+import { textStyles, elevation, radii, motion } from '../ui/tokens';
 import Button from '../ui/Button';
 import { SheetDragHandle, sheetBackdropClass, sheetPanelClass, sheetPanelStyle } from '../ui/SheetChrome';
 import BookCover from './BookCover';
@@ -70,14 +70,30 @@ export default function BookActionsSheet({
   const open = Boolean(target);
   useOverlayBackHandler(open, onClose);
 
+  // Ignore backdrop click from the same long-press that opened the sheet (ghost click).
+  const [backdropArmed, setBackdropArmed] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) {
+      setBackdropArmed(false);
+      return;
+    }
+    setBackdropArmed(false);
+    const t = window.setTimeout(() => setBackdropArmed(true), 450);
+    return () => window.clearTimeout(t);
+  }, [open, target?.book.id]);
+
   if (!target) return null;
   const { book, shelfId, shelfName } = target;
   const showRemoveFromShelf =
     shelfId != null && Number.isFinite(shelfId) && Boolean(onRemoveFromShelf);
 
   return createPortal(
-    <div className={sheetBackdropClass} onClick={onClose}>
-      <div
+    <div
+      className={sheetBackdropClass}
+      onClick={() => {
+        if (backdropArmed) onClose();
+      }}
+    >      <div
         className={`${sheetPanelClass} px-5 pt-4 ${elevation.sheet}`}
         style={sheetPanelStyle()}
         onClick={(e) => e.stopPropagation()}
@@ -88,15 +104,17 @@ export default function BookActionsSheet({
         <SheetDragHandle />
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex gap-3 min-w-0">
-            <div className="w-14 shrink-0 aspect-[2/3] rounded-lg overflow-hidden relative bg-[var(--app-surface)]">
-              <BookCover
-                bookId={book.id}
-                title={book.title}
-                author={book.author}
-                serverConfig={serverConfig}
-                storageDirectory={storageDirectory}
-                className="absolute inset-0 w-full h-full"
-              />
+            <div className="book-cover w-14 shrink-0 aspect-[2/3]">
+              <span className="book-cover-inner">
+                <BookCover
+                  bookId={book.id}
+                  title={book.title}
+                  author={book.author}
+                  serverConfig={serverConfig}
+                  storageDirectory={storageDirectory}
+                  className="absolute inset-0 w-full h-full !rounded-none !border-0"
+                />
+              </span>
             </div>
             <div className="min-w-0">
               <h2 id="book-actions-title" className={`${textStyles.bookTitle} line-clamp-2`}>
@@ -109,13 +127,13 @@ export default function BookActionsSheet({
             type="button"
             aria-label="Закрыть"
             onClick={onClose}
-            className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-lg ${theme.chipButton} ${theme.focusRing}`}
+            className={`min-h-12 min-w-12 inline-flex items-center justify-center ${radii.button} ${theme.panel} ${theme.chipButton} ${theme.focusRing} ${motion.press}`}
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2.5">
           {isDownloaded ? (
             <Button
               fullWidth

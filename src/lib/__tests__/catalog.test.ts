@@ -74,6 +74,26 @@ describe('catalogBookPool', () => {
     expect(pool.every((b) => b.author === 'Author A')).toBe(true);
   });
 
+  it('server drill-down with empty facet does not fall back to hub list', () => {
+    const ctx = {
+      isServerBrowse: true,
+      isSearchActive: false,
+      subTab: 'books' as const,
+      searchInput: '',
+      selectedAuthor: null,
+      selectedSeries: 'Series X',
+      selectedSubgenre: null,
+      minRating: 0,
+      formatFilter: 'all' as const,
+      sortBy: 'title' as const,
+      booksList: sampleBooks,
+      facetBooks: [] as Book[],
+      authorGrouped: null,
+      authorOutsideSeries: false,
+    };
+    expect(getActiveBookPool(ctx)).toEqual([]);
+  });
+
   it('sorts by rating in demo mode', () => {
     const ctx = {
       isServerBrowse: false,

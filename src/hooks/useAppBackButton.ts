@@ -22,31 +22,36 @@ export function useAppBackButton(onExitPrompt?: () => void) {
   const onExitPromptRef = React.useRef(onExitPrompt);
   onExitPromptRef.current = onExitPrompt;
 
+  // Сброс окна «ещё раз для выхода»: любая навигация/оверлей между двумя Back
+  // означает, что второй Back — не подтверждение выхода.
+  const resetExitPrompt = React.useCallback(() => {
+    lastBackAt.current = 0;
+  }, []);
+
   React.useEffect(() => {
     if (!isNativeApp()) return;
 
-    let remove: (() => void) | undefined;
+    const subPromise = CapApp.addListener('backButton', () => {
+      if (consumeAppBack()) {
+        lastBackAt.current = 0;
+        return;
+      }
+      const now = Date.now();
+      if (now - lastBackAt.current < EXIT_WINDOW_MS) {
+        lastBackAt.current = 0;
+        void CapApp.exitApp();
+        return;
+      }
+      lastBackAt.current = now;
+      onExitPromptRef.current?.();
+    });
 
-    try {
-      CapApp.addListener('backButton', () => {
-        if (consumeAppBack()) return;
-        const now = Date.now();
-        if (now - lastBackAt.current < EXIT_WINDOW_MS) {
-          lastBackAt.current = 0;
-          void CapApp.exitApp();
-          return;
-        }
-        lastBackAt.current = now;
-        onExitPromptRef.current?.();
-      }).then((handle) => {
-        remove = () => handle.remove();
-      });
-    } catch (err: unknown) {
-      console.warn('Failed to add back button listener:', err);
-    }
-
-    return () => remove?.();
+    return () => {
+      void subPromise.then((handle) => handle.remove()).catch(() => {});
+    };
   }, []);
+
+  return { resetExitPrompt };
 
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

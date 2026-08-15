@@ -80,8 +80,20 @@ function debugLog(hypothesisId, location, message, data) {
   window.__READER_COVER_URL = String(config?.coverUrl || '').trim();
   window.__READER_COVER_AUTH = String(config?.coverAuthHeader || '').trim();
   window.__READER_BOOK_AUTHOR = String(config?.bookAuthor || '').trim();
+  window.__READER_OFFLINE = config?.offline === true ? 1 : 0;
+  window.__READER_NEXT_SERIES = config?.nextInSeries && typeof config.nextInSeries === 'object'
+    ? {
+        bookId: String(config.nextInSeries.bookId || ''),
+        title: String(config.nextInSeries.title || ''),
+      }
+    : null;
   window.__READER_APP = 1;
   document.documentElement.dataset.inpxApp = '1';
+
+  const offlineBanner = document.getElementById('reader-offline-banner');
+  if (offlineBanner) {
+    offlineBanner.hidden = !window.__READER_OFFLINE;
+  }
 
   // Только флаг приложения / URL — не dataset (его раньше ставила цветовая тема «E-Ink»).
   const appEink =
@@ -110,7 +122,12 @@ function debugLog(hypothesisId, location, message, data) {
       ? normalizeStoredFraction(payload.fraction)
       : normalizeStoredFraction((Number(payload?.progress) || 0) / 100);
     const saveReason = payload?.positionSaveReason != null ? String(payload.positionSaveReason) : '';
-    if (fraction < 0.02 && prevFrac > 0.05) {
+    if (
+      fraction < 0.02 && prevFrac > 0.05
+      && saveReason !== 'flush'
+      && saveReason !== 'navigation'
+      && saveReason !== 'restore-settle'
+    ) {
       return;
     }
     store.fraction = fraction;
@@ -143,7 +160,8 @@ function debugLog(hypothesisId, location, message, data) {
     store.positionVersion = 4;
     store.positionDirty = true;
     store.dismissedServerRevision = null;
-    store.pendingCrossDevicePrompt = false;
+    // Do not clear pendingCrossDevicePrompt here — restore-settle would wipe the
+    // deferred conflict flag before __SHOW_DEFERRED_CROSS_DEVICE_PROMPT__ runs.
     if (saveReason) store.positionSaveReason = saveReason;
     else delete store.positionSaveReason;
     touchPositionChanged(store);
@@ -152,6 +170,11 @@ function debugLog(hypothesisId, location, message, data) {
 
   window.__READER_WRITE_POSITION__ = function readerWritePosition(payload) {
     applyPositionPayload(readReaderData(), payload || {});
+  };
+
+  /** Ack parent flush waiters without mutating position (e.g. during restore suppression). */
+  window.__READER_ACK_FLUSH__ = function readerAckFlush() {
+    notifyParentReaderSync(readReaderData());
   };
 
   function applySafeArea(insets) {
@@ -207,7 +230,12 @@ function debugLog(hypothesisId, location, message, data) {
 
   function writeReaderData(data, opts) {
     const current = { ...data, positionVersion: 4, updatedAt: new Date().toISOString() };
-    localStorage.setItem(readerDataKey(), JSON.stringify(current));
+    try {
+      localStorage.setItem(readerDataKey(), JSON.stringify(current));
+    } catch (err) {
+      // QuotaExceededError и т.п. не должны ронять flush позиции/закрытие читалки.
+      debugLog('H2', 'bootstrap:writeReaderData', 'localStorage write failed', { error: String(err) });
+    }
     if (!opts?.skipParentNotify) notifyParentReaderSync(current);
   }
 
@@ -307,9 +335,18 @@ function debugLog(hypothesisId, location, message, data) {
     const spuriousReset = incomingFrac < 0.02 && localFrac > 0.05;
     const localTs = Date.parse(local.positionChangedAt || local.updatedAt || '') || 0;
     const incomingTs = Date.parse(incoming.positionChangedAt || incoming.updatedAt || '') || 0;
-    const pickPositionFrom = spuriousReset
-      ? local
-      : (incomingTs >= localTs ? incoming : local);
+    const incomingRev = Number(incoming.baseRevision);
+    const localRev = Number(local.baseRevision) || 0;
+    const incomingIsAcceptedServerPull =
+      incoming.positionDirty === false
+      && Number(incoming.serverRevision) > 0
+      && incomingRev === Number(incoming.serverRevision)
+      && incomingRev > localRev;
+    const pickPositionFrom = incomingIsAcceptedServerPull
+      ? incoming
+      : (spuriousReset
+        ? local
+        : (incomingTs >= localTs ? incoming : local));
     return {
       ...local,
       ...incoming,
@@ -363,18 +400,39 @@ function debugLog(hypothesisId, location, message, data) {
         incoming.dismissedServerRevision !== undefined
           ? incoming.dismissedServerRevision
           : local.dismissedServerRevision,
-      bookmarks: Array.isArray(incoming.bookmarks) && incoming.bookmarks.length
-        ? incoming.bookmarks
-        : (local.bookmarks || []),
-      annotations: Array.isArray(incoming.annotations) && incoming.annotations.length
-        ? incoming.annotations
-        : (local.annotations || []),
-      deletedBookmarkPositions: Array.isArray(incoming.deletedBookmarkPositions)
-        ? incoming.deletedBookmarkPositions
-        : (local.deletedBookmarkPositions || []),
-      deletedAnnotationCfis: Array.isArray(incoming.deletedAnnotationCfis)
-        ? incoming.deletedAnnotationCfis
-        : (local.deletedAnnotationCfis || []),
+      // Prefer newer local collections so open-sync re-seed cannot wipe in-session edits.
+      ...(() => {
+        const localBmTs = Date.parse(local.bookmarksChangedAt || '') || 0;
+        const incomingBmTs = Date.parse(incoming.bookmarksChangedAt || '') || 0;
+        const preferLocalBm = Array.isArray(incoming.bookmarks) && localBmTs > incomingBmTs;
+        const localAnnTs = Date.parse(local.annotationsChangedAt || '') || 0;
+        const incomingAnnTs = Date.parse(incoming.annotationsChangedAt || '') || 0;
+        const preferLocalAnn = Array.isArray(incoming.annotations) && localAnnTs > incomingAnnTs;
+        return {
+          bookmarks: !Array.isArray(incoming.bookmarks)
+            ? (local.bookmarks || [])
+            : (preferLocalBm ? (local.bookmarks || []) : incoming.bookmarks),
+          annotations: !Array.isArray(incoming.annotations)
+            ? (local.annotations || [])
+            : (preferLocalAnn ? (local.annotations || []) : incoming.annotations),
+          deletedBookmarkPositions: preferLocalBm
+            ? (local.deletedBookmarkPositions || [])
+            : (Array.isArray(incoming.deletedBookmarkPositions)
+              ? incoming.deletedBookmarkPositions
+              : (local.deletedBookmarkPositions || [])),
+          deletedAnnotationCfis: preferLocalAnn
+            ? (local.deletedAnnotationCfis || [])
+            : (Array.isArray(incoming.deletedAnnotationCfis)
+              ? incoming.deletedAnnotationCfis
+              : (local.deletedAnnotationCfis || [])),
+          bookmarksChangedAt: preferLocalBm
+            ? local.bookmarksChangedAt
+            : (incoming.bookmarksChangedAt ?? local.bookmarksChangedAt),
+          annotationsChangedAt: preferLocalAnn
+            ? local.annotationsChangedAt
+            : (incoming.annotationsChangedAt ?? local.annotationsChangedAt),
+        };
+      })(),
     };
   }
 
@@ -498,7 +556,9 @@ function debugLog(hypothesisId, location, message, data) {
   }
 
   function buildCrossDeviceLines(store) {
-    const flatToc = Array.isArray(window.__READER_FB2_FLAT_TOC__) ? window.__READER_FB2_FLAT_TOC__ : [];
+    const flatToc = typeof window.__READER_GET_FB2_FLAT_TOC__ === 'function'
+      ? window.__READER_GET_FB2_FLAT_TOC__()
+      : (Array.isArray(window.__READER_FB2_FLAT_TOC__) ? window.__READER_FB2_FLAT_TOC__ : []);
     const livePosition = window.__READER_GET_CURRENT_POSITION__?.();
     const displayStore = livePosition ? { ...store, ...livePosition } : store;
     const lines = buildCrossDevicePromptDetailsFromStore(displayStore, flatToc);
@@ -599,13 +659,27 @@ function debugLog(hypothesisId, location, message, data) {
   function requestParentCrossDevicePrompt(lines) {
     return new Promise((resolve) => {
       const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      let settled = false;
+      function finish(value) {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        window.removeEventListener('message', onMsg);
+        window.removeEventListener('pagehide', onPageHide);
+        resolve(value);
+      }
       function onMsg(e) {
+        if (e.source !== window.parent) return;
         if (e.data?.type !== 'inpx-reader-position-prompt-response') return;
         if (e.data.requestId !== requestId) return;
-        window.removeEventListener('message', onMsg);
-        resolve(typeof e.data.accepted === 'boolean' ? e.data.accepted : null);
+        finish(typeof e.data.accepted === 'boolean' ? e.data.accepted : null);
       }
+      function onPageHide() {
+        finish(null);
+      }
+      const timer = window.setTimeout(() => finish(null), 120_000);
       window.addEventListener('message', onMsg);
+      window.addEventListener('pagehide', onPageHide);
       window.parent.postMessage({
         type: 'inpx-reader-position-prompt-request',
         requestId,
@@ -761,6 +835,15 @@ function debugLog(hypothesisId, location, message, data) {
   /** Blob URL книги — создаётся внутри iframe (не в parent WebView). */
   let contentBlobUrl = '';
 
+  function releaseContentBlobUrl() {
+    if (contentBlobUrl && contentBlobUrl.startsWith('blob:')) {
+      try { URL.revokeObjectURL(contentBlobUrl); } catch { /* */ }
+    }
+    contentBlobUrl = '';
+  }
+
+  window.__READER_RELEASE_CONTENT_BLOB__ = releaseContentBlobUrl;
+
   function requestBookFileFromParent() {
     return new Promise((resolve, reject) => {
       if (!storageUri || !localFileName) {
@@ -768,18 +851,67 @@ function debugLog(hypothesisId, location, message, data) {
         return;
       }
       const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      const timer = setTimeout(() => {
-        window.removeEventListener('message', onMsg);
-        reject(new Error('Не удалось прочитать файл книги (таймаут)'));
-      }, 15000);
-
-      function onMsg(e) {
-        if (e.data?.type !== 'inpx-reader-book-file' || e.data?.requestId !== requestId) return;
+      let settled = false;
+      let bridgeFallbackRequested = false;
+      function cleanup() {
         clearTimeout(timer);
         window.removeEventListener('message', onMsg);
+      }
+      function finishResolve(value) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      }
+      function finishReject(error) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      }
+      function requestBridgeFallback(reason) {
+        if (settled || bridgeFallbackRequested) return;
+        bridgeFallbackRequested = true;
+        debugLog('H2', 'bootstrap:requestBookFile', 'file-url fallback', {
+          error: String(reason || ''),
+        });
+        window.parent.postMessage({
+          type: 'inpx-reader-request-book-file',
+          requestId,
+          storageUri,
+          localFileName,
+          forceBridge: true,
+        }, '*');
+      }
+      const timer = setTimeout(() => {
+        finishReject(new Error('Не удалось прочитать файл книги (таймаут)'));
+      }, 60000);
+
+      function onMsg(e) {
+        if (e.source !== window.parent) return;
+        if (e.data?.type !== 'inpx-reader-book-file' || e.data?.requestId !== requestId) return;
         if (e.data.error) {
           debugLog('H2', 'bootstrap:requestBookFile', 'parent error', { error: String(e.data.error) });
-          reject(new Error(String(e.data.error)));
+          finishReject(new Error(String(e.data.error)));
+          return;
+        }
+        // Fetchable file-URL (Capacitor _capacitor_file_) — Foliate fetches it;
+        // do not buffer the whole book into JS (OOM on large FB2).
+        if (e.data.url) {
+          const fileUrl = String(e.data.url);
+          fetch(fileUrl)
+            .then(async (resp) => {
+              if (!resp.ok) throw new Error('HTTP ' + resp.status);
+              try { await resp.body?.cancel(); } catch { /* headers were enough */ }
+              finishResolve(fileUrl);
+            })
+            .catch((err) => {
+              if (bridgeFallbackRequested) {
+                finishReject(err instanceof Error ? err : new Error(String(err)));
+                return;
+              }
+              requestBridgeFallback(err);
+            });
           return;
         }
         try {
@@ -789,13 +921,13 @@ function debugLog(hypothesisId, location, message, data) {
           } else if (e.data.data) {
             bytes = base64ToBytes(String(e.data.data));
           } else {
-            reject(new Error('Пустой ответ при чтении файла'));
+            finishReject(new Error('Пустой ответ при чтении файла'));
             return;
           }
           const blob = new Blob([bytes], { type: 'application/octet-stream' });
-          resolve(URL.createObjectURL(blob));
+          finishResolve(URL.createObjectURL(blob));
         } catch (err) {
-          reject(err instanceof Error ? err : new Error(String(err)));
+          finishReject(err instanceof Error ? err : new Error(String(err)));
         }
       }
 
@@ -845,6 +977,8 @@ function debugLog(hypothesisId, location, message, data) {
   }
 
   function closeReader() {
+    // Flush only — do not teardown here. Parent requestClose flushes again then
+    // calls __READER_TEARDOWN__; tearing down first leaves flush without ack (2s wait).
     try {
       window.__READER_FLUSH_POSITION__?.();
     } catch {
@@ -1015,20 +1149,60 @@ function debugLog(hypothesisId, location, message, data) {
   setupLocalReaderApi();
   window.__READER_LOCAL_INIT__ = ensureLocalContentUrl();
 
-  document.getElementById('btn-app-back')?.addEventListener('click', (e) => {
-    e.preventDefault();
+  /** @param {{ fromToolbar?: boolean }} [opts] */
+  function handleAppBack(opts) {
+    try {
+      if (typeof window.__READER_HANDLE_BACK__ === 'function' && window.__READER_HANDLE_BACK__(opts)) {
+        return;
+      }
+    } catch {
+      /* fall through to close */
+    }
     closeReader();
-  });
+  }
 
-  window.addEventListener('message', (e) => {
+  function onAppBackClick(e) {
+    e.preventDefault();
+    // Visible ← in toolbar = leave the book (after closing panels/footnotes).
+    handleAppBack({ fromToolbar: true });
+  }
+
+  const appBackBtn = document.getElementById('btn-app-back');
+  appBackBtn?.addEventListener('click', onAppBackClick);
+
+  function onBootstrapParentMessage(e) {
+    // Только родительское окно приложения — контентный iframe книги (sandboxed
+    // EPUB со скриптами) не должен управлять offline-хранилищем/позицией.
+    if (e.source !== window.parent) return;
     if (e.data?.type === 'inpx-safe-area') {
       applySafeArea(e.data.insets);
+      return;
+    }
+    if (e.data?.type === 'inpx-reader-offline') {
+      window.__READER_OFFLINE = e.data.offline ? 1 : 0;
+      if (offlineBanner) offlineBanner.hidden = !window.__READER_OFFLINE;
+      return;
+    }
+    if (e.data?.type === 'inpx-reader-eink') {
+      const on = Boolean(e.data.active);
+      window.__READER_APP_EINK = on ? 1 : 0;
+      if (on) {
+        document.documentElement.dataset.eink = '1';
+        document.documentElement.dataset.readerTheme = 'eink';
+      } else {
+        delete document.documentElement.dataset.eink;
+      }
       return;
     }
     if (e.data?.type === 'inpx-reader-seed-store' && e.data.bookId === bookId && e.data.data) {
       const before = readReaderData();
       const merged = mergeReaderStores(before, e.data.data);
       writeReaderData(merged, { skipParentNotify: true });
+      const beforeAnnSig = (before.annotations || []).map((a) => `${a.id}:${a.cfi}:${a.color || ''}`).join('|');
+      const afterAnnSig = (merged.annotations || []).map((a) => `${a.id}:${a.cfi}:${a.color || ''}`).join('|');
+      if (beforeAnnSig !== afterAnnSig && typeof window.__READER_RELOAD_ANNOTATIONS__ === 'function') {
+        void window.__READER_RELOAD_ANNOTATIONS__();
+      }
       if (merged.pendingCrossDevicePrompt) {
         positionPromptResolved = false;
         void maybeShowDeferredCrossDevicePrompt();
@@ -1065,6 +1239,17 @@ function debugLog(hypothesisId, location, message, data) {
       return;
     }
     if (e.data?.type === 'inpx-reader-back') {
-      closeReader();
+      // Android system / gesture Back — peel chrome, then exit.
+      handleAppBack({ fromToolbar: false });
     }
-  });
+  }
+
+  window.addEventListener('message', onBootstrapParentMessage);
+
+  function teardownBootstrapSession() {
+    window.removeEventListener('message', onBootstrapParentMessage);
+    appBackBtn?.removeEventListener('click', onAppBackClick);
+    releaseContentBlobUrl();
+  }
+
+  window.__READER_BOOTSTRAP_TEARDOWN__ = teardownBootstrapSession;

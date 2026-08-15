@@ -50,8 +50,10 @@ export function safeBookIdFileKey(bookId: string): string {
   if (bookIdNeedsSafeUrl(id)) {
     return `b64_${encodeBookRef(id)}`;
   }
+  // ':' тоже под замену: FUSE/vfat на /sdcard молча конвертирует ':' в '_' при записи,
+  // иначе путь с Flibusta-id вида '1:758073' никогда не совпадёт с файлом на диске.
   return id
-    .replace(/[\/\\*?"<>|]/g, '_')
+    .replace(/[\/\\:*?"<>|]/g, '_')
     .replace(/[\x00-\x1f\x7f]/g, '_')
     .slice(0, 180);
 }
@@ -62,7 +64,7 @@ export function safeBookIdFileKey(bookId: string): string {
  */
 export function legacyStrippedBookIdFileKey(bookId: string): string {
   return String(bookId ?? '')
-    .replace(/[\/\\*?"<>|]/g, '_')
+    .replace(/[\/\\:*?"<>|]/g, '_')
     .replace(/[\x00-\x1f\x7f]/g, '_')
     .slice(0, 180);
 }

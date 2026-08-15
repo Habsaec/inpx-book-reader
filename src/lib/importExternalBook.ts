@@ -1,11 +1,7 @@
 import { Book } from '../types';
 import type { StorageDirectory } from './storageDirectory';
-import { registerPlugin } from '@capacitor/core';
+import { BookStorage } from './bookStoragePlugin';
 import { fileNameFromLaunchUri } from './launchIntent';
-
-const BookStorage = registerPlugin<{
-  importContentUri(options: { treeUri: string; contentUri: string }): Promise<{ relativePath: string }>;
-}>('BookStorage');
 
 function extFromFileName(name: string): string {
   const m = name.match(/\.([a-z0-9]+)$/i);
@@ -17,11 +13,15 @@ function titleFromFileName(name: string): string {
 }
 
 function localImportBookId(relativePath: string): string {
-  let hash = 0;
+  // Два прохода (31 и 37) + длина: Math.abs(INT_MIN) всё ещё отрицателен,
+  // а одиночный 32-битный хеш даёт коллизии → чужие позиции/закладки.
+  let h1 = 0;
+  let h2 = 7;
   for (let i = 0; i < relativePath.length; i++) {
-    hash = (hash * 31 + relativePath.charCodeAt(i)) | 0;
+    h1 = (h1 * 31 + relativePath.charCodeAt(i)) | 0;
+    h2 = (h2 * 37 + relativePath.charCodeAt(i) * (i + 1)) | 0;
   }
-  return `local:import:${Math.abs(hash)}`;
+  return `local:import:${relativePath.length.toString(36)}-${(h1 >>> 0).toString(36)}-${(h2 >>> 0).toString(36)}`;
 }
 
 /** Импорт fb2/epub из content:// или file:// в папку Imports/. */
@@ -55,10 +55,11 @@ export function isImportedLocalBook(book: Book): boolean {
 export function findImportedBookByUri(books: Book[], uri: string): Book | null {
   const name = fileNameFromLaunchUri(uri);
   if (!name) return null;
-  return (
-    books.find((b) => {
-      const local = b.localFileName?.toLowerCase();
-      return local?.endsWith(name) || local?.endsWith(`imports/${name}`);
-    }) ?? null
-  );
+  const matches = books.filter((b) => {
+    const local = b.localFileName?.toLowerCase();
+    if (!local) return false;
+    return local === name || local.endsWith(`/${name}`) || local.endsWith(`imports/${name}`);
+  });
+  // Несколько импортов с одинаковым именем файла — не открываем чужую книгу.
+  return matches.length === 1 ? matches[0] : null;
 }

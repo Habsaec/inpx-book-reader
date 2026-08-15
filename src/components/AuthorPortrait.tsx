@@ -5,6 +5,7 @@ import type { StorageDirectory } from '../lib/storageDirectory';
 import {
   peekCoverMemory,
   peekPortraitMemory,
+  isPortraitMissCached,
   resolveAuthorPortraitUrl,
   resolveCoverUrl,
 } from '../lib/coverCache';
@@ -24,6 +25,8 @@ interface AuthorPortraitProps {
   size?: number;
   /** Fallback: cover of most popular book (server favorites parity). */
   coverBookId?: string | null;
+  /** Skip network when server says author has no portrait (grouped endpoint). */
+  hasPortrait?: boolean;
 }
 
 function AvatarFrame({
@@ -53,9 +56,13 @@ export default function AuthorPortrait({
   className = '',
   size = 48,
   coverBookId,
+  hasPortrait,
 }: AuthorPortraitProps) {
   const coverId = coverBookId != null && String(coverBookId).trim() ? String(coverBookId) : '';
-  const [src, setSrc] = React.useState<string | null>(() => peekPortraitMemory(authorName));
+  const skipPortraitFetch = hasPortrait === false || isPortraitMissCached(authorName);
+  const [src, setSrc] = React.useState<string | null>(() =>
+    skipPortraitFetch ? null : peekPortraitMemory(authorName),
+  );
   const [coverSrc, setCoverSrc] = React.useState<string | null>(() =>
     coverId ? peekCoverMemory(coverId, 'thumb') : null,
   );
@@ -66,10 +73,20 @@ export default function AuthorPortrait({
     let cancelled = false;
     setPortraitFailed(false);
 
+    if (skipPortraitFetch) {
+      setSrc(null);
+      setPortraitFailed(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const mem = peekPortraitMemory(authorName);
     if (mem) {
       setSrc(mem);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
     setSrc(null);
 
@@ -77,6 +94,7 @@ export default function AuthorPortrait({
       authorName,
       directory: storageDirectory,
       config: serverConfig,
+      hasPortrait,
     }).then((url) => {
       if (cancelled) return;
       if (url) {
@@ -84,6 +102,8 @@ export default function AuthorPortrait({
         return;
       }
       setPortraitFailed(true);
+    }).catch(() => {
+      if (!cancelled) setPortraitFailed(true);
     });
 
     return () => {
@@ -91,6 +111,8 @@ export default function AuthorPortrait({
     };
   }, [
     authorName,
+    hasPortrait,
+    skipPortraitFetch,
     storageDirectory?.uri,
     serverConfig.url,
     serverConfig.username,
@@ -112,7 +134,9 @@ export default function AuthorPortrait({
     const mem = peekCoverMemory(coverId, 'thumb');
     if (mem) {
       setCoverSrc(mem);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
     setCoverSrc(null);
 
@@ -128,6 +152,8 @@ export default function AuthorPortrait({
         return;
       }
       setCoverFailed(true);
+    }).catch(() => {
+      if (!cancelled) setCoverFailed(true);
     });
 
     return () => {
@@ -147,7 +173,16 @@ export default function AuthorPortrait({
   if (src && !portraitFailed) {
     return (
       <AvatarFrame size={size} className={className}>
-        <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+        <img
+          src={src}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          draggable={false}
+          onError={() => {
+            setPortraitFailed(true);
+            setSrc(null);
+          }}
+        />
       </AvatarFrame>
     );
   }

@@ -1,11 +1,16 @@
-import React from 'react';
+﻿import React from 'react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import {
   CatalogBookSort,
   CatalogEntitySort,
+  fetchGenres,
+  fetchSearchGenres,
+  isAuthError,
+  isUnreachableServerError,
 } from '../lib/inpxClient';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { useHorizontalTabSwipe } from '../hooks/useHorizontalTabSwipe';
 import {
   AlertCircle,
   RotateCcw,
@@ -20,21 +25,23 @@ import { useCatalogBookPool } from '../hooks/useCatalogBookPool';
 import PullToRefresh from './PullToRefresh';
 import CatalogSearchHeader from './catalog/CatalogSearchHeader';
 import CatalogBrowseLanding from './catalog/CatalogBrowseLanding';
-import CatalogSearchOverview from './catalog/CatalogSearchOverview';
 import CatalogEntityLists from './catalog/CatalogEntityLists';
 import CatalogDrilldownPanel from './catalog/CatalogDrilldownPanel';
 import CatalogBooksView from './catalog/CatalogBooksView';
+import CatalogSearchHintsBanner from './catalog/CatalogSearchHints';
 import BookDetailsSheet from './catalog/BookDetailsSheet';
-import type {
-  CatalogSubTab as SubTab,
-  DemoBookSort,
-  CatalogFormatFilter,
-  CatalogHasSeriesFilter,
+import { pushRecentBrowse } from '../lib/recentBrowseHistory';
+import {
+  CATALOG_BROWSE_ROOT,
+  CATALOG_BROWSE_TABS,
+  CATALOG_SEARCH_TABS,
+  type CatalogSubTab as SubTab,
+  type DemoBookSort,
+  type CatalogFormatFilter,
+  type CatalogHasSeriesFilter,
 } from './catalog/catalogTypes';
 import { textStyles, semantic } from '../ui/tokens';
-import { bookHasPendingSync } from '../lib/syncStats';
 import type { StorageDirectory } from '../lib/storageDirectory';
-import { fetchSearchOverview, fetchSearchGenres, fetchGenres, type CatalogField } from '../lib/inpxClient';
 import type { CatalogFilterDraft, CatalogGenreOption } from './catalog/CatalogFilterSheet';
 
 interface CatalogTabProps {
@@ -67,8 +74,13 @@ interface CatalogTabProps {
   isTabActive?: boolean;
   returnToPreviousTab?: string | null;
   onReturnToPreviousTab?: () => void;
-  onOpenSyncCenter?: () => void;
+  /** Clear cross-tab return target (search / filter clear / leaving deep-link). */
+  onClearReturnTo?: () => void;
+  /** External deep-link epoch — reset local search when bumped. */
+  catalogNavEpoch?: number;
   onBookLongPress?: (book: Book) => void;
+  onAuthExpired?: () => void;
+  onConnectionLost?: () => void;
 }
 
 export default function CatalogTab({
@@ -101,10 +113,13 @@ export default function CatalogTab({
   isTabActive = true,
   returnToPreviousTab = null,
   onReturnToPreviousTab,
-  onOpenSyncCenter,
+  onClearReturnTo,
+  catalogNavEpoch = 0,
   onBookLongPress,
+  onAuthExpired,
+  onConnectionLost,
 }: CatalogTabProps) {
-  const [localSubTab, setLocalSubTab] = React.useState<SubTab>('books');
+  const [localSubTab, setLocalSubTab] = React.useState<SubTab>(CATALOG_BROWSE_ROOT);
   const subTab = propSubTab !== undefined ? propSubTab : localSubTab;
   const setSubTab = onSubTabChange || setLocalSubTab;
 
@@ -114,22 +129,34 @@ export default function CatalogTab({
   const {
     searchInput,
     setSearchInput,
-    debouncedSearch,
+    liveQuery,
     submitSearch,
     clearSearch,
     isSearchActive,
   } = useCatalogSearch(serverConfig, isServerConnectedEarly, subTab);
   const { history: searchHistory, addQuery: addSearchQuery, removeQuery: removeSearchQuery, clearHistory: clearSearchHistory } = useSearchHistory();
 
-  /** idle → overview (hub) → results (field list) */
-  const [searchPhase, setSearchPhase] = React.useState<'idle' | 'overview' | 'results'>('idle');
-  const [searchOverview, setSearchOverview] = React.useState<{
-    books: number;
-    authors: number;
-    series: number;
-    booksCapped?: boolean;
-  } | null>(null);
-  const [overviewLoading, setOverviewLoading] = React.useState(false);
+  /** idle → results (books + field chips; no search hub) */
+  const [searchPhase, setSearchPhase] = React.useState<'idle' | 'results'>('idle');
+
+  const searchMode = searchPhase === 'results' && isSearchActive;
+
+  // Live list filter: browse filters current section; in search mode keeps results in sync while typing.
+  const listQuery = searchMode
+    ? liveQuery
+    : subTab === 'authors' || subTab === 'series' || subTab === 'genres'
+      ? liveQuery
+      : '';
+
+  // Clearing the box in search mode returns to catalog root (Авторы) immediately —
+  // don't wait for liveQuery debounce (avoids a spurious empty-query catalog fetch).
+  React.useEffect(() => {
+    if (searchPhase !== 'results') return;
+    if (searchInput.trim()) return;
+    clearSearch();
+    setSearchPhase('idle');
+    setSubTab(CATALOG_BROWSE_ROOT);
+  }, [searchInput, searchPhase, clearSearch, setSubTab]);
 
   const [selectedBook, setSelectedBook] = React.useState<Book | null>(null);
   const [downloadError, setDownloadError] = React.useState<string | null>(null);
@@ -173,8 +200,8 @@ export default function CatalogTab({
   const isServerConnected = isServerConnectedEarly;
 
   React.useEffect(() => {
-    if (!isServerConnected) {
-      setGenreOptions([]);
+    if (!isServerConnected || !isTabActive) {
+      if (!isServerConnected) setGenreOptions([]);
       return;
     }
     let cancelled = false;
@@ -195,13 +222,16 @@ export default function CatalogTab({
             ),
         );
       })
-      .catch(() => {
-        if (!cancelled) setGenreOptions([]);
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        if (isAuthError(e)) onAuthExpired?.();
+        else if (isUnreachableServerError(e)) onConnectionLost?.();
+        // Keep previous options on transient errors — clearing looks like "no genres".
       });
     return () => {
       cancelled = true;
     };
-  }, [isServerConnected, serverConfig]);
+  }, [isServerConnected, isTabActive, serverConfig.url, serverConfig.deviceToken, serverConfig.username, serverConfig.password]);
 
   const handleCatalogReconnectReset = React.useCallback(() => {
     setSelectedAuthor(null);
@@ -209,14 +239,13 @@ export default function CatalogTab({
     setSelectedSubgenre(null);
     clearSearch();
     setSearchPhase('idle');
-    setSearchOverview(null);
   }, [clearSearch, setSelectedAuthor, setSelectedSeries, setSelectedSubgenre]);
 
   const catalog = useCatalogData({
     serverConfig,
     isServerConnected,
     subTab,
-    debouncedSearch,
+    debouncedSearch: listQuery,
     searchInput,
     catalogSort,
     entitySort,
@@ -228,8 +257,11 @@ export default function CatalogTab({
     genreFilter: genreFilters,
     yearFilter,
     hasSeriesFilter,
-    pauseListFetch: searchPhase === 'overview',
+    // Hidden tab stays mounted — do not hit browse/catalog APIs until visible.
+    pauseListFetch: !isTabActive,
     onReconnectReset: handleCatalogReconnectReset,
+    onAuthExpired,
+    onConnectionLost,
   });
 
   const {
@@ -237,6 +269,7 @@ export default function CatalogTab({
     booksLoadingMore,
     browseLoading,
     booksList,
+    searchHints,
     listPage,
     listTotal,
     listPageSize,
@@ -260,8 +293,8 @@ export default function CatalogTab({
     handleListPageChange: changeListPage,
   } = catalog;
 
-  const scrollCatalogToTop = () => {
-    catalogScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  const scrollCatalogToTop = (behavior: ScrollBehavior = 'smooth') => {
+    catalogScrollRef.current?.scrollTo({ top: 0, behavior });
   };
 
   const handleListPageChange = React.useCallback((p: number) => {
@@ -269,42 +302,118 @@ export default function CatalogTab({
     scrollCatalogToTop();
   }, [changeListPage]);
 
-  const scrollStorageKey = `inpx_catalog_scroll_${subTab}`;
+  const scrollStorageKey = [
+    'inpx_catalog_scroll',
+    subTab,
+    selectedAuthor || '',
+    selectedSeries || '',
+    selectedSubgenre?.name || '',
+    authorOutsideSeries ? 'out' : '',
+  ].join('|');
+
   React.useEffect(() => {
-    if (!selectedBook) return;
-    sessionStorage.setItem(scrollStorageKey, String(catalogScrollRef.current?.scrollTop ?? 0));
-  }, [selectedBook, scrollStorageKey]);
+    const el = catalogScrollRef.current;
+    if (!el || !isTabActive) return;
+    const onScroll = () => {
+      sessionStorage.setItem(scrollStorageKey, String(el.scrollTop));
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [scrollStorageKey, isTabActive]);
 
   React.useEffect(() => {
     if (selectedBook || !isTabActive) return;
     const saved = sessionStorage.getItem(scrollStorageKey);
-    if (!saved) return;
+    // Always reset when key has no saved position — otherwise previous list scroll sticks.
     requestAnimationFrame(() => {
-      catalogScrollRef.current?.scrollTo({ top: Number(saved) });
+      catalogScrollRef.current?.scrollTo({ top: saved ? Number(saved) : 0 });
     });
   }, [selectedBook, isTabActive, scrollStorageKey]);
 
+  // Reader / inactive tab: drop local details sheet so its Back handler cannot steal return.
+  React.useEffect(() => {
+    if (!isTabActive) setSelectedBook(null);
+  }, [isTabActive]);
+
+  const catalogNavEpochRef = React.useRef(catalogNavEpoch);
+  React.useEffect(() => {
+    if (catalogNavEpoch === catalogNavEpochRef.current) return;
+    catalogNavEpochRef.current = catalogNavEpoch;
+    // External deep-link / catalog root entry — drop leftover search UI.
+    clearSearch();
+    setSearchPhase('idle');
+    setMinRating(0);
+    setFormatFilter('all');
+    setGenreFilters([]);
+    setYearFilter(0);
+    setHasSeriesFilter('any');
+    setSelectedBook(null);
+    setDownloadError(null);
+    setAuthorOutsideSeries(false);
+    // Match openAuthorPage / openSeriesPage sort defaults for deep-links.
+    if (selectedSeries) setCatalogSort('series');
+    else if (selectedAuthor) setCatalogSort('rating');
+  }, [catalogNavEpoch, clearSearch, setAuthorOutsideSeries, selectedAuthor, selectedSeries]);
+
+  React.useEffect(() => {
+    setDownloadError(null);
+  }, [selectedBook?.id]);
+
+  /** Genre to restore when Back from series/author opened from a genre book card. */
+  const entityReturnGenreRef = React.useRef<{ parent: string; name: string } | null>(null);
+  /** catalogSort before entering series/author — restore on step-back. */
+  const drillSortReturnRef = React.useRef<CatalogBookSort | null>(null);
+
+  const restoreDrillSort = React.useCallback((fallback: CatalogBookSort) => {
+    const prev = drillSortReturnRef.current;
+    drillSortReturnRef.current = null;
+    setCatalogSort(prev || fallback);
+  }, []);
+
   const handleDrillDownBack = React.useCallback(() => {
-    if (authorOutsideSeries) {
+    // Outside-series is only meaningful on the author hub (no series open).
+    if (authorOutsideSeries && !selectedSeries) {
       setAuthorOutsideSeries(false);
       return;
     }
     // Серия внутри страницы автора — один шаг вверх по drill-down.
     if (selectedSeries && selectedAuthor) {
       setSelectedSeries(null);
+      setAuthorOutsideSeries(false);
+      restoreDrillSort('rating');
       return;
     }
     // Пришли из избранного/другой вкладки — не оставлять на списке «Авторы»/«Серии».
     if (returnToPreviousTab && (selectedSeries || selectedAuthor || selectedSubgenre)) {
+      entityReturnGenreRef.current = null;
+      drillSortReturnRef.current = null;
       onReturnToPreviousTab?.();
       return;
     }
     if (selectedSeries) {
       setSelectedSeries(null);
+      setAuthorOutsideSeries(false);
+      const returnGenre = entityReturnGenreRef.current;
+      entityReturnGenreRef.current = null;
+      if (returnGenre) {
+        setSelectedSubgenre(returnGenre);
+        restoreDrillSort('rating');
+      } else {
+        restoreDrillSort('title');
+      }
       return;
     }
     if (selectedAuthor) {
       setSelectedAuthor(null);
+      setAuthorOutsideSeries(false);
+      const returnGenre = entityReturnGenreRef.current;
+      entityReturnGenreRef.current = null;
+      if (returnGenre) {
+        setSelectedSubgenre(returnGenre);
+        restoreDrillSort('rating');
+      } else {
+        restoreDrillSort('rating');
+      }
       return;
     }
     if (selectedSubgenre) {
@@ -320,6 +429,8 @@ export default function CatalogTab({
     setSelectedAuthor,
     setSelectedSeries,
     setSelectedSubgenre,
+    setAuthorOutsideSeries,
+    restoreDrillSort,
   ]);
 
   useBackHandler(() => {
@@ -333,46 +444,27 @@ export default function CatalogTab({
       return true;
     }
     if (searchPhase === 'results' && isSearchActive) {
-      setSearchPhase('overview');
-      setSubTab('books');
-      return true;
-    }
-    if (searchPhase === 'overview') {
       clearSearch();
       setSearchPhase('idle');
-      setSearchOverview(null);
-      setSubTab('books');
+      setSubTab(CATALOG_BROWSE_ROOT);
       setMinRating(0);
       setFormatFilter('all');
       setGenreFilters([]);
       setYearFilter(0);
       setHasSeriesFilter('any');
+      onClearReturnTo?.();
       return true;
     }
-    if (returnToPreviousTab) {
-      onReturnToPreviousTab?.();
-      return true;
-    }
-    if (subTab !== 'books') {
-      setSubTab('books');
+    if (subTab !== CATALOG_BROWSE_ROOT) {
+      setSubTab(CATALOG_BROWSE_ROOT);
       return true;
     }
     return false;
-  });
+  }, isTabActive);
 
   const searchPlaceholder = isServerConnected
     ? 'Книга, автор или серия'
     : 'Поиск по названию, автору, серии…';
-
-  const searchField: Exclude<SubTab, 'genres'> =
-    subTab === 'genres' ? 'books' : subTab;
-
-  const setSearchField = (field: Exclude<SubTab, 'genres'>) => {
-    setSubTab(field);
-    setSelectedAuthor(null);
-    setSelectedSeries(null);
-    setSelectedSubgenre(null);
-  };
 
   const handleDownload = async (book: Book) => {
     if (!isServerConnected) {
@@ -404,7 +496,7 @@ export default function CatalogTab({
     const year =
       yearFilter >= 1800 && yearFilter <= 2100 ? yearFilter : undefined;
     const hasScope =
-      Boolean(debouncedSearch.trim()) ||
+      Boolean(listQuery.trim()) ||
       formatFilter !== 'all' ||
       Boolean(year) ||
       minRating >= 1 ||
@@ -414,7 +506,7 @@ export default function CatalogTab({
 
     try {
       const data = await fetchSearchGenres(serverConfig, {
-        q: debouncedSearch.trim() || undefined,
+        q: listQuery.trim() || undefined,
         format: formatFilter !== 'all' ? formatFilter : undefined,
         year,
         minRate: minRating >= 1 ? minRating : undefined,
@@ -445,7 +537,7 @@ export default function CatalogTab({
   }, [
     isServerConnected,
     genreOptions,
-    debouncedSearch,
+    listQuery,
     formatFilter,
     yearFilter,
     minRating,
@@ -454,17 +546,42 @@ export default function CatalogTab({
     serverConfig,
   ]);
 
-  const clearAllFilters = React.useCallback(() => {
+  const clearBookFilters = React.useCallback(() => {
     setMinRating(0);
     setFormatFilter('all');
     setGenreFilters([]);
     setYearFilter(0);
     setHasSeriesFilter('any');
+  }, []);
+
+  const clearAllFilters = React.useCallback(() => {
+    clearBookFilters();
+    // «Вне серий» empty CTA — step back to author hub, don't wipe the author.
+    if (authorOutsideSeries && selectedAuthor && !selectedSeries) {
+      setAuthorOutsideSeries(false);
+      return;
+    }
+    // On a genre page keep the genre; only reset book filters.
+    if (selectedSubgenre && !selectedAuthor && !selectedSeries) return;
     setSelectedAuthor(null);
     setSelectedSeries(null);
     setSelectedSubgenre(null);
+    entityReturnGenreRef.current = null;
+    drillSortReturnRef.current = null;
     setAuthorOutsideSeries(false);
-  }, [setSelectedAuthor, setSelectedSeries, setSelectedSubgenre]);
+    onClearReturnTo?.();
+  }, [
+    clearBookFilters,
+    authorOutsideSeries,
+    selectedSubgenre,
+    selectedAuthor,
+    selectedSeries,
+    setSelectedAuthor,
+    setSelectedSeries,
+    setSelectedSubgenre,
+    setAuthorOutsideSeries,
+    onClearReturnTo,
+  ]);
 
   const handleBookClick = (book: Book) => {
     setSelectedBook(book);
@@ -473,19 +590,42 @@ export default function CatalogTab({
   const openAuthorPage = (authorName: string) => {
     setSelectedBook(null);
     setSelectedSeries(null);
+    entityReturnGenreRef.current = selectedSubgenre
+      ? { parent: selectedSubgenre.parent, name: selectedSubgenre.name }
+      : null;
     setSelectedSubgenre(null);
     setAuthorOutsideSeries(false);
+    clearBookFilters();
+    drillSortReturnRef.current = catalogSort;
+    setCatalogSort('rating');
     setSelectedAuthor(authorName);
+    scrollCatalogToTop('auto');
+    pushRecentBrowse({ kind: 'author', name: authorName });
   };
 
+  /**
+   * Open a series entity page.
+   * @param filterAuthor - if passed (incl. null), replace selectedAuthor; if omitted, keep current.
+   */
   const openSeriesPage = (seriesName: string, filterAuthor?: string | null) => {
     setSelectedBook(null);
+    setAuthorOutsideSeries(false);
+    if (selectedSubgenre) {
+      entityReturnGenreRef.current = {
+        parent: selectedSubgenre.parent,
+        name: selectedSubgenre.name,
+      };
+    }
     setSelectedSubgenre(null);
     setSelectedSeries(seriesName);
+    clearBookFilters();
+    drillSortReturnRef.current = catalogSort;
     setCatalogSort('series');
     if (filterAuthor !== undefined) {
       setSelectedAuthor(filterAuthor);
     }
+    scrollCatalogToTop('auto');
+    pushRecentBrowse({ kind: 'series', name: seriesName });
   };
 
   // Build Aggregations (Authors, Series, Genres) for demo/offline mode
@@ -493,7 +633,7 @@ export default function CatalogTab({
     isServerConnected,
     isSearchActive,
     subTab,
-    searchInput: debouncedSearch,
+    searchInput: listQuery,
     selectedAuthor,
     selectedSeries,
     selectedSubgenre,
@@ -557,75 +697,50 @@ export default function CatalogTab({
     !selectedSubgenre &&
     (booksLoading || isRefreshing) &&
     booksList.length === 0;
+  const catalogDrillDown = Boolean(selectedAuthor || selectedSeries || selectedSubgenre);
+  // Don't unmount drill-down chrome for facet loads — skeleton only for root lists / search.
   const showContentSpinner =
     !idleBooksHome &&
-    searchPhase !== 'overview' &&
-    (showBooksSpinner || showBrowseSpinner || facetLoading || showSearchPending);
+    !catalogDrillDown &&
+    (showBooksSpinner || showBrowseSpinner || showSearchPending);
 
   const toggleGenreExpand = (name: string) => {
     setExpandedGenres(prev => ({ ...prev, [name]: !prev[name] }));
   };
 
-  // Theme styling helpers
-  const themeHeader = theme.header;
   const themeTextMuted = theme.textMuted;
-  const themeAccentBg = theme.accentBg;
-  const themeInput = theme.input;
-
-  const catalogDrillDown = Boolean(selectedAuthor || selectedSeries || selectedSubgenre);
-  const resultsFromHub = searchPhase === 'results' && isSearchActive && !catalogDrillDown;
   // Entity browse hides the book grid; book search results must keep CatalogBooksView.
   const entityBrowseActive =
-    searchPhase !== 'overview' &&
     !catalogDrillDown &&
     (subTab === 'authors' || subTab === 'series' || subTab === 'genres');
-  const showHeaderBack = entityBrowseActive || resultsFromHub;
   const showBrowseLanding =
     searchPhase === 'idle' &&
     subTab === 'books' &&
     !catalogDrillDown &&
     !isSearchActive &&
     !hasBookFilters;
-  const showSearchHub = searchPhase === 'overview' && isSearchActive;
 
   const clearDrilldownSelection = React.useCallback(() => {
     setSelectedAuthor(null);
     setSelectedSeries(null);
     setSelectedSubgenre(null);
+    entityReturnGenreRef.current = null;
+    drillSortReturnRef.current = null;
     setAuthorOutsideSeries(false);
-  }, [setSelectedAuthor, setSelectedSeries, setSelectedSubgenre]);
+    onClearReturnTo?.();
+  }, [setSelectedAuthor, setSelectedSeries, setSelectedSubgenre, setAuthorOutsideSeries, onClearReturnTo]);
 
-  const resetSearchHub = React.useCallback(() => {
+  const resetSearch = React.useCallback(() => {
     clearSearch();
     setSearchPhase('idle');
-    setSearchOverview(null);
+    setSubTab(CATALOG_BROWSE_ROOT);
     setMinRating(0);
     setFormatFilter('all');
     setGenreFilters([]);
     setYearFilter(0);
     setHasSeriesFilter('any');
-  }, [clearSearch]);
-
-  const loadSearchOverview = React.useCallback(async (q: string) => {
-    if (!isServerConnected) {
-      setSearchOverview({ books: 0, authors: 0, series: 0 });
-      return;
-    }
-    setOverviewLoading(true);
-    try {
-      const data = await fetchSearchOverview(serverConfig, q);
-      setSearchOverview({
-        books: data.books?.total ?? 0,
-        authors: data.authors?.total ?? 0,
-        series: data.series?.total ?? 0,
-        booksCapped: Boolean(data.books?.capped),
-      });
-    } catch {
-      setSearchOverview({ books: 0, authors: 0, series: 0 });
-    } finally {
-      setOverviewLoading(false);
-    }
-  }, [isServerConnected, serverConfig]);
+    onClearReturnTo?.();
+  }, [clearSearch, onClearReturnTo, setSubTab]);
 
   const handleSubmitSearch = React.useCallback(() => {
     const q = submitSearch();
@@ -633,27 +748,47 @@ export default function CatalogTab({
     addSearchQuery(q);
     clearDrilldownSelection();
     setSubTab('books');
-    setSearchPhase('overview');
-    void loadSearchOverview(q);
-  }, [submitSearch, addSearchQuery, clearDrilldownSelection, setSubTab, loadSearchOverview]);
-
-  const openSearchField = React.useCallback((field: CatalogField) => {
-    clearDrilldownSelection();
-    setSubTab(field);
     setSearchPhase('results');
-  }, [clearDrilldownSelection, setSubTab]);
+  }, [submitSearch, addSearchQuery, clearDrilldownSelection, setSubTab]);
+
+  const handleSubTabChange = React.useCallback(
+    (tab: SubTab) => {
+      clearDrilldownSelection();
+      // Genres exist only in browse mode — opening them exits search.
+      if (tab === 'genres' && (searchPhase === 'results' || isSearchActive)) {
+        resetSearch();
+      }
+      setSubTab(tab);
+    },
+    [clearDrilldownSelection, searchPhase, isSearchActive, resetSearch, setSubTab],
+  );
+
+  // Search: Книги→Авторы→Серии. Browse: Авторы→Серии→Жанры.
+  const swipeTabs = searchMode ? CATALOG_SEARCH_TABS : CATALOG_BROWSE_TABS;
+  const catalogSwipe = useHorizontalTabSwipe(swipeTabs, subTab, handleSubTabChange, {
+    enabled: isTabActive && !catalogDrillDown && !selectedBook && swipeTabs.includes(subTab),
+  });
+
+  const returnBackLabel =
+    returnToPreviousTab === 'library'
+      ? 'В библиотеку'
+      : returnToPreviousTab === 'home'
+        ? 'На главную'
+        : returnToPreviousTab === 'profile'
+          ? 'В профиль'
+          : null;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden" {...catalogSwipe}>
       <CatalogSearchHeader
           subTab={subTab}
-          onSubTabChange={setSubTab}
           onClearDrilldown={clearDrilldownSelection}
           isServerConnected={isServerConnected}
           searchInput={searchInput}
           onSearchInputChange={setSearchInput}
           onSubmitSearch={handleSubmitSearch}
-          onClearSearch={resetSearchHub}
+          onClearSearch={resetSearch}
           searchPlaceholder={searchPlaceholder}
           showSearchHistory={searchHistory.length > 0}
           searchHistory={searchHistory}
@@ -663,8 +798,7 @@ export default function CatalogTab({
             if (!next) return;
             addSearchQuery(next);
             setSubTab('books');
-            setSearchPhase('overview');
-            void loadSearchOverview(next);
+            setSearchPhase('results');
           }}
           onRemoveHistoryQuery={removeSearchQuery}
           onClearSearchHistory={clearSearchHistory}
@@ -672,17 +806,11 @@ export default function CatalogTab({
           entitySort={entitySort}
           onCatalogSortChange={setCatalogSort}
           onEntitySortChange={setEntitySort}
-          searchField={searchField}
-          onSearchFieldChange={setSearchField}
-          browseModeActive={showHeaderBack}
-          onLeaveBrowse={() => {
-            if (searchPhase === 'results' && isSearchActive) {
-              setSearchPhase('overview');
-              setSubTab('books');
-              return;
-            }
-            setSubTab('books');
-          }}
+          bookListActive={catalogDrillDown}
+          seriesBookList={Boolean(selectedSeries)}
+          searchMode={searchMode}
+          entityPage={catalogDrillDown}
+          onSubTabChange={handleSubTabChange}
         />
 
       {/* Main Aggregations and Catalog content */}
@@ -690,7 +818,7 @@ export default function CatalogTab({
         scrollRef={catalogScrollRef}
         onRefresh={refreshCatalog}
         disabled={!isServerConnected}
-        className="flex-1 overflow-y-auto px-4 py-3 landscape:max-[500px]:px-2 landscape:max-[500px]:py-2 flex flex-col"
+        className="flex-1 overflow-y-auto px-5 py-4 landscape:max-[500px]:px-4 landscape:max-[500px]:py-3 flex flex-col"
       >
         {error && (
           <div className={`mb-3.5 p-2.5 rounded-lg border flex items-start gap-2 ${textStyles.caption} ${semantic.errorBg}`}>
@@ -715,15 +843,6 @@ export default function CatalogTab({
               <WifiOff className="w-4 h-4 shrink-0" aria-hidden />
               Офлайн — поиск по серверу недоступен
             </span>
-            {onOpenSyncCenter && (
-              <button
-                type="button"
-                onClick={onOpenSyncCenter}
-                className={`shrink-0 font-bold underline ${theme.focusRing}`}
-              >
-                Проверить
-              </button>
-            )}
           </div>
         )}
 
@@ -731,7 +850,7 @@ export default function CatalogTab({
           <p className={`mb-2 ${textStyles.caption} ${themeTextMuted}`} role="status">Обновление…</p>
         )}
 
-        {((searchPhase === 'results' || hasBookFilters) && listTotal > 0) && (
+        {((searchPhase === 'results' || hasBookFilters) && listTotal > 0 && !catalogDrillDown) && (
           <p className={`mb-2 ${textStyles.micro} ${themeTextMuted}`}>
             Найдено: <strong>{listTotal.toLocaleString('ru-RU')}</strong>
           </p>
@@ -739,22 +858,31 @@ export default function CatalogTab({
 
         {showContentSpinner ? (
           <BookListSkeleton count={6} />
-        ) : showSearchHub ? (
-          <CatalogSearchOverview
-            query={debouncedSearch}
-            totals={searchOverview ?? { books: 0, authors: 0, series: 0 }}
-            loading={overviewLoading}
-            onOpenField={openSearchField}
-          />
         ) : showBrowseLanding ? (
           <CatalogBrowseLanding
-            onBrowse={(tab) => {
+            onOpenAuthor={openAuthorPage}
+            onOpenSeries={(name) => openSeriesPage(name, null)}
+            onBrowseTab={(tab) => {
               clearDrilldownSelection();
               setSubTab(tab);
             }}
           />
         ) : (
           <div className="flex-1 flex flex-col">
+            {searchPhase === 'results' && isSearchActive && !catalogDrillDown ? (
+              <CatalogSearchHintsBanner
+                hints={searchHints}
+                onDidYouMean={(q) => {
+                  setSearchInput(q);
+                  const next = submitSearch(q);
+                  if (!next) return;
+                  addSearchQuery(next);
+                  clearDrilldownSelection();
+                  setSubTab('books');
+                  setSearchPhase('results');
+                }}
+              />
+            ) : null}
 
             <CatalogDrilldownPanel
               selectedAuthor={selectedAuthor}
@@ -762,7 +890,11 @@ export default function CatalogTab({
               selectedSubgenre={selectedSubgenre}
               authorOutsideSeries={authorOutsideSeries}
               authorGrouped={authorGrouped}
-              currentBooksCount={currentBooks.length}
+              currentBooksCount={
+                selectedSubgenre || selectedSeries || selectedAuthor
+                  ? facetTotal || authorGrouped?.total || currentBooks.length
+                  : currentBooks.length
+              }
               isServerBrowse={isServerBrowse}
               isAppDark={isAppDark}
               serverConfig={serverConfig}
@@ -770,11 +902,14 @@ export default function CatalogTab({
               favoriteAuthors={favoriteAuthors}
               favoriteSeries={favoriteSeries}
               onDrillDownBack={handleDrillDownBack}
+              drillDownBackLabel={returnBackLabel}
               onToggleFavoriteAuthor={onToggleFavoriteAuthor}
               onToggleFavoriteSeries={onToggleFavoriteSeries}
             />
 
-            {!entityBrowseActive && (
+            {catalogDrillDown && facetLoading ? (
+              <BookListSkeleton count={6} />
+            ) : !entityBrowseActive ? (
             <CatalogBooksView
               subTab={subTab}
               isServerBrowse={isServerBrowse}
@@ -804,17 +939,30 @@ export default function CatalogTab({
               onSortByChange={setSortBy}
               onApplyFilters={applyCatalogFilters}
               onClearAllFilters={clearAllFilters}
-              showFilters={isSearchActive && searchPhase === 'results' && !catalogDrillDown}
+              showFilters={
+                (isSearchActive && searchPhase === 'results' && !catalogDrillDown) ||
+                Boolean(selectedSubgenre && !selectedAuthor && !selectedSeries)
+              }
+              showGenrePicker={!(selectedSubgenre && !selectedAuthor && !selectedSeries)}
+              showBookSortBar={Boolean(selectedSubgenre && !selectedAuthor && !selectedSeries)}
+              bookSort={catalogSort}
+              onBookSortChange={setCatalogSort}
               onClearAuthor={() => setSelectedAuthor(null)}
               onClearSeries={() => setSelectedSeries(null)}
               onClearSubgenre={() => setSelectedSubgenre(null)}
               downloadedBookIds={downloadedBookIds}
+              downloadingId={downloadingId}
+              queuedBookIds={queuedBookIds}
               readIds={readIds}
               readingProgressByBookId={readingProgressByBookId}
               onBookClick={handleBookClick}
               onBookLongPress={onBookLongPress}
               onOpenSeries={(name, author) => openSeriesPage(name, author)}
-              onOpenOutsideSeries={() => setAuthorOutsideSeries(true)}
+              onOpenOutsideSeries={() => {
+                setCatalogSort('rating');
+                setAuthorOutsideSeries(true);
+                scrollCatalogToTop('auto');
+              }}
               booksListLength={booksList.length}
               listTotal={listTotal}
               booksLoadingMore={booksLoadingMore}
@@ -826,9 +974,9 @@ export default function CatalogTab({
               onFacetPageChange={setFacetPage}
               onScrollToTop={scrollCatalogToTop}
             />
-            )}
+            ) : null}
 
-            {(subTab === 'authors' || subTab === 'series' || subTab === 'genres') && (
+            {(subTab === 'authors' || subTab === 'series' || subTab === 'genres') && !catalogDrillDown && (
               <CatalogEntityLists
                 subTab={subTab}
                 isServerBrowse={isServerBrowse}
@@ -844,7 +992,14 @@ export default function CatalogTab({
                 onSeriesSortChange={setSeriesSortBy}
                 expandedGenres={expandedGenres}
                 onToggleGenreExpand={toggleGenreExpand}
-                onSelectSubgenre={(parent, name) => setSelectedSubgenre({ parent, name })}
+                onSelectSubgenre={(parent, name) => {
+                  setCatalogSort('rating');
+                  clearBookFilters();
+                  entityReturnGenreRef.current = null;
+                  drillSortReturnRef.current = null;
+                  setSelectedSubgenre({ parent, name });
+                  scrollCatalogToTop('auto');
+                }}
                 listPage={listPage}
                 listPageSize={listPageSize}
                 listTotal={listTotal}
@@ -861,9 +1016,10 @@ export default function CatalogTab({
           </div>
         )}
       </PullToRefresh>
+      </div>
 
       <BookDetailsSheet
-        book={selectedBook}
+        book={isTabActive ? selectedBook : null}
         onClose={() => setSelectedBook(null)}
         serverConfig={serverConfig}
         storageDirectory={storageDirectory}
@@ -873,20 +1029,20 @@ export default function CatalogTab({
         queuedBookIds={queuedBookIds}
         downloadError={downloadError}
         onDownload={handleDownload}
-        onOpenBook={onOpenBook}
+        onOpenBook={(book) => {
+          setSelectedBook(null);
+          onOpenBook(book);
+        }}
+        onSelectBook={setSelectedBook}
         bookmarkIds={bookmarkIds}
         readIds={readIds}
         onToggleBookBookmark={onToggleBookBookmark}
         onToggleRead={onToggleRead}
         isAppDark={isAppDark}
         onOpenAuthor={openAuthorPage}
-        onOpenSeries={(name) => openSeriesPage(name, null)}
-        hasPendingSync={selectedBook ? downloadedBookIds.includes(selectedBook.id) && bookHasPendingSync(selectedBook.id) : false}
-        onOpenSyncCenter={() => {
-          onOpenSyncCenter?.();
-          setSelectedBook(null);
-        }}
+        onOpenSeries={(name) => openSeriesPage(name)}
         dragControls={bookSheetDrag}
+        onAuthExpired={onAuthExpired}
       />
     </div>
   );

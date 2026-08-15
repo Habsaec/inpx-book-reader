@@ -22,6 +22,9 @@ vi.mock('../platform', () => ({
 vi.mock('../inpxClient', () => ({
   deleteReadingHistoryApi: vi.fn().mockResolvedValue(undefined),
   toggleBookRead: vi.fn().mockResolvedValue(true),
+  ensureBookReadState: vi.fn().mockResolvedValue(undefined),
+  isAuthError: () => false,
+  isUnreachableServerError: vi.fn().mockReturnValue(false),
 }));
 
 function mockLocalStorage() {
@@ -68,5 +71,74 @@ describe('syncQueueProcessor', () => {
     expect(deleteReadingHistoryApi).toHaveBeenCalledWith(expect.objectContaining({ url: 'http://x' }), 'book-99');
     const pending = await getPendingSyncOps();
     expect(pending).toHaveLength(0);
+  });
+
+  it('processes toggle_read via ensureBookReadState', async () => {
+    const { enqueueSyncOp, getPendingSyncOps, initLocalDb } = await import('../localDb');
+    const { ensureBookReadState } = await import('../inpxClient');
+    await initLocalDb();
+    await enqueueSyncOp('toggle_read', 'book-7', { markRead: true });
+    const { processSyncQueue } = await import('../syncQueueProcessor');
+    const n = await processSyncQueue({ url: 'http://x', connectionStatus: 'connected' });
+    expect(n).toBe(1);
+    expect(ensureBookReadState).toHaveBeenCalledWith(
+      expect.objectContaining({ url: 'http://x' }),
+      'book-7',
+      true,
+    );
+    const pending = await getPendingSyncOps();
+    expect(pending).toHaveLength(0);
+  });
+
+  it('skips ops that already hit MAX_SYNC_OP_ATTEMPTS', async () => {
+    const { enqueueSyncOp, getPendingSyncOps, incrementSyncOpAttempts, initLocalDb } = await import('../localDb');
+    const { deleteReadingHistoryApi } = await import('../inpxClient');
+    const { processSyncQueue, MAX_SYNC_OP_ATTEMPTS } = await import('../syncQueueProcessor');
+    await initLocalDb();
+    await enqueueSyncOp('remove_history', 'book-stuck', {});
+    const [op] = await getPendingSyncOps();
+    for (let i = 0; i < MAX_SYNC_OP_ATTEMPTS; i++) {
+      await incrementSyncOpAttempts(op.id);
+    }
+    vi.mocked(deleteReadingHistoryApi).mockClear();
+    const n = await processSyncQueue({ url: 'http://x', connectionStatus: 'connected' });
+    expect(n).toBe(0);
+    expect(deleteReadingHistoryApi).not.toHaveBeenCalled();
+    const pending = await getPendingSyncOps();
+    expect(pending).toHaveLength(1);
+  });
+
+  it('drops poison-pill toggle_read ops instead of burning attempts forever', async () => {
+    const { enqueueSyncOp, getPendingSyncOps, initLocalDb } = await import('../localDb');
+    await initLocalDb();
+    await enqueueSyncOp('toggle_read', 'book-poison', { markRead: true });
+    const [op] = await getPendingSyncOps();
+    // Портим payload напрямую в сторе — имитация повреждённой записи.
+    const storeKey = [...idbStore.keys()].find((k) => k.endsWith(`sync_queue:${op.id}`));
+    expect(storeKey).toBeTruthy();
+    idbStore.set(storeKey!, { ...op, payload: '{broken json' });
+    const { processSyncQueue } = await import('../syncQueueProcessor');
+    const n = await processSyncQueue({ url: 'http://x', connectionStatus: 'connected' });
+    expect(n).toBe(0);
+    const pending = await getPendingSyncOps();
+    expect(pending).toHaveLength(0);
+  });
+
+  it('stops processing when server is unreachable', async () => {
+    const { enqueueSyncOp, getPendingSyncOps, initLocalDb } = await import('../localDb');
+    const inpxClient = await import('../inpxClient');
+    await initLocalDb();
+    await enqueueSyncOp('remove_history', 'book-a', {});
+    await enqueueSyncOp('remove_history', 'book-b', {});
+    vi.mocked(inpxClient.deleteReadingHistoryApi)
+      .mockRejectedValueOnce(Object.assign(new Error('Network error'), { name: 'ApiError', status: 0 }))
+      .mockResolvedValue(undefined);
+    vi.mocked(inpxClient.isUnreachableServerError).mockReturnValue(true);
+    const { processSyncQueue } = await import('../syncQueueProcessor');
+    const n = await processSyncQueue({ url: 'http://x', connectionStatus: 'connected' });
+    expect(n).toBe(0);
+    expect(inpxClient.deleteReadingHistoryApi).toHaveBeenCalledTimes(1);
+    const pending = await getPendingSyncOps();
+    expect(pending).toHaveLength(2);
   });
 });

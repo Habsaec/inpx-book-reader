@@ -6,11 +6,13 @@ import {
   Moon,
   Tv,
   ShieldCheck,
-  Palette,
   LogOut,
   AlertTriangle,
   QrCode,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
+import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
 import { ServerConfig } from '../types';
 import {
   StorageDirectory,
@@ -25,19 +27,24 @@ import { isAndroid } from '../lib/platform';
 import { insecureHttpWarning } from '../lib/serverUrl';
 import { clearServerCredentials } from '../lib/secureServerConfig';
 import { parsePairingQrPayload, redeemPairingCode } from '../lib/inpxClient';
-import { scanAppPairingQr } from '../lib/scanAppPairingQr';
-import type { AppThemeMode } from '../lib/serverTheme';
+import { scanAppPairingQr, isQrScanCanceled } from '../lib/scanAppPairingQr';
+import type { AppAppearance, AppColorSource } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
 import DiagnosticsTab from './DiagnosticsTab';
-import { textStyles, semantic } from '../ui/tokens';
+import { textStyles, semantic, radii, elevation, motion } from '../ui/tokens';
 import Button from '../ui/Button';
 import { useSnackbar } from '../ui/Snackbar';
 
 interface SyncSettingsTabProps {
   storageDirectory: StorageDirectory | null;
   onChangeStorageDirectory: (dir: StorageDirectory | null) => void;
-  appTheme: AppThemeMode;
-  onChangeTheme: (theme: AppThemeMode) => void;
+  appearance: AppAppearance;
+  onChangeAppearance: (mode: AppAppearance) => void;
+  colorSource: AppColorSource;
+  onChangeColorSource: (source: AppColorSource) => void;
+  useServerBackground: boolean;
+  onChangeUseServerBackground: (on: boolean) => void;
+  hasServerBackground: boolean;
   isAppDark: boolean;
   einkMode: EinkModePref;
   onChangeEinkMode: (mode: EinkModePref) => void;
@@ -60,8 +67,13 @@ interface SyncSettingsTabProps {
 export default function SyncSettingsTab({
   storageDirectory,
   onChangeStorageDirectory,
-  appTheme,
-  onChangeTheme,
+  appearance,
+  onChangeAppearance,
+  colorSource,
+  onChangeColorSource,
+  useServerBackground,
+  onChangeUseServerBackground,
+  hasServerBackground,
   isAppDark,
   einkMode,
   onChangeEinkMode,
@@ -78,6 +90,9 @@ export default function SyncSettingsTab({
   const [pickingFolder, setPickingFolder] = React.useState(false);
   const [forgetting, setForgetting] = React.useState(false);
   const [scanning, setScanning] = React.useState(false);
+  const authActionGen = React.useRef(0);
+  const { viewMode: homeViewMode, setViewMode: setHomeViewMode } = useCatalogViewMode('home');
+  const { viewMode: booksViewMode, setViewMode: setBooksViewMode } = useCatalogViewMode('books');
   const snackbar = useSnackbar();
   const themeInput = theme.input;
   const themeAccentText = theme.accentText;
@@ -110,29 +125,39 @@ export default function SyncSettingsTab({
   };
 
   const handleForgetServer = async () => {
+    if (scanning) return;
     setForgetting(true);
+    const gen = ++authActionGen.current;
+    const snapshot = serverConfig;
+    // Wipe React state first so the 250ms persist effect cannot re-save credentials
+    // after clearServerCredentials finishes.
+    onChangeServerConfig({
+      url: 'http://127.0.0.1:3000',
+      username: '',
+      password: '',
+      deviceToken: '',
+      deviceTokenId: '',
+      connectionStatus: 'disconnected',
+    });
     try {
-      await clearServerCredentials(serverConfig);
-      onChangeServerConfig({
-        url: 'http://127.0.0.1:3000',
-        username: '',
-        password: '',
-        deviceToken: '',
-        deviceTokenId: '',
-        connectionStatus: 'disconnected',
-      });
+      await clearServerCredentials(snapshot);
+      if (gen !== authActionGen.current) return;
       onForgetServer?.();
     } finally {
-      setForgetting(false);
+      if (gen === authActionGen.current) setForgetting(false);
     }
   };
 
   const handleScanQr = async () => {
+    if (forgetting) return;
     setScanning(true);
+    const gen = ++authActionGen.current;
     try {
       const raw = await scanAppPairingQr();
+      if (gen !== authActionGen.current) return;
       const payload = parsePairingQrPayload(raw);
       const redeemed = await redeemPairingCode(payload.url, payload.code);
+      if (gen !== authActionGen.current) return;
       onPairingLogin({
         url: redeemed.serverUrl || payload.url,
         username: redeemed.username,
@@ -140,38 +165,48 @@ export default function SyncSettingsTab({
         deviceTokenId: redeemed.deviceTokenId,
       });
     } catch (error) {
+      if (gen !== authActionGen.current) return;
+      if (isQrScanCanceled(error)) return;
       snackbar.show(error instanceof Error ? error.message : 'Не удалось войти по QR', undefined, 'error');
     } finally {
-      setScanning(false);
+      if (gen === authActionGen.current) setScanning(false);
     }
   };
 
   React.useEffect(() => {
     if (!isAndroid() || isValidStorageDirectory(storageDirectory)) return;
     let cancelled = false;
-    void ensureStorageDirectory(storageDirectory).then((resolved) => {
-      if (!cancelled && resolved) onChangeStorageDirectory(resolved);
-    });
+    void ensureStorageDirectory(storageDirectory)
+      .then((resolved) => {
+        if (!cancelled && resolved) onChangeStorageDirectory(resolved);
+      })
+      .catch((err) => console.warn('[SyncSettingsTab] ensureStorageDirectory failed:', err));
     return () => {
       cancelled = true;
     };
   }, [storageDirectory, onChangeStorageDirectory]);
 
-  const themeOptions: Array<{ id: AppThemeMode; label: string; icon: typeof Sun }> = [
-    { id: 'server', label: 'Как на сервере', icon: Palette },
-    { id: 'system', label: 'Система', icon: Tv },
+  const appearanceOptions: Array<{ id: AppAppearance; label: string; icon: typeof Sun }> = [
     { id: 'light', label: 'День', icon: Sun },
     { id: 'dark', label: 'Ночь', icon: Moon },
-    { id: 'sepia', label: 'Сепия', icon: Sun },
     { id: 'auto', label: 'Авто', icon: Tv },
   ];
+  const colorOptions: Array<{ id: AppColorSource; label: string }> = [
+    { id: 'server', label: 'Сервер' },
+    { id: 'system', label: 'Система' },
+  ];
+
+  const sectionClass = `${radii.lg} ${theme.card} ${elevation.card} p-5 space-y-4`;
+  const inputClass = `w-full px-4 py-3.5 ${textStyles.body} ${radii.lg} ${theme.inputFocus} ${themeInput}`;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden">
       {!embedded && (
-        <div className={`px-4 py-4 shrink-0 border-b ${theme.header}`}>
-          <div className="flex items-center gap-2">
-            <Settings className={`w-5 h-5 ${themeAccentText}`} />
+        <div className={`px-5 py-4 shrink-0 border-b ${theme.header}`}>
+          <div className="flex items-center gap-3">
+            <span className={`inline-flex items-center justify-center w-11 h-11 ${radii.lg} ${theme.accentMuted}`}>
+              <Settings className={`w-5 h-5 ${themeAccentText}`} />
+            </span>
             <div>
               <h2 className={textStyles.title}>Настройки</h2>
               <p className={`${textStyles.caption} ${theme.textMuted}`}>Сервер, тема и хранение</p>
@@ -180,29 +215,32 @@ export default function SyncSettingsTab({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-8">
-        <section className="space-y-3.5">
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <section className={sectionClass}>
           <div className="flex justify-between items-center select-none">
             <h3 className={textStyles.sectionLabel}>Сервер</h3>
-            <span className={`${textStyles.caption} ${
-              serverConfig.connectionStatus === 'testing' ? `${semantic.warning} animate-pulse` :
-              serverConfig.connectionStatus === 'connected' ? semantic.success :
-              theme.textMuted
+            <span className={`${textStyles.captionBold} px-2.5 py-1 ${radii.full} ${
+              serverConfig.connectionStatus === 'testing' ? `${semantic.warningBg} ${semantic.warning} animate-pulse` :
+              serverConfig.connectionStatus === 'connected' ? semantic.successBg :
+              `${theme.panel} ${theme.textMuted}`
             }`}>
-              {serverConfig.connectionStatus === 'testing' && 'Проверка…'}
-              {serverConfig.connectionStatus === 'connected' ? 'Подключён' : 'Отключён'}
+              {serverConfig.connectionStatus === 'testing'
+                ? 'Проверка…'
+                : serverConfig.connectionStatus === 'connected'
+                  ? 'Подключён'
+                  : 'Отключён'}
             </span>
           </div>
 
           {httpWarning && (
-            <div className={`flex gap-2 rounded-lg px-3 py-2.5 border border-[color-mix(in_srgb,var(--app-warning)_25%,transparent)] ${semantic.warningBg}`} role="alert">
+            <div className={`flex gap-2 ${radii.lg} px-4 py-3 border border-[color-mix(in_srgb,var(--app-warning)_25%,transparent)] ${semantic.warningBg}`} role="alert">
               <AlertTriangle className={`w-4 h-4 shrink-0 ${semantic.warning}`} aria-hidden />
               <p className={`${textStyles.caption} ${semantic.warning} leading-relaxed`}>{httpWarning}</p>
             </div>
           )}
 
-          <div className="space-y-3">
-            <div className="space-y-1">
+          <div className="space-y-4">
+            <div className="space-y-2">
               <label htmlFor="server-url" className={`${textStyles.caption} ${theme.textMuted}`}>Адрес сервера</label>
               <input
                 id="server-url"
@@ -215,16 +253,16 @@ export default function SyncSettingsTab({
                 autoCorrect="off"
                 spellCheck={false}
                 autoComplete="url"
-                className={`w-full px-3 py-2.5 ${textStyles.body} rounded-lg border ${theme.inputFocus} ${themeInput}`}
+                className={inputClass}
               />
             </div>
 
             {connectionError && (
-              <p role="alert" className={`${textStyles.caption} px-3 py-2 rounded-xl ${semantic.errorBg}`}>{connectionError}</p>
+              <p role="alert" className={`${textStyles.caption} px-4 py-3 ${radii.lg} ${semantic.errorBg}`}>{connectionError}</p>
             )}
 
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="space-y-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
                 <label htmlFor="server-username" className={`${textStyles.caption} ${theme.textMuted}`}>Логин</label>
                 <input
                   id="server-username"
@@ -232,10 +270,10 @@ export default function SyncSettingsTab({
                   value={serverConfig.username || ''}
                   onChange={(e) => onChangeServerConfig({ username: e.target.value })}
                   autoComplete="username"
-                  className={`w-full px-3 py-2.5 ${textStyles.body} rounded-lg border ${theme.inputFocus} ${themeInput}`}
+                  className={inputClass}
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <label htmlFor="server-password" className={`${textStyles.caption} ${theme.textMuted}`}>Пароль</label>
                 <input
                   id="server-password"
@@ -243,13 +281,13 @@ export default function SyncSettingsTab({
                   value={serverConfig.password || ''}
                   onChange={(e) => onChangeServerConfig({ password: e.target.value })}
                   autoComplete="current-password"
-                  className={`w-full px-3 py-2.5 ${textStyles.body} rounded-lg border ${theme.inputFocus} ${themeInput}`}
+                  className={inputClass}
                 />
               </div>
             </div>
 
             {isAndroid() && (
-              <div className="flex items-center gap-2 rounded-lg px-2.5 py-2 bg-[var(--app-panel-soft)]">
+              <div className={`flex items-center gap-2 ${radii.lg} px-4 py-3 ${theme.panel}`}>
                 <ShieldCheck className={`w-4 h-4 shrink-0 ${themeAccentText}`} aria-hidden />
                 <p className={`${textStyles.caption} leading-relaxed ${themeTextMuted}`}>
                   Пароль защищён Android Keystore
@@ -258,7 +296,7 @@ export default function SyncSettingsTab({
             )}
 
             {isAndroid() && (
-              <Button fullWidth variant="secondary" onClick={() => void handleScanQr()} loading={scanning} disabled={scanning}>
+              <Button fullWidth variant="secondary" onClick={() => void handleScanQr()} loading={scanning} disabled={scanning || forgetting}>
                 <QrCode className="w-4 h-4 inline mr-1" aria-hidden />
                 Сканировать QR
               </Button>
@@ -268,31 +306,27 @@ export default function SyncSettingsTab({
               {serverConfig.connectionStatus === 'testing' ? 'Подключение…' : 'Подключить'}
             </Button>
 
-            {lastSynced && (
-              <p className={`${textStyles.caption} ${theme.textMuted} text-center`}>Последняя синхронизация: {lastSynced}</p>
-            )}
-
-            <Button variant="secondary" fullWidth onClick={handleForgetServer} loading={forgetting} disabled={forgetting}>
+            <Button variant="secondary" fullWidth onClick={() => void handleForgetServer()} loading={forgetting} disabled={forgetting || scanning}>
               <LogOut className="w-4 h-4 inline mr-1" aria-hidden />
               Забыть сервер
             </Button>
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section className={sectionClass}>
           <h3 className={textStyles.sectionLabel}>Тема</h3>
           <div className="flex flex-wrap gap-2">
-            {themeOptions.map((item) => {
+            {appearanceOptions.map((item) => {
               const Icon = item.icon;
-              const isSel = appTheme === item.id;
+              const isSel = appearance === item.id;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => onChangeTheme(item.id)}
+                  onClick={() => onChangeAppearance(item.id)}
                   aria-pressed={isSel}
-                  className={`min-h-12 px-3 rounded-full inline-flex items-center gap-1.5 ${textStyles.caption} ${theme.focusRing} ${
-                    isSel ? `${theme.accentActive} font-semibold` : `${theme.textMuted} font-medium`
+                  className={`min-h-11 px-4 ${radii.button} inline-flex items-center gap-1.5 ${textStyles.caption} ${theme.focusRing} ${motion.press} ${
+                    isSel ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" aria-hidden />
@@ -301,9 +335,96 @@ export default function SyncSettingsTab({
               );
             })}
           </div>
+          <div className="space-y-2">
+            <p className={`${textStyles.bodyBold} ${theme.text}`}>Цвет</p>
+            <div className="flex flex-wrap gap-2">
+              {colorOptions.map((item) => {
+                const isSel = colorSource === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onChangeColorSource(item.id)}
+                    aria-pressed={isSel}
+                    className={`min-h-11 px-4 ${radii.button} inline-flex items-center ${textStyles.caption} ${theme.focusRing} ${motion.press} ${
+                      isSel ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <label className={`flex items-center gap-3 min-h-12 ${hasServerBackground ? theme.interactive : 'opacity-60'}`}>
+            <input
+              id="server-background"
+              type="checkbox"
+              checked={useServerBackground}
+              disabled={!hasServerBackground}
+              onChange={(e) => onChangeUseServerBackground(e.target.checked)}
+              className="w-5 h-5 shrink-0"
+            />
+            <span className={textStyles.body}>Фон</span>
+          </label>
+          <p className={`${textStyles.caption} ${themeTextMuted}`}>
+            {hasServerBackground
+              ? 'Обои библиотеки с сервера'
+              : 'На сервере нет фонового изображения'}
+          </p>
         </section>
 
-        <section className="space-y-3">
+        <section className={sectionClass}>
+          <h3 className={textStyles.sectionLabel}>Вид книг</h3>
+          {(
+            [
+              {
+                key: 'home',
+                label: 'Главная',
+                hint: 'Недавно, новинки и рекомендации на главной',
+                value: homeViewMode,
+                onChange: setHomeViewMode,
+              },
+              {
+                key: 'books',
+                label: 'Остальное',
+                hint: 'Каталог, мои книги, новинки и рекомендации «Показать всё»',
+                value: booksViewMode,
+                onChange: setBooksViewMode,
+              },
+            ] as const
+          ).map((group) => (
+            <div key={group.key} className="space-y-3">
+              <p className={`${textStyles.bodyBold} ${theme.text}`}>{group.label}</p>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { id: 'list' as const, label: 'Список', Icon: List },
+                  { id: 'grid' as const, label: 'Карточки', Icon: LayoutGrid },
+                ]).map((item) => {
+                  const isSel = group.value === item.id;
+                  const Icon = item.Icon;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => group.onChange(item.id)}
+                      aria-pressed={isSel}
+                      className={`min-h-11 px-4 ${radii.button} inline-flex items-center gap-1.5 ${textStyles.caption} ${theme.focusRing} ${motion.press} ${
+                        isSel ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" aria-hidden />
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className={`${textStyles.caption} ${themeTextMuted}`}>{group.hint}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className={sectionClass}>
           <h3 className={textStyles.sectionLabel}>E-Ink</h3>
           <div className="flex flex-wrap gap-2">
             {([
@@ -318,8 +439,8 @@ export default function SyncSettingsTab({
                   type="button"
                   onClick={() => onChangeEinkMode(item.id)}
                   aria-pressed={isSel}
-                  className={`min-h-12 px-4 rounded-full ${textStyles.caption} ${theme.focusRing} ${
-                    isSel ? `${theme.accentActive} font-semibold` : `${theme.textMuted} font-medium`
+                  className={`min-h-11 px-5 ${radii.button} ${textStyles.caption} ${theme.focusRing} ${motion.press} ${
+                    isSel ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
                   }`}
                 >
                   {item.label}
@@ -336,15 +457,15 @@ export default function SyncSettingsTab({
           </p>
         </section>
 
-        <section className="space-y-3">
+        <section className={sectionClass}>
           <h3 className={textStyles.sectionLabel}>Папка книг</h3>
           <p className={`${textStyles.body} break-all ${theme.textMuted}`}>{storageDirectory?.label || DEFAULT_STORAGE_LABEL}</p>
-          <div className="flex gap-2">
-            <Button fullWidth onClick={handlePickFolder} loading={pickingFolder} disabled={pickingFolder}>
+          <div className="flex gap-2 items-center">
+            <Button className="min-w-0 flex-1 whitespace-nowrap" onClick={handlePickFolder} loading={pickingFolder} disabled={pickingFolder}>
               Выбрать папку
             </Button>
             {storageDirectory && !isDefaultStorageDirectory(storageDirectory) && (
-              <Button variant="secondary" onClick={handleResetFolder} disabled={pickingFolder}>
+              <Button className="min-w-0 flex-1 whitespace-nowrap" variant="secondary" onClick={handleResetFolder} disabled={pickingFolder}>
                 По умолчанию
               </Button>
             )}

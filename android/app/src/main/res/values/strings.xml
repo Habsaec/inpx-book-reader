@@ -6,6 +6,9 @@
     <string name="custom_url_scheme">ru.inpx.bookreader</string>
     <string name="shortcut_continue">Продолжить</string>
     <string name="shortcut_continue_long">Продолжить чтение</string>
+    <string name="widget_continue_label">Продолжить чтение</string>
+    <string name="widget_continue_empty">Откройте книгу в приложении</string>
+    <string name="widget_continue_description">Виджет продолжения чтения</string>
     <string name="light_hud_brightness">Подсветка %1$d/%2$d</string>
     <string name="light_hud_warmth">Температура %1$d/%2$d</string>
 </resources>

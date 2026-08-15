@@ -30,7 +30,12 @@ export function useServerBranding(serverConfig: ServerConfig) {
         const blob = await fetchServerLogoBlob(serverConfig, branding.logoPath);
         if (cancelled || !blob) return;
 
-        objectUrl = URL.createObjectURL(blob);
+        const nextUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(nextUrl);
+          return;
+        }
+        objectUrl = nextUrl;
         setLogoSrc(objectUrl);
       } catch {
         if (!cancelled) {

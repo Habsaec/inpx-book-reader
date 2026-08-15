@@ -2,7 +2,7 @@ import React from 'react';
 import { BookDown } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
-import { touchMin, textStyles } from '../ui/tokens';
+import { touchMin, textStyles, radii } from '../ui/tokens';
 
 type Props = {
   title: string;
@@ -33,7 +33,7 @@ export function MissingLocalBookFallback({ title, onBack, onRedownload }: Props)
           <button
             type="button"
             onClick={onRedownload}
-            className={`${touchMin} px-4 rounded-xl ${textStyles.bodyBold} ${theme.accentBg} ${theme.focusRing}`}
+            className={`${touchMin} px-4 ${radii.button} ${textStyles.bodyBold} ${theme.accentBg} ${theme.focusRing}`}
           >
             Скачать заново
           </button>

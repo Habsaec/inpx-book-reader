@@ -32,6 +32,8 @@ interface StoredServerConfig {
 
 const SecureCredentials = registerPlugin<SecureCredentialsPlugin>('SecureCredentials');
 let persistQueue = Promise.resolve();
+/** Bumped on forget/clear so in-flight persist of old credentials is dropped. */
+let credentialsEpoch = 0;
 
 function readStoredConfig(): StoredServerConfig {
   try {
@@ -94,7 +96,7 @@ export function initialServerConfig(): ServerConfig {
   if (isNativeApp()) {
     return {
       url: stored.url || DEFAULT_URL,
-      username: '',
+      username: stored.username || '',
       password: '',
       deviceToken: '',
       deviceTokenId: '',
@@ -127,25 +129,54 @@ export async function loadServerConfig(): Promise<ServerConfig> {
   let deviceTokenId = '';
 
   try {
-    const secure = await SecureCredentials.load();
-    if (secure.found) {
+    let secure: Awaited<ReturnType<typeof SecureCredentials.load>> | null = null;
+    let loadError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        secure = await SecureCredentials.load();
+        loadError = null;
+        break;
+      } catch (e) {
+        loadError = e;
+        await new Promise((r) => setTimeout(r, 40 * (attempt + 1)));
+      }
+    }
+
+    if (secure?.found) {
       username = secure.username || '';
       password = secure.password || '';
       deviceToken = secure.deviceToken || '';
       deviceTokenId = secure.deviceTokenId || '';
-    } else if (stored.username || stored.password) {
+    } else if (!loadError && (stored.username || stored.password)) {
+      // Only migrate plaintext leftovers when Keystore load succeeded with found=false.
+      // On loadError, never overwrite ciphertext (would wipe deviceToken-only sessions).
       username = stored.username || '';
       password = stored.password || '';
       await SecureCredentials.save({ username, password });
+    } else if (loadError) {
+      console.warn('[secureServerConfig] keystore load failed', loadError);
+      username = stored.username || '';
     }
 
+    // Keep username (not secrets) so a keystore flake does not look like a wiped install.
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       url: stored.url || DEFAULT_URL,
+      username: username || stored.username || '',
       connectionStatus: stored.connectionStatus === 'connected' ? 'connected' : 'disconnected',
     }));
   } catch {
     username = stored.username || '';
     password = stored.password || '';
+    // Даже при сбое миграции не оставляем plaintext-пароль в localStorage.
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        url: stored.url || DEFAULT_URL,
+        username,
+        connectionStatus: stored.connectionStatus === 'connected' ? 'connected' : 'disconnected',
+      }));
+    } catch {
+      /* localStorage недоступен — ничего не делаем */
+    }
   }
 
   const shouldReconnect = shouldAutoReconnect({
@@ -166,7 +197,15 @@ export async function loadServerConfig(): Promise<ServerConfig> {
 }
 
 export function persistServerConfig(config: ServerConfig): Promise<void> {
+  const epoch = credentialsEpoch;
+  const wiped = !config.username && !config.password && !config.deviceToken;
   persistQueue = persistQueue.catch(() => undefined).then(async () => {
+    if (epoch !== credentialsEpoch) return;
+    if (wiped) {
+      if (isNativeApp()) await SecureCredentials.clear();
+      localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
     const connectionStatus = persistedConnectionStatus(config);
     if (!isNativeApp()) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...config, connectionStatus }));
@@ -174,19 +213,32 @@ export function persistServerConfig(config: ServerConfig): Promise<void> {
     }
 
     await SecureCredentials.save(credentialsForPersist(config));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ url: config.url, connectionStatus }));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        url: config.url,
+        username: config.username || '',
+        connectionStatus,
+      }),
+    );
   });
   return persistQueue;
 }
 
 export async function clearServerCredentials(config?: ServerConfig): Promise<void> {
-  if (config?.deviceTokenId && config.url) {
-    try {
-      await revokeDeviceToken(config, config.deviceTokenId);
-    } catch {
-      /* best effort */
+  credentialsEpoch += 1;
+  const epoch = credentialsEpoch;
+  persistQueue = persistQueue.catch(() => undefined).then(async () => {
+    if (epoch !== credentialsEpoch) return;
+    if (config?.deviceTokenId && config.url) {
+      try {
+        await revokeDeviceToken(config, config.deviceTokenId);
+      } catch {
+        /* best effort */
+      }
     }
-  }
-  if (isNativeApp()) await SecureCredentials.clear();
-  localStorage.removeItem(STORAGE_KEY);
+    if (isNativeApp()) await SecureCredentials.clear();
+    localStorage.removeItem(STORAGE_KEY);
+  });
+  return persistQueue;
 }

@@ -1,14 +1,11 @@
 import React from 'react';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
-import BookCoverTile, {
-  BOOK_COVER_TILE_WIDTH_PX,
-  coverTileLayoutForContainer,
-} from './BookCoverTile';
+import BookCoverTile from './BookCoverTile';
 import { sortBooksBySeriesVolume } from '../lib/seriesVolumeSort';
 
 export { sortBooksBySeriesVolume, seriesVolumeSortKey } from '../lib/seriesVolumeSort';
-export { BOOK_COVER_TILE_WIDTH_PX };
+export { BOOK_COVER_TILE_WIDTH_PX } from './BookCoverTile';
 
 interface BookCoverGridProps {
   books: Book[];
@@ -20,12 +17,13 @@ interface BookCoverGridProps {
   showSeriesVolume?: boolean;
   onBookClick: (book: Book) => void;
   onBookLongPress?: (book: Book) => void;
+  selectedBookIds?: Set<string>;
   renderTileExtra?: (book: Book) => React.ReactNode;
 }
 
 /**
- * Cover grid: column count by width breakpoints (phone 3 → e-reader 5 → wider more),
- * tiles share the row evenly. Sized via ResizeObserver (no fragile CSS minmax).
+ * Responsive cover grid — 3 columns on phone, more on wider screens.
+ * Tiles fill equal-width tracks with rounded covers.
  */
 export default function BookCoverGrid({
   books,
@@ -37,55 +35,21 @@ export default function BookCoverGrid({
   showSeriesVolume = false,
   onBookClick,
   onBookLongPress,
+  selectedBookIds,
   renderTileExtra,
 }: BookCoverGridProps) {
-  const rootRef = React.useRef<HTMLDivElement>(null);
-  const [tileWidthPx, setTileWidthPx] = React.useState(BOOK_COVER_TILE_WIDTH_PX);
-
-  React.useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-
-    const apply = (width: number) => {
-      const w = width > 0 ? width : el.clientWidth;
-      if (w <= 0) return;
-      const { tileWidth } = coverTileLayoutForContainer(w);
-      setTileWidthPx((prev) => (prev === tileWidth ? prev : tileWidth));
-    };
-
-    const measure = () => apply(el.getBoundingClientRect().width || el.clientWidth);
-
-    measure();
-    const raf = requestAnimationFrame(measure);
-
-    if (typeof ResizeObserver === 'undefined') {
-      return () => cancelAnimationFrame(raf);
-    }
-
-    const ro = new ResizeObserver((entries) => {
-      const entryW = entries[0]?.contentRect?.width ?? 0;
-      apply(entryW || el.clientWidth);
-    });
-    ro.observe(el);
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-    };
-  }, []);
-
   const ordered = React.useMemo(
     () => (showSeriesVolume ? sortBooksBySeriesVolume(books) : books),
     [books, showSeriesVolume],
   );
 
   return (
-    <div ref={rootRef} className="flex flex-wrap gap-3 w-full min-w-0">
+    <div className="grid grid-cols-3 min-[480px]:grid-cols-4 min-[640px]:grid-cols-5 min-[900px]:grid-cols-6 gap-4 w-full min-w-0">
       {ordered.map((book) => (
-        <div key={book.id} className="relative shrink-0" style={{ width: tileWidthPx }}>
+        <div key={book.id} className="relative min-w-0 w-full">
           <BookCoverTile
             book={book}
-            size="shelf"
-            tileWidthPx={tileWidthPx}
+            size="grid"
             showMeta
             showSeriesVolume={showSeriesVolume}
             serverConfig={serverConfig}
@@ -93,6 +57,7 @@ export default function BookCoverGrid({
             readProgress={readingProgressByBookId?.[book.id] ?? book.readProgress}
             isRead={readIds?.has(book.id)}
             isDownloaded={downloadedBookIds.includes(book.id)}
+            selected={selectedBookIds?.has(book.id)}
             onClick={() => onBookClick(book)}
             onLongPress={onBookLongPress ? () => onBookLongPress(book) : undefined}
           />

@@ -373,6 +373,28 @@ describe('revision/CAS position sync', () => {
     });
   });
 
+  it('does not pull server position while a cross-device prompt is still pending', async () => {
+    writeOfflineReaderData('book-1', localPosition({
+      pendingCrossDevicePrompt: true,
+      position: 'epubcfi(/6/4)',
+      progress: 20,
+      fraction: 0.2,
+    }));
+    vi.mocked(fetchReadingPosition).mockResolvedValue(serverPosition());
+
+    await syncOfflineReaderForBook(config, 'book-1');
+
+    expect(saveReadingPosition).not.toHaveBeenCalled();
+    expect(readOfflineReaderData('book-1')).toMatchObject({
+      position: 'epubcfi(/6/4)',
+      fraction: 0.2,
+      progress: 20,
+      pendingCrossDevicePrompt: true,
+      baseRevision: 2,
+      positionDirty: false,
+    });
+  });
+
   it('pushes on close when pendingCrossDevicePrompt is set but local reading is dirty', async () => {
     writeOfflineReaderData('book-1', localPosition({
       positionDirty: true,

@@ -1,12 +1,12 @@
 {
   "name": "inpx-book-reader",
   "private": true,
-  "version": "1.3.0",
+  "version": "1.4.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "build:app": "node scripts/sync-foliate-assets.mjs && node scripts/sync-shared-reader.mjs && node scripts/verify-position-sync.mjs && node scripts/verify-reader-position-shadow.mjs && node scripts/generate-reader-html.mjs && vite build",
+    "build:app": "node scripts/sync-foliate-assets.mjs && node scripts/verify-foliate-page-turn.mjs && node scripts/sync-shared-reader.mjs && node scripts/verify-position-sync.mjs && node scripts/verify-reader-position-shadow.mjs && node scripts/generate-reader-html.mjs && vite build",
     "brand:assets": "node scripts/generate-branding-assets.mjs",
     "sync:reader": "node scripts/generate-reader-html.mjs",
     "sync:shared": "node scripts/sync-foliate-assets.mjs && node scripts/sync-shared-reader.mjs && node scripts/verify-position-sync.mjs && node scripts/verify-reader-position-shadow.mjs && node scripts/generate-reader-html.mjs",
@@ -29,6 +29,7 @@
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.6.7",
     "@capacitor/haptics": "^7.0.5",
+    "@capacitor/share": "^7.0.4",
     "@capacitor/splash-screen": "^7.0.5",
     "@capacitor/status-bar": "^7.0.6",
     "@tailwindcss/vite": "^4.1.14",

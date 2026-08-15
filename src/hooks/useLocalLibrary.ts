@@ -1,5 +1,5 @@
 import React from 'react';
-import { initLocalDb, loadLibrarySnapshot, persistLibrarySnapshot, setFavoriteAuthors, setFavoriteSeries } from '../lib/localDb';
+import { initLocalDb, loadLibrarySnapshot, persistLibrarySnapshot, setFavoriteAuthors as persistFavoriteAuthors, setFavoriteSeries as persistFavoriteSeries } from '../lib/localDb';
 import { hydrateAppSettings } from '../lib/appSettings';
 import { hydrateOfflineReaderStore } from '../lib/offlineReaderStore';
 import type { Book, ReadingProgress, Bookmark, Highlight, Shelf } from '../types';
@@ -33,22 +33,32 @@ export function useLocalLibrary(): LocalLibraryState & {
   const [favoriteAuthors, setFavoriteAuthors] = React.useState<string[]>([]);
   const [favoriteSeries, setFavoriteSeries] = React.useState<string[]>([]);
 
+  // Persist включается только после УСПЕШНОЙ загрузки снапшота — иначе transient-ошибка
+  // boot (IDB/SQLite hiccup) затирает сохранённую библиотеку пустым состоянием.
+  const bootOkRef = React.useRef(false);
+
   React.useEffect(() => {
     let cancelled = false;
     void (async () => {
-      await initLocalDb();
-      await hydrateAppSettings();
-      await hydrateOfflineReaderStore();
-      const snap = await loadLibrarySnapshot();
-      if (cancelled) return;
-      setBooks(snap.books);
-      setProgressList(snap.progress);
-      setBookmarks(snap.bookmarks);
-      setHighlights(snap.highlights);
-      setShelves(snap.shelves);
-      setFavoriteAuthors(snap.favoriteAuthors);
-      setFavoriteSeries(snap.favoriteSeries);
-      setReady(true);
+      try {
+        await initLocalDb();
+        await hydrateAppSettings();
+        await hydrateOfflineReaderStore();
+        const snap = await loadLibrarySnapshot();
+        if (cancelled) return;
+        setBooks(snap.books);
+        setProgressList(snap.progress);
+        setBookmarks(snap.bookmarks);
+        setHighlights(snap.highlights);
+        setShelves(snap.shelves);
+        setFavoriteAuthors(snap.favoriteAuthors);
+        setFavoriteSeries(snap.favoriteSeries);
+        bootOkRef.current = true;
+      } catch (err) {
+        console.warn('[useLocalLibrary] boot failed:', err);
+      } finally {
+        if (!cancelled) setReady(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -57,10 +67,12 @@ export function useLocalLibrary(): LocalLibraryState & {
 
   const persistTimer = React.useRef<number | null>(null);
   React.useEffect(() => {
-    if (!ready) return;
+    if (!ready || !bootOkRef.current) return;
     if (persistTimer.current) window.clearTimeout(persistTimer.current);
     persistTimer.current = window.setTimeout(() => {
-      void persistLibrarySnapshot({ books, progress: progressList, bookmarks, highlights, shelves });
+      void persistLibrarySnapshot({ books, progress: progressList, bookmarks, highlights, shelves }).catch(
+        (err) => console.warn('[useLocalLibrary] persist failed:', err),
+      );
     }, 400);
     return () => {
       if (persistTimer.current) window.clearTimeout(persistTimer.current);
@@ -68,9 +80,13 @@ export function useLocalLibrary(): LocalLibraryState & {
   }, [ready, books, progressList, bookmarks, highlights, shelves]);
 
   React.useEffect(() => {
-    if (!ready) return;
-    void setFavoriteAuthors(favoriteAuthors);
-    void setFavoriteSeries(favoriteSeries);
+    if (!ready || !bootOkRef.current) return;
+    void persistFavoriteAuthors(favoriteAuthors).catch((err) =>
+      console.warn('[useLocalLibrary] favoriteAuthors persist failed:', err),
+    );
+    void persistFavoriteSeries(favoriteSeries).catch((err) =>
+      console.warn('[useLocalLibrary] favoriteSeries persist failed:', err),
+    );
   }, [ready, favoriteAuthors, favoriteSeries]);
 
   return {

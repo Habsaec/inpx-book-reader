@@ -34,6 +34,8 @@ export interface DialogOptions {
 
 interface DialogContextValue {
   confirm: (options: DialogOptions) => Promise<boolean>;
+  /** Resolve the open confirm as cancelled and hide the modal (e.g. reader unmount). */
+  dismiss: () => void;
 }
 
 const DialogContext = React.createContext<DialogContextValue | null>(null);
@@ -100,7 +102,7 @@ function DialogModal({
 
   return (
     <div
-      className="fixed inset-0 z-[600] flex items-end sm:items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] bg-black/55"
+      className="fixed inset-0 z-[600] flex items-end justify-center bg-black/50"
       role="presentation"
       onClick={() => onClose(false)}
     >
@@ -110,9 +112,12 @@ function DialogModal({
         aria-modal="true"
         aria-labelledby="dialog-title"
         aria-describedby="dialog-message"
-        className={`w-full max-w-sm ${radii.lg} border ${theme.sheet} ${elevation.sheet} p-5 space-y-4`}
+        className={`w-full max-w-lg rounded-t-3xl rounded-b-none border-t border-x border-[color:var(--app-border)] ${theme.sheet} ${elevation.sheet} px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-4 inpx-enter-y overscroll-contain`}
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="flex justify-center pb-1" aria-hidden>
+          <div className="w-10 h-1 rounded-full bg-[color-mix(in_srgb,var(--app-text)_18%,transparent)]" />
+        </div>
         <h2
           id="dialog-title"
           className={`${textStyles.title} ${theme.text}`}
@@ -199,6 +204,13 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const dismiss = React.useCallback(() => {
+    setState((prev) => {
+      prev?.resolve(false);
+      return null;
+    });
+  }, []);
+
   const close = React.useCallback((result: boolean) => {
     setState((prev) => {
       prev?.resolve(result);
@@ -206,8 +218,10 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const value = React.useMemo(() => ({ confirm, dismiss }), [confirm, dismiss]);
+
   return (
-    <DialogContext.Provider value={{ confirm }}>
+    <DialogContext.Provider value={value}>
       {children}
 
       {state &&

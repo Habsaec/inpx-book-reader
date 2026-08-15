@@ -26,7 +26,7 @@ iOS, Windows, macOS, Linux, PWA, браузер как продукт — **не
 
 ## Android-специфика (учитывать всегда)
 
-- WebView может **не доигрывать CSS/JS-анимации** (`opacity: 0` → пустой экран) — `MotionConfig reducedMotion="always"`
+- WebView может **не доигрывать** анимации с `opacity: 0` → пустой экран — только transform/scale; `MotionConfig reducedMotion="user"`
 - Цепочка высот: `html`, `body`, `#root`, flex + `min-h-0`
 - `server.ts` / `/api/proxy` — только dev в браузере; в APK запросы напрямую через CapacitorHttp
 

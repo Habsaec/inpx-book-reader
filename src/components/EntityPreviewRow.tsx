@@ -1,7 +1,7 @@
 import React from 'react';
 import { ChevronRight } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { textStyles, motion } from '../ui/tokens';
+import { textStyles, motion, radii, elevation } from '../ui/tokens';
 import { ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import AuthorPortrait from './AuthorPortrait';
@@ -16,7 +16,6 @@ function bookCountLabel(n: number): string {
   return `${v} книг`;
 }
 
-/** Cover strip like server `.shelf-covers-preview` — loads via auth-aware BookCover. */
 function CoverStrip({
   bookIds,
   serverConfig,
@@ -29,7 +28,7 @@ function CoverStrip({
   const ids = bookIds.map(String).filter(Boolean).slice(0, 4);
   if (!ids.length) return null;
   return (
-    <div className="flex items-end gap-1 mt-1.5" aria-hidden>
+    <div className="flex items-end gap-1.5 mt-2" aria-hidden>
       {ids.map((id) => (
         <BookCover
           key={id}
@@ -39,7 +38,7 @@ function CoverStrip({
           variant="thumb"
           width={36}
           height={52}
-          className={`rounded-[3px] ${theme.coverBorder}`}
+          className={`rounded-lg ${theme.coverBorder}`}
         />
       ))}
     </div>
@@ -52,10 +51,8 @@ export interface EntityPreviewRowProps {
   onClick?: () => void;
   serverConfig?: ServerConfig | null;
   storageDirectory?: StorageDirectory | null;
-  /** Author portrait key; when set, shows avatar (+ optional coverBookId fallback). */
   authorKey?: string;
   coverBookId?: string | null;
-  /** Series / shelf cover previews. */
   previewBookIds?: string[];
 }
 
@@ -78,7 +75,7 @@ export default function EntityPreviewRow({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full flex items-center gap-3 py-3 landscape:max-[500px]:py-2 px-1 rounded-xl -mx-1 border-b last:border-b-0 text-left ${theme.divider} ${theme.rowPress} ${motion.colors} ${theme.focusRing}`}
+      className={`w-full flex items-center gap-4 p-4 mb-3 ${radii.lg} ${theme.card} ${elevation.card} text-left ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
     >
       {showAuthor ? (
         <AuthorPortrait
@@ -90,11 +87,11 @@ export default function EntityPreviewRow({
         />
       ) : null}
       <span className="flex-1 min-w-0">
-        <span className={`block ${textStyles.bodyBold} landscape:max-[500px]:text-xs truncate ${theme.text}`}>
+        <span className={`block ${textStyles.bodyBold} truncate ${theme.text}`}>
           {name}
         </span>
         {showCount ? (
-          <span className={`block ${textStyles.caption} ${theme.textMuted}`}>{bookCountLabel(count!)}</span>
+          <span className={`block ${textStyles.caption} ${theme.textMuted} mt-0.5`}>{bookCountLabel(count!)}</span>
         ) : null}
         {showStrip ? (
           <CoverStrip
@@ -104,7 +101,7 @@ export default function EntityPreviewRow({
           />
         ) : null}
       </span>
-      <ChevronRight className={`w-4 h-4 shrink-0 opacity-40 ${theme.text}`} aria-hidden />
+      <ChevronRight className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
     </button>
   );
 }

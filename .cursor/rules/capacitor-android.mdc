@@ -37,7 +37,7 @@ alwaysApply: false
 
 - `ReaderCapacitorWebView` — кастомный WebView для читалки
 - Splash: `window.__INPX_APP_READY__ === true`
-- Анимации: `MotionConfig reducedMotion="always"`
+- Анимации: `MotionConfig reducedMotion="user"`, только transform/scale (без `opacity: 0` enter)
 
 ## После изменений Java
 

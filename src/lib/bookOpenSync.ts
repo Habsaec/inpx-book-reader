@@ -1,4 +1,5 @@
 import type { ServerConfig } from '../types';
+import { isAuthError } from './inpxClient';
 import {
   syncPositionOnBookOpen,
   type CrossDevicePositionChoice,
@@ -19,7 +20,11 @@ export async function runBookOpenOnlineSync(
   deps: {
     syncPosition?: typeof syncPositionOnBookOpen;
     syncReaderData: (bookId: string) => Promise<void>;
+    /** Same as web `/lite/read/:id` — shelves «Читаю» / continue use reading_history. */
+    recordReadingHistory?: (bookId: string) => Promise<void>;
     yieldForUi?: () => Promise<void>;
+    /** Return false to abort mid-sync (close / reopen generation). */
+    shouldContinue?: () => boolean;
   },
 ): Promise<BookOpenOnlineSyncResult> {
   if (!canReadOnline) {
@@ -28,15 +33,28 @@ export async function runBookOpenOnlineSync(
 
   const syncPosition = deps.syncPosition ?? syncPositionOnBookOpen;
   let positionChoice: CrossDevicePositionChoice | null = null;
+  const alive = () => !deps.shouldContinue || deps.shouldContinue();
 
   try {
+    if (deps.recordReadingHistory) {
+      try {
+        await deps.recordReadingHistory(bookId);
+      } catch (e) {
+        if (isAuthError(e)) throw e;
+      }
+      if (!alive()) return { positionChoice: null, syncFailed: false };
+    }
     if (!initialPosition?.trim()) {
       if (deps.yieldForUi) await deps.yieldForUi();
+      if (!alive()) return { positionChoice: null, syncFailed: false };
       positionChoice = await syncPosition(serverConfig, bookId);
     }
+    if (!alive()) return { positionChoice, syncFailed: false };
     await deps.syncReaderData(bookId);
+    if (!alive()) return { positionChoice, syncFailed: false };
     return { positionChoice, syncFailed: false };
-  } catch {
+  } catch (e) {
+    if (isAuthError(e)) throw e;
     return { positionChoice, syncFailed: true };
   }
 }

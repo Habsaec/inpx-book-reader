@@ -3,10 +3,20 @@ import { downloadQueue, type DownloadJob } from '../lib/downloadQueue';
 
 export function useDownloadQueue(): DownloadJob[] {
   const [jobs, setJobs] = React.useState<DownloadJob[]>(() => downloadQueue.getJobs());
+  const mountedRef = React.useRef(true);
 
   React.useEffect(() => {
-    void downloadQueue.hydrate().then(() => setJobs(downloadQueue.getJobs()));
-    return downloadQueue.subscribe(() => setJobs(downloadQueue.getJobs()));
+    mountedRef.current = true;
+    void downloadQueue.hydrate().then(() => {
+      if (mountedRef.current) setJobs(downloadQueue.getJobs());
+    });
+    const unsub = downloadQueue.subscribe(() => {
+      if (mountedRef.current) setJobs(downloadQueue.getJobs());
+    });
+    return () => {
+      mountedRef.current = false;
+      unsub();
+    };
   }, []);
 
   return jobs;

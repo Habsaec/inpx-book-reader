@@ -1,12 +1,6 @@
-import { registerPlugin } from '@capacitor/core';
 import { isNativeApp } from './platform';
 import { formatBytes } from './downloadQueue';
-
-interface BookStorageSpacePlugin {
-  getAvailableBytes(): Promise<{ bytes: number }>;
-}
-
-const BookStorage = registerPlugin<BookStorageSpacePlugin>('BookStorage');
+import { BookStorage } from './bookStoragePlugin';
 
 const STORAGE_MARGIN_BYTES = 50 * 1024 * 1024;
 
@@ -14,7 +8,9 @@ export async function getAvailableStorageBytes(): Promise<number | null> {
   if (!isNativeApp()) return null;
   try {
     const result = await BookStorage.getAvailableBytes();
-    return Number(result.bytes) || 0;
+    const bytes = Number(result.bytes);
+    // NaN/мусор из нативного слоя → «неизвестно», а не «0 байт» (ложное «нет места»).
+    return Number.isFinite(bytes) && bytes >= 0 ? bytes : null;
   } catch {
     return null;
   }

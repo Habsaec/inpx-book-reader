@@ -18,9 +18,15 @@ vi.mock('../platform', () => ({
 }));
 
 vi.mock('@capacitor/core', () => ({
+  Capacitor: {
+    convertFileSrc: (path: string) => `cap-file:${path}`,
+  },
   registerPlugin: () => ({
     appCacheFileExists: async ({ path }: { path: string }) => ({
       exists: appFiles.has(path),
+    }),
+    getAppCacheFilePath: async ({ path }: { path: string }) => ({
+      absolutePath: `/mock/cache/${path}`,
     }),
     writeAppCacheFile: async ({ path, data }: { path: string; data: string }) => {
       appFiles.set(path, data);
@@ -33,6 +39,7 @@ vi.mock('@capacitor/core', () => ({
     deleteAppCacheFile: async ({ path }: { path: string }) => {
       appFiles.delete(path);
     },
+    downloadUrlToAppCache: async () => ({ bytesWritten: 0, digestSha256: '', statusCode: 200 }),
   }),
 }));
 

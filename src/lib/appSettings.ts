@@ -12,12 +12,15 @@ import {
 
 export const APP_SETTING_KEYS = {
   theme: 'app_theme',
+  themeColor: 'theme_color',
   catalogView: 'catalog_view',
+  homeView: 'home_view',
   searchHistory: 'search_history',
   readerPrefs: 'reader_prefs',
   storageDirectory: 'storage_directory',
   readerActivitySync: 'reader_activity_sync',
   serverThemeCache: 'server_theme_cache',
+  serverBackground: 'server_background',
   safeArea: 'safe_area',
   settingsMigrated: 'settings_migrated_v1',
   onboardingDone: 'onboarding_done',

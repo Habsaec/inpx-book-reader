@@ -5,7 +5,7 @@ import type { LocalReaderBookmarkItem } from '../../lib/offlineReaderStore';
 import type { Book, ServerConfig } from '../../types';
 import { bookContentUrl, displayCoverUrl } from '../../lib/inpxClient';
 import EmptyState from '../../ui/EmptyState';
-import { textStyles, touchMin } from '../../ui/tokens';
+import { textStyles, touchMin, radii, motion, elevation } from '../../ui/tokens';
 
 function bookmarkToBook(bm: LocalReaderBookmarkItem, config: ServerConfig): Book {
   const ext = (bm.ext || 'fb2').replace(/^\./, '');
@@ -22,6 +22,7 @@ function bookmarkToBook(bm: LocalReaderBookmarkItem, config: ServerConfig): Book
 interface ReaderBookmarksPanelProps {
   bookmarks: LocalReaderBookmarkItem[];
   serverConfig: ServerConfig;
+  downloadedBookIds?: string[];
   onOpenBookmark: (bookId: string, position: string, book: Book) => void;
   onRemoveBookmark?: (bookId: string, bmId: number) => void | Promise<void>;
 }
@@ -29,6 +30,7 @@ interface ReaderBookmarksPanelProps {
 export default function ReaderBookmarksPanel({
   bookmarks,
   serverConfig,
+  downloadedBookIds,
   onOpenBookmark,
   onRemoveBookmark,
 }: ReaderBookmarksPanelProps) {
@@ -50,7 +52,7 @@ export default function ReaderBookmarksPanel({
       <EmptyState
         icon={Bookmark}
         title="Нет закладок"
-        description="Откройте книгу и добавьте закладку — она появится здесь."
+        description="Закладки из читалки на сайте и в приложении появятся здесь."
       />
     );
   }
@@ -58,9 +60,9 @@ export default function ReaderBookmarksPanel({
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {bookOptions.length > 1 && (
-        <div className={`px-4 py-2 shrink-0 border-b ${theme.header}`}>
+        <div className={`px-5 py-3 shrink-0 border-b ${theme.header}`}>
           <select
-            className={`w-full rounded-xl px-3 py-2 ${textStyles.body} ${theme.chip} ${theme.text} ${theme.focusRing}`}
+            className={`w-full ${radii.lg} px-4 py-2.5 ${textStyles.body} ${theme.input} ${theme.text} ${theme.focusRing}`}
             value={bookFilter}
             onChange={(e) => setBookFilter(e.target.value)}
             aria-label="Книга"
@@ -74,23 +76,26 @@ export default function ReaderBookmarksPanel({
           </select>
         </div>
       )}
-      <ul className="flex-1 min-h-0 overflow-y-auto m-0 p-0 list-none">
+      <ul className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-3">
         {filtered.map((bm) => (
-          <li key={`${bm.bookId}-${bm.id}`} className={`border-b ${theme.divider}`}>
+          <li key={`${bm.bookId}-${bm.id}`} className={`${radii.lg} ${theme.card} ${elevation.card}`}>
             <div className="flex items-stretch gap-1">
               <button
                 type="button"
-                className={`flex-1 min-w-0 text-left px-4 py-3 ${theme.focusRing}`}
+                className={`flex-1 min-w-0 text-left px-4 py-4 ${theme.focusRing} ${motion.press}`}
                 onClick={() => onOpenBookmark(bm.bookId, bm.position, bookmarkToBook(bm, serverConfig))}
               >
                 <p className={`m-0 ${textStyles.caption} ${theme.textMuted} truncate`}>{bm.bookTitle}</p>
-                <p className={`m-0 mt-0.5 ${textStyles.bodyBold} line-clamp-2`}>{bm.label}</p>
+                <p className={`m-0 mt-1 ${textStyles.bodyBold} line-clamp-2`}>{bm.label}</p>
+                {downloadedBookIds && !downloadedBookIds.includes(bm.bookId) ? (
+                  <p className={`m-0 mt-1 ${textStyles.caption} ${theme.textMuted}`}>Не скачана</p>
+                ) : null}
               </button>
               {onRemoveBookmark && (
                 <button
                   type="button"
                   aria-label="Удалить закладку"
-                  className={`${touchMin} shrink-0 self-center mr-2 inline-flex items-center justify-center rounded-xl ${theme.textMuted} ${theme.focusRing}`}
+                  className={`${touchMin} shrink-0 self-center mr-2 inline-flex items-center justify-center ${radii.button} ${theme.panel} ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
                   onClick={() => void onRemoveBookmark(bm.bookId, bm.id)}
                 >
                   <Trash2 className="w-4 h-4" aria-hidden />

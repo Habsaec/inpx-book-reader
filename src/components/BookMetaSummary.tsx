@@ -46,6 +46,7 @@ export default function BookMetaSummary({
     : '';
 
   if (gridAlign) {
+    /* Rating ribbon lives on the cover — meta row keeps format/year only. */
     return (
       <span className="flex flex-col flex-1 min-h-0 min-w-0">
         <span
@@ -61,14 +62,8 @@ export default function BookMetaSummary({
           {genres || '\u00a0'}
         </span>
         <span className="flex flex-wrap items-center gap-1 mt-auto pt-1 min-h-[1.5rem]">
-          {rating > 0 && (
-            <span className={`inline-flex items-center gap-0.5 ${semantic.warning}`} aria-label={`Рейтинг ${rating} из 5`}>
-              <Star className="w-3 h-3 fill-current" aria-hidden />
-              <span className={textStyles.microBold}>{rating}</span>
-            </span>
-          )}
           {book.ext && <span className={`${textStyles.micro} ${theme.textMuted}`}>{book.ext}</span>}
-          {rating === 0 && year ? <span className={`${textStyles.micro} ${theme.textMuted}`}>{year}</span> : null}
+          {year ? <span className={`${textStyles.micro} ${theme.textMuted}`}>{year}</span> : null}
         </span>
       </span>
     );

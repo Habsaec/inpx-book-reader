@@ -54,7 +54,7 @@ const textAnchorFromRange = (doc, range) => {
 
 const rangeFromTextOffset = (doc, requestedOffset, quote = '') => {
     const nodes = sectionTextNodes(doc)
-    if (!nodes.length) return 0
+    if (!nodes.length) return null
     const chars = []
     const points = []
     let pendingSpace = null
@@ -83,11 +83,20 @@ const rangeFromTextOffset = (doc, requestedOffset, quote = '') => {
         const nearby = normalized.indexOf(normalizedQuote, from)
         if (nearby >= 0 && nearby <= textOffset + 2000) textOffset = nearby
     }
-    const point = points[Math.min(textOffset, points.length - 1)]
-    if (!point) return 0
+    const point = points[Math.min(textOffset, Math.max(0, points.length - 1))]
+    if (!point || !doc.createRange) return null
     const range = doc.createRange()
-    range.setStart(point.node, point.offset)
-    range.collapse(true)
+    const len = point.node.nodeValue?.length ?? 0
+    if (point.offset < len) {
+        range.setStart(point.node, point.offset)
+        range.setEnd(point.node, point.offset + 1)
+    } else if (point.offset > 0) {
+        range.setStart(point.node, point.offset - 1)
+        range.setEnd(point.node, point.offset)
+    } else {
+        range.setStart(point.node, 0)
+        range.collapse(true)
+    }
     return range
 }
 
@@ -341,7 +350,7 @@ export class View extends HTMLElement {
             await import('./fixed-layout.js')
             this.renderer = document.createElement('foliate-fxl')
         } else {
-            await import('./paginator.js')
+            await import('./paginator.js?v=page-turn-1')
             this.renderer = document.createElement('foliate-paginator')
         }
         this.renderer.setAttribute('exportparts', 'head,foot,filter,container')
@@ -419,8 +428,11 @@ export class View extends HTMLElement {
         const tocItem = this.#tocProgress?.getProgress(index, range)
         const doc = range?.startContainer?.ownerDocument
         const textAnchor = textAnchorFromRange(doc, range)
+        const useText = Number(textAnchor?.textOffset) > 0
         const progress = this.#sectionProgress?.getProgress(
-            index, textAnchor?.sectionTextFraction ?? fraction, textAnchor == null ? size : 0,
+            index,
+            useText ? textAnchor.sectionTextFraction : fraction,
+            useText ? 0 : size,
             tocItem, range) ?? {}
         const pageItem = this.#pageProgress?.getProgress(index, range)
         const cfi = this.getCFI(index, range)

@@ -50,7 +50,12 @@ export function isServerCollectionNewer(
 ): boolean {
   if (parseSyncTs(serverRev) > parseSyncTs(localRev)) return true;
   if (serverCount > 0 && prevServerCount < 0 && parseSyncTs(localRev) === 0) return true;
-  return serverCount === 0 && prevServerCount > 0;
+  // Empty server wipe is only authoritative when the server rev is at least as new as local.
+  return (
+    serverCount === 0
+    && prevServerCount > 0
+    && parseSyncTs(serverRev) >= parseSyncTs(localRev)
+  );
 }
 
 export const CROSS_DEVICE_POSITION_MESSAGE =

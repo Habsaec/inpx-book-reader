@@ -5,6 +5,7 @@ import {
   initLocalDb,
   upsertReaderData,
 } from './localDb';
+import { positionsDiffer } from '../../public/inpx-reader/reader-shared/position-revision.js';
 
 export interface OfflineReaderBookmark {
   id: number;
@@ -74,6 +75,8 @@ export interface OfflineReaderData {
   annotationsChangedAt?: string | null;
   /** ISO — last local reading-position mutation. */
   positionChangedAt?: string | null;
+  /** Hide from local «недавно читали» without wiping resume coordinates. */
+  recentHiddenAt?: string | null;
   /** Last known server collection revisions (for last-write-wins sync). */
   serverBookmarksRev?: string | null;
   serverAnnotationsRev?: string | null;
@@ -111,6 +114,8 @@ export function offlineReaderStorageKey(bookId: string): string {
 
 const cache = new Map<string, OfflineReaderData>();
 const persistTimers = new Map<string, number>();
+const pendingUpserts = new Map<string, Promise<void>>();
+let flushPromise: Promise<void> | null = null;
 let hydrated = false;
 let hydratePromise: Promise<void> | null = null;
 
@@ -170,6 +175,7 @@ function normalizeOfflineReaderData(data: Partial<OfflineReaderData>): OfflineRe
     bookmarksChangedAt: data.bookmarksChangedAt ?? null,
     annotationsChangedAt: data.annotationsChangedAt ?? null,
     positionChangedAt: data.positionChangedAt ?? null,
+    recentHiddenAt: typeof data.recentHiddenAt === 'string' ? data.recentHiddenAt : null,
     serverBookmarksRev: data.serverBookmarksRev ?? null,
     serverAnnotationsRev: data.serverAnnotationsRev ?? null,
     serverPositionUpdatedAt: data.serverPositionUpdatedAt ?? null,
@@ -275,8 +281,12 @@ function positionFieldsFrom(data: OfflineReaderData): Pick<
 function pickBestPositionFields(
   prev: OfflineReaderData,
   incoming: OfflineReaderData,
+  saveReason?: string | null,
 ): ReturnType<typeof positionFieldsFrom> {
-  if (isSpuriousPositionReset(prev, incoming)) {
+  const reason = saveReason != null ? String(saveReason) : '';
+  const allowNearStart =
+    reason === 'flush' || reason === 'navigation' || reason === 'restore-settle';
+  if (!allowNearStart && isSpuriousPositionReset(prev, incoming)) {
     return positionFieldsFrom(prev);
   }
   const prevTs = readerDataTimestamp(prev);
@@ -335,7 +345,7 @@ export function applyIframeReaderStore(
 ): void {
   const prev = readOfflineReaderData(bookId);
   const incoming = normalizeOfflineReaderData({ ...prev, ...payload });
-  const positionFields = pickBestPositionFields(prev, incoming);
+  const positionFields = pickBestPositionFields(prev, incoming, payload.positionSaveReason);
   const iframeChangedPosition = Boolean(
     payload.positionDirty
     || (
@@ -353,11 +363,11 @@ export function applyIframeReaderStore(
     annotations: incoming.annotationsChangedAt
       ? incoming.annotations
       : (incoming.annotations.length ? incoming.annotations : prev.annotations),
-    deletedBookmarkPositions: incoming.deletedBookmarkPositions?.length
-      ? incoming.deletedBookmarkPositions
+    deletedBookmarkPositions: Array.isArray(payload.deletedBookmarkPositions)
+      ? (incoming.deletedBookmarkPositions ?? [])
       : prev.deletedBookmarkPositions,
-    deletedAnnotationCfis: incoming.deletedAnnotationCfis?.length
-      ? incoming.deletedAnnotationCfis
+    deletedAnnotationCfis: Array.isArray(payload.deletedAnnotationCfis)
+      ? (incoming.deletedAnnotationCfis ?? [])
       : prev.deletedAnnotationCfis,
     bookmarksChangedAt: incoming.bookmarksChangedAt ?? prev.bookmarksChangedAt,
     annotationsChangedAt: incoming.annotationsChangedAt ?? prev.annotationsChangedAt,
@@ -465,12 +475,27 @@ export function primeReaderLocalStorage(bookId: string): void {
   }
 }
 
-/** Не затирать позицию, обновлённую в читалке во время долгого sync. */
-export function applyNewerLocalPositionIfNeeded(bookId: string, draft: OfflineReaderData): OfflineReaderData {
+/** Не затирать позицию, которую пользователь сменил в читалке во время долгого sync. */
+export function applyNewerLocalPositionIfNeeded(
+  bookId: string,
+  draft: OfflineReaderData,
+  openedLocal?: OfflineReaderData,
+): OfflineReaderData {
   const fresh = readOfflineReaderData(bookId);
-  const freshTs = readerDataTimestamp(fresh);
-  const draftTs = readerDataTimestamp(draft);
-  if (freshTs > draftTs && hasOfflineReadingProgress(fresh)) {
+  // Compare position clocks only — `updatedAt` bumps on any store write and must not undo pulls.
+  if (!fresh.positionChangedAt) return draft;
+  const freshTs = Date.parse(fresh.positionChangedAt);
+  const draftTs = Date.parse(draft.positionChangedAt || '') || 0;
+  if (
+    Number.isFinite(freshTs)
+    && freshTs > draftTs
+    && hasOfflineReadingProgress(fresh)
+  ) {
+    // Restore/open only bumps the clock; same coordinates as before sync must not
+    // beat a silent server pull (phone → Go7).
+    if (openedLocal && !positionsDiffer(fresh, openedLocal)) {
+      return draft;
+    }
     return {
       ...draft,
       ...positionFieldsFrom(fresh),
@@ -491,15 +516,29 @@ function readLegacyLocalStorage(bookId: string): OfflineReaderData | null {
   }
 }
 
-function schedulePersist(bookId: string, data: OfflineReaderData): void {
+function enqueueUpsert(bookId: string, json: string): Promise<void> {
+  const prev = pendingUpserts.get(bookId) ?? Promise.resolve();
+  const next = prev
+    .catch(() => {})
+    .then(() => upsertReaderData(bookId, json));
+  pendingUpserts.set(bookId, next);
+  void next.finally(() => {
+    if (pendingUpserts.get(bookId) === next) pendingUpserts.delete(bookId);
+  });
+  return next;
+}
+
+function schedulePersist(bookId: string, _data: OfflineReaderData): void {
   const prev = persistTimers.get(bookId);
   if (prev !== undefined) globalThis.clearTimeout(prev);
   persistTimers.set(
     bookId,
     globalThis.setTimeout(() => {
       persistTimers.delete(bookId);
+      const data = cache.get(bookId);
+      if (!data) return;
       const payload = { ...data, updatedAt: new Date().toISOString() };
-      void upsertReaderData(bookId, JSON.stringify(payload));
+      void enqueueUpsert(bookId, JSON.stringify(payload));
       // Keep iframe localStorage snapshot for GET /position during the open session.
     }, 250) as unknown as number,
   );
@@ -527,9 +566,12 @@ export async function hydrateOfflineReaderStore(): Promise<void> {
         }
       }
       if (typeof localStorage !== 'undefined') {
+        const legacyKeys: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (!key?.startsWith('inpx_offline_reader_')) continue;
+          if (key?.startsWith('inpx_offline_reader_')) legacyKeys.push(key);
+        }
+        for (const key of legacyKeys) {
           const bookId = key.slice('inpx_offline_reader_'.length);
           if (cache.has(bookId)) {
             const cached = cache.get(bookId)!;
@@ -568,11 +610,36 @@ export function readOfflineReaderData(bookId: string): OfflineReaderData {
   if (cache.has(bookId)) {
     const cached = cache.get(bookId)!;
     const legacy = readLegacyLocalStorage(bookId);
-    if (legacy && hasOfflineReaderChanges(legacy) && !hasOfflineReaderChanges(cached)) {
-      const merged = normalizeOfflineReaderData({ ...cached, ...legacy });
-      cache.set(bookId, merged);
-      schedulePersist(bookId, merged);
-      return merged;
+    if (legacy && hasOfflineReaderChanges(legacy)) {
+      if (!hasOfflineReaderChanges(cached)) {
+        const merged = normalizeOfflineReaderData({ ...cached, ...legacy });
+        cache.set(bookId, merged);
+        schedulePersist(bookId, merged);
+        return merged;
+      }
+      // Both have progress — prefer the newer position clock (iframe LS vs parent cache).
+      const legacyTs = Date.parse(legacy.positionChangedAt || '') || 0;
+      const cachedTs = Date.parse(cached.positionChangedAt || '') || 0;
+      if (legacyTs > cachedTs) {
+        const merged = normalizeOfflineReaderData({
+          ...cached,
+          ...positionFieldsFrom(legacy),
+          positionDirty: true,
+          bookmarks: legacy.bookmarksChangedAt ? legacy.bookmarks : cached.bookmarks,
+          annotations: legacy.annotationsChangedAt ? legacy.annotations : cached.annotations,
+          deletedBookmarkPositions: Array.isArray(legacy.deletedBookmarkPositions)
+            ? legacy.deletedBookmarkPositions
+            : cached.deletedBookmarkPositions,
+          deletedAnnotationCfis: Array.isArray(legacy.deletedAnnotationCfis)
+            ? legacy.deletedAnnotationCfis
+            : cached.deletedAnnotationCfis,
+          bookmarksChangedAt: legacy.bookmarksChangedAt ?? cached.bookmarksChangedAt,
+          annotationsChangedAt: legacy.annotationsChangedAt ?? cached.annotationsChangedAt,
+        });
+        cache.set(bookId, merged);
+        schedulePersist(bookId, merged);
+        return merged;
+      }
     }
     return cached;
   }
@@ -591,7 +658,7 @@ export function readOfflineReaderData(bookId: string): OfflineReaderData {
     }
   }
   const empty = emptyReaderData();
-  cache.set(bookId, empty);
+  // Do not cache empty shells — catalog cold reads would unbounded-fill memory.
   return empty;
 }
 
@@ -602,27 +669,47 @@ export function writeOfflineReaderData(bookId: string, data: OfflineReaderData):
 }
 
 export async function flushOfflineReaderStore(): Promise<void> {
-  for (const [bookId, timer] of persistTimers.entries()) {
-    globalThis.clearTimeout(timer);
-    persistTimers.delete(bookId);
-    const data = cache.get(bookId);
-    if (data) {
-      await upsertReaderData(bookId, JSON.stringify({ ...data, updatedAt: new Date().toISOString() }));
+  if (flushPromise) return flushPromise;
+  flushPromise = (async () => {
+    // Drain timers and await serialized upserts; re-scan if writes arrive mid-flush.
+    for (let pass = 0; pass < 3; pass++) {
+      const bookIds = [...persistTimers.keys()];
+      for (const bookId of bookIds) {
+        const timer = persistTimers.get(bookId);
+        if (timer !== undefined) globalThis.clearTimeout(timer);
+        persistTimers.delete(bookId);
+        const data = cache.get(bookId);
+        if (data) {
+          void enqueueUpsert(
+            bookId,
+            JSON.stringify({ ...data, updatedAt: new Date().toISOString() }),
+          );
+        }
+      }
+      if (pendingUpserts.size > 0) {
+        await Promise.all([...pendingUpserts.values()].map((p) => p.catch(() => {})));
+      }
+      if (persistTimers.size === 0) break;
     }
-  }
+  })().finally(() => {
+    flushPromise = null;
+  });
+  return flushPromise;
 }
 
-export function clearOfflineReaderData(bookId: string): void {
+export async function clearOfflineReaderData(bookId: string): Promise<void> {
   cache.delete(bookId);
   const t = persistTimers.get(bookId);
-  if (t) window.clearTimeout(t);
+  if (t !== undefined) globalThis.clearTimeout(t);
   persistTimers.delete(bookId);
   try {
     localStorage.removeItem(offlineReaderStorageKey(bookId));
   } catch {
     /* ignore */
   }
-  void deleteReaderData(bookId);
+  const pending = pendingUpserts.get(bookId);
+  if (pending) await pending.catch(() => {});
+  await deleteReaderData(bookId);
 }
 
 function uniqueStrings(items: string[]): string[] {
@@ -684,6 +771,31 @@ export function restoreOfflineReaderAnnotation(bookId: string, annotation: Offli
   });
 }
 
+/** Put a server/list annotation into the local store without marking it as a local edit. */
+export function ensureOfflineReaderAnnotation(bookId: string, annotation: OfflineReaderAnnotation): void {
+  const data = readOfflineReaderData(bookId);
+  const idx = data.annotations.findIndex((a) => a.id === annotation.id || a.cfi === annotation.cfi);
+  if (idx >= 0) {
+    const cur = data.annotations[idx];
+    if (
+      cur.color === annotation.color
+      && cur.note === annotation.note
+      && cur.text === annotation.text
+    ) {
+      return;
+    }
+    const next = [...data.annotations];
+    next[idx] = { ...cur, ...annotation, id: cur.id };
+    writeOfflineReaderData(bookId, { ...data, annotations: next });
+    return;
+  }
+  writeOfflineReaderData(bookId, {
+    ...data,
+    annotations: [...data.annotations, annotation],
+    deletedAnnotationCfis: (data.deletedAnnotationCfis || []).filter((c) => c !== annotation.cfi),
+  });
+}
+
 export function updateOfflineReaderAnnotation(
   bookId: string,
   annotationId: number,
@@ -706,26 +818,21 @@ export function updateOfflineReaderAnnotation(
   return true;
 }
 
-/** Убрать книгу из «недавно читали» — сброс позиции и прогресса локально. */
+/** Убрать книгу из локального «недавно читали» — без сброса позиции и без dirty zero-push. */
 export function clearOfflineReadingHistory(bookId: string): void {
   const data = readOfflineReaderData(bookId);
   writeOfflineReaderData(bookId, {
     ...data,
-    position: null,
-    progress: 0,
-    fraction: 0,
-    fb2Href: null,
-    sectionIndex: null,
-    textOffset: null,
-    textQuote: null,
-    textSectionLength: null,
-    sectionPageFraction: null,
-    paginatorPage: null,
-    paginatorPages: null,
-    layoutMode: null,
-    positionChangedAt: nowIso(),
-    positionVersion: 4,
-    positionDirty: true,
+    recentHiddenAt: nowIso(),
+  });
+}
+
+export function restoreOfflineReadingHistoryVisibility(bookId: string): void {
+  const data = readOfflineReaderData(bookId);
+  if (!data.recentHiddenAt) return;
+  writeOfflineReaderData(bookId, {
+    ...data,
+    recentHiddenAt: null,
   });
 }
 
@@ -804,6 +911,71 @@ export function listLocalReaderAnnotations(
     }
   }
   return out;
+}
+
+export function readerBookmarkFromApi(row: {
+  id: number;
+  bookId: string;
+  bookTitle?: string;
+  label?: string;
+  position?: string;
+  ext?: string;
+}): LocalReaderBookmarkItem {
+  return {
+    id: Number(row.id),
+    bookId: String(row.bookId),
+    bookTitle: String(row.bookTitle || ''),
+    label: String(row.label || 'Закладка'),
+    position: String(row.position || ''),
+    ext: row.ext ? String(row.ext).replace(/^\./, '') : undefined,
+  };
+}
+
+export function readerAnnotationFromApi(row: {
+  id: number;
+  bookId: string;
+  bookTitle?: string;
+  text?: string;
+  note?: string;
+  cfi?: string;
+  color?: string;
+  ext?: string;
+}): LocalReaderAnnotationItem {
+  return {
+    id: Number(row.id),
+    bookId: String(row.bookId),
+    bookTitle: String(row.bookTitle || ''),
+    text: String(row.text || ''),
+    note: String(row.note || ''),
+    cfi: String(row.cfi || ''),
+    color: String(row.color || 'yellow'),
+    ext: row.ext ? String(row.ext).replace(/^\./, '') : undefined,
+  };
+}
+
+/** Server first, local overlays matching keys and appends unsynced items. */
+export function mergeReaderBookmarkLists(
+  server: LocalReaderBookmarkItem[],
+  local: LocalReaderBookmarkItem[],
+): LocalReaderBookmarkItem[] {
+  if (!server.length) return local;
+  if (!local.length) return server;
+  const byKey = new Map<string, LocalReaderBookmarkItem>();
+  for (const item of server) byKey.set(`${item.bookId}\0${item.position}`, item);
+  for (const item of local) byKey.set(`${item.bookId}\0${item.position}`, item);
+  return [...byKey.values()];
+}
+
+export function mergeReaderAnnotationLists(
+  server: LocalReaderAnnotationItem[],
+  local: LocalReaderAnnotationItem[],
+): LocalReaderAnnotationItem[] {
+  if (!server.length) return local;
+  if (!local.length) return server;
+  const byKey = new Map<string, LocalReaderAnnotationItem>();
+  for (const item of server) byKey.set(`${item.bookId}\0${item.cfi}`, item);
+  for (const item of local) byKey.set(`${item.bookId}\0${item.cfi}`, item);
+  return [...byKey.values()];
 }
 
 export interface OfflineReaderExport {
@@ -911,6 +1083,8 @@ export function __resetOfflineReaderCacheForTests(): void {
   cache.clear();
   for (const t of persistTimers.values()) globalThis.clearTimeout(t);
   persistTimers.clear();
+  pendingUpserts.clear();
+  flushPromise = null;
   hydrated = false;
   hydratePromise = null;
 }

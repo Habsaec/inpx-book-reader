@@ -31,6 +31,23 @@ export interface ServerUiTheme {
   fontSize: string;
   density: string;
   radiusPreset: string;
+  radiusScale: number;
+  radius: { sm: string; md: string; lg: string; xl: string; button: string; card: string } | null;
+  shadowPreset: string;
+  shadows: {
+    dark: { sm: string; md: string; lg: string };
+    light: { sm: string; md: string; lg: string };
+  } | null;
+  backgroundUrl: string | null;
+  hasBackground: boolean;
+  bgBlur: number;
+  bgOverlayStrength: number;
+  bgSize: string;
+  bgPosition: string;
+  overlayColorDark: string;
+  overlayColorLight: string;
+  surfaceOpacity: number;
+  surfaceBlur: number;
   paletteDark: AppThemePalette | null;
   paletteLight: AppThemePalette | null;
   /** @deprecated raw glass fields */
@@ -72,11 +89,43 @@ const APP_CSS_KEYS = [
   '--font-sans',
 ] as const;
 
+const CHROME_CSS_KEYS = [
+  '--app-radius-sm',
+  '--app-radius-md',
+  '--app-radius-lg',
+  '--app-radius-button',
+  '--app-shadow-sm',
+  '--app-shadow-md',
+  '--app-shadow-lg',
+  '--app-bg-image',
+  '--app-bg-blur',
+  '--app-bg-overlay',
+  '--app-bg-overlay-color',
+  '--app-bg-size',
+  '--app-bg-repeat',
+  '--app-bg-position',
+  '--app-bg-transform',
+  '--app-surface-opacity',
+  '--app-surface-blur',
+] as const;
+
+const RADIUS_FALLBACK: Record<string, { sm: string; md: string; lg: string; xl: string; button: string; card: string }> = {
+  sharp: { sm: '2px', md: '4px', lg: '6px', xl: '8px', button: '4px', card: '2px' },
+  rounded: { sm: '6px', md: '8px', lg: '12px', xl: '16px', button: '10px', card: '6px' },
+  pill: { sm: '12px', md: '16px', lg: '22px', xl: '28px', button: '999px', card: '12px' },
+};
+
 function resolveFontStack(preset: string, customFontUrl?: string): string {
   if (preset === 'custom' && customFontUrl) {
     return "'INPX Custom', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
   }
   return FONT_FAMILY_STACKS[preset] || FONT_FAMILY_STACKS.inter;
+}
+
+function clampUiInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
 }
 
 function paletteFromApi(raw: Record<string, unknown>, mode: 'dark' | 'light'): AppThemePalette | null {
@@ -132,6 +181,62 @@ function legacyPalette(
   };
 }
 
+function parseRadiusTokens(raw: Record<string, unknown>): ServerUiTheme['radius'] {
+  const obj = raw.radius;
+  if (obj && typeof obj === 'object') {
+    const o = obj as Record<string, unknown>;
+    const sm = String(o.sm ?? '');
+    const md = String(o.md ?? '');
+    const lg = String(o.lg ?? '');
+    if (sm && md && lg) {
+      return {
+        sm,
+        md,
+        lg,
+        xl: String(o.xl ?? lg),
+        button: String(o.button ?? md),
+        card: String(o.card ?? sm),
+      };
+    }
+  }
+  const preset = String(raw.radiusPreset ?? '');
+  if (preset === 'custom') {
+    const base = Math.min(28, Math.max(0, Math.round(Number(raw.radiusScale) || 0)));
+    const r = (mult: number) => `${Math.round(base * mult)}px`;
+    return { sm: r(0.75), md: r(1), lg: r(1.5), xl: r(2), button: r(1.25), card: r(0.75) };
+  }
+  return RADIUS_FALLBACK[preset] ?? null;
+}
+
+function parseShadowPair(raw: unknown): { sm: string; md: string; lg: string } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const sm = String(o.sm ?? '');
+  const md = String(o.md ?? '');
+  const lg = String(o.lg ?? '');
+  if (!sm && !md && !lg) return null;
+  return { sm, md, lg };
+}
+
+function parseShadowTokens(raw: Record<string, unknown>): ServerUiTheme['shadows'] {
+  const obj = raw.shadows;
+  if (!obj || typeof obj !== 'object') return null;
+  const o = obj as Record<string, unknown>;
+  const dark = parseShadowPair(o.dark);
+  const light = parseShadowPair(o.light);
+  if (!dark && !light) return null;
+  return {
+    dark: dark ?? { sm: '', md: '', lg: '' },
+    light: light ?? dark ?? { sm: '', md: '', lg: '' },
+  };
+}
+
+function clampOverlay(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(80, Math.max(0, Math.round(n)));
+}
+
 export function parseServerUiTheme(raw: Record<string, unknown>, siteName: string, logoPath: string | null): ServerUiTheme {
   const fontFamily = String(raw.fontFamily ?? 'inter');
   const themeVersion = String(raw.themeVersion ?? '') || [
@@ -141,6 +246,9 @@ export function parseServerUiTheme(raw: Record<string, unknown>, siteName: strin
     raw.fontSize,
     raw.density,
     raw.radiusPreset,
+    raw.radiusScale,
+    raw.shadowPreset,
+    raw.backgroundUrl,
   ].join('|');
 
   let paletteDark = paletteFromApi(raw, 'dark');
@@ -153,6 +261,11 @@ export function parseServerUiTheme(raw: Record<string, unknown>, siteName: strin
   if (!paletteDark && glassDark) paletteDark = legacyPalette(glassDark, textDark, true);
   if (!paletteLight && glassLight) paletteLight = legacyPalette(glassLight, textLight, false);
 
+  const backgroundUrl = String(raw.backgroundUrl ?? '').trim() || null;
+  const overlayStrength = raw.bgOverlayStrength != null
+    ? clampOverlay(raw.bgOverlayStrength)
+    : clampOverlay(80 - Number(raw.bgOverlay ?? 80), 0);
+
   return {
     siteName,
     logoUrl: logoPath,
@@ -162,6 +275,20 @@ export function parseServerUiTheme(raw: Record<string, unknown>, siteName: strin
     fontSize: String(raw.fontSize ?? ''),
     density: String(raw.density ?? ''),
     radiusPreset: String(raw.radiusPreset ?? ''),
+    radiusScale: Number(raw.radiusScale) || 0,
+    radius: parseRadiusTokens(raw),
+    shadowPreset: String(raw.shadowPreset ?? ''),
+    shadows: parseShadowTokens(raw),
+    backgroundUrl,
+    hasBackground: raw.hasBackground === true || Boolean(backgroundUrl),
+    bgBlur: Math.min(24, Math.max(0, Math.round(Number(raw.bgBlur) || 0))),
+    bgOverlayStrength: overlayStrength,
+    bgSize: String(raw.bgSize ?? 'cover') || 'cover',
+    bgPosition: String(raw.bgPosition ?? 'center') || 'center',
+    overlayColorDark: String(raw.overlayColorDark ?? ''),
+    overlayColorLight: String(raw.overlayColorLight ?? ''),
+    surfaceOpacity: clampUiInt(raw.surfaceOpacity, 0, 100, 88),
+    surfaceBlur: clampUiInt(raw.surfaceBlur, 0, 24, 0),
     paletteDark,
     paletteLight,
     glassColorDark: glassDark,
@@ -171,36 +298,46 @@ export function parseServerUiTheme(raw: Record<string, unknown>, siteName: strin
   };
 }
 
-export type AppThemeMode = 'server' | 'system' | 'light' | 'dark' | 'sepia' | 'auto';
+export type AppAppearance = 'light' | 'dark' | 'auto';
+export type AppColorSource = 'server' | 'system';
+
+export function parseAppAppearance(raw: string | null | undefined): AppAppearance {
+  if (raw === 'light' || raw === 'sepia') return 'light';
+  if (raw === 'dark') return 'dark';
+  return 'auto';
+}
+
+export function parseAppColorSource(
+  rawColor: string | null | undefined,
+  legacyTheme?: string | null,
+): AppColorSource {
+  if (rawColor === 'server' || rawColor === 'system') return rawColor;
+  if (!legacyTheme || legacyTheme === 'server') return 'server';
+  return 'system';
+}
 
 export async function fetchServerUiTheme(config: ServerConfig): Promise<ServerUiTheme | null> {
-  if (config.connectionStatus !== 'connected' || !config.url) return null;
+  if (config.connectionStatus !== 'connected' || !config.url) {
+    return getAppSettingJson<ServerUiTheme | null>(CACHE_KEY, null);
+  }
   try {
     const branding = await fetchServerBranding(config);
     const theme = parseServerUiTheme(branding.rawUi ?? {}, branding.siteName, branding.logoPath);
     setAppSettingJson(CACHE_KEY, theme);
     return theme;
   } catch {
-    const cached = getAppSettingJson<ServerUiTheme | null>(CACHE_KEY, null);
-    return cached;
+    return getAppSettingJson<ServerUiTheme | null>(CACHE_KEY, null);
   }
 }
 
-export function resolveIsDark(mode: AppThemeMode, serverTheme: ServerUiTheme | null): boolean {
-  if (mode === 'dark') return true;
-  if (mode === 'light' || mode === 'sepia') return false;
-  if (mode === 'system' || mode === 'server') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  }
-  if (mode === 'auto') {
-    const hours = new Date().getHours();
-    return hours >= 20 || hours < 7;
-  }
-  void serverTheme;
-  return false;
+export function resolveIsDark(appearance: AppAppearance): boolean {
+  if (appearance === 'dark') return true;
+  if (appearance === 'light') return false;
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-function applyPalette(palette: AppThemePalette, fontStack: string, fontSize?: string, density?: string): void {
+function applyPalette(palette: AppThemePalette, fontStack: string): void {
   const root = document.documentElement;
   root.style.setProperty('--app-bg', palette.bg);
   root.style.setProperty('--app-surface', palette.surface);
@@ -219,14 +356,6 @@ function applyPalette(palette: AppThemePalette, fontStack: string, fontSize?: st
   root.style.setProperty('--app-topbar-border', palette.topbarBorder);
   root.style.setProperty('--app-cover-border', palette.coverBorder);
   root.style.setProperty('--font-sans', fontStack);
-  if (fontSize) {
-    const px = Number(fontSize);
-    if (Number.isFinite(px) && px >= 12 && px <= 20) {
-      root.style.fontSize = `${px}px`;
-    }
-  } else if (density) {
-    applyDensityScale(density);
-  }
 }
 
 export function clearServerThemeVars(): void {
@@ -241,38 +370,123 @@ export function applyServerThemeVars(theme: ServerUiTheme | null, isDark: boolea
   if (!theme) return;
   const palette = isDark ? theme.paletteDark : theme.paletteLight;
   if (!palette) return;
-  applyPalette(palette, theme.fontFamilyStack, theme.fontSize, theme.density);
+  applyPalette(palette, theme.fontFamilyStack);
 }
 
-function applyDensityScale(density: string, fontSize?: string): void {
-  if (fontSize) return;
-  const map: Record<string, string> = {
-    compact: '14px',
-    normal: '16px',
-    comfortable: '18px',
-  };
-  const size = map[density];
-  if (size) document.documentElement.style.fontSize = size;
-}
-
-export function applySepiaTheme(): void {
+export function clearServerChromeVars(): void {
   const root = document.documentElement;
-  root.dataset.theme = 'sepia';
-  root.style.setProperty('--app-bg', '#f4ecd8');
-  root.style.setProperty('--app-surface', '#faf6eb');
-  root.style.setProperty('--app-text', '#5c4b37');
-  root.style.setProperty('--app-muted', '#8a7968');
-  root.style.setProperty('--app-link', '#8b5a12');
+  for (const key of CHROME_CSS_KEYS) {
+    root.style.removeProperty(key);
+  }
+  delete root.dataset.uiBg;
+  delete root.dataset.uiGlass;
 }
 
-export function applyAppThemeMode(mode: AppThemeMode, isDark: boolean): void {
+function backgroundLayout(size: string, position: string): { size: string; repeat: string; position: string } {
+  const pos = ['center', 'top', 'bottom', 'left', 'right'].includes(position) ? position : 'center';
+  if (size === 'tile') {
+    return { size: 'auto', repeat: 'repeat', position: pos };
+  }
+  return { size: 'cover', repeat: 'no-repeat', position: pos };
+}
+
+function parseRadiusPx(value: string): number {
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? n : 8;
+}
+
+/**
+ * Server tokens (card 6px / button 999px) don't map 1:1 onto Android controls.
+ * Keep a single sm < md < lg scale so tabs, cards and nav stay the same family.
+ */
+export function androidRadiusFromServer(
+  radius: NonNullable<ServerUiTheme['radius']>,
+  preset: string,
+): { sm: string; md: string; lg: string; button: string } {
+  const button = radius.button.trim();
+  if (preset === 'pill' || button === '999px' || button === '9999px') {
+    return { sm: '12px', md: '16px', lg: '22px', button: '999px' };
+  }
+  if (preset === 'sharp' || parseRadiusPx(radius.md) <= 4) {
+    return { sm: '0.25rem', md: '0.375rem', lg: '0.5rem', button: '0.25rem' };
+  }
+  return { sm: '0.5rem', md: '0.75rem', lg: '1rem', button: '0.75rem' };
+}
+
+/** Radius, shadows, background — library chrome, independent of local color theme. */
+export function applyServerChromeVars(
+  theme: ServerUiTheme | null,
+  isDark: boolean,
+  backgroundBlobUrl?: string | null,
+  allowBackground = true,
+): void {
   const root = document.documentElement;
-  if (mode === 'sepia') {
-    applySepiaTheme();
+  if (!theme) {
+    clearServerChromeVars();
     return;
   }
-  if (mode !== 'server') {
-    clearServerThemeVars();
+
+  if (theme.radius) {
+    const mapped = androidRadiusFromServer(theme.radius, theme.radiusPreset);
+    root.style.setProperty('--app-radius-sm', mapped.sm);
+    root.style.setProperty('--app-radius-md', mapped.md);
+    root.style.setProperty('--app-radius-lg', mapped.lg);
+    root.style.setProperty('--app-radius-button', mapped.button);
   }
-  root.dataset.theme = isDark ? 'dark' : 'light';
+
+  const shadows = isDark ? theme.shadows?.dark : theme.shadows?.light;
+  if (shadows) {
+    if (shadows.sm) root.style.setProperty('--app-shadow-sm', shadows.sm);
+    if (shadows.md) root.style.setProperty('--app-shadow-md', shadows.md);
+    if (shadows.lg) root.style.setProperty('--app-shadow-lg', shadows.lg);
+  }
+
+  const imageUrl = backgroundBlobUrl || '';
+  const showBackground = allowBackground && theme.hasBackground && Boolean(imageUrl);
+  if (showBackground) {
+    const layout = backgroundLayout(theme.bgSize, theme.bgPosition);
+    const overlayColor = isDark
+      ? (theme.overlayColorDark || theme.paletteDark?.bg || '#1a1612')
+      : (theme.overlayColorLight || theme.paletteLight?.bg || '#fffdf8');
+    root.dataset.uiBg = '1';
+    root.style.setProperty('--app-bg-image', `url("${imageUrl}")`);
+    root.style.setProperty('--app-bg-blur', `${theme.bgBlur}px`);
+    root.style.setProperty('--app-bg-overlay', String(theme.bgOverlayStrength));
+    root.style.setProperty('--app-bg-overlay-color', overlayColor);
+    root.style.setProperty('--app-bg-size', layout.size);
+    root.style.setProperty('--app-bg-repeat', layout.repeat);
+    root.style.setProperty('--app-bg-position', layout.position);
+  } else {
+    delete root.dataset.uiBg;
+    root.style.removeProperty('--app-bg-image');
+    root.style.removeProperty('--app-bg-blur');
+    root.style.removeProperty('--app-bg-overlay');
+    root.style.removeProperty('--app-bg-overlay-color');
+    root.style.removeProperty('--app-bg-size');
+    root.style.removeProperty('--app-bg-repeat');
+    root.style.removeProperty('--app-bg-position');
+    root.style.removeProperty('--app-bg-transform');
+  }
+
+  const useGlass = showBackground || theme.surfaceBlur > 0 || theme.surfaceOpacity !== 88;
+  if (useGlass) {
+    root.dataset.uiGlass = '1';
+    const fill = `color-mix(in srgb, var(--app-surface) ${theme.surfaceOpacity}%, transparent)`;
+    const fillHover = `color-mix(in srgb, var(--app-surface-hover) ${theme.surfaceOpacity}%, transparent)`;
+    root.style.setProperty('--app-surface-opacity', String(theme.surfaceOpacity));
+    root.style.setProperty('--app-surface-blur', `${theme.surfaceBlur}px`);
+    root.style.setProperty('--app-topbar-bg', fill);
+    root.style.setProperty('--app-card-bg', fill);
+    root.style.setProperty('--app-card-bg-hover', fillHover);
+    root.style.setProperty('--app-panel-soft', fill);
+    root.style.setProperty('--app-field-bg', fill);
+  } else {
+    delete root.dataset.uiGlass;
+    root.style.removeProperty('--app-surface-opacity');
+    root.style.removeProperty('--app-surface-blur');
+  }
+}
+
+export function applyAppThemeMode(isDark: boolean): void {
+  document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
 }

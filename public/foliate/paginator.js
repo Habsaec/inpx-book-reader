@@ -44,6 +44,99 @@ const uncollapse = range => {
     return range
 }
 
+const normalizedSectionText = doc => {
+    const root = doc?.body ?? doc?.documentElement
+    return root ? String(root.textContent ?? '').replace(/[\t\n\f\r ]+/g, ' ').trim() : ''
+}
+
+const sectionTextNodes = doc => {
+    const root = doc?.body ?? doc?.documentElement
+    if (!root) return []
+    const win = doc.defaultView ?? globalThis
+    const walker = doc.createTreeWalker(root, win.NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            const parent = node.parentElement?.tagName?.toLowerCase()
+            return parent === 'script' || parent === 'style'
+                ? win.NodeFilter.FILTER_REJECT
+                : win.NodeFilter.FILTER_ACCEPT
+        },
+    })
+    const nodes = []
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node)
+    return nodes
+}
+
+const textAnchorFromRange = (doc, range) => {
+    if (!doc || !range) return null
+    const root = doc.body ?? doc.documentElement
+    const start = range.startContainer ? range : null
+    if (!start?.startContainer || !root?.contains(range.startContainer)) return null
+    const prefix = doc.createRange()
+    prefix.selectNodeContents(root)
+    try {
+        prefix.setEnd(range.startContainer, range.startOffset)
+    } catch {
+        return null
+    }
+    const text = normalizedSectionText(doc)
+    const textOffset = Math.max(0, Math.min(text.length, prefix.toString().replace(/[\t\n\f\r ]+/g, ' ').trim().length))
+    return {
+        textOffset,
+        textQuote: text.slice(textOffset, textOffset + 96),
+    }
+}
+
+const rangeFromTextOffset = (doc, requestedOffset, quote = '') => {
+    const nodes = sectionTextNodes(doc)
+    if (!nodes.length) return null
+    const chars = []
+    const points = []
+    let pendingSpace = null
+    for (const node of nodes) {
+        const value = node.nodeValue ?? ''
+        for (let offset = 0; offset < value.length; offset += 1) {
+            const char = value[offset]
+            if (/[\t\n\f\r ]/.test(char)) {
+                if (chars.length && pendingSpace == null) pendingSpace = { node, offset }
+                continue
+            }
+            if (pendingSpace) {
+                chars.push(' ')
+                points.push(pendingSpace)
+                pendingSpace = null
+            }
+            chars.push(char)
+            points.push({ node, offset })
+        }
+    }
+    const normalized = chars.join('')
+    let textOffset = Math.max(0, Math.min(normalized.length, Math.round(Number(requestedOffset) || 0)))
+    const normalizedQuote = String(quote ?? '').replace(/[\t\n\f\r ]+/g, ' ').trim()
+    if (normalizedQuote && normalized.slice(textOffset, textOffset + normalizedQuote.length) !== normalizedQuote) {
+        const from = Math.max(0, textOffset - 2000)
+        const nearby = normalized.indexOf(normalizedQuote, from)
+        if (nearby >= 0 && nearby <= textOffset + 2000) textOffset = nearby
+    }
+    const point = points[Math.min(textOffset, Math.max(0, points.length - 1))]
+    if (!point || !doc.createRange) return null
+    const range = doc.createRange()
+    const len = point.node.nodeValue?.length ?? 0
+    // One glyph, not a collapsed caret: collapsed ranges often have empty
+    // client rects after CSS columns, and uncollapse() then returns a parent
+    // element whose first rect is the start of the section.
+    if (point.offset < len) {
+        range.setStart(point.node, point.offset)
+        range.setEnd(point.node, point.offset + 1)
+    } else if (point.offset > 0) {
+        range.setStart(point.node, point.offset - 1)
+        range.setEnd(point.node, point.offset)
+    } else {
+        range.setStart(point.node, 0)
+        range.collapse(true)
+    }
+    return range
+}
+
 const makeRange = (doc, node, start, end = start) => {
     const range = doc.createRange()
     range.setStart(node, start)
@@ -431,6 +524,11 @@ export class Paginator extends HTMLElement {
     #margin = 0
     #index = -1
     #anchor = 0 // anchor view to a fraction (0-1), Range, or Element
+    #textOffset = null
+    #textQuote = ''
+    #layoutHeld = false
+    /** Share of the current section, 0–1. Updated on user page turns; re-applied after reflow. */
+    #sectionFrac = null
     #justAnchored = false
     #locked = false // while true, prevent any further navigation
     #styles
@@ -579,7 +677,7 @@ export class Paginator extends HTMLElement {
             if (detail.reason === 'selection') setSelectionTo(this.#anchor, 0)
             else if (detail.reason === 'navigation') {
                 if (this.#anchor === 1) setSelectionTo(detail.range, 1)
-                else if (typeof this.#anchor === 'number')
+                else if (typeof this.#anchor === 'number' || typeof this.#anchor === 'function')
                     setSelectionTo(detail.range, -1)
                 else setSelectionTo(this.#anchor, -1)
             }
@@ -678,7 +776,20 @@ export class Paginator extends HTMLElement {
         }
         this.#view = new View({
             container: this,
-            onExpand: () => this.#scrollToAnchor(this.#anchor),
+            onExpand: () => {
+                if (this.#layoutHeld) return
+                // Chapter turns set #anchor to 0/1. Never re-apply the previous
+                // chapter's page fraction onto the new section.
+                if (typeof this.#anchor === 'number') {
+                    this.#scrollToAnchor(this.#anchor)
+                    return
+                }
+                if (this.#sectionFrac != null) {
+                    void this.restoreSectionFrac('anchor')
+                    return
+                }
+                this.#scrollToAnchor(this.#anchor)
+            },
         })
         this.#container.append(this.#view.element)
         return this.#view
@@ -797,6 +908,15 @@ export class Paginator extends HTMLElement {
             vertical: this.#vertical,
             rtl: this.#rtl,
         }))
+        if (this.#layoutHeld) return
+        if (typeof this.#anchor === 'number') {
+            this.#scrollToAnchor(this.#anchor)
+            return
+        }
+        if (this.#sectionFrac != null) {
+            void this.restoreSectionFrac('anchor')
+            return
+        }
         this.#scrollToAnchor(this.#anchor)
     }
     get scrolled() {
@@ -829,6 +949,115 @@ export class Paginator extends HTMLElement {
     }
     get pages() {
         return Math.round(this.viewSize / this.size)
+    }
+    #pageCount() {
+        const n = this.pages
+        return Number.isFinite(n) && n > 2 ? n - 2 : 0
+    }
+    #syncSectionFracFromPage() {
+        if (this.scrolled) {
+            const vs = this.viewSize
+            if (vs > 0) this.#sectionFrac = this.start / vs
+            return
+        }
+        const textPages = this.#pageCount()
+        if (!textPages) return
+        const page = Math.max(1, Number(this.page) || 1)
+        this.#sectionFrac = (page - 1) / textPages
+    }
+    rememberSectionFrac() {
+        if (this.page > 1 || this.#sectionFrac == null) this.#syncSectionFracFromPage()
+    }
+    async restoreSectionFrac(reason = 'anchor') {
+        if (this.#sectionFrac == null) return false
+        if (this.scrolled) {
+            const vs = this.viewSize
+            if (!(vs > 0)) return false
+            await this.#scrollTo(this.#sectionFrac * vs, reason)
+            return true
+        }
+        const size = this.size
+        if (!(size > 8)) return false
+        const textPages = this.#pageCount()
+        if (!textPages) return false
+        const newPage = Math.max(1, Math.min(
+            textPages,
+            Math.round(this.#sectionFrac * textPages) + 1,
+        ))
+        await this.#scrollToPage(newPage, reason)
+        return true
+    }
+    #sectionTextLength() {
+        return Math.max(1, normalizedSectionText(this.#view?.document).length)
+    }
+    #textOffsetFromCurrentPage() {
+        const { page, pages } = this
+        if (this.scrolled || !(pages > 2)) return 0
+        return Math.round(((Math.max(1, page) - 1) / Math.max(1, pages - 2)) * this.#sectionTextLength())
+    }
+    #pageFromTextOffset(offset) {
+        const { pages } = this
+        const textPages = Math.max(0, (Number.isFinite(pages) ? pages : 0) - 2)
+        const frac = Math.min(1, Math.max(0, Number(offset) / this.#sectionTextLength()))
+        return Math.round(frac * Math.max(0, textPages - 1)) + 1
+    }
+    /** Layout-independent pin: survive font/margin/orientation reflow. */
+    pinTextAnchor(offset, quote = '') {
+        const n = Number(offset)
+        if (!Number.isInteger(n) || n < 0) return
+        this.#textOffset = n
+        this.#textQuote = String(quote || '')
+        this.#anchor = doc => rangeFromTextOffset(doc, this.#textOffset, this.#textQuote)
+    }
+    clearTextAnchor() {
+        this.#textOffset = null
+        this.#textQuote = ''
+    }
+    async #landAtSectionEdge(atEnd) {
+        if (this.scrolled) {
+            const vs = this.viewSize
+            if (!(vs > 0)) return
+            await this.#scrollTo(atEnd ? vs : 0, 'navigation')
+            return
+        }
+        const { pages } = this
+        if (!Number.isFinite(pages) || pages < 3) return
+        const target = atEnd ? pages - 2 : 1
+        if (this.page !== target) await this.#scrollToPage(target, 'navigation')
+    }
+    #beginSectionTurn(atEnd) {
+        this.clearTextAnchor()
+        this.#layoutHeld = false
+        this.#sectionFrac = null
+        this.#anchor = atEnd ? 1 : 0
+    }
+    get pinnedTextOffset() {
+        return this.#textOffset
+    }
+    get pinnedTextQuote() {
+        return this.#textQuote
+    }
+    holdLayout() {
+        this.#layoutHeld = true
+    }
+    releaseLayout() {
+        this.#layoutHeld = false
+    }
+    async restoreTextAnchor(offset, quote = '') {
+        this.pinTextAnchor(offset, quote)
+        if (this.#textOffset == null) return
+        if (this.scrolled) {
+            return this.#scrollToAnchor(
+                doc => rangeFromTextOffset(doc, this.#textOffset, this.#textQuote),
+                'navigation',
+            )
+        }
+        // Android WebView CSS columns: Range.getClientRects() is often viewport-
+        // relative (x≈0) → page 1 = start of chapter. Map the character through
+        // the post-reflow page count instead.
+        const size = this.size
+        if (!(size > 8)) return
+        return this.#scrollToPage(this.#pageFromTextOffset(this.#textOffset), 'navigation')
     }
     // this is the current position of the container
     get containerPosition() {
@@ -863,10 +1092,12 @@ export class Paginator extends HTMLElement {
 
         this.#scrollToPage(page, 'snap').then(() => {
             const dir = page <= 0 ? -1 : page >= pages - 1 ? 1 : null
-            if (dir) return this.#goTo({
+            if (!dir) return
+            this.#beginSectionTurn(dir < 0)
+            return this.#goTo({
                 index: this.#adjacentIndex(dir),
                 anchor: dir < 0 ? () => 1 : () => 0,
-            })
+            }).then(() => this.#landAtSectionEdge(dir < 0))
         })
     }
     #onTouchStart(e) {
@@ -945,8 +1176,16 @@ export class Paginator extends HTMLElement {
             const offset = this.#getRectMapper()(rect).left - this.#margin
             return this.#scrollTo(offset, reason)
         }
+        const size = this.size
+        if (!size) return
         const offset = this.#getRectMapper()(rect).left
-        return this.#scrollToPage(Math.floor(offset / this.size) + (this.#rtl ? -1 : 1), reason)
+        // Page 0 / last page are empty sentinels. A range at the start of a
+        // column can have a slightly negative offset and land on a blank page.
+        let page = Math.floor(offset / size) + (this.#rtl ? -1 : 1)
+        const lastContent = Math.max(1, this.pages - 2)
+        if (page < 1) page = 1
+        else if (page > lastContent) page = lastContent
+        return this.#scrollToPage(page, reason)
     }
     async #scrollTo(offset, reason, smooth) {
         const { size } = this
@@ -982,28 +1221,63 @@ export class Paginator extends HTMLElement {
         return this.#scrollToPage(pageIndex, reason)
     }
     async #scrollToAnchor(anchor, reason = 'anchor') {
-        this.#anchor = anchor
-        const rects = uncollapse(anchor)?.getClientRects?.()
-        // if anchor is an element or a range
-        if (rects) {
-            // when the start of the range is immediately after a hyphen in the
-            // previous column, there is an extra zero width rect in that column
-            const rect = Array.from(rects)
-                .find(r => r.width > 0 && r.height > 0) || rects[0]
-            if (!rect) return
-            await this.#scrollToRect(rect, reason)
+        const doc = this.#view?.document
+        let resolved = anchor
+        if (typeof resolved === 'function' && doc) {
+            try { resolved = resolved(doc) } catch { /* keep previous */ }
+        }
+
+        // Upstream foliate-js: a numeric dest (0 = start, 1 = end) always wins.
+        // Our text pin must not hijack chapter turns.
+        const numericDest = typeof resolved === 'number' && Number.isFinite(resolved)
+        if (numericDest) {
+            this.clearTextAnchor()
+            this.#anchor = resolved
+            if (!this.scrolled && !(this.size > 8)) return
+            if (this.scrolled) {
+                await this.#scrollTo(resolved * this.viewSize, reason)
+                return
+            }
+            const { pages } = this
+            if (!Number.isFinite(pages) || pages < 3) return
+            const textPages = pages - 2
+            const newPage = Math.round(resolved * (textPages - 1))
+            await this.#scrollToPage(newPage + 1, reason)
             return
         }
-        // if anchor is a fraction
-        if (this.scrolled) {
-            await this.#scrollTo(anchor * this.viewSize, reason)
-            return
+
+        this.#anchor = resolved
+        if (doc && resolved && typeof resolved !== 'number') {
+            const info = textAnchorFromRange(doc, resolved)
+            if (info && Number.isInteger(info.textOffset)) {
+                this.#textOffset = info.textOffset
+                this.#textQuote = info.textQuote || ''
+            }
         }
-        const { pages } = this
-        if (!pages) return
-        const textPages = pages - 2
-        const newPage = Math.round(anchor * (textPages - 1))
-        await this.#scrollToPage(newPage + 1, reason)
+
+        const size = this.size
+        if (!this.scrolled && !(size > 8)) return
+
+        const rects = uncollapse(resolved)?.getClientRects?.()
+        if (rects?.length) {
+            const rect = Array.from(rects).find(r => r.width > 0 && r.height > 0) || rects[0]
+            if (rect) {
+                const mappedPage = Math.floor(this.#getRectMapper()(rect).left / size) + (this.#rtl ? -1 : 1)
+                const pinFrac = this.#textOffset != null
+                    ? this.#textOffset / this.#sectionTextLength()
+                    : 0
+                if (!this.scrolled && mappedPage <= 1 && pinFrac > 0.02) {
+                    await this.#scrollToPage(this.#pageFromTextOffset(this.#textOffset), reason)
+                    return
+                }
+                await this.#scrollToRect(rect, reason)
+                return
+            }
+        }
+
+        if (this.#textOffset != null && !this.scrolled) {
+            await this.#scrollToPage(this.#pageFromTextOffset(this.#textOffset), reason)
+        }
     }
     #getVisibleRange() {
         if (this.scrolled) return getVisibleRange(this.#view.document,
@@ -1016,9 +1290,27 @@ export class Paginator extends HTMLElement {
         const range = this.#getVisibleRange()
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
-        if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor')
-            this.#anchor = range
-        else this.#justAnchored = true
+        if (reason === 'page' || reason === 'snap' || reason === 'scroll' || reason === 'navigation') {
+            this.#syncSectionFracFromPage()
+        }
+        if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor') {
+            const info = textAnchorFromRange(this.#view?.document, range)
+            const fromRange = info && Number.isInteger(info.textOffset) ? info.textOffset : null
+            const fromPage = this.#textOffsetFromCurrentPage()
+            // Visible-range geometry is often x=0 in Android column layout, which
+            // reports offset 0 while the user is mid-chapter. Prefer page mapping.
+            if (fromRange != null && (fromRange > 0 || this.page <= 1)) {
+                this.#textOffset = fromRange
+                this.#textQuote = info.textQuote || ''
+            } else if (fromPage > 0 || this.page <= 1) {
+                this.#textOffset = fromPage
+            }
+            if (this.#textOffset != null) {
+                this.#anchor = d => rangeFromTextOffset(d, this.#textOffset, this.#textQuote)
+            } else {
+                this.#anchor = range
+            }
+        } else this.#justAnchored = true
 
         const index = this.#index
         const detail = { reason, range, index }
@@ -1033,6 +1325,13 @@ export class Paginator extends HTMLElement {
     }
     async #display(promise) {
         const { index, src, anchor, onLoad, select } = await promise
+        if (src) {
+            this.clearTextAnchor()
+            this.#sectionFrac = null
+            if (typeof anchor === 'number') this.#anchor = anchor
+            else if (anchor == null) this.#anchor = 0
+            else this.#anchor = anchor
+        }
         this.#index = index
         const hasFocus = this.#view?.document?.hasFocus()
         if (src) {
@@ -1057,8 +1356,8 @@ export class Paginator extends HTMLElement {
             }))
             this.#view = view
         }
-        await this.scrollToAnchor((typeof anchor === 'function'
-            ? anchor(this.#view.document) : anchor) ?? 0, select)
+        let dest = typeof anchor === 'function' ? anchor(this.#view.document) : anchor
+        await this.scrollToAnchor(dest ?? 0, select)
         if (hasFocus) this.focusView()
     }
     #canGoToIndex(index) {
@@ -1130,10 +1429,14 @@ export class Paginator extends HTMLElement {
         this.#locked = true
         const prev = dir === -1
         const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
-        if (shouldGo) await this.#goTo({
-            index: this.#adjacentIndex(dir),
-            anchor: prev ? () => 1 : () => 0,
-        })
+        if (shouldGo) {
+            this.#beginSectionTurn(prev)
+            await this.#goTo({
+                index: this.#adjacentIndex(dir),
+                anchor: prev ? () => 1 : () => 0,
+            })
+            await this.#landAtSectionEdge(prev)
+        }
         if (shouldGo || !this.hasAttribute('animated')) await wait(100)
         this.#locked = false
     }
@@ -1184,7 +1487,7 @@ export class Paginator extends HTMLElement {
         })
 
         // needed because the resize observer doesn't work in Firefox
-        this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
+        this.#view?.document?.fonts?.ready?.then(() => this.#view?.expand())
     }
     focusView() {
         this.#view.document.defaultView.focus()

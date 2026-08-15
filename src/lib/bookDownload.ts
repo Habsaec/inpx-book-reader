@@ -36,9 +36,10 @@ export async function fetchBookBinary(
   config: ServerConfig,
   book: Book,
   onProgress?: (loaded: number, total: number) => void,
+  opts?: { signal?: AbortSignal },
 ): Promise<ArrayBuffer> {
   if (isNativeApp()) {
-    return downloadBookBinary(config, book.id, onProgress);
+    return downloadBookBinary(config, book.id, onProgress, opts);
   }
   const downloadUrl = book.contentUrl || bookContentUrl(config, book.id);
   const headers: Record<string, string> = {};
@@ -47,7 +48,7 @@ export async function fetchBookBinary(
       'Basic ' + btoa(unescape(encodeURIComponent(`${config.username}:${config.password}`)));
   }
   const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}`;
-  const response = await fetch(proxyUrl, { headers });
+  const response = await fetch(proxyUrl, { headers, signal: opts?.signal });
   if (!response.ok) throw new Error(`Ошибка загрузки: HTTP ${response.status}`);
   return response.arrayBuffer();
 }

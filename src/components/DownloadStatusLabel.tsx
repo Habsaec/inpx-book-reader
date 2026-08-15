@@ -30,10 +30,11 @@ export default function DownloadStatusLabel({
   if (isDownloaded) {
     return (
       <span
-        className={`inline-flex items-center gap-1 ${textStyles.microBold} ${semantic.success} ${className}`}
+        className={`inline-flex items-center ${semantic.success} ${className}`}
+        title="На устройстве"
+        aria-label="На устройстве"
       >
-        <HardDrive className="w-3 h-3 shrink-0 opacity-80" aria-hidden />
-        На устройстве
+        <HardDrive className="w-3.5 h-3.5 shrink-0 opacity-80" aria-hidden />
       </span>
     );
   }

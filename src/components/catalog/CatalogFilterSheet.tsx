@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Filter } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { sheetBackdropClass, sheetPanelClass, sheetPanelStyle, SheetDragHandle } from '../../ui/SheetChrome';
-import { textStyles, touchMin } from '../../ui/tokens';
+import { textStyles, touchMin, radii, motion } from '../../ui/tokens';
 import Button from '../../ui/Button';
 import { useOverlayBackHandler } from '../../hooks/useBackHandler';
 import type {
@@ -11,6 +11,7 @@ import type {
   CatalogHasSeriesFilter,
   DemoBookSort,
 } from './catalogTypes';
+import BookSortBar from './BookSortBar';
 
 export interface CatalogGenreOption {
   name: string;
@@ -44,6 +45,8 @@ interface CatalogFilterSheetProps {
   resolveGenreOptions?: () => Promise<CatalogGenreOption[]>;
   /** Demo/local pool only — server sort lives in the search header. */
   showSort?: boolean;
+  /** Hide genre multi-select (e.g. already inside a genre page). */
+  showGenrePicker?: boolean;
 }
 
 const EMPTY_DRAFT: CatalogFilterDraft = {
@@ -81,6 +84,7 @@ export default function CatalogFilterSheet({
   genreOptions = [],
   resolveGenreOptions,
   showSort = true,
+  showGenrePicker = true,
 }: CatalogFilterSheetProps) {
   const closeRef = React.useRef<HTMLButtonElement>(null);
   const [genreQuery, setGenreQuery] = React.useState('');
@@ -173,16 +177,18 @@ export default function CatalogFilterSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <SheetDragHandle />
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <h2 id="catalog-filter-title" className={`${textStyles.title} flex items-center gap-2`}>
-            <Filter className="w-5 h-5" aria-hidden />
+        <div className="flex items-center justify-between gap-3 mb-5">
+          <h2 id="catalog-filter-title" className={`${textStyles.title} flex items-center gap-2.5`}>
+            <span className={`inline-flex items-center justify-center w-10 h-10 ${radii.md} ${theme.accentMuted}`}>
+              <Filter className={`w-5 h-5 ${theme.accentText}`} aria-hidden />
+            </span>
             Фильтры
           </h2>
           <button
             ref={closeRef}
             type="button"
             onClick={onClose}
-            className={`${touchMin} inline-flex items-center justify-center rounded-lg ${theme.chipButton} ${theme.focusRing}`}
+            className={`${touchMin} inline-flex items-center justify-center ${radii.button} ${theme.panel} ${theme.chipButton} ${theme.focusRing} ${motion.press}`}
             aria-label="Закрыть"
           >
             <X className="w-5 h-5" aria-hidden />
@@ -190,8 +196,8 @@ export default function CatalogFilterSheet({
         </div>
 
         <div className="space-y-5 overflow-y-auto flex-1 min-h-0 pb-4">
-          <div>
-            <span className={`block ${textStyles.bodyBold} ${theme.textMuted} mb-2`}>
+          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+            <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Рейтинг
             </span>
             <div className="flex flex-wrap gap-2">
@@ -200,7 +206,7 @@ export default function CatalogFilterSheet({
                   key={n}
                   type="button"
                   onClick={() => setDraft((prev) => ({ ...prev, minRating: n }))}
-                  className={`min-h-12 px-3 rounded-xl ${textStyles.captionBold} ${theme.interactive} ${
+                  className={`min-h-11 px-4 ${radii.button} ${textStyles.captionBold} ${theme.interactive} ${motion.press} ${
                     draft.minRating === n ? theme.accentActive : `${theme.chip} ${theme.chipHover}`
                   }`}
                 >
@@ -210,8 +216,9 @@ export default function CatalogFilterSheet({
             </div>
           </div>
 
-          <div>
-            <span className={`block ${textStyles.bodyBold} ${theme.textMuted} mb-2`}>
+          {showGenrePicker && (
+          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+            <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Жанры
               {draft.genreFilters.length > 0 ? ` (${draft.genreFilters.length})` : ''}
             </span>
@@ -226,10 +233,10 @@ export default function CatalogFilterSheet({
                   value={genreQuery}
                   onChange={(e) => setGenreQuery(e.target.value)}
                   placeholder="Найти жанр…"
-                  className={`w-full border rounded-xl px-3 py-2.5 min-h-12 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
+                  className={`w-full ${radii.button} px-4 py-3 min-h-12 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
                 />
                 <div
-                  className={`max-h-48 overflow-y-auto rounded-xl border border-[color:var(--app-border)] divide-y divide-[color:var(--app-border)]`}
+                  className={`max-h-48 overflow-y-auto ${radii.lg} border border-[color:var(--app-border)] divide-y divide-[color:var(--app-border)] ${theme.cardSolid}`}
                   role="group"
                   aria-label="Жанры"
                 >
@@ -273,9 +280,10 @@ export default function CatalogFilterSheet({
               </p>
             )}
           </div>
+          )}
 
-          <div>
-            <span className={`block ${textStyles.bodyBold} ${theme.textMuted} mb-2`}>
+          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+            <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Год издания
             </span>
             <input
@@ -295,15 +303,15 @@ export default function CatalogFilterSheet({
                 if (!Number.isFinite(n)) return;
                 setDraft((prev) => ({ ...prev, yearFilter: n }));
               }}
-              className={`w-full border rounded-xl px-3 py-2.5 min-h-12 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
+              className={`w-full ${radii.button} px-4 py-3 min-h-12 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
             />
           </div>
 
-          <div>
-            <span className={`block ${textStyles.bodyBold} ${theme.textMuted} mb-2`}>
+          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+            <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Наличие серии
             </span>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {(
                 [
                   { id: 'any' as const, label: 'Любые' },
@@ -317,7 +325,7 @@ export default function CatalogFilterSheet({
                   onClick={() =>
                     setDraft((prev) => ({ ...prev, hasSeriesFilter: opt.id }))
                   }
-                  className={`min-h-12 px-3 rounded-xl ${textStyles.captionBold} ${theme.interactive} ${
+                  className={`min-h-11 px-4 ${radii.button} ${textStyles.captionBold} ${theme.interactive} ${motion.press} ${
                     draft.hasSeriesFilter === opt.id
                       ? theme.accentActive
                       : `${theme.chip} ${theme.chipHover}`
@@ -329,8 +337,8 @@ export default function CatalogFilterSheet({
             </div>
           </div>
 
-          <div>
-            <span className={`block ${textStyles.bodyBold} ${theme.textMuted} mb-2`}>
+          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+            <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Формат
             </span>
             <div className="flex flex-wrap gap-2">
@@ -339,7 +347,7 @@ export default function CatalogFilterSheet({
                   key={fmt}
                   type="button"
                   onClick={() => setDraft((prev) => ({ ...prev, formatFilter: fmt }))}
-                  className={`min-h-12 px-3 rounded-xl ${textStyles.captionBold} ${theme.interactive} ${
+                  className={`min-h-11 px-4 ${radii.button} ${textStyles.captionBold} ${theme.interactive} ${motion.press} ${
                     draft.formatFilter === fmt
                       ? theme.accentActive
                       : `${theme.chip} ${theme.chipHover}`
@@ -352,38 +360,26 @@ export default function CatalogFilterSheet({
           </div>
 
           {showSort && (
-            <div>
-              <span className={`block ${textStyles.bodyBold} ${theme.textMuted} mb-2`}>
+            <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+              <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
                 Сортировка
               </span>
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    { id: 'rating' as const, label: 'Рейтинг' },
-                    { id: 'title' as const, label: 'Название' },
-                    { id: 'year' as const, label: 'Год' },
-                    { id: 'downloads' as const, label: 'Скачивания' },
-                  ] as const
-                ).map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setDraft((prev) => ({ ...prev, sortBy: opt.id }))}
-                    className={`min-h-12 px-3 rounded-xl ${textStyles.captionBold} ${theme.interactive} ${
-                      draft.sortBy === opt.id
-                        ? theme.accentActive
-                        : `${theme.chip} ${theme.chipHover}`
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+              <BookSortBar
+                className="max-w-none w-full"
+                value={draft.sortBy}
+                options={[
+                  { id: 'rating', label: 'Рейтинг' },
+                  { id: 'title', label: 'Название' },
+                  { id: 'year', label: 'Год' },
+                  { id: 'downloads', label: 'Скачивания' },
+                ]}
+                onChange={(id) => setDraft((prev) => ({ ...prev, sortBy: id as DemoBookSort }))}
+              />
             </div>
           )}
         </div>
 
-        <div className="flex gap-2 pt-2 shrink-0">
+        <div className={`flex gap-2 pt-4 shrink-0 border-t ${theme.divider}`}>
           {hasActive && (
             <Button type="button" variant="ghost" className="flex-1" onClick={resetDraft}>
               Сбросить

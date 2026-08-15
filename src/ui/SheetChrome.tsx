@@ -11,10 +11,10 @@ export function SheetDragHandle() {
   );
 }
 
-export const sheetPanelClass = `${radii.lg} rounded-b-none border-t ${theme.sheet} max-h-[85vh] overflow-y-auto`;
+export const sheetPanelClass = `rounded-t-3xl rounded-b-none border-t ${theme.sheet} max-h-[85vh] overflow-y-auto shadow-lg`;
 
 /** Sheets below dialogs (600) and snackbars (700). */
-export const sheetBackdropClass = 'fixed inset-0 z-[500] flex flex-col justify-end bg-stone-950/60';
+export const sheetBackdropClass = 'fixed inset-0 z-[500] flex flex-col justify-end bg-black/50 overscroll-contain';
 
 export function sheetPanelStyle(): React.CSSProperties {
   return { paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' };

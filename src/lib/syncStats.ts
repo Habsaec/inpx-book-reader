@@ -102,12 +102,19 @@ export async function getSyncPendingBreakdown(bookIds: string[]): Promise<SyncPe
   }
   const reader = summarizeReaderSyncPending(bookIds);
   const queueTotal = ops.length;
-  const readerTotal = reader.progressBooks + reader.bookmarkBooks + reader.annotationBooks;
+  const booksWithQueue = new Set(
+    ops.map((op) => op.bookId).filter((id): id is string => Boolean(id)),
+  );
+  let readerOnlyBooks = 0;
+  for (const id of bookIds) {
+    if (bookHasPendingSync(id) && !booksWithQueue.has(id)) readerOnlyBooks++;
+  }
   return {
     queueTotal,
     queueByType,
     ...reader,
-    totalPending: queueTotal + readerTotal,
+    // Avoid double-counting the same book in queue + offline reader dirty.
+    totalPending: queueTotal + readerOnlyBooks,
     failedOps: failed.map((f) => ({
       id: f.id,
       opType: f.opType,
@@ -115,4 +122,18 @@ export async function getSyncPendingBreakdown(bookIds: string[]): Promise<SyncPe
       attempts: f.attempts,
     })),
   };
+}
+
+/** Header badge: only cross-device conflicts + failed queue ops (not routine dirty). */
+export function countCrossDeviceConflicts(bookIds: string[]): number {
+  let n = 0;
+  for (const id of bookIds) {
+    if (readOfflineReaderData(id).pendingCrossDevicePrompt) n++;
+  }
+  return n;
+}
+
+export async function getSyncAttentionCount(bookIds: string[]): Promise<number> {
+  const failed = await getFailedSyncOps(3);
+  return failed.length + countCrossDeviceConflicts(bookIds);
 }

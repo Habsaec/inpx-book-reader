@@ -82,19 +82,20 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `POST /api/favorites/series` — добавить/удалить серию в избранное
 
 #### Библиотека и каталог
-- `GET /api/library/recent` — новинки по дате INPX (`date`, окно 30 дней от самой свежей даты в каталоге), не весь каталог и не штамп переиндексации
+- `GET /api/library/recent` — новинки по дате INPX (`date`, окно 30 дней от самой свежей даты в каталоге), не весь каталог и не штамп переиндексации; additive filters как у каталога: `genre` (CSV/repeated, OR), `lang`, `format`, `year`, `minRate`, `hasSeries` (1/0)
 - `GET /api/library/continue` — продолжить чтение
 - `GET /api/library/read` — прочитанные книги
-- `GET /api/library/recommended` — рекомендации
+- `GET /api/library/recommended` — рекомендации; те же additive filters (`genre`, `format`, `year`, `minRate`, `hasSeries`) поверх персонального пула
 - `GET /api/catalog` — поиск/просмотр каталога (без `q` тоже отдаёт книги); additive filters: `genre` (CSV/repeated, OR — хотя бы один), `lang`, `format`, `year`, `minRate`, `hasSeries` (1/0)
 - `GET /api/search?q=` — totals разделов `{ books, authors, series, preferredField?, routeField: null }`; drilldown через `/api/catalog?field=`; веб Enter всегда открывает книги с чипами Авторы/Серии (без hub / smart redirect)
 - `GET /api/search/genres?q=` — жанры среди книг текущей выдачи (фасет для фильтра; опционально format/year/minRate/hasSeries)
 - `GET /api/search/suggest` — подсказки поиска (книги/авторы/серии)
 - `GET /api/catalog` — при пустой/слабой выдаче может быть additive `searchHints` (`tip`, `didYouMean`, `weak?`)
 - `GET /api/browse/authors` — список авторов
+- `GET /api/browse/authors/:value/grouped` — серии автора + `standaloneBooks` + `books[]` в каждой серии (режим списка как на веб); `lean=1` — только сводки серий без книг
 - `GET /api/browse/series` — список серий
 - `GET /api/browse/genres` — список жанров
-- `GET /api/facet-books` — книги по фильтру (автор/серия/жанр)
+- `GET /api/facet-books` — книги по фасету (автор/серия/жанр); additive filters: `format`, `year`, `minRate`, `hasSeries` (1/0), `lang`
 
 #### Книги и контент
 - `GET /api/books/:id/meta` — метаданные из INPX-индекса (`seriesList`, автор, жанры) — **источник правды для скачивания и путей на диске**
@@ -111,7 +112,10 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `POST /api/bookmarks/:id` — добавить/удалить закладку
 - `POST /api/read/:id` — отметить книгу как прочитанную
 - `GET /api/books/:id/position` — позиция чтения (`position`, `progress`, `fraction`, `fb2Href`, `sectionIndex`, `textOffset`, `textQuote`, `textSectionLength`, `sectionPageFraction`, `paginatorPage`, `paginatorPages`, `layoutMode`, `updatedAt`, `positionVersion`, `revision`)
-- `GET /api/books/:id/reader-sync-meta` — ревизии закладок/заметок и метка позиции для sync
+- `GET /api/books/:id/reader-sync-meta` — ревизии закладок/заметок и метка позиции для sync (`positionRevision`, `positionUpdatedAt`, counts)
+- `GET /api/reader-sync-index?ids=` — bulk dirty-check для тихой фоновой синхронизации: `{ activity, books[] }` (до ~200 id)
+- `GET /api/reader-bookmarks` — все закладки читалки пользователя (`items`, `total`, `page`, `pageSize`)
+- `GET /api/reader-annotations` — все заметки читалки пользователя (`items`, `total`, `page`, `pageSize`)
 - `POST /api/books/:id/position` — CAS-сохранение позиции: обязательны `positionVersion: 4` и `baseRevision`; ответ включает новую `revision`, конфликт — `409 { current }`, устаревший клиент получает `428`; ставит «прочитано» при 99% и снимает отметку при повторном чтении ниже 95%
 - `GET /api/books/:id/bookmarks` — закладки книги
 - `POST /api/books/:id/bookmarks` — добавить закладку
@@ -148,7 +152,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `DELETE /api/shelves/:id/books/:bookId` — удалить книгу с полки
 
 #### Настройки сервера
-- `GET /api/settings/ui` — UI настройки (название, логотип)
+- `GET /api/settings/ui` — UI настройки библиотеки: название, логотип, палитра, **скругление** (`radius` / `radiusPreset`), **тени** (`shadows` / `shadowPreset`), **фон** (`backgroundUrl`, `bgBlur`, `bgOverlayStrength`, `bgSize`, `bgPosition`), **панели** (`surfaceOpacity` 0–100, `surfaceBlur` 0–24px)
 - `GET /health` — проверка доступности сервера
 
 ### Android UI (независимый от сервера)
@@ -163,7 +167,7 @@ Android-приложение имеет **собственный мобильн�
 **Своё в приложении:**
 - Навигация, табы, жесты, safe-area, кнопка «Назад»
 - Layout списков и карточек — под Android WebView
-- Анимации с учётом WebView (`reducedMotion="always"`)
+- Анимации с учётом WebView: `MotionConfig reducedMotion="user"`, только transform/scale (без enter через `opacity: 0`)
 
 **Функциональность:** доступ к тем же возможностям через API (каталог, чтение, sync, полки, …), но реализация UI — мобильная.
 
@@ -348,7 +352,7 @@ npm run lint
 
 ### Брендинг библиотеки (опционально)
 
-Если нужно подтянуть название/логотип с сервера — `GET /api/settings/ui`.
+Если нужно подтянуть оформление с сервера — `GET /api/settings/ui` (название, логотип, палитра, скругление, тени, фон).
 Синхронизация палитры с `styles.css` сервера **не обязательна**; Android-тема живёт в `src/index.css` и `src/lib/appTheme.ts` независимо от `/lite/`.
 
 ### При добавлении нового API endpoint на сервере

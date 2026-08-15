@@ -72,17 +72,35 @@ public class TtsForegroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        String action = intent != null ? intent.getAction() : null;
+        // Sticky restart with null Intent would force a zombie Now Playing + wakelock.
+        if (intent == null) {
+            releaseWakeLock();
+            stopForeground(true);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
+        String action = intent.getAction();
         if (ACTION_PLAY.equals(action)
             || ACTION_PAUSE.equals(action)
             || ACTION_STOP.equals(action)
             || ACTION_PREV.equals(action)
             || ACTION_NEXT.equals(action)) {
             handleAction(action);
-            return START_STICKY;
+            return START_NOT_STICKY;
         }
 
         TtsMediaState.Snapshot snap = TtsMediaState.snapshot();
+        // Cover refresh after stop must not resurrect Now Playing.
+        // speak() may start the service before JS marks media active — keep placeholder
+        // when the playback session is already live to avoid FGS without startForeground.
+        if (!snap.active && ACTION_REFRESH.equals(action)
+            && !TtsPlaybackManager.getInstance(this).isSessionActive()) {
+            releaseWakeLock();
+            stopForeground(true);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         // speak() may start the service before JS pushes metadata — keep a placeholder.
         if (!snap.active) {
             TtsMediaState.update(
@@ -96,7 +114,7 @@ public class TtsForegroundService extends Service {
 
         acquireWakeLock();
         publishSessionAndNotification(snap);
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void handleAction(String action) {

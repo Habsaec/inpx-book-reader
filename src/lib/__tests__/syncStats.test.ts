@@ -1,6 +1,15 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { __resetOfflineReaderCacheForTests, writeOfflineReaderData } from '../offlineReaderStore';
-import { bookHasPendingSync } from '../syncStats';
+import { bookHasPendingSync, countCrossDeviceConflicts, getSyncAttentionCount } from '../syncStats';
+import { getFailedSyncOps } from '../localDb';
+
+vi.mock('../localDb', async () => {
+  const actual = await vi.importActual<typeof import('../localDb')>('../localDb');
+  return {
+    ...actual,
+    getFailedSyncOps: vi.fn(async () => []),
+  };
+});
 
 describe('syncStats', () => {
   beforeEach(() => {
@@ -104,5 +113,42 @@ describe('syncStats', () => {
       serverBookmarkCount: 1,
     });
     expect(bookHasPendingSync('book-1')).toBe(true);
+  });
+
+  it('countCrossDeviceConflicts only counts pendingCrossDevicePrompt', () => {
+    writeOfflineReaderData('book-1', {
+      positionVersion: 4,
+      position: null,
+      positionDirty: true,
+      progress: 10,
+      bookmarks: [],
+      annotations: [],
+      pendingCrossDevicePrompt: true,
+    });
+    writeOfflineReaderData('book-2', {
+      positionVersion: 4,
+      position: null,
+      positionDirty: true,
+      progress: 10,
+      bookmarks: [],
+      annotations: [],
+      pendingCrossDevicePrompt: false,
+    });
+    expect(countCrossDeviceConflicts(['book-1', 'book-2'])).toBe(1);
+  });
+
+  it('getSyncAttentionCount adds failed queue ops', async () => {
+    vi.mocked(getFailedSyncOps).mockResolvedValueOnce([
+      { id: 1, opType: 'toggle_read', bookId: 'x', payload: '{}', attempts: 3, createdAt: '' },
+    ] as unknown as Awaited<ReturnType<typeof getFailedSyncOps>>);
+    writeOfflineReaderData('book-1', {
+      positionVersion: 4,
+      position: null,
+      progress: 10,
+      bookmarks: [],
+      annotations: [],
+      pendingCrossDevicePrompt: true,
+    });
+    expect(await getSyncAttentionCount(['book-1'])).toBe(2);
   });
 });

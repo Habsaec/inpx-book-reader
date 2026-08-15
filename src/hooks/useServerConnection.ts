@@ -19,6 +19,8 @@ export function useServerConnection() {
   const [serverConfigReady, setServerConfigReady] = React.useState(false);
   const [connectionError, setConnectionError] = React.useState<string | null>(null);
   const connectionVerifyIdRef = React.useRef(0);
+  const serverConfigRef = React.useRef(serverConfig);
+  serverConfigRef.current = serverConfig;
 
   const markServerDisconnected = React.useCallback(() => {
     setServerConfig((prev) =>
@@ -28,13 +30,34 @@ export function useServerConnection() {
     );
   }, []);
 
+  const markAuthExpired = React.useCallback(() => {
+    setConnectionError('Сессия устройства устарела. Введите логин и пароль заново.');
+    const next: ServerConfig = {
+      ...serverConfigRef.current,
+      connectionStatus: 'disconnected',
+      deviceToken: '',
+      deviceTokenId: '',
+    };
+    setServerConfig(next);
+    void persistServerConfig(next).catch(() => {
+      setConnectionError('Не удалось сохранить учётные данные в защищённом хранилище Android');
+    });
+  }, []);
+
   React.useEffect(() => {
     let cancelled = false;
-    void loadServerConfig().then((loaded) => {
-      if (cancelled) return;
-      setServerConfig(loaded);
-      setServerConfigReady(true);
-    });
+    void loadServerConfig()
+      .then((loaded) => {
+        if (cancelled) return;
+        setServerConfig(loaded);
+      })
+      .catch((err) => {
+        console.warn('[useServerConnection] loadServerConfig failed:', err);
+        if (!cancelled) setServerConfig(initialServerConfig);
+      })
+      .finally(() => {
+        if (!cancelled) setServerConfigReady(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -42,12 +65,18 @@ export function useServerConnection() {
 
   React.useEffect(() => {
     if (!serverConfigReady) return;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       void persistServerConfig(serverConfig).catch(() => {
-        setConnectionError('Не удалось сохранить учётные данные в защищённом хранилище Android');
+        if (!cancelled) {
+          setConnectionError('Не удалось сохранить учётные данные в защищённом хранилище Android');
+        }
       });
     }, 250);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [serverConfig, serverConfigReady]);
 
   React.useEffect(() => {
@@ -63,15 +92,20 @@ export function useServerConnection() {
     };
 
     const verifyId = ++connectionVerifyIdRef.current;
+    // testConnection can run health + profile (2× CONNECTION_TIMEOUT) then exchangeDeviceToken.
     const safetyTimer = window.setTimeout(() => {
       if (connectionVerifyIdRef.current !== verifyId) return;
       markServerDisconnected();
-    }, CONNECTION_TIMEOUT_MS + 2_000);
+    }, 3 * CONNECTION_TIMEOUT_MS + 2_000);
 
     void (async () => {
       try {
         const result = await testConnection(configSnapshot);
         if (connectionVerifyIdRef.current !== verifyId) return;
+        if (result.authExpired) {
+          markAuthExpired();
+          return;
+        }
         setConnectionError(result.ok ? null : result.error || 'Не удалось подключиться');
         if (result.ok && isAndroid() && configSnapshot.username?.trim() && configSnapshot.password) {
           try {
@@ -101,8 +135,12 @@ export function useServerConnection() {
       }
     })();
 
-    return () => window.clearTimeout(safetyTimer);
+    return () => {
+      connectionVerifyIdRef.current += 1;
+      window.clearTimeout(safetyTimer);
+    };
   }, [
+    markAuthExpired,
     markServerDisconnected,
     serverConfig.connectionStatus,
     serverConfig.deviceToken,
@@ -140,9 +178,6 @@ export function useServerConnection() {
     setServerConfig((prev) => ({ ...prev, connectionStatus: 'testing' }));
   }, [serverConfig.url]);
 
-  const serverConfigRef = React.useRef(serverConfig);
-  serverConfigRef.current = serverConfig;
-
   const tryAutoReconnect = React.useCallback(() => {
     const prev = serverConfigRef.current;
     if (prev.connectionStatus === 'connected' || prev.connectionStatus === 'testing') return;
@@ -162,9 +197,33 @@ export function useServerConnection() {
       if (isActive) tryAutoReconnect();
     });
     return () => {
-      void sub.then((h) => h.remove());
+      void sub.then((h) => h.remove()).catch(() => {});
     };
   }, [serverConfigReady, tryAutoReconnect]);
+
+  // WebView получает online/offline из ConnectivityManager — статус в шапке
+  // реагирует мгновенно, а не после первого упавшего запроса.
+  React.useEffect(() => {
+    if (!serverConfigReady || !isNativeApp()) return;
+    const onOffline = () => markServerDisconnected();
+    const onOnline = () => tryAutoReconnect();
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+    return () => {
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [serverConfigReady, markServerDisconnected, tryAutoReconnect]);
+
+  // Самолечение «застрял офлайн»: transient-ошибка boot-пробы или упавший запрос
+  // без последующего события online не должны оставлять приложение офлайн навсегда.
+  React.useEffect(() => {
+    if (!serverConfigReady || !isNativeApp()) return;
+    if (serverConfig.connectionStatus !== 'disconnected') return;
+    if (!shouldAutoReconnect(serverConfig)) return;
+    const timer = window.setTimeout(() => tryAutoReconnect(), 30_000);
+    return () => window.clearTimeout(timer);
+  }, [serverConfigReady, serverConfig, tryAutoReconnect]);
 
   const applyPairingLogin = React.useCallback((result: {
     url: string;
@@ -193,6 +252,7 @@ export function useServerConnection() {
     connectionError,
     setConnectionError,
     markServerDisconnected,
+    markAuthExpired,
     handleServerConfigChange,
     handleTestConnection,
     applyPairingLogin,

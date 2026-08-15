@@ -34,7 +34,10 @@ describe('bookRef', () => {
   });
 
   it('builds filesystem-safe keys for covers/chapters', () => {
-    expect(safeBookIdFileKey('8:873746')).toBe('8:873746');
+    // ':' под замену: FUSE/vfat на /sdcard молча конвертирует его в '_' при записи —
+    // иначе путь с Flibusta-id '8:873746' никогда не совпадёт с файлом на диске.
+    expect(safeBookIdFileKey('8:873746')).toBe('8_873746');
+    expect(legacyStrippedBookIdFileKey('8:873746')).toBe('8_873746');
     const key = safeBookIdFileKey(SAMPLE_ID);
     expect(key.startsWith('b64_')).toBe(true);
     expect(key.includes('\0')).toBe(false);

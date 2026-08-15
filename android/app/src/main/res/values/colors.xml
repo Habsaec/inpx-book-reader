@@ -6,4 +6,11 @@
     <color name="colorPrimary">#8b5a12</color>
     <color name="colorPrimaryDark">#5c3d0c</color>
     <color name="colorAccent">#d4ac5c</color>
+    <color name="widget_bg">#1e1a16</color>
+    <color name="widget_stroke">#26c4a35a</color>
+    <color name="widget_cover_bg">#2a241c</color>
+    <color name="widget_title">#f2ebe0</color>
+    <color name="widget_muted">#a89884</color>
+    <color name="widget_accent">#d4ac5c</color>
+    <color name="widget_progress_track">#33ffffff</color>
 </resources>

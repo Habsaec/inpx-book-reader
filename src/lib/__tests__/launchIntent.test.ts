@@ -41,4 +41,25 @@ describe('launchIntent', () => {
   it('returns null when no match', () => {
     expect(findBookByLaunchUri('content://x/unknown.fb2', books)).toBeNull();
   });
+
+  it('strips uri fragment when extracting file name', () => {
+    expect(fileNameFromLaunchUri('content://x/Test%20Book.fb2#page=3')).toBe('test book.fb2');
+  });
+
+  it('returns null on ambiguous duplicate file names instead of opening the wrong book', () => {
+    const dup: Book[] = [
+      { ...books[0], id: 'a', localFileName: 'A1/Series/Test Book.fb2' },
+      { ...books[0], id: 'b', localFileName: 'A2/Series/Test Book.fb2' },
+    ];
+    expect(findBookByLaunchUri('content://ext/downloads/test%20book.fb2', dup)).toBeNull();
+  });
+
+  it('prefers full path suffix match when the uri carries the library path', () => {
+    const dup: Book[] = [
+      { ...books[0], id: 'a', localFileName: 'A1/Series/Test Book.fb2' },
+      { ...books[0], id: 'b', localFileName: 'A2/Series/Test Book.fb2' },
+    ];
+    const book = findBookByLaunchUri('file:///storage/emulated/0/Download/A2/Series/Test%20Book.fb2', dup);
+    expect(book?.id).toBe('b');
+  });
 });

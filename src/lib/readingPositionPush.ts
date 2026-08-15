@@ -13,7 +13,10 @@ import {
   serverFractionFromPos,
 } from './positionApply';
 import { fractionToProgress } from './syncMerge';
-import { hasMeaningfulPosition } from '../../public/inpx-reader/reader-shared/position-revision.js';
+import {
+  hasMeaningfulPosition,
+  positionsDiffer,
+} from '../../public/inpx-reader/reader-shared/position-revision.js';
 
 export function localHasMeaningfulPosition(local: OfflineReaderData): boolean {
   return hasMeaningfulPosition(local);
@@ -46,6 +49,9 @@ export async function pushReadingPositionWithRecovery(
   } catch (error) {
     if (!(error instanceof ReadingPositionProtocolError)) throw error;
     const current = await fetchReadingPosition(config, bookId);
+    if (positionsDiffer(local, current)) {
+      throw new ReadingPositionConflictError(current);
+    }
     const refreshedRevision = current.revision ?? 0;
     return await doPush(refreshedRevision);
   }

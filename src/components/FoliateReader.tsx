@@ -1,13 +1,25 @@
 import React from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { Share } from '@capacitor/share';
 import { StatusBar } from '@capacitor/status-bar';
-import { readBinaryFileFromDirectory, arrayBufferToBase64 } from '../lib/bookStorage';
+import { resolveStorageFileUrl } from '../lib/bookStorage';
+import {
+  isStoragePermissionError,
+  STORAGE_PERMISSION_REVOKED_MSG,
+} from '../lib/storageDirectory';
 import { debugSessionLog } from '../lib/debugSessionLog';
-import { ReaderNative } from '../lib/readerNative';
-import { getSafeAreaInsets, postSafeAreaToWindow, prepareReaderSafeArea, type SafeAreaInsets } from '../lib/safeArea';
+import { isReaderNativeBridgeMethod, ReaderNative } from '../lib/readerNative';
+import {
+  getSafeAreaInsets,
+  postSafeAreaToWindow,
+  prepareReaderSafeArea,
+  storeReaderSafeArea,
+  type SafeAreaInsets,
+} from '../lib/safeArea';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { theme } from '../lib/appTheme';
+import { radii } from '../ui/tokens';
 import { ScreenLoader } from '../ui/Skeleton';
 import { applyReaderOrientationLock } from '../lib/readerOrientation';
 import { APP_SETTING_KEYS, getAppSettingJson } from '../lib/appSettings';
@@ -33,6 +45,11 @@ function readReaderPrefs(): ReaderPrefs {
   return { orientationLock };
 }
 
+/** Ignore stale capture-disable after a newer Foliate instance mounts (book switch). */
+let volumeCaptureOwnerSeq = 0;
+let lightSwipeOwnerSeq = 0;
+let statusBarOwnerSeq = 0;
+
 export interface LocalBookFile {
   storageUri: string;
   localFileName: string;
@@ -48,12 +65,16 @@ export interface FoliateReaderConfig {
   initialPosition?: string | null;
   localFile: LocalBookFile;
   einkActive?: boolean;
+  /** True when app has no server connection — show offline strip in reader. */
+  offline?: boolean;
+  nextInSeries?: { bookId: string; title: string } | null;
 }
 
 interface FoliateReaderProps extends FoliateReaderConfig {
   onClose: () => void;
   /** Вызывается после применения store из iframe (закладки/заметки/позиция). */
   onStoreSynced?: () => void;
+  onOpenNextInSeries?: (bookId: string) => void;
 }
 
 export function readLocalReaderPosition(bookId: string): string | null {
@@ -79,6 +100,10 @@ export function writeFoliateReaderSession(config: FoliateReaderConfig) {
       storageUri: config.localFile.storageUri,
       localFileName: config.localFile.localFileName,
       einkActive: Boolean(config.einkActive),
+      offline: Boolean(config.offline),
+      nextInSeries: config.nextInSeries?.bookId
+        ? { bookId: config.nextInSeries.bookId, title: config.nextInSeries.title || '' }
+        : null,
     }),
   );
 }
@@ -93,14 +118,20 @@ export default function FoliateReader({
   initialPosition,
   localFile,
   einkActive = false,
+  offline = false,
+  nextInSeries = null,
   onClose,
   onStoreSynced,
+  onOpenNextInSeries,
 }: FoliateReaderProps) {
   const dialog = useDialog();
+  const dialogRef = React.useRef(dialog);
+  dialogRef.current = dialog;
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const positionPromptRef = React.useRef<string | null>(null);
   const positionPromptBusyRef = React.useRef(false);
   const positionPromptQueueRef = React.useRef<MessageEvent[]>([]);
+  const positionPromptGenRef = React.useRef(0);
   const flushAckRef = React.useRef<{
     resolve: () => void;
     timer: number;
@@ -110,6 +141,7 @@ export default function FoliateReader({
   const readerPrefsRef = React.useRef(readReaderPrefs());
   const iframeOriginRef = React.useRef<string | null>(null);
   const lastHapticAtRef = React.useRef(0);
+  const nativeCallGenRef = React.useRef(0);
 
   React.useEffect(() => {
     if (!iframeSrc) {
@@ -134,6 +166,7 @@ export default function FoliateReader({
     const requestId = String(event.data.requestId || '');
     const source = event.source as Window;
     const flatToc = Array.isArray(event.data.flatToc) ? event.data.flatToc : null;
+    const promptGen = positionPromptGenRef.current;
     try {
       const localLine = formatPositionProgressLabel(
         Number(event.data.localFraction) || 0,
@@ -179,12 +212,19 @@ export default function FoliateReader({
         confirmLabel: CROSS_DEVICE_POSITION_ACCEPT,
         cancelLabel: CROSS_DEVICE_POSITION_DECLINE,
       });
+      if (positionPromptGenRef.current !== promptGen) return;
       source.postMessage({
         type: 'inpx-reader-position-prompt-response',
         requestId,
         accepted,
       }, '*');
     } finally {
+      if (positionPromptGenRef.current !== promptGen) {
+        positionPromptBusyRef.current = false;
+        positionPromptRef.current = null;
+        positionPromptQueueRef.current = [];
+        return;
+      }
       positionPromptBusyRef.current = false;
       if (positionPromptRef.current === requestId) positionPromptRef.current = null;
       const next = positionPromptQueueRef.current.shift();
@@ -198,6 +238,20 @@ export default function FoliateReader({
       }
     }
   }, [dialog]);
+
+  React.useEffect(() => {
+    positionPromptGenRef.current += 1;
+    positionPromptQueueRef.current = [];
+    positionPromptBusyRef.current = false;
+    positionPromptRef.current = null;
+    return () => {
+      dialogRef.current.dismiss();
+      positionPromptGenRef.current += 1;
+      positionPromptQueueRef.current = [];
+      positionPromptBusyRef.current = false;
+      positionPromptRef.current = null;
+    };
+  }, [bookId]);
 
   const enqueuePositionPrompt = React.useCallback((event: MessageEvent) => {
     const requestId = String(event.data.requestId || '');
@@ -228,15 +282,23 @@ export default function FoliateReader({
   React.useEffect(() => {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
 
+    const owner = ++volumeCaptureOwnerSeq;
     void ReaderNative.setSystemTextSelectionMenuEnabled({ enabled: false });
+    void ReaderNative.setVolumeKeysCapture({ enabled: true }).catch(() => {});
     return () => {
       void ReaderNative.setSystemTextSelectionMenuEnabled({ enabled: true });
+      // Ignore stale disable after a newer Foliate mount claimed capture.
+      if (volumeCaptureOwnerSeq === owner) {
+        void ReaderNative.setVolumeKeysCapture({ enabled: false }).catch(() => {});
+      }
     };
   }, []);
 
   React.useEffect(() => {
     if (Capacitor.getPlatform() !== 'android') return;
 
+    const lightOwner = ++lightSwipeOwnerSeq;
+    const statusOwner = ++statusBarOwnerSeq;
     void (async () => {
       try {
         // Edge-to-edge: #reader-body сдвигает текст на --r-safe-top (камера/cutout).
@@ -252,8 +314,14 @@ export default function FoliateReader({
     return () => {
       // Свайп подсветки перехватывает касания в dispatchTouchEvent на всё приложение,
       // поэтому вне читалки он обязан быть выключен — иначе ломает прокрутку списков.
-      void ReaderNative.setLightSwipe({ enabled: false }).catch(() => {});
+      if (lightSwipeOwnerSeq === lightOwner) {
+        void ReaderNative.setLightSwipe({ enabled: false }).catch(() => {});
+      }
       void ReaderNative.setBrightness({ level: -1 }).catch(() => {});
+      // Bump so in-flight immersive hide/show from the old mount is ignored.
+      if (statusBarOwnerSeq === statusOwner) {
+        statusBarOwnerSeq += 1;
+      }
       void (async () => {
         try {
           await StatusBar.show();
@@ -265,11 +333,26 @@ export default function FoliateReader({
     };
   }, []);
 
+  const iframeGenerationRef = React.useRef(0);
+  const mountedRef = React.useRef(true);
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const flushReaderPositionAndWait = React.useCallback((timeoutMs = 2000): Promise<void> => {
     return new Promise((resolve) => {
       if (flushAckRef.current) {
         clearTimeout(flushAckRef.current.timer);
         flushAckRef.current.resolve();
+      }
+      // Нет живого iframe (книга ещё грузится) — ack не придёт, не ждём таймаут.
+      if (!iframeRef.current?.contentWindow) {
+        resolve();
+        return;
       }
       const timer = window.setTimeout(() => {
         flushAckRef.current = null;
@@ -280,8 +363,29 @@ export default function FoliateReader({
     });
   }, []);
 
+  const closingRef = React.useRef(false);
+  React.useEffect(() => {
+    closingRef.current = false;
+    nativeCallGenRef.current += 1;
+  }, [bookId]);
+
   const requestClose = React.useCallback(() => {
-    void flushReaderPositionAndWait().then(() => onClose());
+    if (closingRef.current) return;
+    closingRef.current = true;
+    void flushReaderPositionAndWait().then(() => {
+      try {
+        const win = iframeRef.current?.contentWindow as
+          | (Window & { __READER_TEARDOWN__?: () => void })
+          | null
+          | undefined;
+        win?.__READER_TEARDOWN__?.();
+      } catch {
+        /* ignore */
+      }
+      void ReaderNative.stopTts().catch(() => {});
+      void ReaderNative.updateTtsMediaSession({ active: false, playing: false }).catch(() => {});
+      onClose();
+    });
   }, [flushReaderPositionAndWait, onClose]);
 
   const postReaderSeed = React.useCallback((win: Window | null) => {
@@ -298,8 +402,50 @@ export default function FoliateReader({
     postSafeAreaToWindow(target, safeAreaRef.current);
   }, []);
 
+  // Keep session metadata fresh without remounting the Foliate iframe
+  // (nextInSeries / offline / cover changes must not tear down the book).
+  React.useEffect(() => {
+    if (!iframeSrc || !localFileName || !storageUri) return;
+    writeFoliateReaderSession({
+      bookId,
+      bookExt,
+      bookTitle,
+      bookAuthor,
+      coverUrl,
+      coverAuthHeader,
+      initialPosition,
+      localFile: { storageUri, localFileName },
+      einkActive,
+      offline,
+      nextInSeries,
+    });
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'inpx-reader-offline', offline: Boolean(offline) },
+      '*',
+    );
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'inpx-reader-eink', active: Boolean(einkActive) },
+      '*',
+    );
+  }, [
+    iframeSrc,
+    bookId,
+    bookExt,
+    bookTitle,
+    bookAuthor,
+    coverUrl,
+    coverAuthHeader,
+    initialPosition,
+    storageUri,
+    localFileName,
+    einkActive,
+    offline,
+    nextInSeries,
+  ]);
+
   React.useEffect(() => {
     let cancelled = false;
+    const generation = ++iframeGenerationRef.current;
 
     void (async () => {
       setLoadError('');
@@ -329,6 +475,8 @@ export default function FoliateReader({
           initialPosition,
           localFile: { storageUri, localFileName },
           einkActive,
+          offline,
+          nextInSeries,
         });
         if (cancelled) return;
 
@@ -359,72 +507,112 @@ export default function FoliateReader({
 
     return () => {
       cancelled = true;
-      void flushReaderPositionAndWait().then(() => {
-        setIframeSrc(null);
-      });
+      if (flushAckRef.current) {
+        clearTimeout(flushAckRef.current.timer);
+        flushAckRef.current.resolve();
+        flushAckRef.current = null;
+      }
+      const finishTeardown = () => {
+        // Never null a newer iframe that replaced this generation.
+        if (iframeGenerationRef.current !== generation) return;
+        try {
+          const win = iframeRef.current?.contentWindow as
+            | (Window & { __READER_TEARDOWN__?: () => void })
+            | null
+            | undefined;
+          win?.__READER_TEARDOWN__?.();
+        } catch {
+          /* ignore */
+        }
+        void ReaderNative.stopTts().catch(() => {});
+        void ReaderNative.updateTtsMediaSession({ active: false, playing: false }).catch(() => {});
+        if (iframeRef.current) iframeRef.current.src = 'about:blank';
+        if (mountedRef.current) setIframeSrc(null);
+      };
+      // Close already flushed (or is flushing); blank sync so wake-lock/TTS do not linger.
+      if (closingRef.current) {
+        finishTeardown();
+        return;
+      }
+      void flushReaderPositionAndWait().then(finishTeardown);
     };
-  }, [
-    bookId,
-    bookExt,
-    bookTitle,
-    bookAuthor,
-    coverUrl,
-    coverAuthHeader,
-    initialPosition,
-    storageUri,
-    localFileName,
-    einkActive,
-    flushReaderPositionAndWait,
-  ]);
+    // Identity of the open book only — metadata updates go through session + postMessage.
+    // Do not remount when einkActive flips after getDeviceInfo (BOOX); session effect pushes it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional narrow deps
+  }, [bookId, bookExt, storageUri, localFileName, flushReaderPositionAndWait]);
 
   React.useEffect(() => {
+    let alive = true;
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type !== 'inpx-reader-request-book-file') return;
-      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (!isTrustedReaderMessage(event)) return;
 
       const target = event.source as Window;
-      const fileUri = String(event.data.storageUri || storageUri);
-      const filePath = String(event.data.localFileName || localFileName);
+      // Paths come from the open book in the parent — never from iframe payload.
+      const fileUri = storageUri;
+      const filePath = localFileName;
       const requestId = event.data.requestId;
+      const forceBridge = event.data.forceBridge === true;
+
+      if (!fileUri || !filePath) {
+        target.postMessage({
+          type: 'inpx-reader-book-file',
+          requestId,
+          error: 'Файл книги не найден на устройстве',
+        }, '*');
+        return;
+      }
 
       void (async () => {
-        debugSessionLog('H2', 'FoliateReader:fileRequest', 'start', { filePath, bookId });
+        debugSessionLog('H2', 'FoliateReader:fileRequest', 'start', { filePath, bookId, forceBridge });
         try {
-          const buffer = await readBinaryFileFromDirectory({ uri: fileUri, label: '' }, filePath);
-          debugSessionLog('H2', 'FoliateReader:fileRequest', 'ok', {
-            bookId,
-            byteLength: buffer.byteLength,
-          });
-          const payload = {
-            type: 'inpx-reader-book-file',
-            requestId,
-          } as Record<string, unknown>;
-          if (Capacitor.getPlatform() === 'android') {
-            target.postMessage({ ...payload, data: arrayBufferToBase64(buffer) }, '*');
-          } else {
-            try {
-              target.postMessage({ ...payload, buffer }, '*', [buffer]);
-            } catch {
-              target.postMessage({ ...payload, data: arrayBufferToBase64(buffer) }, '*');
-            }
+          // Always a fetchable file-URL (disk or streamed book-cache). Never base64
+          // the whole FB2/EPUB through the Capacitor bridge — that OOMs at ~20+ MB.
+          const fileUrl = await resolveStorageFileUrl(
+            { uri: fileUri, label: '' },
+            filePath,
+            { preferCache: forceBridge },
+          );
+          if (!alive || event.source !== iframeRef.current?.contentWindow) return;
+          if (fileUrl) {
+            debugSessionLog('H2', 'FoliateReader:fileRequest', 'file-url', {
+              bookId,
+              filePath,
+              forceBridge,
+            });
+            target.postMessage({ type: 'inpx-reader-book-file', requestId, url: fileUrl }, '*');
+            return;
           }
+          throw new Error('Не удалось открыть файл книги');
         } catch (e: unknown) {
+          if (!alive || event.source !== iframeRef.current?.contentWindow) return;
           debugSessionLog('H2', 'FoliateReader:fileRequest', 'failed', {
             msg: e instanceof Error ? e.message : String(e),
             filePath,
           });
+          const error = isStoragePermissionError(e)
+            ? STORAGE_PERMISSION_REVOKED_MSG
+            : e instanceof Error
+              ? e.message
+              : 'Не удалось прочитать файл';
+          if (isStoragePermissionError(e)) {
+            setLoadError(STORAGE_PERMISSION_REVOKED_MSG);
+          }
           target.postMessage({
             type: 'inpx-reader-book-file',
             requestId,
-            error: e instanceof Error ? e.message : 'Не удалось прочитать файл',
+            error,
           }, '*');
         }
       })();
     };
 
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [storageUri, localFileName, bookId]);
+    return () => {
+      alive = false;
+      window.removeEventListener('message', onMessage);
+    };
+  }, [storageUri, localFileName, bookId, isTrustedReaderMessage]);
 
   React.useEffect(() => {
     const iframe = iframeRef.current;
@@ -445,6 +633,14 @@ export default function FoliateReader({
     };
 
     iframe.addEventListener('load', onLoad);
+    // WebView may fire load before this effect attaches.
+    try {
+      if (iframe.contentDocument?.readyState === 'complete') {
+        onLoad();
+      }
+    } catch {
+      /* cross-origin / not ready */
+    }
     return () => iframe.removeEventListener('load', onLoad);
   }, [iframeSrc, bookId, postReaderChromeInsets, postReaderSeed]);
 
@@ -460,10 +656,48 @@ export default function FoliateReader({
   }, [bookId, postReaderSeed]);
 
   React.useEffect(() => {
+    let cancelled = false;
     void getSafeAreaInsets().then((insets) => {
+      if (cancelled) return;
       safeAreaRef.current = insets;
       postReaderChromeInsets(iframeRef.current?.contentWindow ?? null);
     });
+    return () => {
+      cancelled = true;
+    };
+  }, [iframeSrc, postReaderChromeInsets]);
+
+  /** Re-post safe area after rotation — insets change while iframe stays mounted. */
+  React.useEffect(() => {
+    if (!iframeSrc) return;
+    let cancelled = false;
+    let debounceTimer: number | null = null;
+
+    const refreshSafeArea = () => {
+      void getSafeAreaInsets().then((insets) => {
+        if (cancelled) return;
+        safeAreaRef.current = insets;
+        storeReaderSafeArea(insets);
+        postReaderChromeInsets(iframeRef.current?.contentWindow ?? null);
+      });
+    };
+
+    const onViewportChange = () => {
+      if (debounceTimer != null) window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(refreshSafeArea, 150);
+    };
+
+    window.addEventListener('orientationchange', onViewportChange);
+    window.visualViewport?.addEventListener('resize', onViewportChange);
+    window.addEventListener('resize', onViewportChange);
+
+    return () => {
+      cancelled = true;
+      if (debounceTimer != null) window.clearTimeout(debounceTimer);
+      window.removeEventListener('orientationchange', onViewportChange);
+      window.visualViewport?.removeEventListener('resize', onViewportChange);
+      window.removeEventListener('resize', onViewportChange);
+    };
   }, [iframeSrc, postReaderChromeInsets]);
 
   React.useEffect(() => {
@@ -500,11 +734,48 @@ export default function FoliateReader({
         return;
       }
 
-      if (event.data?.type === 'inpx-reader-close') requestClose();
+      if (event.data?.type === 'inpx-reader-close') {
+        if (!isTrustedReaderMessage(event)) return;
+        requestClose();
+        return;
+      }
+      if (
+        event.data?.type === 'inpx-reader-share'
+        && isTrustedReaderMessage(event)
+      ) {
+        const text = String(event.data.text || '').trim();
+        const title = String(event.data.title || 'Цитата');
+        if (text) {
+          void (async () => {
+            try {
+              await Share.share({ title, text, dialogTitle: 'Поделиться цитатой' });
+            } catch {
+              try {
+                await navigator.clipboard.writeText(text);
+              } catch {
+                /* ignore */
+              }
+            }
+          })();
+        }
+        return;
+      }
+
+      if (
+        event.data?.type === 'inpx-reader-open-next-series'
+        && isTrustedReaderMessage(event)
+      ) {
+        const nextId = String(event.data.bookId || '').trim();
+        if (!nextId) return;
+        void flushReaderPositionAndWait().then(() => {
+          onOpenNextInSeries?.(nextId);
+        });
+        return;
+      }
 
       if (
         event.data?.type === 'inpx-reader-haptic'
-        && event.source === iframeRef.current?.contentWindow
+        && isTrustedReaderMessage(event)
         && Capacitor.isNativePlatform()
       ) {
         if (einkActive) return;
@@ -519,13 +790,15 @@ export default function FoliateReader({
 
       if (
         event.data?.type === 'inpx-reader-immersive'
-        && event.source === iframeRef.current?.contentWindow
+        && isTrustedReaderMessage(event)
       ) {
         const enabled = Boolean(event.data.enabled);
         if (Capacitor.getPlatform() === 'android') {
+          const statusOwner = statusBarOwnerSeq;
           void (async () => {
             try {
               await StatusBar.setOverlaysWebView({ overlay: true });
+              if (statusBarOwnerSeq !== statusOwner) return;
               if (enabled) {
                 await StatusBar.hide();
               } else {
@@ -541,7 +814,7 @@ export default function FoliateReader({
 
       if (
         event.data?.type === 'inpx-reader-native-handshake'
-        && event.source === iframeRef.current?.contentWindow
+        && isTrustedReaderMessage(event)
       ) {
         (event.source as Window).postMessage({
           type: 'inpx-native-ready',
@@ -550,14 +823,21 @@ export default function FoliateReader({
         return;
       }
 
-      if (event.data?.type === 'inpx-native-call' && event.source === iframeRef.current?.contentWindow) {
-        void handleNativeCall(event.data.id, event.data.method, event.data.data, iframeRef.current?.contentWindow ?? null);
+      if (event.data?.type === 'inpx-native-call' && isTrustedReaderMessage(event)) {
+        const callGen = nativeCallGenRef.current;
+        void handleNativeCall(
+          event.data.id,
+          event.data.method,
+          event.data.data,
+          iframeRef.current?.contentWindow ?? null,
+          () => callGen !== nativeCallGenRef.current,
+        );
       }
     };
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [bookId, einkActive, enqueuePositionPrompt, isTrustedReaderMessage, onStoreSynced, requestClose]);
+  }, [bookId, einkActive, enqueuePositionPrompt, flushReaderPositionAndWait, isTrustedReaderMessage, onOpenNextInSeries, onStoreSynced, requestClose]);
 
   React.useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -587,6 +867,7 @@ export default function FoliateReader({
       void ttsEnd.then((h) => h.remove());
       void ttsStart.then((h) => h.remove());
       void ttsMediaAction.then((h) => h.remove());
+      void ReaderNative.stopTts().catch(() => {});
       void ReaderNative.updateTtsMediaSession({ active: false, playing: false }).catch(() => {});
     };
   }, []);
@@ -603,8 +884,30 @@ export default function FoliateReader({
     return () => window.removeEventListener('reader-volume-key', onVolumeKey);
   }, []);
 
+  React.useEffect(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        type: 'inpx-reader-next-series',
+        nextInSeries: nextInSeries?.bookId
+          ? { bookId: nextInSeries.bookId, title: nextInSeries.title || '' }
+          : null,
+      },
+      '*',
+    );
+  }, [nextInSeries, iframeSrc]);
+
   useBackHandler(() => {
-    iframeRef.current?.contentWindow?.postMessage({ type: 'inpx-reader-back' }, '*');
+    if (loadError || !iframeSrc) {
+      if (loadError) onClose();
+      else void requestClose();
+      return true;
+    }
+    const win = iframeRef.current?.contentWindow;
+    if (!win) {
+      void requestClose();
+      return true;
+    }
+    win.postMessage({ type: 'inpx-reader-back' }, '*');
     return true;
   });
 
@@ -615,7 +918,7 @@ export default function FoliateReader({
         <p className="text-sm text-center text-[var(--app-muted)] max-w-sm">{loadError}</p>
         <button
           type="button"
-          className={`min-h-12 px-4 text-sm font-bold text-[var(--app-link)] rounded-lg ${theme.focusRing}`}
+          className={`min-h-12 px-4 text-sm font-bold text-[var(--app-link)] ${radii.button} ${theme.focusRing}`}
           onClick={onClose}
         >
           ← Назад
@@ -633,12 +936,12 @@ export default function FoliateReader({
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col min-h-0">
+    <div className="fixed inset-0 z-[200]">
       <iframe
         ref={iframeRef}
         title={bookTitle}
         src={iframeSrc}
-        className="flex-1 w-full min-h-0 border-0 bg-[var(--app-surface)]"
+        className="absolute inset-0 h-full w-full border-0 bg-[var(--app-surface)]"
         allow="fullscreen"
       />
     </div>
@@ -650,13 +953,20 @@ async function handleNativeCall(
   method: string,
   data: Record<string, unknown> | undefined,
   target: Window | null,
+  isStale: () => boolean,
 ) {
   const reply = (result?: unknown, error?: string) => {
+    if (isStale()) return;
     target?.postMessage({ type: 'inpx-native-response', id, result, error }, '*');
   };
 
   if (!Capacitor.isNativePlatform()) {
     reply(undefined, 'Native API unavailable');
+    return;
+  }
+
+  if (!isReaderNativeBridgeMethod(method)) {
+    reply(undefined, `Unknown method: ${method}`);
     return;
   }
 

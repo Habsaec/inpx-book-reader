@@ -2,7 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, BookOpen, Play } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { textStyles, elevation } from '../ui/tokens';
+import { textStyles, elevation, radii } from '../ui/tokens';
 import Button from '../ui/Button';
 import { sheetBackdropClass, sheetPanelClass, sheetPanelStyle } from '../ui/SheetChrome';
 import BookCover from './BookCover';
@@ -55,7 +55,7 @@ export default function NextInSeriesSheet({
             type="button"
             aria-label="Закрыть"
             onClick={onClose}
-            className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-lg ${theme.chipButton} ${theme.focusRing}`}
+            className={`min-h-12 min-w-12 inline-flex items-center justify-center ${radii.button} ${theme.chipButton} ${theme.focusRing}`}
           >
             <X className="w-5 h-5" />
           </button>
@@ -66,15 +66,17 @@ export default function NextInSeriesSheet({
         </p>
 
         <div className="flex gap-3 mb-5">
-          <div className="w-20 shrink-0 aspect-[2/3] rounded-lg overflow-hidden bg-[var(--app-surface)] relative">
-            <BookCover
-              bookId={next.id}
-              title={next.title}
-              author={next.author}
-              serverConfig={serverConfig}
-              storageDirectory={storageDirectory}
-              className="absolute inset-0 w-full h-full"
-            />
+          <div className="book-cover w-20 shrink-0 aspect-[2/3]">
+            <span className="book-cover-inner">
+              <BookCover
+                bookId={next.id}
+                title={next.title}
+                author={next.author}
+                serverConfig={serverConfig}
+                storageDirectory={storageDirectory}
+                className="absolute inset-0 w-full h-full !rounded-none !border-0"
+              />
+            </span>
           </div>
           <div className="min-w-0 flex-1">
             {nextNo != null && (

@@ -6,6 +6,11 @@ import { theme } from '../lib/appTheme';
 import { textStyles, motion, semantic } from '../ui/tokens';
 import BookCover from './BookCover';
 import BookMetaSummary from './BookMetaSummary';
+import CoverRatingBadge from './CoverRatingBadge';
+
+function readEinkFlag(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.dataset.eink === '1';
+}
 
 /** Fallback tile width before first measure (CSS px). */
 export const BOOK_COVER_TILE_WIDTH_PX = 110;
@@ -74,6 +79,7 @@ export interface BookCoverTileProps {
   /** Override shelf tile width (from ResizeObserver). */
   tileWidthPx?: number;
   showSeriesVolume?: boolean;
+  selected?: boolean;
   onClick?: () => void;
   onLongPress?: () => void;
   className?: string;
@@ -93,12 +99,14 @@ export default function BookCoverTile({
   size = 'grid',
   tileWidthPx,
   showSeriesVolume = false,
+  selected = false,
   onClick,
   onLongPress,
   className = '',
 }: BookCoverTileProps) {
   const progress = isRead ? 100 : Math.max(0, Math.min(100, Math.round(readProgress || book.readProgress || 0)));
   const isFullyRead = isRead || progress >= 100;
+  const showProgressPct = progress > 0 && progress < 100 && !isFullyRead;
   const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));
   const volumeLabel = showSeriesVolume
     ? (book.seriesNoLabel || (book.seriesNo != null ? String(book.seriesNo) : '')).trim()
@@ -109,6 +117,16 @@ export default function BookCoverTile({
   const isShelf = size === 'shelf';
   const shelfW = Math.max(1, Math.round(tileWidthPx ?? BOOK_COVER_TILE_WIDTH_PX));
   const shelfH = Math.round(shelfW * 1.5);
+  const [isEink, setIsEink] = React.useState(readEinkFlag);
+
+  React.useEffect(() => {
+    const el = document.documentElement;
+    const sync = () => setIsEink(el.dataset.eink === '1');
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(el, { attributes: true, attributeFilter: ['data-eink'] });
+    return () => obs.disconnect();
+  }, []);
 
   const clearLongPress = () => {
     if (longPressTimer.current) {
@@ -145,16 +163,18 @@ export default function BookCoverTile({
       onPointerUp={clearLongPress}
       onPointerLeave={clearLongPress}
       onPointerCancel={clearLongPress}
-      aria-label={`Открыть: ${titleText}`}
-      className={`text-left flex flex-col min-w-0 ${isShelf ? 'shrink-0' : 'w-full'} ${theme.focusRing} ${motion.press} ${motion.colors} ${className}`}
+      aria-label={`${selected ? 'Выбрано: ' : 'Открыть: '}${titleText}`}
+      aria-pressed={selected || undefined}
+      className={`text-left flex flex-col min-w-0 ${isShelf ? 'shrink-0' : 'w-full'} ${theme.focusRing} ${motion.bookPress} ${motion.colors} ${className}`}
       style={isShelf ? { width: shelfW } : undefined}
     >
       <span
-        className="relative block w-full shrink-0 overflow-hidden rounded-lg bg-[var(--app-surface)]"
+        className={`book-cover shrink-0 ${isShelf ? '' : 'w-full'} ${
+          selected ? 'ring-2 ring-[var(--app-link)] ring-offset-2 ring-offset-[var(--app-bg)]' : ''
+        }`}
         style={isShelf ? { width: shelfW, height: shelfH } : undefined}
       >
-        {!isShelf && <span className="block w-full" style={{ paddingBottom: '150%' }} aria-hidden />}
-        <span className="absolute inset-0 overflow-hidden">
+        <span className="book-cover-inner">
           <BookCover
             bookId={book.id}
             title={book.title}
@@ -163,11 +183,11 @@ export default function BookCoverTile({
             storageDirectory={storageDirectory}
             width={isShelf ? shelfW : undefined}
             height={isShelf ? shelfH : undefined}
-            className="absolute inset-0 w-full h-full max-w-full max-h-full"
+            className="absolute inset-0 w-full h-full max-w-full max-h-full !rounded-none !border-0"
           />
           {volumeLabel ? (
             <span
-              className="absolute top-1.5 left-1.5 z-[2] min-w-6 h-6 px-1.5 rounded-md bg-black/75 text-white inline-flex items-center justify-center text-xs font-bold tabular-nums"
+              className="absolute top-1.5 right-1.5 z-[6] min-w-6 h-6 px-1.5 rounded-md bg-black/75 text-white inline-flex items-center justify-center text-xs font-bold tabular-nums"
               aria-label={`Том ${volumeLabel}`}
             >
               {volumeLabel}
@@ -175,7 +195,9 @@ export default function BookCoverTile({
           ) : null}
           {isFullyRead && (
             <span
-              className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-[var(--app-success)] text-white flex items-center justify-center shadow border border-white/40"
+              className={`absolute z-[6] w-6 h-6 rounded-full bg-[var(--app-success)] text-white flex items-center justify-center shadow border border-white/40 ${
+                volumeLabel ? 'bottom-2 right-1.5' : 'top-1.5 right-1.5'
+              }`}
               title="Прочитано"
               aria-label="Прочитано"
             >
@@ -184,27 +206,16 @@ export default function BookCoverTile({
           )}
           {isDownloaded && !isFullyRead && (
             <span
-              className={`absolute ${volumeLabel ? 'bottom-2 left-1.5' : 'top-1.5 left-1.5'} w-6 h-6 rounded-full bg-black/65 text-white inline-flex items-center justify-center`}
+              className="absolute z-[6] bottom-2 left-1.5 w-6 h-6 rounded-full bg-black/65 text-white inline-flex items-center justify-center"
               title="На устройстве"
               aria-label="На устройстве"
             >
               <Download className="w-3 h-3" aria-hidden />
             </span>
           )}
-          {rating > 0 && (
-            <span
-              className={`absolute z-[2] inline-flex items-center gap-0.5 rounded-md bg-black/75 px-1.5 py-0.5 text-white ${
-                progress > 0 ? 'bottom-2 right-1.5' : 'bottom-1.5 right-1.5'
-              }`}
-              aria-label={`Рейтинг ${rating} из 5`}
-            >
-              <Star className={`w-3 h-3 fill-current ${semantic.warning}`} aria-hidden />
-              <span className={`${textStyles.microBold} tabular-nums leading-none`}>{rating}</span>
-            </span>
-          )}
           {progress > 0 && (
             <span
-              className="absolute inset-x-0 bottom-0 h-1 bg-black/35"
+              className="absolute inset-x-0 bottom-0 z-[6] h-1 bg-black/35"
               role="progressbar"
               aria-valuenow={progress}
               aria-valuemin={0}
@@ -217,18 +228,50 @@ export default function BookCoverTile({
               />
             </span>
           )}
+          {showProgressPct && (
+            <span
+              className="absolute bottom-1.5 right-1.5 z-[6] rounded bg-black/70 px-1 py-px text-white tabular-nums leading-none"
+              aria-hidden
+            >
+              <span className={`${textStyles.microBold} text-[10px]`}>{progress}%</span>
+            </span>
+          )}
+          {/* Pre-ribbon rating (e-ink): Star + digit pill on the cover */}
+          {isEink && rating > 0 && (
+            <span
+              className={`absolute z-[6] inline-flex items-center gap-0.5 rounded-md bg-black/75 px-1.5 py-0.5 text-white ${
+                progress > 0 ? 'bottom-2 right-1.5' : 'bottom-1.5 right-1.5'
+              }`}
+              aria-label={`Рейтинг ${rating} из 5`}
+            >
+              <Star className={`w-3 h-3 fill-current ${semantic.warning}`} aria-hidden />
+              <span className={`${textStyles.microBold} tabular-nums leading-none`}>{rating}</span>
+            </span>
+          )}
+          {selected && (
+            <span
+              className="absolute top-1.5 right-1.5 z-[7] w-6 h-6 rounded-full bg-[var(--app-link)] text-white flex items-center justify-center"
+              aria-hidden
+            >
+              <Check className="w-3.5 h-3.5" strokeWidth={3} />
+            </span>
+          )}
         </span>
+        {/* Sibling of inner — same as server `.cover` (above spine groove overlay); hidden on e-ink via CSS */}
+        {!isEink ? (
+          <CoverRatingBadge rating={rating} coverWidthPx={isShelf ? shelfW : undefined} />
+        ) : null}
       </span>
       {showMeta && (
-        <span className="flex flex-col min-w-0 mt-2">
-          <p className={`${textStyles.bookTitle} line-clamp-2 text-sm`}>{titleText}</p>
+        <span className="flex flex-col min-w-0 gap-1.5 mt-3">
+          <p className={`${textStyles.bookTitle} line-clamp-3 text-[15px] font-semibold leading-snug`}>{titleText}</p>
           {showAuthor && (
-            <p className={`${textStyles.micro} ${theme.textMuted} line-clamp-1 mt-0.5`}>
+            <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-2 opacity-80`}>
               {book.author || '\u00a0'}
             </p>
           )}
           {!isShelf && (
-            <span className="flex flex-col mt-1 min-h-0">
+            <span className="flex flex-col mt-0.5 min-h-0">
               <BookMetaSummary book={book} compact gridAlign />
             </span>
           )}

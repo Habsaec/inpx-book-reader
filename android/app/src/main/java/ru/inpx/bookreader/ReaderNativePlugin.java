@@ -31,6 +31,16 @@ public class ReaderNativePlugin extends Plugin {
 
     private TtsPlaybackManager ttsManager;
     private static ReaderNativePlugin instance;
+    private static volatile boolean volumeKeysCaptureEnabled = false;
+
+    public static boolean isVolumeKeysCaptureEnabled() {
+        return volumeKeysCaptureEnabled;
+    }
+
+    /** Native teardown path when WebView/plugin may not run JS cleanup. */
+    public static void resetVolumeKeysCapture() {
+        volumeKeysCaptureEnabled = false;
+    }
     private final ExecutorService coverExecutor = Executors.newSingleThreadExecutor();
 
     private void applySystemTextSelectionMenu(boolean enabled) {
@@ -57,6 +67,15 @@ public class ReaderNativePlugin extends Plugin {
         instance = this;
         ttsManager = TtsPlaybackManager.getInstance(getContext());
         ttsManager.setUtteranceCallback((type, utteranceId) -> forwardTtsEventToReader(type, utteranceId));
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        volumeKeysCaptureEnabled = false;
+        FrontLightSwipe.setEnabled(false);
+        coverExecutor.shutdownNow();
+        if (instance == this) instance = null;
+        super.handleOnDestroy();
     }
 
     /** Состояние подсветки после нативного свайпа — в JS читалки. */
@@ -94,6 +113,15 @@ public class ReaderNativePlugin extends Plugin {
         ret.put("active", enabled && onyx);
         ret.put("supported", onyx);
         ret.put("warmthSupported", onyx && OnyxFrontLight.hasWarmth(getContext()));
+        call.resolve(ret);
+    }
+
+    /** Capture Vol+/− for page turns only while Foliate reader is open. */
+    @PluginMethod
+    public void setVolumeKeysCapture(PluginCall call) {
+        volumeKeysCaptureEnabled = Boolean.TRUE.equals(call.getBoolean("enabled", Boolean.FALSE));
+        JSObject ret = new JSObject();
+        ret.put("enabled", volumeKeysCaptureEnabled);
         call.resolve(ret);
     }
 
@@ -576,7 +604,9 @@ public class ReaderNativePlugin extends Plugin {
                 Bitmap bmp = decodeCoverBase64(b64);
                 if (bmp != null) {
                     TtsMediaState.setCover(bmp, "b64:" + b64.hashCode());
-                    refreshTtsForeground();
+                    if (TtsMediaState.snapshot().active) {
+                        refreshTtsForeground();
+                    }
                 }
             });
         } else if (coverUrl != null && !coverUrl.trim().isEmpty()) {
@@ -586,7 +616,9 @@ public class ReaderNativePlugin extends Plugin {
                 Bitmap bmp = downloadCoverBitmap(url, auth);
                 if (bmp != null) {
                     TtsMediaState.setCover(bmp, "url:" + url);
-                    refreshTtsForeground();
+                    if (TtsMediaState.snapshot().active) {
+                        refreshTtsForeground();
+                    }
                 }
             });
         }

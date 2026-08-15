@@ -21,11 +21,11 @@ export default function IconButton({
       aria-label={label}
       className={[
         sizeClass,
-        radii.md,
-        'inline-flex items-center justify-center transition-colors cursor-pointer',
+        radii.button,
+        'inline-flex items-center justify-center transition-[colors,transform] duration-200 ease-out cursor-pointer',
         'disabled:opacity-50 disabled:pointer-events-none',
         theme.focusRing,
-        'hover:bg-[var(--app-surface-hover)] active:scale-[0.97]',
+        'hover:bg-[var(--app-surface-hover)] active:scale-95',
         className,
       ].join(' ')}
       {...rest}

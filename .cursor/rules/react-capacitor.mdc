@@ -14,7 +14,7 @@ alwaysApply: false
 
 ## Android WebView
 
-- `MotionConfig reducedMotion="always"` — animations may not complete in WebView
+- Motion: `reducedMotion="user"`, transform/scale only — never enter via `opacity: 0` (WebView blank risk)
 - Flex chain: `min-h-0` on scroll containers
 - Dev browser uses `/api/proxy`; APK uses CapacitorHttp direct to server
 

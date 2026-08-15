@@ -5,6 +5,7 @@ import {
   __resetOfflineReaderCacheForTests,
   applyIframeReaderStore,
   applyNewerLocalPositionIfNeeded,
+  ensureOfflineReaderAnnotation,
   offlineReaderStorageKey,
   migrateOfflineReaderPositionForFormat,
   primeReaderLocalStorage,
@@ -123,6 +124,51 @@ describe('offline reader position restore', () => {
     expect(merged.paginatorPage).toBe(48);
     expect(merged.progress).toBe(24);
     expect(merged.bookmarks).toHaveLength(1);
+  });
+
+  it('does not let a restore clock-bump of the same place beat a silent server pull', () => {
+    const bookId = 'book-go7-pull';
+    const opened = {
+      positionVersion: 4,
+      serverRevision: 2,
+      baseRevision: 2,
+      positionDirty: false,
+      position: '',
+      progress: 20,
+      fraction: 0.2,
+      sectionIndex: 1,
+      textOffset: 400,
+      bookmarks: [] as [],
+      annotations: [] as [],
+      positionChangedAt: '2026-07-12T09:00:00.000Z',
+    };
+    writeOfflineReaderData(bookId, opened);
+    writeOfflineReaderData(bookId, {
+      ...readOfflineReaderData(bookId),
+      positionDirty: true,
+      positionChangedAt: '2026-07-12T10:05:00.000Z',
+    });
+
+    const serverPull = {
+      ...readOfflineReaderData(bookId),
+      serverRevision: 5,
+      baseRevision: 5,
+      positionDirty: false,
+      progress: 55,
+      fraction: 0.55,
+      sectionIndex: 4,
+      textOffset: 1800,
+      positionChangedAt: '2026-07-12T10:00:00.000Z',
+    };
+
+    const merged = applyNewerLocalPositionIfNeeded(bookId, serverPull, opened);
+    expect(merged).toMatchObject({
+      fraction: 0.55,
+      sectionIndex: 4,
+      textOffset: 1800,
+      baseRevision: 5,
+      positionDirty: false,
+    });
   });
 
   it('keeps a newer in-reader position dirty while retaining the sync-accepted base', () => {
@@ -425,5 +471,31 @@ describe('offline reader position restore', () => {
       textQuote: null,
       textSectionLength: null,
     });
+  });
+
+  it('ensureOfflineReaderAnnotation seeds color without marking a local edit', () => {
+    const bookId = 'note-book';
+    ensureOfflineReaderAnnotation(bookId, {
+      id: 9,
+      cfi: 'epubcfi(/6/4)',
+      text: 'quote',
+      note: 'from web',
+      color: 'green',
+    });
+    const data = readOfflineReaderData(bookId);
+    expect(data.annotations).toEqual([
+      expect.objectContaining({ cfi: 'epubcfi(/6/4)', color: 'green' }),
+    ]);
+    expect(data.annotationsChangedAt == null || data.annotationsChangedAt === '').toBe(true);
+
+    ensureOfflineReaderAnnotation(bookId, {
+      id: 9,
+      cfi: 'epubcfi(/6/4)',
+      text: 'quote',
+      note: 'from web',
+      color: 'pink',
+    });
+    expect(readOfflineReaderData(bookId).annotations[0]?.color).toBe('pink');
+    expect(readOfflineReaderData(bookId).annotationsChangedAt == null || readOfflineReaderData(bookId).annotationsChangedAt === '').toBe(true);
   });
 });

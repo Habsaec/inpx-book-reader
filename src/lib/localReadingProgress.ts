@@ -18,25 +18,29 @@ export function upsertProgressFromLocalReader(
   const pct = Math.round(data.progress);
   if (pct <= 0 && !data.position) return progressList;
 
-  const lastRead = Date.parse(data.positionChangedAt || data.updatedAt || '') || Date.now();
-  if (!Number.isFinite(lastRead)) return progressList;
+  // Date.parse(...) || Date.now() превращал NaN в «сейчас» — битая метка времени
+  // выбрасывала книгу наверх «Продолжить чтение».
+  const parsed = Date.parse(data.positionChangedAt || data.updatedAt || '');
+  if (!Number.isFinite(parsed)) return progressList;
+  const lastRead = parsed;
 
   const finished = pct >= 95;
   const existing = progressList.find((p) => p.bookId === book.id);
 
   if (existing) {
-    return progressList.map((p) =>
-      p.bookId === book.id
-        ? {
-            ...p,
-            bookTitle: book.title || p.bookTitle,
-            authorName: book.author || p.authorName,
-            percentage: pct,
-            finished,
-            lastRead: Math.max(p.lastRead, lastRead),
-          }
-        : p,
-    );
+    return progressList.map((p) => {
+      if (p.bookId !== book.id) return p;
+      // LWW: процент/флаг перезаписываем только если локальное чтение не старше.
+      const localWins = lastRead >= p.lastRead;
+      return {
+        ...p,
+        bookTitle: book.title || p.bookTitle,
+        authorName: book.author || p.authorName,
+        percentage: localWins ? pct : p.percentage,
+        finished: localWins ? finished : p.finished,
+        lastRead: Math.max(p.lastRead, lastRead),
+      };
+    });
   }
 
   return [
@@ -72,6 +76,7 @@ export function buildLocalRecentReading(books: Book[]): LocalRecentReadingItem[]
   return books
     .map((book) => {
       const data = readOfflineReaderData(book.id);
+      if (data.recentHiddenAt) return null;
       const progress = Math.round(data.progress);
       if (progress <= 0 || !(data.positionChangedAt || data.updatedAt)) return null;
       const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));

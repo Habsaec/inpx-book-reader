@@ -8,6 +8,10 @@ import {
   fetchReaderBookSyncMeta,
   fetchReaderActivitySyncMeta,
   fetchReadingPosition,
+  isAuthError,
+  isUnreachableServerError,
+  ApiError,
+  patchReaderAnnotationApi,
   ReadingPositionConflictError,
 } from './inpxClient';
 import { ServerConfig } from '../types';
@@ -15,6 +19,7 @@ import { OfflineReaderData, applyNewerLocalPositionIfNeeded, primeReaderLocalSto
 import {
   applyServerActivitySyncMeta,
   buildSyncActivityOptions,
+  parseSyncTs,
   readReaderActivitySync,
 } from './readerActivitySync';
 import {
@@ -57,10 +62,17 @@ async function fetchEnrichedServerPosition(
   try {
     [serverPos, syncMeta] = await Promise.all([
       fetchReadingPosition(config, bookId),
-      fetchReaderBookSyncMeta(config, bookId).catch(() => null),
+      fetchReaderBookSyncMeta(config, bookId).catch((e) => {
+        if (isAuthError(e)) throw e;
+        return null;
+      }),
     ]);
-  } catch {
-    return null;
+  } catch (e) {
+    if (isAuthError(e)) throw e;
+    // Глотаем только ожидаемые сбои сети/API; программные ошибки (TypeError в
+    // enrichServerPosition и т.п.) должны быть видны, а не маскироваться в 'noop'.
+    if (isUnreachableServerError(e) || e instanceof ApiError) return null;
+    throw e;
   }
   return enrichServerPosition(serverPos, syncMeta);
 }
@@ -136,10 +148,32 @@ function updateServerPositionMetadata(
     serverPositionProgress: fractionToProgress(serverFractionFromPos(serverPos)),
     serverPositionFraction: serverFractionFromPos(serverPos),
     serverFb2Href: serverPos.fb2Href ? String(serverPos.fb2Href) : (local.serverFb2Href ?? null),
-    serverSectionIndex: serverPos.sectionIndex ?? null,
-    serverTextOffset: serverPos.textOffset ?? null,
-    serverTextQuote: serverPos.textQuote ?? null,
-    serverTextSectionLength: serverPos.textSectionLength ?? null,
+    serverSectionIndex:
+      serverPos.sectionIndex != null && Number.isFinite(Number(serverPos.sectionIndex))
+        ? Number(serverPos.sectionIndex)
+        : null,
+    serverTextOffset:
+      serverPos.textOffset != null && Number.isFinite(Number(serverPos.textOffset))
+        ? Number(serverPos.textOffset)
+        : null,
+    serverTextQuote: typeof serverPos.textQuote === 'string' ? serverPos.textQuote : null,
+    serverTextSectionLength:
+      serverPos.textSectionLength != null && Number.isFinite(Number(serverPos.textSectionLength))
+        ? Number(serverPos.textSectionLength)
+        : null,
+    serverSectionPageFraction:
+      serverPos.sectionPageFraction != null && Number.isFinite(Number(serverPos.sectionPageFraction))
+        ? Number(serverPos.sectionPageFraction)
+        : null,
+    serverPaginatorPage:
+      serverPos.paginatorPage != null && Number.isFinite(Number(serverPos.paginatorPage))
+        ? Number(serverPos.paginatorPage)
+        : null,
+    serverPaginatorPages:
+      serverPos.paginatorPages != null && Number.isFinite(Number(serverPos.paginatorPages))
+        ? Number(serverPos.paginatorPages)
+        : null,
+    serverLayoutMode: serverPos.layoutMode ? String(serverPos.layoutMode) : null,
   };
 }
 
@@ -168,14 +202,18 @@ export async function syncPositionOnBookOpen(
     const decision = decidePositionOnOpen(local, serverPos);
 
     if (decision === 'prompt') {
-      writeOfflineReaderData(bookId, writeServerSnapshotForDeferredPrompt(local, serverPos));
+      const draft = writeServerSnapshotForDeferredPrompt(local, serverPos);
+      writeOfflineReaderData(bookId, applyNewerLocalPositionIfNeeded(bookId, draft, local));
       primeReaderLocalStorage(bookId);
       return 'pending';
     }
 
     if (decision === 'server') {
       if (!shouldApplyServerSilently(local, serverPos)) {
-        writeOfflineReaderData(bookId, updateServerPositionMetadata(local, serverPos));
+        writeOfflineReaderData(
+          bookId,
+          applyNewerLocalPositionIfNeeded(bookId, updateServerPositionMetadata(local, serverPos), local),
+        );
         return 'noop';
       }
       applyServerPositionPull(bookId, local, serverPos);
@@ -186,9 +224,13 @@ export async function syncPositionOnBookOpen(
       return 'silent';
     }
 
-    writeOfflineReaderData(bookId, updateServerPositionMetadata(local, serverPos));
+    writeOfflineReaderData(
+      bookId,
+      applyNewerLocalPositionIfNeeded(bookId, updateServerPositionMetadata(local, serverPos), local),
+    );
     return 'noop';
-  } catch {
+  } catch (e) {
+    if (isAuthError(e)) throw e;
     return 'noop';
   }
 }
@@ -207,7 +249,17 @@ function applyServerPositionPull(
   local: OfflineReaderData,
   serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>,
 ): void {
-  writeOfflineReaderData(bookId, applyServerPositionToLocal(local, serverPos));
+  const applied = applyServerPositionToLocal(local, serverPos);
+  // Stamp from server clock so a clean local snapshot is not treated as "newer" than the pull.
+  const stamped = {
+    ...applied,
+    positionChangedAt:
+      serverPos.updatedAt
+      || applied.positionChangedAt
+      || local.positionChangedAt
+      || new Date().toISOString(),
+  };
+  writeOfflineReaderData(bookId, applyNewerLocalPositionIfNeeded(bookId, stamped, local));
   primeReaderLocalStorage(bookId);
 }
 
@@ -232,9 +284,13 @@ export async function finalizeReadingPositionSync(
   try {
     [serverPos, syncMeta] = await Promise.all([
       fetchReadingPosition(config, bookId),
-      fetchReaderBookSyncMeta(config, bookId).catch(() => null),
+      fetchReaderBookSyncMeta(config, bookId).catch((e) => {
+        if (isAuthError(e)) throw e;
+        return null;
+      }),
     ]);
-  } catch {
+  } catch (e) {
+    if (isAuthError(e)) throw e;
     return 'noop';
   }
   serverPos = enrichServerPosition(serverPos, syncMeta);
@@ -258,7 +314,10 @@ export async function finalizeReadingPositionSync(
     return 'pulled';
   }
   if (serverRevision !== baseRevision) {
-    writeOfflineReaderData(bookId, writeServerSnapshotForDeferredPrompt(local, serverPos));
+    writeOfflineReaderData(
+      bookId,
+      applyNewerLocalPositionIfNeeded(bookId, writeServerSnapshotForDeferredPrompt(local, serverPos), local),
+    );
     primeReaderLocalStorage(bookId);
     return 'conflict';
   }
@@ -270,18 +329,29 @@ export async function finalizeReadingPositionSync(
   const localFrac = localFractionFromData(local);
   try {
     const pushResult = await pushReadingPositionWithRecovery(config, bookId, local, baseRevision);
-    writeOfflineReaderData(bookId, {
-      ...readOfflineReaderData(bookId),
-      ...writePushSuccessFields(local, pushResult, localFrac),
-    });
+    writeOfflineReaderData(
+      bookId,
+      applyNewerLocalPositionIfNeeded(bookId, {
+        ...local,
+        ...writePushSuccessFields(local, pushResult, localFrac),
+      }, local),
+    );
     return 'pushed';
   } catch (error) {
     if (isReadingPositionConflictError(error)) {
       const fresh = readOfflineReaderData(bookId);
-      writeOfflineReaderData(bookId, writeServerSnapshotForDeferredPrompt(fresh, error.current));
+      writeOfflineReaderData(
+        bookId,
+        applyNewerLocalPositionIfNeeded(
+          bookId,
+          writeServerSnapshotForDeferredPrompt(fresh, error.current),
+          fresh,
+        ),
+      );
       primeReaderLocalStorage(bookId);
       return 'conflict';
     }
+    if (isAuthError(error)) throw error;
     return 'noop';
   }
 }
@@ -290,28 +360,34 @@ async function deleteAllServerBookmarks(
   config: ServerConfig,
   bookId: string,
   serverBookmarks: Awaited<ReturnType<typeof fetchReaderBookmarks>>,
-): Promise<void> {
+): Promise<boolean> {
+  let hadFailures = false;
   for (const bm of serverBookmarks) {
     try {
       await deleteReaderBookmarkApi(config, bookId, bm.id);
-    } catch {
-      /* keep trying */
+    } catch (e) {
+      if (isAuthError(e)) throw e;
+      hadFailures = true;
     }
   }
+  return hadFailures;
 }
 
 async function deleteAllServerAnnotations(
   config: ServerConfig,
   bookId: string,
   serverAnnotations: Awaited<ReturnType<typeof fetchReaderAnnotations>>,
-): Promise<void> {
+): Promise<boolean> {
+  let hadFailures = false;
   for (const ann of serverAnnotations) {
     try {
       await deleteReaderAnnotationApi(config, bookId, ann.id);
-    } catch {
-      /* keep trying */
+    } catch (e) {
+      if (isAuthError(e)) throw e;
+      hadFailures = true;
     }
   }
+  return hadFailures;
 }
 
 async function pushLocalBookmarks(
@@ -320,18 +396,25 @@ async function pushLocalBookmarks(
   bookmarks: OfflineReaderData['bookmarks'],
   deletedPositions: Set<string>,
   serverBookmarks: Awaited<ReturnType<typeof fetchReaderBookmarks>>,
-): Promise<OfflineReaderData['bookmarks']> {
+): Promise<{
+  bookmarks: OfflineReaderData['bookmarks'];
+  deletedPositions: string[];
+  hadFailures: boolean;
+}> {
   const next = [...bookmarks];
   const serverPositions = new Set(serverBookmarks.map((b) => b.position));
+  const remainingTombstones = new Set<string>();
+  let hadFailures = false;
 
   for (const bm of serverBookmarks) {
-    if (deletedPositions.has(bm.position)) {
-      try {
-        await deleteReaderBookmarkApi(config, bookId, bm.id);
-        serverPositions.delete(bm.position);
-      } catch {
-        /* retry next sync */
-      }
+    if (!deletedPositions.has(bm.position)) continue;
+    try {
+      await deleteReaderBookmarkApi(config, bookId, bm.id);
+      serverPositions.delete(bm.position);
+    } catch (e) {
+      if (isAuthError(e)) throw e;
+      remainingTombstones.add(bm.position);
+      hadFailures = true;
     }
   }
 
@@ -341,8 +424,12 @@ async function pushLocalBookmarks(
     deletedPositions.size > 0 &&
     serverBookmarks.every((bookmark) => deletedPositions.has(bookmark.position))
   ) {
-    await deleteAllServerBookmarks(config, bookId, serverBookmarks);
-    return next;
+    const wipeFailed = await deleteAllServerBookmarks(config, bookId, serverBookmarks);
+    return {
+      bookmarks: next,
+      deletedPositions: wipeFailed ? [...deletedPositions] : [],
+      hadFailures: wipeFailed,
+    };
   }
 
   for (const bm of next) {
@@ -351,12 +438,17 @@ async function pushLocalBookmarks(
       const serverId = await addReaderBookmarkApi(config, bookId, bm.position, bm.title || '');
       bm.id = serverId;
       serverPositions.add(bm.position);
-    } catch {
-      /* skip */
+    } catch (e) {
+      if (isAuthError(e)) throw e;
+      hadFailures = true;
     }
   }
 
-  return next;
+  return {
+    bookmarks: next,
+    deletedPositions: [...remainingTombstones],
+    hadFailures,
+  };
 }
 
 async function pushLocalAnnotations(
@@ -365,18 +457,25 @@ async function pushLocalAnnotations(
   annotations: OfflineReaderData['annotations'],
   deletedCfis: Set<string>,
   serverAnnotations: Awaited<ReturnType<typeof fetchReaderAnnotations>>,
-): Promise<OfflineReaderData['annotations']> {
+): Promise<{
+  annotations: OfflineReaderData['annotations'];
+  deletedCfis: string[];
+  hadFailures: boolean;
+}> {
   const next = [...annotations];
   const serverCfis = new Set(serverAnnotations.map((a) => a.cfi));
+  const remainingTombstones = new Set<string>();
+  let hadFailures = false;
 
   for (const ann of serverAnnotations) {
-    if (deletedCfis.has(ann.cfi)) {
-      try {
-        await deleteReaderAnnotationApi(config, bookId, ann.id);
-        serverCfis.delete(ann.cfi);
-      } catch {
-        /* retry next sync */
-      }
+    if (!deletedCfis.has(ann.cfi)) continue;
+    try {
+      await deleteReaderAnnotationApi(config, bookId, ann.id);
+      serverCfis.delete(ann.cfi);
+    } catch (e) {
+      if (isAuthError(e)) throw e;
+      remainingTombstones.add(ann.cfi);
+      hadFailures = true;
     }
   }
 
@@ -386,12 +485,33 @@ async function pushLocalAnnotations(
     deletedCfis.size > 0 &&
     serverAnnotations.every((annotation) => deletedCfis.has(annotation.cfi))
   ) {
-    await deleteAllServerAnnotations(config, bookId, serverAnnotations);
-    return next;
+    const wipeFailed = await deleteAllServerAnnotations(config, bookId, serverAnnotations);
+    return {
+      annotations: next,
+      deletedCfis: wipeFailed ? [...deletedCfis] : [],
+      hadFailures: wipeFailed,
+    };
   }
 
   for (const ann of next) {
-    if (!ann.cfi || serverCfis.has(ann.cfi) || deletedCfis.has(ann.cfi)) continue;
+    if (!ann.cfi || deletedCfis.has(ann.cfi)) continue;
+    const serverAnn = serverAnnotations.find((a) => a.cfi === ann.cfi);
+    if (serverAnn) {
+      const note = ann.note || '';
+      const color = ann.color || 'yellow';
+      const serverNote = serverAnn.note || '';
+      const serverColor = serverAnn.color || 'yellow';
+      ann.id = serverAnn.id;
+      if (note !== serverNote || color !== serverColor) {
+        try {
+          await patchReaderAnnotationApi(config, bookId, serverAnn.id, { note, color });
+        } catch (e) {
+          if (isAuthError(e)) throw e;
+          hadFailures = true;
+        }
+      }
+      continue;
+    }
     try {
       const serverId = await addReaderAnnotationApi(
         config,
@@ -403,12 +523,17 @@ async function pushLocalAnnotations(
       );
       ann.id = serverId;
       serverCfis.add(ann.cfi);
-    } catch {
-      /* skip */
+    } catch (e) {
+      if (isAuthError(e)) throw e;
+      hadFailures = true;
     }
   }
 
-  return next;
+  return {
+    annotations: next,
+    deletedCfis: [...remainingTombstones],
+    hadFailures,
+  };
 }
 
 export async function syncOfflineReaderForBook(
@@ -439,10 +564,15 @@ export async function syncOfflineReaderForBook(
   let serverAnnotations: Awaited<ReturnType<typeof fetchReaderAnnotations>> = [];
   let syncMeta = await fetchReaderBookSyncMeta(config, bookId);
 
+  let positionFetchOk = false;
   try {
     serverPos = await fetchReadingPosition(config, bookId);
-  } catch {
-    if (options?.skipPosition) return;
+    positionFetchOk = true;
+  } catch (e) {
+    if (isAuthError(e)) throw e;
+    // Network/timeout: do not invent revision 0 (false conflict prompts).
+    // With skipPosition, still sync bookmarks/annotations using default serverPos.
+    if (!options?.skipPosition) return;
   }
 
   try {
@@ -450,8 +580,10 @@ export async function syncOfflineReaderForBook(
       fetchReaderBookmarks(config, bookId),
       fetchReaderAnnotations(config, bookId),
     ]);
-  } catch {
-    if (options?.skipPosition) return;
+  } catch (e) {
+    if (isAuthError(e)) throw e;
+    // Failed collection fetch must not fall through as empty arrays (would wipe local).
+    return;
   }
 
   if (!syncMeta) {
@@ -485,6 +617,8 @@ export async function syncOfflineReaderForBook(
   let annotations = [...local.annotations];
   let deletedBookmarkPositions = [...deletedBmPositions];
   let deletedAnnotationCfis = [...deletedAnnCfis];
+  let bookmarksPushFailed = false;
+  let annotationsPushFailed = false;
   let position = local.position;
   let progress = local.progress || 0;
   let fb2Href = local.fb2Href ?? null;
@@ -502,16 +636,16 @@ export async function syncOfflineReaderForBook(
     }));
     deletedBookmarkPositions = [];
   } else {
-    bookmarks = await pushLocalBookmarks(
+    const pushed = await pushLocalBookmarks(
       config,
       bookId,
       bookmarks,
       deletedBmPositions,
       serverBookmarks,
     );
-    deletedBookmarkPositions = deletedBookmarkPositions.filter((pos) =>
-      serverBookmarks.some((b) => b.position === pos),
-    );
+    bookmarks = pushed.bookmarks;
+    deletedBookmarkPositions = pushed.deletedPositions;
+    bookmarksPushFailed = pushed.hadFailures;
   }
 
   if (serverAnnotationsNewer) {
@@ -525,16 +659,16 @@ export async function syncOfflineReaderForBook(
     }));
     deletedAnnotationCfis = [];
   } else {
-    annotations = await pushLocalAnnotations(
+    const pushed = await pushLocalAnnotations(
       config,
       bookId,
       annotations,
       deletedAnnCfis,
       serverAnnotations,
     );
-    deletedAnnotationCfis = deletedAnnotationCfis.filter((cfi) =>
-      serverAnnotations.some((a) => a.cfi === cfi),
-    );
+    annotations = pushed.annotations;
+    deletedAnnotationCfis = pushed.deletedCfis;
+    annotationsPushFailed = pushed.hadFailures;
   }
 
   // После push локальных закладок/заметок meta до push устаревает (часто EPOCH).
@@ -543,25 +677,35 @@ export async function syncOfflineReaderForBook(
   let annotationsRevStored = syncMeta.annotationsRev;
   let bookmarkCountStored = serverBookmarksNewer ? syncMeta.bookmarkCount : bookmarks.length;
   let annotationCountStored = serverAnnotationsNewer ? syncMeta.annotationCount : annotations.length;
-  if (!serverBookmarksNewer || !serverAnnotationsNewer) {
-    const refreshed = await fetchReaderBookSyncMeta(config, bookId).catch(() => null);
+  if ((!serverBookmarksNewer && !bookmarksPushFailed) || (!serverAnnotationsNewer && !annotationsPushFailed)) {
+    const refreshed = await fetchReaderBookSyncMeta(config, bookId).catch((e) => {
+      if (isAuthError(e)) throw e;
+      return null;
+    });
     if (refreshed) {
-      if (!serverBookmarksNewer) {
+      if (!serverBookmarksNewer && !bookmarksPushFailed) {
         bookmarksRevStored = refreshed.bookmarksRev || bookmarksRevStored;
         bookmarkCountStored = refreshed.bookmarkCount;
       }
-      if (!serverAnnotationsNewer) {
+      if (!serverAnnotationsNewer && !annotationsPushFailed) {
         annotationsRevStored = refreshed.annotationsRev || annotationsRevStored;
         annotationCountStored = refreshed.annotationCount;
       }
     } else {
-      if (!serverBookmarksNewer) {
+      if (!serverBookmarksNewer && !bookmarksPushFailed) {
         bookmarksRevStored = localBookmarksRev({ ...local, bookmarksChangedAt: local.bookmarksChangedAt });
       }
-      if (!serverAnnotationsNewer) {
+      if (!serverAnnotationsNewer && !annotationsPushFailed) {
         annotationsRevStored = localAnnotationsRev({ ...local, annotationsChangedAt: local.annotationsChangedAt });
       }
     }
+  }
+  // Failed pushes: keep local changedAt so the next sync retries.
+  if (!serverBookmarksNewer && bookmarksPushFailed) {
+    bookmarksRevStored = localBookmarksRev(local);
+  }
+  if (!serverAnnotationsNewer && annotationsPushFailed) {
+    annotationsRevStored = localAnnotationsRev(local);
   }
 
   const serverProgress = serverPos.progress || 0;
@@ -572,21 +716,34 @@ export async function syncOfflineReaderForBook(
 
   if (options?.skipPosition) {
     const fresh = readOfflineReaderData(bookId);
+    const baseBmAt = parseSyncTs(local.bookmarksChangedAt);
+    const baseAnnAt = parseSyncTs(local.annotationsChangedAt);
+    const keepFreshBm = parseSyncTs(fresh.bookmarksChangedAt) > baseBmAt;
+    const keepFreshAnn = parseSyncTs(fresh.annotationsChangedAt) > baseAnnAt;
     writeOfflineReaderData(bookId, {
       ...fresh,
-      bookmarks,
-      annotations,
-      deletedBookmarkPositions,
-      deletedAnnotationCfis,
-      bookmarksChangedAt: bookmarksRevStored,
-      annotationsChangedAt: annotationsRevStored,
+      bookmarks: keepFreshBm ? fresh.bookmarks : bookmarks,
+      annotations: keepFreshAnn ? fresh.annotations : annotations,
+      deletedBookmarkPositions: keepFreshBm
+        ? (fresh.deletedBookmarkPositions || [])
+        : deletedBookmarkPositions,
+      deletedAnnotationCfis: keepFreshAnn
+        ? (fresh.deletedAnnotationCfis || [])
+        : deletedAnnotationCfis,
+      bookmarksChangedAt: keepFreshBm ? fresh.bookmarksChangedAt : bookmarksRevStored,
+      annotationsChangedAt: keepFreshAnn ? fresh.annotationsChangedAt : annotationsRevStored,
+      // Always stamp real server rev — do not mark unsynced in-flight edits as synced.
       serverBookmarksRev: bookmarksRevStored,
       serverAnnotationsRev: annotationsRevStored,
-      serverPositionUpdatedAt: serverPosUpdatedAt,
       serverBookmarkCount: bookmarkCountStored,
       serverAnnotationCount: annotationCountStored,
-      serverPositionProgress: serverProgress,
-      serverPositionFraction: serverFrac,
+      ...(positionFetchOk
+        ? {
+            serverPositionUpdatedAt: serverPosUpdatedAt,
+            serverPositionProgress: serverProgress,
+            serverPositionFraction: serverFrac,
+          }
+        : {}),
       positionVersion: 4,
     });
     return;
@@ -598,16 +755,24 @@ export async function syncOfflineReaderForBook(
     Boolean(local.positionDirty)
     && serverRevision !== baseRevision
     && positionsDiffer(local, serverPos);
+  // Same rule as finalizeReadingPositionSync: a deferred prompt must keep
+  // local coordinates until the user answers — after-close sync must not pull.
+  const deferPendingPrompt =
+    Boolean(local.pendingCrossDevicePrompt)
+    && !(local.positionDirty && localHasMeaningfulPosition(local));
   const useServerPosition =
-    (
-      !local.positionDirty
-      && local.dismissedServerRevision !== serverRevision
-      && serverRevision > baseRevision
-    )
-    || (
-      Boolean(local.positionDirty)
-      && serverRevision !== baseRevision
-      && !positionsDiffer(local, serverPos)
+    !deferPendingPrompt
+    && (
+      (
+        !local.positionDirty
+        && local.dismissedServerRevision !== serverRevision
+        && serverRevision > baseRevision
+      )
+      || (
+        Boolean(local.positionDirty)
+        && serverRevision !== baseRevision
+        && !positionsDiffer(local, serverPos)
+      )
     );
 
   let sectionIndex = local.sectionIndex ?? null;
@@ -703,6 +868,8 @@ export async function syncOfflineReaderForBook(
       if (isReadingPositionConflictError(error)) {
         conflictSnapshot = writeServerSnapshotForDeferredPrompt(local, error.current);
         serverRevisionStored = error.current.revision ?? serverRevisionStored;
+      } else if (isAuthError(error)) {
+        throw error;
       }
       /* keep local */
     }
@@ -765,7 +932,7 @@ export async function syncOfflineReaderForBook(
         serverPaginatorPages: conflictSnapshot.serverPaginatorPages,
         serverLayoutMode: conflictSnapshot.serverLayoutMode,
       } : {}),
-    }),
+    }, local),
   );
 }
 
@@ -780,7 +947,8 @@ export async function syncAllOfflineReaders(
   for (const bookId of bookIds) {
     try {
       await syncOfflineReaderForBook(config, bookId, activity);
-    } catch {
+    } catch (e) {
+      if (isAuthError(e)) throw e;
       /* next book */
     }
   }

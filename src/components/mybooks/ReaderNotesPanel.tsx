@@ -17,12 +17,13 @@ import {
   type AnnotationColorFilter,
 } from '../../lib/readerNotesUtils';
 import EmptyState from '../../ui/EmptyState';
-import { textStyles, touchMin, semantic } from '../../ui/tokens';
+import { textStyles, touchMin, semantic, radii, motion, elevation } from '../../ui/tokens';
 import { useSnackbar } from '../../ui/Snackbar';
 
 interface ReaderNotesPanelProps {
   annotations: LocalReaderAnnotationItem[];
   serverConfig: ServerConfig;
+  downloadedBookIds?: string[];
   onOpenAnnotation: (bookId: string, cfi: string, book: ReturnType<typeof annotationToBook>) => void;
   onRemoveAnnotation?: (bookId: string, annId: number) => void | Promise<void>;
   onUpdateAnnotation?: (bookId: string, annId: number, patch: { note?: string; color?: string }) => void | Promise<void>;
@@ -31,6 +32,7 @@ interface ReaderNotesPanelProps {
 export default function ReaderNotesPanel({
   annotations,
   serverConfig,
+  downloadedBookIds,
   onOpenAnnotation,
   onRemoveAnnotation,
   onUpdateAnnotation,
@@ -88,21 +90,21 @@ export default function ReaderNotesPanel({
       <EmptyState
         icon={StickyNote}
         title="Нет заметок"
-        description="Откройте книгу, выделите текст и добавьте заметку — она появится здесь."
+        description="Заметки из читалки на сайте и в приложении появятся здесь."
       />
     );
   }
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className={`shrink-0 px-4 py-3 border-b space-y-3 ${theme.header}`}>
+      <div className={`shrink-0 px-5 py-4 border-b space-y-4 ${theme.header}`}>
         {bookOptions.length > 1 && (
           <label className={`block ${textStyles.caption} ${theme.textMuted}`}>
             Книга
             <select
               value={bookFilter}
               onChange={(e) => setBookFilter(e.target.value as string | 'all')}
-              className={`mt-1 w-full rounded-lg border px-2 py-1.5 ${textStyles.caption} ${theme.input}`}
+              className={`mt-2 w-full ${radii.lg} border px-4 py-2.5 ${textStyles.caption} ${theme.input}`}
             >
               <option value="all">Все книги</option>
               {bookOptions.map(([id, title]) => (
@@ -116,8 +118,8 @@ export default function ReaderNotesPanel({
           <button
             type="button"
             onClick={() => setColorFilter('all')}
-            className={`min-h-9 px-2.5 rounded-full ${textStyles.caption} ${theme.focusRing} ${
-              colorFilter === 'all' ? `${theme.accentText} font-semibold` : theme.textMuted
+            className={`min-h-12 px-4 ${radii.button} ${textStyles.caption} ${theme.focusRing} ${motion.press} ${
+              colorFilter === 'all' ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
             }`}
           >
             Все
@@ -153,7 +155,7 @@ export default function ReaderNotesPanel({
         </div>
       </div>
 
-      <ul className="flex-1 min-h-0 overflow-y-auto px-4">
+      <ul className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-3">
         {filtered.length === 0 ? (
           <li className={`${textStyles.caption} ${theme.textMuted} text-center py-8`}>
             Нет заметок с выбранным цветом
@@ -164,13 +166,13 @@ export default function ReaderNotesPanel({
             const swatch = ANNOTATION_COLOR_SWATCH[an.color as keyof typeof ANNOTATION_COLOR_SWATCH];
             const menuOpen = menuKey === key;
             return (
-              <li key={key} className={`border-b last:border-b-0 py-3 ${theme.divider}`}>
-                <div className="flex gap-2">
+              <li key={key} className={`${radii.lg} ${theme.card} ${elevation.card} p-4`}>
+                <div className="flex gap-3">
                   <span className={`w-1 shrink-0 rounded-full ${swatch ?? 'bg-yellow-400'}`} aria-hidden />
                   <button
                     type="button"
                     onClick={() => onOpenAnnotation(an.bookId, an.cfi, annotationToBook(an, serverConfig))}
-                    className={`flex-1 min-w-0 text-left ${theme.focusRing} rounded-lg`}
+                    className={`flex-1 min-w-0 text-left ${theme.focusRing} ${radii.md}`}
                   >
                     <p className={`${textStyles.bookTitle} text-sm truncate`}>{an.bookTitle}</p>
                     {an.text ? (
@@ -179,6 +181,9 @@ export default function ReaderNotesPanel({
                     {an.note ? (
                       <p className={`${textStyles.caption} ${theme.textMuted} mt-1 line-clamp-2`}>{an.note}</p>
                     ) : null}
+                    {downloadedBookIds && !downloadedBookIds.includes(an.bookId) ? (
+                      <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>Не скачана</p>
+                    ) : null}
                   </button>
                   <div className="relative shrink-0">
                     <button
@@ -186,13 +191,13 @@ export default function ReaderNotesPanel({
                       aria-label="Действия"
                       aria-expanded={menuOpen}
                       onClick={() => setMenuKey(menuOpen ? null : key)}
-                      className={`${touchMin} inline-flex items-center justify-center rounded-lg ${theme.textMuted} ${theme.focusRing}`}
+                      className={`${touchMin} inline-flex items-center justify-center ${radii.button} ${theme.panel} ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
                     >
                       <MoreHorizontal className="w-5 h-5" />
                     </button>
                     {menuOpen ? (
                       <div
-                        className={`absolute right-0 top-full z-20 mt-1 min-w-[10rem] rounded-xl border py-1 shadow-sm ${theme.dropdown}`}
+                        className={`absolute right-0 top-full z-20 mt-1 min-w-[10rem] ${radii.lg} border py-1 shadow-lg ${theme.dropdown}`}
                         role="menu"
                       >
                         <button
@@ -240,22 +245,22 @@ export default function ReaderNotesPanel({
       </ul>
 
       {editing ? (
-        <div className={`shrink-0 px-4 py-3 border-t space-y-2 ${theme.header}`}>
+        <div className={`shrink-0 px-5 py-4 border-t space-y-3 ${theme.header}`}>
           <p className={textStyles.sectionLabel}>Редактировать заметку</p>
           <textarea
             value={editNote}
             onChange={(e) => setEditNote(e.target.value)}
             rows={3}
-            className={`w-full rounded-xl border px-3 py-2 ${textStyles.body} ${theme.input}`}
+            className={`w-full ${radii.lg} border px-4 py-3 ${textStyles.body} ${theme.input}`}
           />
           <div className="flex gap-2">
-            <button type="button" onClick={saveEdit} className={`flex-1 py-2.5 rounded-xl ${textStyles.captionBold} ${theme.accentBg}`}>
+            <button type="button" onClick={saveEdit} className={`flex-1 py-3 ${radii.button} ${textStyles.captionBold} ${theme.accentBg} ${motion.press}`}>
               Сохранить
             </button>
             <button
               type="button"
               onClick={() => setEditing(null)}
-              className={`px-4 py-2.5 rounded-xl ${textStyles.caption} ${theme.textMuted} ${theme.focusRing}`}
+              className={`px-5 py-3 ${radii.button} ${textStyles.caption} ${theme.chip} ${theme.chipHover} ${theme.focusRing} ${motion.press}`}
             >
               Отмена
             </button>

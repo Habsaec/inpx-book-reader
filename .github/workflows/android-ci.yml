@@ -24,6 +24,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: Habsaec/inpx-library-server
+          ref: dev
           path: inpx-library-server
 
       - uses: actions/setup-node@v7
@@ -60,6 +61,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: Habsaec/inpx-library-server
+          ref: dev
           path: inpx-library-server
 
       - uses: actions/setup-node@v7
