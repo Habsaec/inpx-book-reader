@@ -6,6 +6,7 @@ export function acceptPendingPositionRevision(store) {
   }
   store.positionDirty = false;
   store.dismissedServerRevision = null;
+  store.dismissedServerSessionId = null;
   return store;
 }
 
@@ -16,6 +17,9 @@ export function declinePendingPositionRevision(store) {
     store.baseRevision = revision;
     store.dismissedServerRevision = revision;
   }
+  store.dismissedServerSessionId = store.serverSessionId != null
+    ? String(store.serverSessionId)
+    : '';
   store.positionDirty = false;
   return store;
 }

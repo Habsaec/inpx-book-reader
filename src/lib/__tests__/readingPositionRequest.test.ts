@@ -38,6 +38,7 @@ describe('reading position request', () => {
         textSectionLength: 9000,
       },
       4,
+      'phone-session',
     );
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
@@ -47,6 +48,7 @@ describe('reading position request', () => {
       fraction: 0.4,
       positionVersion: 4,
       baseRevision: 4,
+      sessionId: 'phone-session',
       sectionIndex: 3,
       textOffset: 1234,
       textQuote: 'Exact words',

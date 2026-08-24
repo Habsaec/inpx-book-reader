@@ -3,6 +3,9 @@
 export const READING_POSITION_SCALE = 1e6;
 export const PROGRESS_PERCENT_SCALE = 1e4;
 
+export const IDLE_MS = 4 * 60 * 1000;
+export const POSITION_SESSION_ID_MAX = 128;
+
 export function parseSyncTs(iso) {
   if (!iso) return 0;
   const raw = String(iso).trim();
@@ -12,6 +15,45 @@ export function parseSyncTs(iso) {
   }
   const ts = Date.parse(raw);
   return Number.isFinite(ts) ? ts : 0;
+}
+
+export function normalizeSessionId(value) {
+  const id = String(value || '').trim();
+  if (!id || id.length > POSITION_SESSION_ID_MAX) return null;
+  return id;
+}
+
+export function sessionStatusFromActivityAt(lastUserActivityAt, nowMs = Date.now()) {
+  const ts = parseSyncTs(lastUserActivityAt);
+  if (!ts) return 'idle';
+  return (nowMs - ts) > IDLE_MS ? 'idle' : 'active';
+}
+
+export const USER_POSITION_SAVE_REASONS = Object.freeze(['page', 'snap', 'scroll', 'navigation']);
+
+export function isUserPositionSaveReason(reason) {
+  return USER_POSITION_SAVE_REASONS.includes(String(reason || ''));
+}
+
+/** Stale CAS may overwrite if the holder is a different, idle session. */
+export function shouldIdleSteal(current, incomingSessionId, nowMs = Date.now()) {
+  const incoming = normalizeSessionId(incomingSessionId);
+  if (!incoming) return false;
+  const holder = normalizeSessionId(current?.sessionId);
+  if (!holder || holder === incoming) return false;
+  return sessionStatusFromActivityAt(current?.lastUserActivityAt, nowMs) === 'idle';
+}
+
+/**
+ * Matching-revision CAS may take over only if the writer is legacy (no sessionId),
+ * the same session, or the holder is idle. A different active session cannot overwrite.
+ */
+export function canOverwriteHolder(current, incomingSessionId, nowMs = Date.now()) {
+  const incoming = normalizeSessionId(incomingSessionId);
+  if (!incoming) return true;
+  const holder = normalizeSessionId(current?.sessionId);
+  if (!holder || holder === incoming) return true;
+  return sessionStatusFromActivityAt(current?.lastUserActivityAt, nowMs) === 'idle';
 }
 
 export function normalizeReadingFraction(fraction) {

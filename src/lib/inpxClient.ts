@@ -595,6 +595,9 @@ export interface ServerReadingPosition {
   updatedAt?: string | null;
   positionVersion?: number;
   revision?: number;
+  sessionId?: string | null;
+  lastUserActivityAt?: string | null;
+  sessionStatus?: 'active' | 'idle' | null;
 }
 
 export class ReadingPositionConflictError extends Error {
@@ -733,6 +736,7 @@ export async function saveReadingPosition(
   fb2Href?: string | null,
   anchors?: ReadingPositionAnchors | null,
   baseRevision = 0,
+  sessionId?: string | null,
 ): Promise<{
   markedRead?: boolean;
   unmarkedRead?: boolean;
@@ -752,6 +756,8 @@ export async function saveReadingPosition(
   if (fb2Href != null && String(fb2Href).trim()) {
     body.fb2Href = String(fb2Href).trim();
   }
+  const normalizedSessionId = String(sessionId || '').trim();
+  if (normalizedSessionId) body.sessionId = normalizedSessionId;
   appendReadingPositionAnchors(body, anchors);
   const response = await apiFetchWithTimeout(
     config,

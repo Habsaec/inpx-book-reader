@@ -86,6 +86,7 @@ describe('pushReadingPositionWithRecovery', () => {
       undefined,
       expect.any(Object),
       4,
+      undefined,
     );
   });
 });

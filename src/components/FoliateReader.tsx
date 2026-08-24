@@ -31,8 +31,15 @@ import {
   formatPositionProgressLabel,
   resolvePositionDisplayMeta,
 } from '../lib/syncMerge';
+import {
+  createPositionSessionId,
+  ensureOpenBookPositionSession,
+  OPEN_BOOK_POSITION_POLL_MS,
+  syncOpenBookPosition,
+} from '../lib/openBookPositionSync';
 import { useDialog } from '../ui/Dialog';
 import type { ReaderFontFamily } from './reader/readerTypes';
+import type { ServerConfig } from '../types';
 
 interface ReaderPrefs {
   orientationLock: 'auto' | 'portrait' | 'landscape';
@@ -67,6 +74,7 @@ export interface FoliateReaderConfig {
   einkActive?: boolean;
   /** True when app has no server connection — show offline strip in reader. */
   offline?: boolean;
+  serverConfig?: ServerConfig | null;
   nextInSeries?: { bookId: string; title: string } | null;
 }
 
@@ -119,6 +127,7 @@ export default function FoliateReader({
   localFile,
   einkActive = false,
   offline = false,
+  serverConfig = null,
   nextInSeries = null,
   onClose,
   onStoreSynced,
@@ -128,6 +137,7 @@ export default function FoliateReader({
   const dialogRef = React.useRef(dialog);
   dialogRef.current = dialog;
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
+  const positionSessionIdRef = React.useRef(createPositionSessionId());
   const positionPromptRef = React.useRef<string | null>(null);
   const positionPromptBusyRef = React.useRef(false);
   const positionPromptQueueRef = React.useRef<MessageEvent[]>([]);
@@ -136,6 +146,7 @@ export default function FoliateReader({
     resolve: () => void;
     timer: number;
   } | null>(null);
+  const livePushTimerRef = React.useRef<number | null>(null);
   const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState('');
   const readerPrefsRef = React.useRef(readReaderPrefs());
@@ -397,6 +408,39 @@ export default function FoliateReader({
       data,
     }, '*');
   }, [bookId]);
+
+  const serverConfigRef = React.useRef(serverConfig);
+  serverConfigRef.current = serverConfig;
+
+  React.useEffect(() => {
+    positionSessionIdRef.current = createPositionSessionId();
+    ensureOpenBookPositionSession(bookId, positionSessionIdRef.current);
+  }, [bookId]);
+
+  const liveSyncEnabled = Boolean(!offline && serverConfig?.connectionStatus === 'connected');
+
+  React.useEffect(() => {
+    if (!liveSyncEnabled || !bookId) return;
+    let cancelled = false;
+    const run = async () => {
+      const cfg = serverConfigRef.current;
+      if (!cfg) return;
+      try {
+        const result = await syncOpenBookPosition(cfg, bookId, positionSessionIdRef.current);
+        if (cancelled || result !== 'prompt') return;
+        postReaderSeed(iframeRef.current?.contentWindow ?? null);
+      } catch {
+        /* auth expiry is handled by the app sync pipeline */
+      }
+    };
+    const start = window.setTimeout(() => { void run(); }, 1500);
+    const poll = window.setInterval(() => { void run(); }, OPEN_BOOK_POSITION_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(start);
+      window.clearInterval(poll);
+    };
+  }, [bookId, liveSyncEnabled, postReaderSeed]);
 
   const postReaderChromeInsets = React.useCallback((target: Window | null) => {
     postSafeAreaToWindow(target, safeAreaRef.current);
@@ -716,6 +760,23 @@ export default function FoliateReader({
         if (!isTrustedReaderMessage(event)) return;
         applyIframeReaderStore(bookId, event.data.data || {});
         onStoreSynced?.();
+        if (
+          !offline
+          && serverConfig
+          && serverConfig.connectionStatus === 'connected'
+        ) {
+          if (livePushTimerRef.current != null) window.clearTimeout(livePushTimerRef.current);
+          livePushTimerRef.current = window.setTimeout(() => {
+            livePushTimerRef.current = null;
+            void syncOpenBookPosition(serverConfig, bookId, positionSessionIdRef.current)
+              .then((result) => {
+                if (result === 'prompt') {
+                  postReaderSeed(iframeRef.current?.contentWindow ?? null);
+                }
+              })
+              .catch(() => {});
+          }, 2000);
+        }
         if (flushAckRef.current) {
           clearTimeout(flushAckRef.current.timer);
           const { resolve } = flushAckRef.current;
@@ -836,8 +897,14 @@ export default function FoliateReader({
     };
 
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [bookId, einkActive, enqueuePositionPrompt, flushReaderPositionAndWait, isTrustedReaderMessage, onOpenNextInSeries, onStoreSynced, requestClose]);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (livePushTimerRef.current != null) {
+        window.clearTimeout(livePushTimerRef.current);
+        livePushTimerRef.current = null;
+      }
+    };
+  }, [bookId, einkActive, enqueuePositionPrompt, flushReaderPositionAndWait, isTrustedReaderMessage, offline, onOpenNextInSeries, onStoreSynced, postReaderSeed, requestClose, serverConfig]);
 
   React.useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;

@@ -4,6 +4,7 @@ export function acceptPendingPositionRevision<T extends {
   baseRevision?: number;
   positionDirty?: boolean;
   dismissedServerRevision?: number | null;
+  dismissedServerSessionId?: string | null;
 }>(store: T): T;
 
 export function declinePendingPositionRevision<T extends {
@@ -12,6 +13,8 @@ export function declinePendingPositionRevision<T extends {
   serverRevision?: number;
   positionDirty?: boolean;
   dismissedServerRevision?: number | null;
+  dismissedServerSessionId?: string | null;
+  serverSessionId?: string | null;
 }>(store: T): T;
 
 export function completePendingPositionRestore<T extends {

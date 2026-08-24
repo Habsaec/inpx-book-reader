@@ -6,6 +6,7 @@ import {
   upsertReaderData,
 } from './localDb';
 import { positionsDiffer } from '../../public/inpx-reader/reader-shared/position-revision.js';
+import { isUserPositionSaveReason } from '../../public/inpx-reader/position-sync.js';
 
 export interface OfflineReaderBookmark {
   id: number;
@@ -36,6 +37,10 @@ export interface OfflineReaderData {
   positionDirty?: boolean;
   /** Server revision explicitly declined while preserving local coordinates. */
   dismissedServerRevision?: number | null;
+  /** Holder sessionId declined for live prompts; '' = holder had no sessionId. */
+  dismissedServerSessionId?: string | null;
+  /** Holder sessionId from the pending server snapshot. */
+  serverSessionId?: string | null;
   position: string | null;
   /** Book-wide progress 0–100 (derived from fraction, 0.0001% precision). */
   progress: number;
@@ -105,6 +110,10 @@ export interface OfflineReaderData {
   serverLayoutMode?: string | null;
   /** Cross-device prompt already handled in React before iframe mount — skip bootstrap duplicate. */
   crossDeviceResolvedAt?: string | null;
+  /** UUID for this open-reader session (not deviceToken). */
+  positionSessionId?: string | null;
+  /** ISO — last user page/snap/scroll/navigation in this open session. */
+  lastUserActivityAt?: string | null;
   updatedAt?: string;
 }
 
@@ -152,6 +161,10 @@ function normalizeOfflineReaderData(data: Partial<OfflineReaderData>): OfflineRe
       Number.isInteger(Number(data.dismissedServerRevision)) && Number(data.dismissedServerRevision) >= 0
         ? Number(data.dismissedServerRevision)
         : null,
+    dismissedServerSessionId: data.dismissedServerSessionId == null
+      ? null
+      : String(data.dismissedServerSessionId),
+    serverSessionId: data.serverSessionId == null ? null : String(data.serverSessionId),
     position: data.position ?? null,
     progress: Number(data.progress) || 0,
     fraction: nullableFiniteNumber(data.fraction),
@@ -204,6 +217,10 @@ function normalizeOfflineReaderData(data: Partial<OfflineReaderData>): OfflineRe
     serverPaginatorPages: nullableFiniteNumber(data.serverPaginatorPages),
     serverLayoutMode: typeof data.serverLayoutMode === 'string' ? data.serverLayoutMode : null,
     crossDeviceResolvedAt: data.crossDeviceResolvedAt ?? null,
+    positionSessionId: typeof data.positionSessionId === 'string' && data.positionSessionId.trim()
+      ? data.positionSessionId.trim()
+      : null,
+    lastUserActivityAt: typeof data.lastUserActivityAt === 'string' ? data.lastUserActivityAt : null,
     updatedAt: data.updatedAt,
   };
 }
@@ -215,6 +232,8 @@ function emptyReaderData(): OfflineReaderData {
     baseRevision: 0,
     positionDirty: false,
     dismissedServerRevision: null,
+    dismissedServerSessionId: null,
+    serverSessionId: null,
     position: null,
     progress: 0,
     bookmarks: [],
@@ -384,6 +403,13 @@ export function applyIframeReaderStore(
     dismissedServerRevision: iframeChangedPosition
       ? null
       : incoming.dismissedServerRevision,
+    dismissedServerSessionId: incoming.dismissedServerSessionId !== undefined
+      ? incoming.dismissedServerSessionId
+      : (prev.dismissedServerSessionId ?? null),
+    positionSessionId: incoming.positionSessionId || prev.positionSessionId || null,
+    lastUserActivityAt: isUserPositionSaveReason(payload.positionSaveReason)
+      ? nowIso()
+      : (incoming.lastUserActivityAt ?? prev.lastUserActivityAt ?? null),
   };
   writeOfflineReaderData(bookId, next);
   if (hasOfflineReaderChanges(next)) {
@@ -405,6 +431,7 @@ export function migrateOfflineReaderPositionForFormat(bookId: string, format: st
     baseRevision: 0,
     positionDirty: Boolean(compatiblePosition),
     dismissedServerRevision: null,
+    dismissedServerSessionId: null,
     position: compatiblePosition,
     progress: 0,
     fraction: null,

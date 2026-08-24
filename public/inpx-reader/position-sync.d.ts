@@ -1,7 +1,25 @@
 export const READING_POSITION_SCALE: number;
 export const PROGRESS_PERCENT_SCALE: number;
+export const IDLE_MS: number;
+export const USER_POSITION_SAVE_REASONS: readonly string[];
 
 export function parseSyncTs(iso: string | null | undefined): number;
+export function normalizeSessionId(value: string | null | undefined): string | null;
+export function sessionStatusFromActivityAt(
+  lastUserActivityAt: string | null | undefined,
+  nowMs?: number,
+): 'active' | 'idle';
+export function isUserPositionSaveReason(reason: string | null | undefined): boolean;
+export function shouldIdleSteal(
+  current: { sessionId?: string | null; lastUserActivityAt?: string | null } | null | undefined,
+  incomingSessionId: string | null | undefined,
+  nowMs?: number,
+): boolean;
+export function canOverwriteHolder(
+  current: { sessionId?: string | null; lastUserActivityAt?: string | null } | null | undefined,
+  incomingSessionId: string | null | undefined,
+  nowMs?: number,
+): boolean;
 export function normalizeReadingFraction(fraction: number): number;
 export function progressToFraction(progress: number): number;
 export function fractionToProgress(fraction: number): number;

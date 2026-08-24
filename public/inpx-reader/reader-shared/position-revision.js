@@ -1,4 +1,4 @@
-import { savedFraction } from '../position-sync.js';
+import { normalizeSessionId, savedFraction } from '../position-sync.js';
 
 export const POSITION_VERSION = 4;
 
@@ -54,6 +54,47 @@ export function hasMeaningfulPosition(snapshot) {
     || (fields.sectionIndex != null && fields.sectionPageFraction != null);
 }
 
+/** Stable key for live dismiss: empty string means a holder with no sessionId. */
+export function dismissedHolderKey(sessionId) {
+  return normalizeSessionId(sessionId) || '';
+}
+
+/** Live open-reader: other session + different coords → dialog, never silent jump. */
+export function shouldPromptLiveCrossDevice(localSessionId, local, server) {
+  const localId = normalizeSessionId(localSessionId);
+  if (!localId) return false;
+  const holderId = normalizeSessionId(server?.sessionId);
+  if (holderId && holderId === localId) return false;
+  const dismissedHolder = local?.dismissedServerSessionId;
+  if (dismissedHolder != null && String(dismissedHolder) === dismissedHolderKey(server?.sessionId)) {
+    return false;
+  }
+  const dismissed = Number(local?.dismissedServerRevision);
+  const serverRevision = Number(server?.revision);
+  if (Number.isInteger(dismissed) && dismissed === serverRevision) return false;
+  const pendingRevision = Number(local?.serverRevision);
+  if (local?.pendingCrossDevicePrompt && pendingRevision === serverRevision) return false;
+  return positionsDiffer(local, server);
+}
+
+/** Same-session (or legacy) 409: adopt the current revision and retry. */
+export function shouldRetryPositionConflict(localSessionId, current) {
+  const localId = normalizeSessionId(localSessionId);
+  const holderId = normalizeSessionId(current?.sessionId);
+  return !holderId || holderId === localId;
+}
+
+export function adoptConflictBaseRevision(local, server) {
+  const current = normalizeSeenContext(local);
+  const serverRevision = revision(server?.revision);
+  return {
+    ...current,
+    baseRevision: serverRevision,
+    serverRevision: Math.max(current.serverRevision, serverRevision),
+    serverUpdatedAt: server?.updatedAt || current.serverUpdatedAt || null,
+  };
+}
+
 export function positionsDiffer(left, right) {
   const a = positionFields(left);
   const b = positionFields(right);
@@ -84,6 +125,7 @@ export function normalizeSeenContext(raw, { isFb2 = false } = {}) {
         serverUpdatedAt: null,
         dismissedUpdatedAt: null,
         dismissedServerRevision: null,
+        dismissedServerSessionId: null,
       };
     }
     const compatibleFields = positionFields({ position: source.position });
@@ -96,6 +138,7 @@ export function normalizeSeenContext(raw, { isFb2 = false } = {}) {
       positionDirty: hasMeaningfulPosition(compatibleFields),
       dismissedUpdatedAt: source.dismissedUpdatedAt || null,
       dismissedServerRevision: null,
+      dismissedServerSessionId: null,
     };
   }
   const serverRevision = revision(source.serverRevision);
@@ -116,6 +159,9 @@ export function normalizeSeenContext(raw, { isFb2 = false } = {}) {
     dismissedServerRevision: source.dismissedServerRevision == null
       ? null
       : revision(source.dismissedServerRevision),
+    dismissedServerSessionId: source.dismissedServerSessionId == null
+      ? null
+      : String(source.dismissedServerSessionId),
   };
 }
 
@@ -174,6 +220,7 @@ export function acceptServerPosition(local, server) {
     serverProgress: Number(server?.progress) || 0,
     dismissedUpdatedAt: null,
     dismissedServerRevision: null,
+    dismissedServerSessionId: null,
     pendingServerPosition: null,
   };
 }
@@ -196,6 +243,7 @@ export function acceptPositionSave(local, sent, response, sentChangedAt) {
     serverProgress: Number(sent?.progress) || 0,
     dismissedUpdatedAt: null,
     dismissedServerRevision: null,
+    dismissedServerSessionId: null,
     pendingServerPosition: null,
   };
 }
@@ -231,6 +279,7 @@ export function dismissServerPosition(local, server) {
     serverProgress: Number(server?.progress) || 0,
     dismissedUpdatedAt: server?.updatedAt || null,
     dismissedServerRevision: currentServerRevision,
+    dismissedServerSessionId: dismissedHolderKey(server?.sessionId),
     pendingServerPosition: null,
   };
 }

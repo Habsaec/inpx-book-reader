@@ -88,7 +88,7 @@ function isReadingPositionConflictError(
 
 export type CrossDevicePositionChoice = 'applied' | 'declined' | 'silent' | 'noop' | 'pending';
 
-function writeServerSnapshotForDeferredPrompt(
+export function writeServerSnapshotForDeferredPrompt(
   local: OfflineReaderData,
   serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>,
 ): OfflineReaderData {
@@ -131,6 +131,7 @@ function writeServerSnapshotForDeferredPrompt(
     serverRevision: serverPos.revision,
     pendingCrossDevicePrompt: true,
     crossDeviceResolvedAt: null,
+    serverSessionId: serverPos.sessionId ? String(serverPos.sessionId) : '',
   };
 }
 

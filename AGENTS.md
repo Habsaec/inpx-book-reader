@@ -111,12 +111,12 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/bookmarks` — список закладок
 - `POST /api/bookmarks/:id` — добавить/удалить закладку
 - `POST /api/read/:id` — отметить книгу как прочитанную
-- `GET /api/books/:id/position` — позиция чтения (`position`, `progress`, `fraction`, `fb2Href`, `sectionIndex`, `textOffset`, `textQuote`, `textSectionLength`, `sectionPageFraction`, `paginatorPage`, `paginatorPages`, `layoutMode`, `updatedAt`, `positionVersion`, `revision`)
+- `GET /api/books/:id/position` — позиция чтения (`position`, `progress`, `fraction`, `fb2Href`, `sectionIndex`, `textOffset`, `textQuote`, `textSectionLength`, `sectionPageFraction`, `paginatorPage`, `paginatorPages`, `layoutMode`, `updatedAt`, `positionVersion`, `revision`, `sessionId`, `lastUserActivityAt`, `sessionStatus`)
 - `GET /api/books/:id/reader-sync-meta` — ревизии закладок/заметок и метка позиции для sync (`positionRevision`, `positionUpdatedAt`, counts)
 - `GET /api/reader-sync-index?ids=` — bulk dirty-check для тихой фоновой синхронизации: `{ activity, books[] }` (до ~200 id)
 - `GET /api/reader-bookmarks` — все закладки читалки пользователя (`items`, `total`, `page`, `pageSize`)
 - `GET /api/reader-annotations` — все заметки читалки пользователя (`items`, `total`, `page`, `pageSize`)
-- `POST /api/books/:id/position` — CAS-сохранение позиции: обязательны `positionVersion: 4` и `baseRevision`; ответ включает новую `revision`, конфликт — `409 { current }`, устаревший клиент получает `428`; ставит «прочитано» при 99% и снимает отметку при повторном чтении ниже 95%
+- `POST /api/books/:id/position` — CAS-сохранение позиции: обязательны `positionVersion: 4` и `baseRevision`; опциональный `sessionId` (UUID открытия книги); ответ включает новую `revision`, конфликт — `409 { current }`, устаревший клиент получает `428`; другая *активная* сессия не перезаписывает даже с совпавшим revision; idle-steal: устаревшая ревизия другой сессии принимается, если держатель без листания > 4 мин; «остаться здесь» привязано к `sessionId` держателя; чужое устройство → диалог, не молчаливый jump; ставит «прочитано» при 99% и снимает отметку при повторном чтении ниже 95%
 - `GET /api/books/:id/bookmarks` — закладки книги
 - `POST /api/books/:id/bookmarks` — добавить закладку
 - `DELETE /api/books/:id/bookmarks/:bmId` — удалить закладку
@@ -142,6 +142,8 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 | `position` | CFI / paginator для EPUB; для FB2 пустой при наличии `fb2Href` |
 | `positionVersion` | Версия координат; при миграции `< 4` FB2/FBZ сбрасывают все координаты, EPUB сохраняет только CFI |
 | `revision` / `baseRevision` | Серверный CAS: запись принимается только от известной текущей ревизии; конфликт `409` уходит в диалог |
+| `sessionId` | UUID текущей открытой читалки; другое устройство с отличающейся позицией → диалог (в том числе если у держателя нет sessionId) |
+| `lastUserActivityAt` / idle 4 мин | Без листания POST не идёт; idle-держателя может перехватить другая сессия (в т.ч. matching-revision CAS); активную сессию чужой sessionId не перезаписывает |
 
 #### Полки (Shelves)
 - `GET /api/shelves` — список полок

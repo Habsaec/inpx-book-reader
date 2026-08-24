@@ -254,6 +254,7 @@ describe('revision/CAS position sync', () => {
       undefined,
       expect.any(Object),
       2,
+      undefined,
     );
     expect(readOfflineReaderData('book-1')).toMatchObject({
       serverRevision: 3,

@@ -995,6 +995,7 @@ export default function App() {
                 localFile={resolvedReaderFile}
                 einkActive={einkActive}
                 offline={!isOnline}
+                serverConfig={isOnline ? serverConfig : null}
                 nextInSeries={readerNextInSeries}
                 onClose={() => { void handleCloseReader(); }}
                 onStoreSynced={bumpReaderLocal}

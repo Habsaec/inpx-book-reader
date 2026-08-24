@@ -42,6 +42,7 @@ export async function pushReadingPositionWithRecovery(
     local.fb2Href ?? undefined,
     readingPositionAnchorsFromLocal(local),
     revision,
+    local.positionSessionId || undefined,
   );
 
   try {
@@ -75,6 +76,7 @@ export function writePushSuccessFields(
     pendingCrossDevicePrompt: false,
     dismissedServerRevision: null,
     dismissedServerPositionUpdatedAt: null,
+    dismissedServerSessionId: null,
   };
 }
 

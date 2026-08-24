@@ -215,6 +215,7 @@ describe('offline reader position restore', () => {
       baseRevision: 3,
       positionDirty: false,
       dismissedServerRevision: 3,
+      dismissedServerSessionId: 'phone',
       position: 'epubcfi(/6/4)',
       progress: 20,
       fraction: 0.2,
@@ -235,6 +236,7 @@ describe('offline reader position restore', () => {
       serverRevision: 3,
       positionDirty: true,
       dismissedServerRevision: null,
+      dismissedServerSessionId: 'phone',
       fraction: 0.21,
     });
   });
