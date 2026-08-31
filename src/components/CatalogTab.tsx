@@ -6,6 +6,10 @@ import {
   CatalogEntitySort,
   fetchGenres,
   fetchSearchGenres,
+  fetchAllFacetBooks,
+  mapServerBook,
+  displayCoverUrl,
+  bookContentUrl,
   isAuthError,
   isUnreachableServerError,
 } from '../lib/inpxClient';
@@ -41,6 +45,7 @@ import {
   type CatalogHasSeriesFilter,
 } from './catalog/catalogTypes';
 import { textStyles, semantic } from '../ui/tokens';
+import { useSnackbar } from '../ui/Snackbar';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { CatalogFilterDraft, CatalogGenreOption } from './catalog/CatalogFilterSheet';
 
@@ -78,6 +83,9 @@ interface CatalogTabProps {
   onClearReturnTo?: () => void;
   /** External deep-link epoch — reset local search when bumped. */
   catalogNavEpoch?: number;
+  /** Apply this query as catalog search (home bar). Survives first mount after a nav epoch bump. */
+  pendingSearchQuery?: string | null;
+  onConsumePendingSearch?: () => void;
   onBookLongPress?: (book: Book) => void;
   onAuthExpired?: () => void;
   onConnectionLost?: () => void;
@@ -115,6 +123,8 @@ export default function CatalogTab({
   onReturnToPreviousTab,
   onClearReturnTo,
   catalogNavEpoch = 0,
+  pendingSearchQuery = null,
+  onConsumePendingSearch,
   onBookLongPress,
   onAuthExpired,
   onConnectionLost,
@@ -136,14 +146,16 @@ export default function CatalogTab({
   } = useCatalogSearch(serverConfig, isServerConnectedEarly, subTab);
   const { history: searchHistory, addQuery: addSearchQuery, removeQuery: removeSearchQuery, clearHistory: clearSearchHistory } = useSearchHistory();
 
+  const incomingSearch = pendingSearchQuery?.trim() ?? '';
+
   /** idle → results (books + field chips; no search hub) */
   const [searchPhase, setSearchPhase] = React.useState<'idle' | 'results'>('idle');
 
-  const searchMode = searchPhase === 'results' && isSearchActive;
+  const searchMode = (searchPhase === 'results' && isSearchActive) || incomingSearch.length > 0;
 
   // Live list filter: browse filters current section; in search mode keeps results in sync while typing.
   const listQuery = searchMode
-    ? liveQuery
+    ? (liveQuery || incomingSearch)
     : subTab === 'authors' || subTab === 'series' || subTab === 'genres'
       ? liveQuery
       : '';
@@ -160,7 +172,9 @@ export default function CatalogTab({
 
   const [selectedBook, setSelectedBook] = React.useState<Book | null>(null);
   const [downloadError, setDownloadError] = React.useState<string | null>(null);
+  const [seriesDownloadBusy, setSeriesDownloadBusy] = React.useState(false);
   const catalogScrollRef = React.useRef<HTMLDivElement>(null);
+  const snackbar = useSnackbar();
 
   // Filtering & Sorting states (серверные сортировки — как /lite/catalog)
   const [catalogSort, setCatalogSort] = React.useState<CatalogBookSort>('title');
@@ -336,12 +350,12 @@ export default function CatalogTab({
   }, [isTabActive]);
 
   const catalogNavEpochRef = React.useRef(catalogNavEpoch);
-  React.useEffect(() => {
-    if (catalogNavEpoch === catalogNavEpochRef.current) return;
+  React.useLayoutEffect(() => {
+    const pending = pendingSearchQuery?.trim() ?? '';
+    const epochChanged = catalogNavEpoch !== catalogNavEpochRef.current;
+    if (!epochChanged && !pending) return;
     catalogNavEpochRef.current = catalogNavEpoch;
-    // External deep-link / catalog root entry — drop leftover search UI.
-    clearSearch();
-    setSearchPhase('idle');
+
     setMinRating(0);
     setFormatFilter('all');
     setGenreFilters([]);
@@ -350,10 +364,32 @@ export default function CatalogTab({
     setSelectedBook(null);
     setDownloadError(null);
     setAuthorOutsideSeries(false);
+
+    if (pending) {
+      submitSearch(pending);
+      setSubTab('books');
+      setSearchPhase('results');
+      onConsumePendingSearch?.();
+      return;
+    }
+
+    // External deep-link / catalog root entry — drop leftover search UI.
+    clearSearch();
+    setSearchPhase('idle');
     // Match openAuthorPage / openSeriesPage sort defaults for deep-links.
     if (selectedSeries) setCatalogSort('series');
     else if (selectedAuthor) setCatalogSort('rating');
-  }, [catalogNavEpoch, clearSearch, setAuthorOutsideSeries, selectedAuthor, selectedSeries]);
+  }, [
+    catalogNavEpoch,
+    pendingSearchQuery,
+    submitSearch,
+    setSubTab,
+    onConsumePendingSearch,
+    clearSearch,
+    setAuthorOutsideSeries,
+    selectedAuthor,
+    selectedSeries,
+  ]);
 
   React.useEffect(() => {
     setDownloadError(null);
@@ -478,6 +514,51 @@ export default function CatalogTab({
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Не удалось добавить в очередь';
       setDownloadError(message);
+    }
+  };
+
+  const handleDownloadSeries = async (seriesName: string, author?: string | null) => {
+    if (!isServerConnected) {
+      snackbar.show('Подключитесь к серверу в настройках', undefined, 'error');
+      return;
+    }
+    if (!seriesName || seriesDownloadBusy) return;
+    setSeriesDownloadBusy(true);
+    try {
+      const items = await fetchAllFacetBooks(serverConfig, 'series', seriesName, {
+        author: author || undefined,
+        sort: 'series',
+      });
+      const books = items.map(
+        (item) => mapServerBook(item, serverConfig, { preferredSeries: seriesName }) as Book,
+      );
+      const queued = queuedBookIds || new Set<string>();
+      const pending = books.filter(
+        (book) => !downloadedBookIds.includes(book.id) && !queued.has(book.id),
+      );
+      if (!pending.length) {
+        snackbar.show('Все книги серии уже скачаны');
+        return;
+      }
+      let added = 0;
+      for (const book of pending) {
+        try {
+          await onEnqueueDownload(book);
+          added += 1;
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Не удалось добавить в очередь';
+          snackbar.show(message, undefined, 'error');
+          break;
+        }
+      }
+      if (added > 0) {
+        snackbar.show(added === 1 ? 'В очередь: 1 книга' : `В очередь: ${added} книг`);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Не удалось получить список серии';
+      snackbar.show(message, undefined, 'error');
+    } finally {
+      setSeriesDownloadBusy(false);
     }
   };
 
@@ -811,6 +892,27 @@ export default function CatalogTab({
           searchMode={searchMode}
           entityPage={catalogDrillDown}
           onSubTabChange={handleSubTabChange}
+          serverConfig={serverConfig}
+          onPickAuthor={(name) => {
+            clearSearch();
+            setSearchPhase('idle');
+            openAuthorPage(name);
+          }}
+          onPickSeries={(name) => {
+            clearSearch();
+            setSearchPhase('idle');
+            openSeriesPage(name, null);
+          }}
+          onPickBook={(row) => {
+            setSelectedBook({
+              id: row.id,
+              title: row.title,
+              author: row.authorsDisplay || row.authors || '',
+              ext: 'fb2',
+              coverUrl: displayCoverUrl(serverConfig, row.id),
+              contentUrl: bookContentUrl(serverConfig, row.id),
+            });
+          }}
         />
 
       {/* Main Aggregations and Catalog content */}
@@ -905,6 +1007,12 @@ export default function CatalogTab({
               drillDownBackLabel={returnBackLabel}
               onToggleFavoriteAuthor={onToggleFavoriteAuthor}
               onToggleFavoriteSeries={onToggleFavoriteSeries}
+              onDownloadSeries={
+                selectedSeries
+                  ? () => void handleDownloadSeries(selectedSeries, selectedAuthor)
+                  : undefined
+              }
+              seriesDownloadBusy={seriesDownloadBusy}
             />
 
             {catalogDrillDown && facetLoading ? (
@@ -958,6 +1066,8 @@ export default function CatalogTab({
               onBookClick={handleBookClick}
               onBookLongPress={onBookLongPress}
               onOpenSeries={(name, author) => openSeriesPage(name, author)}
+              onDownloadSeries={(name) => void handleDownloadSeries(name, selectedAuthor)}
+              seriesDownloadBusy={seriesDownloadBusy}
               onOpenOutsideSeries={() => {
                 setCatalogSort('rating');
                 setAuthorOutsideSeries(true);

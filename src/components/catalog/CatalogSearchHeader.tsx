@@ -3,10 +3,13 @@ import { Search, X, SlidersHorizontal } from 'lucide-react';
 import {
   CatalogBookSort,
   CatalogEntitySort,
+  fetchSearchSuggestions,
+  type SearchSuggestions,
 } from '../../lib/inpxClient';
 import { theme } from '../../lib/appTheme';
 import { textStyles, touchMin, radii, motion } from '../../ui/tokens';
 import SegmentTabStrip from '../../ui/SegmentTabStrip';
+import type { ServerConfig } from '../../types';
 import {
   CATALOG_BROWSE_ROOT,
   CATALOG_BROWSE_TAB_LABELS,
@@ -41,6 +44,10 @@ interface CatalogSearchHeaderProps {
   searchMode?: boolean;
   /** Author/series/genre entity page — hide catalog tabs & list sort (standalone feel). */
   entityPage?: boolean;
+  serverConfig?: ServerConfig;
+  onPickAuthor?: (name: string) => void;
+  onPickSeries?: (name: string) => void;
+  onPickBook?: (book: { id: string; title: string; authors?: string; authorsDisplay?: string }) => void;
 }
 
 export default function CatalogSearchHeader({
@@ -66,11 +73,21 @@ export default function CatalogSearchHeader({
   seriesBookList = false,
   searchMode = false,
   entityPage = false,
+  serverConfig,
+  onPickAuthor,
+  onPickSeries,
+  onPickBook,
 }: CatalogSearchHeaderProps) {
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const historyRef = React.useRef<HTMLDivElement>(null);
   const blurTimerRef = React.useRef<number | null>(null);
+  const suggestSeqRef = React.useRef(0);
   const [searchFocused, setSearchFocused] = React.useState(false);
+  const [suggestions, setSuggestions] = React.useState<SearchSuggestions>({
+    books: [],
+    authors: [],
+    series: [],
+  });
 
   React.useEffect(() => {
     return () => {
@@ -80,9 +97,42 @@ export default function CatalogSearchHeader({
     };
   }, []);
 
+  React.useEffect(() => {
+    if (!isServerConnected || !serverConfig || !searchFocused) {
+      setSuggestions({ books: [], authors: [], series: [] });
+      return;
+    }
+    const q = searchInput.trim();
+    if (q.length < 2) {
+      setSuggestions({ books: [], authors: [], series: [] });
+      return;
+    }
+    const seq = ++suggestSeqRef.current;
+    const timer = window.setTimeout(() => {
+      void fetchSearchSuggestions(serverConfig, q)
+        .then((data) => {
+          if (seq !== suggestSeqRef.current) return;
+          setSuggestions({
+            books: Array.isArray(data.books) ? data.books : [],
+            authors: Array.isArray(data.authors) ? data.authors : [],
+            series: Array.isArray(data.series) ? data.series : [],
+          });
+        })
+        .catch(() => {
+          if (seq !== suggestSeqRef.current) return;
+          setSuggestions({ books: [], authors: [], series: [] });
+        });
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [isServerConnected, searchFocused, searchInput, serverConfig]);
+
   const showSort = isServerConnected;
   const useBookSort = bookListActive || subTab === 'books';
   const sectionTabs = searchMode ? CATALOG_SEARCH_TAB_LABELS : CATALOG_BROWSE_TAB_LABELS;
+  const showSuggest =
+    searchFocused &&
+    searchInput.trim().length >= 2 &&
+    (suggestions.authors.length > 0 || suggestions.series.length > 0 || suggestions.books.length > 0);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -199,6 +249,85 @@ export default function CatalogSearchHeader({
             ))}
           </div>
         )}
+
+        {showSuggest ? (
+          <div
+            ref={historyRef}
+            className={`absolute left-0 right-0 top-full mt-2 z-30 border max-h-80 overflow-y-auto ${radii.lg} ${theme.dropdown} shadow-lg`}
+          >
+            {suggestions.authors.length > 0 && onPickAuthor ? (
+              <>
+                <div className={`px-4 py-2 ${textStyles.caption} ${theme.textMuted}`}>Авторы</div>
+                {suggestions.authors.slice(0, 4).map((row) => (
+                  <button
+                    key={`a-${row.name}`}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      onPickAuthor(row.name);
+                      searchInputRef.current?.blur();
+                      setSearchFocused(false);
+                    }}
+                    className={`flex w-full items-baseline justify-between gap-2 text-left px-4 min-h-12 ${theme.dropdownItem} ${theme.focusRing}`}
+                  >
+                    <span className="truncate text-sm">{row.displayName || row.name}</span>
+                    {row.bookCount != null ? (
+                      <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>{row.bookCount}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </>
+            ) : null}
+            {suggestions.series.length > 0 && onPickSeries ? (
+              <>
+                <div className={`px-4 py-2 ${textStyles.caption} ${theme.textMuted}`}>Серии</div>
+                {suggestions.series.slice(0, 4).map((row) => (
+                  <button
+                    key={`s-${row.name}`}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      onPickSeries(row.name);
+                      searchInputRef.current?.blur();
+                      setSearchFocused(false);
+                    }}
+                    className={`flex w-full items-baseline justify-between gap-2 text-left px-4 min-h-12 ${theme.dropdownItem} ${theme.focusRing}`}
+                  >
+                    <span className="truncate text-sm">{row.displayName || row.name}</span>
+                    {row.bookCount != null ? (
+                      <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>{row.bookCount}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </>
+            ) : null}
+            {suggestions.books.length > 0 && onPickBook ? (
+              <>
+                <div className={`px-4 py-2 ${textStyles.caption} ${theme.textMuted}`}>Книги</div>
+                {suggestions.books.slice(0, 5).map((book) => (
+                  <button
+                    key={`b-${book.id}`}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      onPickBook(book);
+                      searchInputRef.current?.blur();
+                      setSearchFocused(false);
+                    }}
+                    className={`flex w-full flex-col justify-center text-left px-4 min-h-12 py-2 ${theme.dropdownItem} ${theme.focusRing}`}
+                  >
+                    <span className="truncate text-sm">{book.title}</span>
+                    {book.authorsDisplay || book.authors ? (
+                      <span className={`truncate ${textStyles.caption} ${theme.textMuted}`}>
+                        {book.authorsDisplay || book.authors}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <SegmentTabStrip

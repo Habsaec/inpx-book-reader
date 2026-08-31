@@ -409,6 +409,11 @@ export default function FoliateReader({
     }, '*');
   }, [bookId]);
 
+  const postOpenSyncDone = React.useCallback((win: Window | null) => {
+    if (!win || !bookId) return;
+    win.postMessage({ type: 'inpx-reader-open-sync-done', bookId }, '*');
+  }, [bookId]);
+
   const serverConfigRef = React.useRef(serverConfig);
   serverConfigRef.current = serverConfig;
 
@@ -671,8 +676,9 @@ export default function FoliateReader({
         ready: Capacitor.isNativePlatform(),
       }, '*');
       // Open-sync may have finished before the iframe listener was ready.
-      if (peekRecentBookOpenSyncDone(bookId)) {
+      if (offline || peekRecentBookOpenSyncDone(bookId)) {
         postReaderSeed(win);
+        postOpenSyncDone(win);
       }
     };
 
@@ -686,7 +692,7 @@ export default function FoliateReader({
       /* cross-origin / not ready */
     }
     return () => iframe.removeEventListener('load', onLoad);
-  }, [iframeSrc, bookId, postReaderChromeInsets, postReaderSeed]);
+  }, [iframeSrc, bookId, offline, postReaderChromeInsets, postReaderSeed, postOpenSyncDone]);
 
   React.useEffect(() => {
     const onSyncDone = (event: Event) => {
@@ -694,10 +700,11 @@ export default function FoliateReader({
       if (String(detail?.bookId || '') !== bookId) return;
       const win = iframeRef.current?.contentWindow ?? null;
       postReaderSeed(win);
+      postOpenSyncDone(win);
     };
     window.addEventListener(BOOK_OPEN_SYNC_DONE_EVENT, onSyncDone);
     return () => window.removeEventListener(BOOK_OPEN_SYNC_DONE_EVENT, onSyncDone);
-  }, [bookId, postReaderSeed]);
+  }, [bookId, postReaderSeed, postOpenSyncDone]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -732,14 +739,12 @@ export default function FoliateReader({
     };
 
     window.addEventListener('orientationchange', onViewportChange);
-    window.visualViewport?.addEventListener('resize', onViewportChange);
     window.addEventListener('resize', onViewportChange);
 
     return () => {
       cancelled = true;
       if (debounceTimer != null) window.clearTimeout(debounceTimer);
       window.removeEventListener('orientationchange', onViewportChange);
-      window.visualViewport?.removeEventListener('resize', onViewportChange);
       window.removeEventListener('resize', onViewportChange);
     };
   }, [iframeSrc, postReaderChromeInsets]);

@@ -11,6 +11,7 @@ import {
   completePendingPositionRestore,
   declinePendingPositionRevision,
 } from './reader-shared/pending-position-revision.js';
+import { positionsDiffer } from './reader-shared/position-revision.js';
 
 function debugLog(hypothesisId, location, message, data) {
     const payload = {
@@ -184,6 +185,9 @@ function debugLog(hypothesisId, location, message, data) {
     const bottom = Number(insets.bottom) || 0;
     const left = Number(insets.left) || 0;
     const right = Number(insets.right) || 0;
+    const key = `${top},${bottom},${left},${right}`;
+    const unchanged = key === root.dataset.safeAreaKey;
+    root.dataset.safeAreaKey = key;
     root.style.setProperty('--r-safe-top', top + 'px');
     root.style.setProperty('--r-safe-bottom', bottom + 'px');
     root.style.setProperty('--r-safe-left', left + 'px');
@@ -193,7 +197,8 @@ function debugLog(hypothesisId, location, message, data) {
     } catch {
       /* ignore */
     }
-    // Пересчитать колонки Foliate после сдвига #reader-body.
+    if (unchanged) return;
+    if (window.visualViewport && Number(window.visualViewport.scale) > 1.01) return;
     try {
       window.__READER_SYNC_STATUS_STRIP__?.();
     } catch {
@@ -327,6 +332,72 @@ function debugLog(hypothesisId, location, message, data) {
       /* ignore */
     }
   }
+
+  let openSyncDone = Boolean(window.__READER_OFFLINE);
+  let openSyncResolve = null;
+  let seedRestoreTail = Promise.resolve();
+  let seedRestoreEnabled = false;
+  let seedNeedsRestore = false;
+
+  function markOpenSyncDone() {
+    if (openSyncDone) return;
+    openSyncDone = true;
+    const resolve = openSyncResolve;
+    openSyncResolve = null;
+    resolve?.();
+  }
+
+  function payloadFromStore(store) {
+    const afterFrac = Number.isFinite(Number(store.fraction))
+      ? Number(store.fraction)
+      : (Number(store.progress) || 0) / 100;
+    return {
+      position: store.position || '',
+      progress: Number(store.progress) || 0,
+      fraction: afterFrac,
+      fb2Href: store.fb2Href || null,
+      sectionIndex: store.sectionIndex ?? null,
+      textOffset: store.textOffset ?? null,
+      textQuote: store.textQuote ?? null,
+      textSectionLength: store.textSectionLength ?? null,
+      sectionPageFraction: store.sectionPageFraction ?? null,
+      paginatorPage: store.paginatorPage ?? null,
+      paginatorPages: store.paginatorPages ?? null,
+      layoutMode: store.layoutMode ?? null,
+    };
+  }
+
+  function enqueueSeedRestore(payload) {
+    seedRestoreTail = seedRestoreTail
+      .then(async () => {
+        if (typeof window.__READER_RESTORE_SAVED__ === 'function') {
+          await window.__READER_RESTORE_SAVED__(payload);
+        }
+      })
+      .catch(() => {});
+  }
+
+  window.__READER_WAIT_OPEN_SYNC__ = async function waitOpenSync(timeoutMs = 2500) {
+    seedRestoreEnabled = true;
+    if (seedNeedsRestore && !readReaderData().pendingCrossDevicePrompt) {
+      enqueueSeedRestore(payloadFromStore(readReaderData()));
+    }
+    if (!openSyncDone) {
+      const ms = Math.max(0, Number(timeoutMs) || 2500);
+      await new Promise((resolve) => {
+        const timer = window.setTimeout(() => {
+          markOpenSyncDone();
+          resolve();
+        }, ms);
+        openSyncResolve = () => {
+          window.clearTimeout(timer);
+          resolve();
+        };
+      });
+    }
+    await seedRestoreTail;
+    seedRestoreEnabled = false;
+  };
 
   function mergeReaderStores(local, incoming) {
     if (!incoming || typeof incoming !== 'object') return local;
@@ -766,7 +837,7 @@ function debugLog(hypothesisId, location, message, data) {
         const payload = serverSnapshotRestorePayload(fresh);
         let restored = false;
         if (typeof window.__READER_RESTORE_SAVED__ === 'function') {
-          restored = await window.__READER_RESTORE_SAVED__(payload);
+          restored = await window.__READER_RESTORE_SAVED__(payload, { force: true });
         }
         // Сначала фактически перемещаем Foliate, и только после успешной проверки
         // фиксируем серверный snapshot. Иначе запись в store/parent могла обогнать
@@ -1181,6 +1252,7 @@ function debugLog(hypothesisId, location, message, data) {
     if (e.data?.type === 'inpx-reader-offline') {
       window.__READER_OFFLINE = e.data.offline ? 1 : 0;
       if (offlineBanner) offlineBanner.hidden = !window.__READER_OFFLINE;
+      if (window.__READER_OFFLINE) markOpenSyncDone();
       return;
     }
     if (e.data?.type === 'inpx-reader-eink') {
@@ -1208,34 +1280,17 @@ function debugLog(hypothesisId, location, message, data) {
         void maybeShowDeferredCrossDevicePrompt();
         return;
       }
-      const beforeFrac = Number(before.fraction);
-      const afterFrac = Number(merged.fraction);
-      const beforeProgress = Number(before.progress) || 0;
-      const afterProgress = Number(merged.progress) || 0;
-      const fracBefore = Number.isFinite(beforeFrac) ? beforeFrac : beforeProgress / 100;
-      const fracAfter = Number.isFinite(afterFrac) ? afterFrac : afterProgress / 100;
-      const moved = Math.abs(fracBefore - fracAfter) > 0.002
-        || String(before.fb2Href || '') !== String(merged.fb2Href || '')
-        || String(before.position || '') !== String(merged.position || '')
-        || Number(before.sectionIndex) !== Number(merged.sectionIndex)
-        || Number(before.textOffset) !== Number(merged.textOffset);
-      if (moved && typeof window.__READER_RESTORE_SAVED__ === 'function') {
-        // Late silent pull after open: jump to the updated local/server coords.
-        void window.__READER_RESTORE_SAVED__({
-          position: merged.position || '',
-          progress: afterProgress,
-          fraction: fracAfter,
-          fb2Href: merged.fb2Href || null,
-          sectionIndex: merged.sectionIndex ?? null,
-          textOffset: merged.textOffset ?? null,
-          textQuote: merged.textQuote ?? null,
-          textSectionLength: merged.textSectionLength ?? null,
-          sectionPageFraction: merged.sectionPageFraction ?? null,
-          paginatorPage: merged.paginatorPage ?? null,
-          paginatorPages: merged.paginatorPages ?? null,
-          layoutMode: merged.layoutMode ?? null,
-        });
+      const restoring = document.documentElement.classList.contains('is-restoring-position');
+      if (positionsDiffer(before, merged)) {
+        seedNeedsRestore = true;
+        if (seedRestoreEnabled && restoring) {
+          enqueueSeedRestore(payloadFromStore(merged));
+        }
       }
+      return;
+    }
+    if (e.data?.type === 'inpx-reader-open-sync-done' && e.data.bookId === bookId) {
+      markOpenSyncDone();
       return;
     }
     if (e.data?.type === 'inpx-reader-back') {

@@ -14,6 +14,7 @@ import PullToRefresh from './PullToRefresh';
 import Skeleton, { BookListSkeleton, BookShelfSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
 import DownloadQueueWidget from './DownloadQueueWidget';
+import HomeSearchBar from './HomeSearchBar';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
 import { textStyles, motion, semantic, radii, elevation } from '../ui/tokens';
 import type { CatalogViewMode } from '../lib/catalogViewMode';
@@ -151,6 +152,10 @@ interface HomeTabProps {
   fetchSectionBooks?: (section: 'recent' | 'recommended', page?: number) => Promise<import('../lib/inpxClient').InpxBookItem[]>;
   onRefresh?: () => void | Promise<void>;
   onGoCatalog?: () => void;
+  onSearchSubmit?: (query: string) => void;
+  onSearchAuthor?: (name: string) => void;
+  onSearchSeries?: (name: string) => void;
+  onSearchBook?: (book: { id: string; title: string; authors?: string; authorsDisplay?: string }) => void;
   onBookLongPress?: (book: Book) => void;
   isTabActive?: boolean;
   /** Bumped when Home tab is selected again — close «Показать всё» lists. */
@@ -177,6 +182,10 @@ export default function HomeTab({
   fetchSectionBooks,
   onRefresh,
   onGoCatalog,
+  onSearchSubmit,
+  onSearchAuthor,
+  onSearchSeries,
+  onSearchBook,
   onBookLongPress,
   isTabActive = true,
   homeRootEpoch = 0,
@@ -323,6 +332,19 @@ export default function HomeTab({
 
   const closeSectionView = React.useCallback(() => setSectionView(null), []);
 
+  const searchBar = onSearchSubmit && onSearchAuthor && onSearchSeries && onSearchBook ? (
+    <div className={`px-5 pt-4 pb-2 shrink-0 relative z-20 ${theme.bg}`}>
+      <HomeSearchBar
+        serverConfig={serverConfig}
+        isOnline={isOnline}
+        onSubmitSearch={onSearchSubmit}
+        onPickAuthor={onSearchAuthor}
+        onPickSeries={onSearchSeries}
+        onPickBook={onSearchBook}
+      />
+    </div>
+  ) : null;
+
   if (sectionView) {
     return (
       <LibrarySectionPanel
@@ -348,19 +370,22 @@ export default function HomeTab({
   // During connection check / fast sync, hero from localRecent must appear immediately.
   if (loading && mergedRecent.length === 0) {
     return (
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6" aria-busy aria-label="Загрузка главной">
-        {viewMode === 'list' ? (
-          <Skeleton className="w-full h-28 rounded-xl" />
-        ) : (
-          <Skeleton className="w-full aspect-[16/9] min-h-[11rem] max-h-60" />
-        )}
-        <div className="space-y-3">
-          <Skeleton variant="block" blockSize="lg" className="max-w-[30%]" />
-          {viewMode === 'list' ? <BookListSkeleton count={4} /> : <BookShelfSkeleton count={4} />}
-        </div>
-        <div className="space-y-3">
-          <Skeleton variant="block" blockSize="lg" className="max-w-[35%]" />
-          {viewMode === 'list' ? <BookListSkeleton count={4} /> : <BookShelfSkeleton count={4} />}
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {searchBar}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6" aria-busy aria-label="Загрузка главной">
+          {viewMode === 'list' ? (
+            <Skeleton className="w-full h-28 rounded-xl" />
+          ) : (
+            <Skeleton className="w-full aspect-[16/9] min-h-[11rem] max-h-60" />
+          )}
+          <div className="space-y-3">
+            <Skeleton variant="block" blockSize="lg" className="max-w-[30%]" />
+            {viewMode === 'list' ? <BookListSkeleton count={4} /> : <BookShelfSkeleton count={4} />}
+          </div>
+          <div className="space-y-3">
+            <Skeleton variant="block" blockSize="lg" className="max-w-[35%]" />
+            {viewMode === 'list' ? <BookListSkeleton count={4} /> : <BookShelfSkeleton count={4} />}
+          </div>
         </div>
       </div>
     );
@@ -584,6 +609,7 @@ export default function HomeTab({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      {searchBar}
       {onRefresh ? (
         <PullToRefresh onRefresh={handleRefresh} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-6">
           {scrollInner}

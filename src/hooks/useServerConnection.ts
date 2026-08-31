@@ -11,7 +11,11 @@ import {
   testConnection,
   CONNECTION_TIMEOUT_MS,
   exchangeDeviceToken,
+  probeServerHealth,
+  normalizeBaseUrl,
 } from '../lib/inpxClient';
+import { candidateServerUrls } from '../lib/serverUrlSwitch';
+import { getNetworkStatus, subscribeNetworkChanges } from '../lib/networkInfo';
 import type { ServerConfig } from '../types';
 
 export function useServerConnection() {
@@ -19,8 +23,27 @@ export function useServerConnection() {
   const [serverConfigReady, setServerConfigReady] = React.useState(false);
   const [connectionError, setConnectionError] = React.useState<string | null>(null);
   const connectionVerifyIdRef = React.useRef(0);
+  const urlSwitchGenRef = React.useRef(0);
   const serverConfigRef = React.useRef(serverConfig);
   serverConfigRef.current = serverConfig;
+
+  const applyActiveUrl = React.useCallback((url: string) => {
+    const next = normalizeBaseUrl(url);
+    if (!next) return;
+    setServerConfig((prev) => {
+      if (normalizeBaseUrl(prev.url) === next) return prev;
+      return { ...prev, url: next };
+    });
+  }, []);
+
+  const pickReachableUrl = React.useCallback(async (config: ServerConfig, ssid?: string | null) => {
+    const urls = candidateServerUrls(config, ssid);
+    for (const url of urls) {
+      const ok = await probeServerHealth({ ...config, url });
+      if (ok) return url;
+    }
+    return normalizeBaseUrl(config.url);
+  }, []);
 
   const markServerDisconnected = React.useCallback(() => {
     setServerConfig((prev) =>
@@ -89,27 +112,43 @@ export function useServerConnection() {
       deviceToken: serverConfig.deviceToken,
       deviceTokenId: serverConfig.deviceTokenId,
       connectionStatus: 'testing',
+      autoSwitch: serverConfig.autoSwitch,
+      localSsid: serverConfig.localSsid,
+      localUrl: serverConfig.localUrl,
+      alternateUrls: serverConfig.alternateUrls,
     };
 
     const verifyId = ++connectionVerifyIdRef.current;
     // testConnection can run health + profile (2× CONNECTION_TIMEOUT) then exchangeDeviceToken.
+    // Auto-switch may probe a few extra /health URLs first.
     const safetyTimer = window.setTimeout(() => {
       if (connectionVerifyIdRef.current !== verifyId) return;
       markServerDisconnected();
-    }, 3 * CONNECTION_TIMEOUT_MS + 2_000);
+    }, 3 * CONNECTION_TIMEOUT_MS + 12_000);
 
     void (async () => {
       try {
-        const result = await testConnection(configSnapshot);
+        let working = configSnapshot;
+        if (configSnapshot.autoSwitch && isNativeApp()) {
+          const net = await getNetworkStatus();
+          if (connectionVerifyIdRef.current !== verifyId) return;
+          const picked = await pickReachableUrl(configSnapshot, net.ssid);
+          if (connectionVerifyIdRef.current !== verifyId) return;
+          if (picked) {
+            working = { ...configSnapshot, url: picked };
+            applyActiveUrl(picked);
+          }
+        }
+        const result = await testConnection(working);
         if (connectionVerifyIdRef.current !== verifyId) return;
         if (result.authExpired) {
           markAuthExpired();
           return;
         }
         setConnectionError(result.ok ? null : result.error || 'Не удалось подключиться');
-        if (result.ok && isAndroid() && configSnapshot.username?.trim() && configSnapshot.password) {
+        if (result.ok && isAndroid() && working.username?.trim() && working.password) {
           try {
-            const exchanged = await exchangeDeviceToken(configSnapshot);
+            const exchanged = await exchangeDeviceToken(working);
             if (connectionVerifyIdRef.current !== verifyId) return;
             setServerConfig((prev) => ({
               ...prev,
@@ -140,8 +179,11 @@ export function useServerConnection() {
       window.clearTimeout(safetyTimer);
     };
   }, [
+    applyActiveUrl,
     markAuthExpired,
     markServerDisconnected,
+    pickReachableUrl,
+    serverConfig.autoSwitch,
     serverConfig.connectionStatus,
     serverConfig.deviceToken,
     serverConfig.password,
@@ -169,14 +211,23 @@ export function useServerConnection() {
   }, []);
 
   const handleTestConnection = React.useCallback(() => {
-    if (!serverConfig.url) {
-      setServerConfig((prev) => ({ ...prev, connectionStatus: 'disconnected' }));
+    const prev = serverConfigRef.current;
+    const fallback =
+      normalizeBaseUrl(prev.url) ||
+      normalizeBaseUrl(prev.localUrl || '') ||
+      normalizeBaseUrl((prev.alternateUrls || [])[0] || '');
+    if (!fallback) {
+      setServerConfig((cur) => ({ ...cur, connectionStatus: 'disconnected' }));
       setConnectionError('Укажите адрес сервера');
       return;
     }
     setConnectionError(null);
-    setServerConfig((prev) => ({ ...prev, connectionStatus: 'testing' }));
-  }, [serverConfig.url]);
+    setServerConfig((cur) => ({
+      ...cur,
+      url: normalizeBaseUrl(cur.url) || fallback,
+      connectionStatus: 'testing',
+    }));
+  }, []);
 
   const tryAutoReconnect = React.useCallback(() => {
     const prev = serverConfigRef.current;
@@ -190,30 +241,75 @@ export function useServerConnection() {
     );
   }, []);
 
+  const maybeSwitchServerUrl = React.useCallback(async (ssid?: string | null) => {
+    const prev = serverConfigRef.current;
+    if (!prev.autoSwitch || !isNativeApp()) return;
+    if (prev.connectionStatus === 'testing') return;
+    if (prev.connectionStatus !== 'connected' && !shouldAutoReconnect(prev)) return;
+    const gen = ++urlSwitchGenRef.current;
+    const current = normalizeBaseUrl(prev.url);
+    const urls = candidateServerUrls(prev, ssid);
+    const preferred = urls[0] || current;
+    if (preferred === current && prev.connectionStatus === 'connected') return;
+    const picked = await pickReachableUrl(prev, ssid);
+    if (urlSwitchGenRef.current !== gen) return;
+    if (picked && picked !== current) applyActiveUrl(picked);
+    if (prev.connectionStatus !== 'connected') tryAutoReconnect();
+  }, [applyActiveUrl, pickReachableUrl, tryAutoReconnect]);
+
   // Foreground resume: server may have come back after a failed boot probe.
   React.useEffect(() => {
     if (!serverConfigReady || !isNativeApp()) return;
     const sub = CapApp.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) tryAutoReconnect();
+      if (!isActive) return;
+      const prev = serverConfigRef.current;
+      if (prev.autoSwitch) {
+        void getNetworkStatus().then((net) => void maybeSwitchServerUrl(net.ssid));
+        return;
+      }
+      tryAutoReconnect();
     });
     return () => {
       void sub.then((h) => h.remove()).catch(() => {});
     };
-  }, [serverConfigReady, tryAutoReconnect]);
+  }, [maybeSwitchServerUrl, serverConfigReady, tryAutoReconnect]);
 
   // WebView получает online/offline из ConnectivityManager — статус в шапке
   // реагирует мгновенно, а не после первого упавшего запроса.
   React.useEffect(() => {
     if (!serverConfigReady || !isNativeApp()) return;
     const onOffline = () => markServerDisconnected();
-    const onOnline = () => tryAutoReconnect();
+    const onOnline = () => {
+      const prev = serverConfigRef.current;
+      if (prev.autoSwitch) {
+        void getNetworkStatus().then((net) => void maybeSwitchServerUrl(net.ssid));
+        return;
+      }
+      tryAutoReconnect();
+    };
     window.addEventListener('offline', onOffline);
     window.addEventListener('online', onOnline);
     return () => {
       window.removeEventListener('offline', onOffline);
       window.removeEventListener('online', onOnline);
     };
-  }, [serverConfigReady, markServerDisconnected, tryAutoReconnect]);
+  }, [maybeSwitchServerUrl, serverConfigReady, markServerDisconnected, tryAutoReconnect]);
+
+  React.useEffect(() => {
+    if (!serverConfigReady || !isNativeApp()) return;
+    if (!serverConfig.autoSwitch) return;
+    let timer = 0;
+    const unsub = subscribeNetworkChanges((status) => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void maybeSwitchServerUrl(status.ssid);
+      }, 400);
+    });
+    return () => {
+      window.clearTimeout(timer);
+      unsub();
+    };
+  }, [maybeSwitchServerUrl, serverConfig.autoSwitch, serverConfigReady]);
 
   // Самолечение «застрял офлайн»: transient-ошибка boot-пробы или упавший запрос
   // без последующего события online не должны оставлять приложение офлайн навсегда.

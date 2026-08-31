@@ -42,6 +42,7 @@ interface ProfileScreenProps {
   /** Local device stats MVP */
   localBookCount?: number;
   localInProgressCount?: number;
+  connectionFocusEpoch?: number;
 }
 
 export default function ProfileScreen({
@@ -71,6 +72,7 @@ export default function ProfileScreen({
   einkDetected,
   localBookCount = 0,
   localInProgressCount = 0,
+  connectionFocusEpoch = 0,
 }: ProfileScreenProps) {
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -129,6 +131,7 @@ export default function ProfileScreen({
         onForgetServer={onForgetServer}
         connectionError={connectionError}
         lastSynced={lastSynced}
+        connectionFocusEpoch={connectionFocusEpoch}
       />
     </div>
   );

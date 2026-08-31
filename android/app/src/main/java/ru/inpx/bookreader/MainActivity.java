@@ -69,6 +69,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DownloadNotificationPlugin.class);
         registerPlugin(LaunchIntentPlugin.class);
         registerPlugin(ContinueWidgetPlugin.class);
+        registerPlugin(NetworkInfoPlugin.class);
         super.onCreate(savedInstanceState);
         lightSwipe = new FrontLightSwipe(this, lightSwipeHost);
         installWebViewFileChooser();

@@ -15,8 +15,15 @@ const missing = [];
 if (!paginator.includes('if (numericDest)')) missing.push('paginator.js: numericDest');
 if (!paginator.includes('clearTextAnchor()')) missing.push('paginator.js: clearTextAnchor');
 if (!paginator.includes('#beginSectionTurn(prev)')) missing.push('paginator.js: beginSectionTurn');
-if (!view.includes("paginator.js?v=page-turn-1")) missing.push('view.js: paginator.js?v=page-turn-1');
-if (!reader.includes("view.js?v=page-turn-1")) missing.push('reader.js: view.js?v=page-turn-1');
+if (!paginator.includes('iframe scrolling=no')) missing.push('paginator.js: scrolled touch scroll');
+if (!view.includes("paginator.js?v=swipe-4")) missing.push('view.js: paginator.js?v=swipe-4');
+if (!reader.includes("view.js?v=swipe-4")) missing.push('reader.js: view.js?v=swipe-4');
+if (!paginator.includes('Math.abs(state.dy) > Math.abs(state.dx)')) {
+  missing.push('paginator.js: vertical-swipe page-turn guard');
+}
+if (!paginator.includes('Pointer-driven auto-flip is off')) {
+  missing.push('paginator.js: selection page-flip disabled');
+}
 
 if (missing.length) {
   console.error('Foliate page-turn fix missing after sync:');
@@ -25,4 +32,4 @@ if (missing.length) {
   process.exit(1);
 }
 
-console.log('Foliate page-turn fix present (numericDest, page-turn-1)');
+console.log('Foliate page-turn fix present (numericDest, swipe-4)');

@@ -2,6 +2,27 @@ function normalizedQuote(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Old FB2 builds exploded each chapter into its own Foliate section.
+ * Paper-flow stitches fiction into one section, so chapter-local
+ * textOffset/sectionIndex from those saves must not be reused.
+ */
+export function isStaleExplodedFb2Anchor(saved, { linearCount, currentTextLength } = {}) {
+  if (!(Number(linearCount) <= 1)) return false;
+  const sectionIndex = Number(saved?.sectionIndex);
+  if (!Number.isInteger(sectionIndex) || sectionIndex < 0) return false;
+  if (sectionIndex > 0) return true;
+  const savedLen = Number(saved?.textSectionLength);
+  const currentLen = Number(currentTextLength);
+  if (
+    Number.isInteger(savedLen) && savedLen > 0
+    && Number.isInteger(currentLen) && currentLen > 0
+  ) {
+    return currentLen > savedLen * 2;
+  }
+  return false;
+}
+
 /** Verify an FB2 text-anchor landing despite tiny renderer boundary drift. */
 export function isTextAnchorLandingVerified(saved, landed, offsetTolerance = 8) {
   const sectionIndex = Number(saved?.sectionIndex);

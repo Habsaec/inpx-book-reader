@@ -7,7 +7,7 @@
 <title></title>
 
 
-<link rel="stylesheet" href="/inpx-reader/reader.css?v=e417133549f5">
+<link rel="stylesheet" href="/inpx-reader/reader.css?v=df6b5db1265d">
 <script>try{var _t=JSON.parse(localStorage.getItem('reader-settings')||'{}').theme||'sepia';document.documentElement.dataset.readerTheme=_t}catch(e){document.documentElement.dataset.readerTheme='sepia'}</script>
 </head>
 <body class="chrome-hidden">
@@ -42,6 +42,10 @@
   </div>
 </div>
 
+<div class="reader-restore-veil" id="reader-restore-veil" aria-busy="true" aria-label="Загрузка книги">
+  <div class="reader-spinner"></div>
+  <div class="reader-loading-text">Загрузка книги…</div>
+</div>
 <div id="reader-body">
   <div class="reader-loading" id="reader-loading">
     <div class="reader-spinner"></div>
@@ -184,6 +188,14 @@
       <div id="notes-content"><div class="bm-empty">Загрузка…</div></div>
     </div>
     <div class="panel-body" data-panel-tab="settings" data-settings-layout="v2" hidden>
+      <div class="rs-nav" id="rs-subtabs" role="tablist" aria-label="Настройки чтения">
+        <button type="button" class="rs-nav-btn is-active" role="tab" id="rs-tab-text" aria-selected="true" aria-controls="rs-pane-text" data-rs-pane="text">Текст</button>
+        <button type="button" class="rs-nav-btn" role="tab" id="rs-tab-look" aria-selected="false" aria-controls="rs-pane-look" tabindex="-1" data-rs-pane="look">Вид</button>
+        <button type="button" class="rs-nav-btn" role="tab" id="rs-tab-controls" aria-selected="false" aria-controls="rs-pane-controls" tabindex="-1" data-rs-pane="controls">Жесты</button>
+        <button type="button" class="rs-nav-btn" role="tab" id="rs-tab-more" aria-selected="false" aria-controls="rs-pane-more" tabindex="-1" data-rs-pane="more">Ещё</button>
+      </div>
+
+      <div class="rs-pane" id="rs-pane-text" data-rs-pane="text" role="tabpanel" aria-labelledby="rs-tab-text">
       <section class="rs-section" data-rs-section="presets">
         <h3 class="rs-section-title">Пресеты</h3>
         <div class="rs-group">
@@ -195,88 +207,14 @@
         </div>
       </section>
 
-      <section class="rs-section" data-rs-section="appearance">
-        <h3 class="rs-section-title">Оформление</h3>
-        <div class="rs-group">
-          <div class="rs-label">Тема</div>
-          <div class="rs-themes">
-            <button class="rs-theme-dot" type="button" data-set-theme="dark"><span class="rs-dot-label">Тёмная</span></button>
-            <button class="rs-theme-dot" type="button" data-set-theme="light"><span class="rs-dot-label">Светлая</span></button>
-            <button class="rs-theme-dot" type="button" data-set-theme="sepia"><span class="rs-dot-label">Сепия</span></button>
-            <button class="rs-theme-dot" type="button" data-set-theme="night"><span class="rs-dot-label">Ночь</span></button>
-            <button class="rs-theme-dot" type="button" data-set-theme="eink"><span class="rs-dot-label">E-Ink</span></button>
-          </div>
-        </div>
-        <div class="rs-group">
-          <div class="rs-label">Цвета</div>
-          <div class="rs-color-stack">
-            <div class="rs-color-line">
-              <div class="rs-color-sub">Текст</div>
-              <div class="rs-color-row">
-                <input type="color" id="rs-text-color" name="readerTextColor" value="#3d3121" aria-label="Текст" title="Цвет текста">
-                <button type="button" class="rs-color-default" id="rs-text-color-default" title="Из темы">Из темы</button>
-              </div>
-            </div>
-            <div class="rs-color-line">
-              <div class="rs-color-sub">Фон</div>
-              <div class="rs-color-row">
-                <input type="color" id="rs-bg-color" name="readerBgColor" value="#f4edd5" aria-label="Фон" title="Цвет фона">
-                <button type="button" class="rs-color-default" id="rs-bg-color-default" title="Из темы">Из темы</button>
-              </div>
-            </div>
-            <div class="rs-color-line">
-              <div class="rs-color-sub">Ссылки</div>
-              <div class="rs-color-row">
-                <input type="color" id="rs-link-color" name="readerLinkColor" value="#8b5a12" aria-label="Ссылки" title="Цвет ссылок">
-                <button type="button" class="rs-color-default" id="rs-link-color-default" title="Из темы">Из темы</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="rs-group" id="rs-bg-image-group">
-          <div class="rs-label">Фоновое изображение</div>
-          <div class="rs-bg-image-row">
-            <div class="rs-bg-image-preview" id="rs-bg-image-preview" aria-hidden="true"></div>
-            <div class="rs-bg-image-actions">
-              <label class="rs-file-btn">
-                Выбрать
-                <input type="file" id="rs-bg-image-file" accept="image/*" hidden>
-              </label>
-              <button type="button" class="rs-bg-image-clear" id="rs-bg-image-clear" hidden>Убрать</button>
-            </div>
-          </div>
-          <div class="rs-sublabel">Масштаб</div>
-          <div class="rs-seg">
-            <button type="button" data-bg-image-fit="cover">Заполнить</button>
-            <button type="button" data-bg-image-fit="contain">Вписать</button>
-            <button type="button" data-bg-image-fit="tile">Плитка</button>
-          </div>
-          <div id="rs-bg-image-paper-wrap" hidden>
-            <div class="rs-sublabel">Затемнение поверх картинки</div>
-            <div class="rs-slider">
-              <input type="range" id="rs-bg-image-paper" min="0" max="1" step="0.02" aria-label="Затемнение поверх картинки">
-              <span class="rs-val" id="rs-bg-image-paper-val">35%</span>
-            </div>
-            <div class="rs-hint">0% — только картинка, 100% — сплошной цвет темы</div>
-          </div>
-        </div>
-        <div class="rs-group">
-          <label class="rs-check">
-            <input type="checkbox" id="rs-invert" name="readerInvert">
-            <span>Инверсия цветов</span>
-          </label>
-        </div>
-        <div id="rs-brightness-slot"></div>
-      </section>
-
       <section class="rs-section" data-rs-section="font">
         <h3 class="rs-section-title">Шрифт</h3>
         <div class="rs-group">
           <div class="rs-label">Гарнитура</div>
           <select id="rs-font-family" name="readerFontFamily" class="rs-select" aria-label="Шрифт"></select>
           <label class="rs-check">
-            <input type="checkbox" id="rs-publisher-font" name="readerPublisherFont">
             <span>Шрифт из книги</span>
+            <input type="checkbox" id="rs-publisher-font" name="readerPublisherFont">
           </label>
         </div>
         <div class="rs-group">
@@ -298,7 +236,7 @@
           </div>
         </div>
         <div class="rs-group">
-          <div class="rs-label">Межстрочный интервал</div>
+          <div class="rs-label">Высота строки</div>
           <div class="rs-slider">
             <span class="rs-icon">&equiv;</span>
             <input type="range" id="rs-line-height" name="readerLineHeight" min="1.2" max="2.4" step="0.1">
@@ -307,8 +245,112 @@
         </div>
       </section>
 
+      <section class="rs-section" data-rs-section="typography">
+        <h3 class="rs-section-title">Абзац</h3>
+        <div class="rs-group">
+          <label class="rs-check">
+            <span>По ширине</span>
+            <input type="checkbox" id="rs-justify" name="readerJustify" checked>
+          </label>
+          <label class="rs-check">
+            <span>Переносы</span>
+            <input type="checkbox" id="rs-hyphenate" name="readerHyphenate" checked>
+          </label>
+        </div>
+        <div class="rs-group">
+          <div class="rs-sublabel">Межбуквенный</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-letter-spacing" name="readerLetterSpacing" min="-0.05" max="0.2" step="0.01" aria-label="Межбуквенный интервал">
+            <span class="rs-val" id="rs-letter-spacing-val">0.00</span>
+          </div>
+          <div class="rs-sublabel">Между абзацами</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-paragraph-spacing" name="readerParagraphSpacing" min="0" max="1.5" step="0.05" aria-label="Межабзацный интервал">
+            <span class="rs-val" id="rs-paragraph-spacing-val">0.40</span>
+          </div>
+          <div class="rs-sublabel">Красная строка</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-text-indent" name="readerTextIndent" min="0" max="3" step="0.1" aria-label="Красная строка">
+            <span class="rs-val" id="rs-text-indent-val">0.0 em</span>
+          </div>
+        </div>
+      </section>
+      </div>
+
+      <div class="rs-pane" id="rs-pane-look" data-rs-pane="look" role="tabpanel" aria-labelledby="rs-tab-look" hidden>
+      <section class="rs-section" data-rs-section="appearance">
+        <h3 class="rs-section-title">Тема</h3>
+        <div class="rs-group">
+          <div class="rs-themes">
+            <button class="rs-theme-dot" type="button" data-set-theme="dark"><span class="rs-dot-label">Тёмная</span></button>
+            <button class="rs-theme-dot" type="button" data-set-theme="light"><span class="rs-dot-label">Светлая</span></button>
+            <button class="rs-theme-dot" type="button" data-set-theme="sepia"><span class="rs-dot-label">Сепия</span></button>
+            <button class="rs-theme-dot" type="button" data-set-theme="night"><span class="rs-dot-label">Ночь</span></button>
+            <button class="rs-theme-dot" type="button" data-set-theme="eink"><span class="rs-dot-label">E-Ink</span></button>
+          </div>
+        </div>
+        <div class="rs-group">
+          <div class="rs-color-stack">
+            <div class="rs-color-line">
+              <div class="rs-color-sub">Текст</div>
+              <div class="rs-color-row">
+                <input type="color" id="rs-text-color" name="readerTextColor" value="#3d3121" aria-label="Текст" title="Цвет текста">
+                <button type="button" class="rs-color-default" id="rs-text-color-default">Тема</button>
+              </div>
+            </div>
+            <div class="rs-color-line">
+              <div class="rs-color-sub">Фон</div>
+              <div class="rs-color-row">
+                <input type="color" id="rs-bg-color" name="readerBgColor" value="#f4edd5" aria-label="Фон" title="Цвет фона">
+                <button type="button" class="rs-color-default" id="rs-bg-color-default">Тема</button>
+              </div>
+            </div>
+            <div class="rs-color-line">
+              <div class="rs-color-sub">Ссылки</div>
+              <div class="rs-color-row">
+                <input type="color" id="rs-link-color" name="readerLinkColor" value="#8b5a12" aria-label="Ссылки" title="Цвет ссылок">
+                <button type="button" class="rs-color-default" id="rs-link-color-default">Тема</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="rs-group" id="rs-bg-image-group">
+          <div class="rs-label">Картинка на фоне</div>
+          <div class="rs-bg-image-row">
+            <div class="rs-bg-image-preview" id="rs-bg-image-preview" aria-hidden="true"></div>
+            <div class="rs-bg-image-actions">
+              <label class="rs-file-btn">
+                Выбрать
+                <input type="file" id="rs-bg-image-file" accept="image/*" hidden>
+              </label>
+              <button type="button" class="rs-bg-image-clear" id="rs-bg-image-clear" hidden>Убрать</button>
+            </div>
+          </div>
+          <div class="rs-sublabel">Масштаб</div>
+          <div class="rs-seg">
+            <button type="button" data-bg-image-fit="cover">Заполнить</button>
+            <button type="button" data-bg-image-fit="contain">Вписать</button>
+            <button type="button" data-bg-image-fit="tile">Плитка</button>
+          </div>
+          <div id="rs-bg-image-paper-wrap" hidden>
+            <div class="rs-sublabel">Затемнение</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-bg-image-paper" min="0" max="1" step="0.02" aria-label="Затемнение поверх картинки">
+              <span class="rs-val" id="rs-bg-image-paper-val">35%</span>
+            </div>
+          </div>
+        </div>
+        <div class="rs-group">
+          <label class="rs-check">
+            <span>Инверсия</span>
+            <input type="checkbox" id="rs-invert" name="readerInvert">
+          </label>
+        </div>
+        <div id="rs-brightness-slot"></div>
+      </section>
+
       <section class="rs-section" data-rs-section="layout">
-        <h3 class="rs-section-title">Макет</h3>
+        <h3 class="rs-section-title">Страница</h3>
         <div class="rs-group">
           <div class="rs-label">Режим</div>
           <div class="rs-seg">
@@ -324,8 +366,8 @@
             <span class="rs-val" id="rs-column-width-val">720 px</span>
           </div>
           <label class="rs-check">
-            <input type="checkbox" id="rs-full-width" name="readerFullWidth">
             <span>На всю ширину</span>
+            <input type="checkbox" id="rs-full-width" name="readerFullWidth">
           </label>
         </div>
         <div class="rs-group" id="rs-layout-dual" hidden>
@@ -361,40 +403,11 @@
           </div>
         </div>
       </section>
+      </div>
 
-      <section class="rs-section" data-rs-section="typography">
-        <h3 class="rs-section-title">Типографика</h3>
-        <div class="rs-group">
-          <label class="rs-check">
-            <input type="checkbox" id="rs-justify" name="readerJustify" checked>
-            <span>Выравнивание по ширине</span>
-          </label>
-          <label class="rs-check">
-            <input type="checkbox" id="rs-hyphenate" name="readerHyphenate" checked>
-            <span>Переносы (дефисы)</span>
-          </label>
-        </div>
-        <div class="rs-group">
-          <div class="rs-sublabel">Межбуквенный интервал</div>
-          <div class="rs-slider">
-            <input type="range" id="rs-letter-spacing" name="readerLetterSpacing" min="-0.05" max="0.2" step="0.01" aria-label="Межбуквенный интервал">
-            <span class="rs-val" id="rs-letter-spacing-val">0.00</span>
-          </div>
-          <div class="rs-sublabel">Межабзацный интервал</div>
-          <div class="rs-slider">
-            <input type="range" id="rs-paragraph-spacing" name="readerParagraphSpacing" min="0" max="1.5" step="0.05" aria-label="Межабзацный интервал">
-            <span class="rs-val" id="rs-paragraph-spacing-val">0.40</span>
-          </div>
-          <div class="rs-sublabel">Красная строка</div>
-          <div class="rs-slider">
-            <input type="range" id="rs-text-indent" name="readerTextIndent" min="0" max="3" step="0.1" aria-label="Красная строка">
-            <span class="rs-val" id="rs-text-indent-val">0.0 em</span>
-          </div>
-        </div>
-      </section>
-
+      <div class="rs-pane" id="rs-pane-controls" data-rs-pane="controls" role="tabpanel" aria-labelledby="rs-tab-controls" hidden>
       <section class="rs-section" data-rs-section="controls">
-        <h3 class="rs-section-title">Управление</h3>
+        <h3 class="rs-section-title">Тапы</h3>
         <div class="rs-group">
           <div class="rs-label">Зоны экрана</div>
           <div class="rs-seg rs-tap-mode-seg">
@@ -403,20 +416,19 @@
           </div>
           <div class="rs-tap-grid" id="rs-tap-grid" role="group" aria-label="Зоны экрана"></div>
           <select id="rs-tap-action" class="rs-select" aria-label="Действие зоны" hidden></select>
-          <div class="rs-hint" id="rs-tap-hint">Выберите клетку, затем действие</div>
+          <div class="rs-hint" id="rs-tap-hint">Клетка, затем действие</div>
           <button type="button" class="rs-tap-reset" id="rs-tap-reset">Сброс зон</button>
         </div>
         <div class="rs-group">
-          <div class="rs-label">Автоперелистывание</div>
+          <div class="rs-label">Автолист</div>
           <div class="rs-slider">
             <input type="range" id="rs-auto-flip" name="readerAutoFlip" min="0" max="30" step="1" aria-label="Интервал автоперелистывания">
             <span class="rs-val" id="rs-auto-flip-val">Выкл</span>
           </div>
-          <div class="rs-hint">0 — выкл. Работает только в режиме страниц, пауза при меню и озвучке.</div>
+          <div class="rs-hint">0 — выкл. Только страницы.</div>
         </div>
         <div class="rs-group">
-          <label class="rs-check"><input type="checkbox" id="rs-page-haptic" name="readerPageHaptic"><span>Вибрация при листании</span></label>
-          <div class="rs-hint">По умолчанию выкл. Отклик при добавлении закладки не затрагивается.</div>
+          <label class="rs-check"><span>Вибрация при листании</span><input type="checkbox" id="rs-page-haptic" name="readerPageHaptic"></label>
         </div>
         <div class="rs-group" id="rs-eink-refresh-group" hidden>
           <div class="rs-label">Полная перерисовка</div>
@@ -425,14 +437,16 @@
             <button type="button" data-set-eink-refresh="3">Каждые 3</button>
             <button type="button" data-set-eink-refresh="5">Каждые 5</button>
           </div>
-          <div class="rs-hint">E-Ink: полный refresh экрана против шлейфов. Чуть дольше обычного листания.</div>
+          <div class="rs-hint">E-Ink: полный refresh против шлейфа.</div>
         </div>
         <div class="rs-group" id="rs-eink-volume-hint" hidden>
           <div class="rs-hint">E-Ink: громкость листает страницы. Яркость — левый край, температура — правый.</div>
         </div>
         <div id="rs-volume-keys-slot"></div>
       </section>
+      </div>
 
+      <div class="rs-pane" id="rs-pane-more" data-rs-pane="more" role="tabpanel" aria-labelledby="rs-tab-more" hidden>
       <section class="rs-section" data-rs-section="status">
         <h3 class="rs-section-title">Строка состояния</h3>
         <div class="rs-group">
@@ -444,20 +458,20 @@
           </div>
         </div>
         <div class="rs-group">
-          <label class="rs-check"><input type="checkbox" id="rs-status-chapter" name="statusChapter" checked><span>Глава</span></label>
-          <label class="rs-check"><input type="checkbox" id="rs-status-pct" name="statusPct" checked><span>Процент</span></label>
-          <label class="rs-check"><input type="checkbox" id="rs-status-page" name="statusPage" checked><span>Страница N / M</span></label>
-          <label class="rs-check"><input type="checkbox" id="rs-status-chapter-left" name="statusChapterLeft"><span>Осталось в главе</span></label>
-          <label class="rs-check"><input type="checkbox" id="rs-status-clock" name="statusClock"><span>Часы</span></label>
+          <label class="rs-check"><span>Глава</span><input type="checkbox" id="rs-status-chapter" name="statusChapter" checked></label>
+          <label class="rs-check"><span>Процент</span><input type="checkbox" id="rs-status-pct" name="statusPct" checked></label>
+          <label class="rs-check"><span>Страница</span><input type="checkbox" id="rs-status-page" name="statusPage" checked></label>
+          <label class="rs-check"><span>Осталось в главе</span><input type="checkbox" id="rs-status-chapter-left" name="statusChapterLeft"></label>
+          <label class="rs-check"><span>Часы</span><input type="checkbox" id="rs-status-clock" name="statusClock"></label>
         </div>
       </section>
 
       <section class="rs-section" data-rs-section="extra">
-        <h3 class="rs-section-title">Дополнительно</h3>
+        <h3 class="rs-section-title">Прочее</h3>
         <div class="rs-group">
           <label class="rs-check">
-            <input type="checkbox" id="rs-footnotes" name="readerFootnotes" checked>
             <span>Всплывающие сноски</span>
+            <input type="checkbox" id="rs-footnotes" name="readerFootnotes" checked>
           </label>
         </div>
         <div class="rs-group">
@@ -481,6 +495,7 @@
           </select>
         </div>
       </section>
+      </div>
 
       <div class="rs-actions">
         <button type="button" class="rs-reset" id="reader-reset-settings">Сброс</button>
@@ -491,9 +506,9 @@
 
 <div class="reader-toast" id="reader-toast"></div>
 
-<script>window.__READER_APP=1;window.__READER_ASSET_V__="e417133549f5";</script>
-<script type="module" src="/inpx-reader/bootstrap.js?v=e417133549f5"></script>
-<script src="/inpx-reader/reader-native-bridge.js?v=e417133549f5"></script>
-<script type="module" src="/inpx-reader/reader.js?v=e417133549f5"></script>
+<script>window.__READER_APP=1;window.__READER_ASSET_V__="df6b5db1265d";</script>
+<script type="module" src="/inpx-reader/bootstrap.js?v=df6b5db1265d"></script>
+<script src="/inpx-reader/reader-native-bridge.js?v=df6b5db1265d"></script>
+<script type="module" src="/inpx-reader/reader.js?v=df6b5db1265d"></script>
 </body>
 </html>

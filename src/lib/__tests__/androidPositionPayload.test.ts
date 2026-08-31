@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { enrichAndroidPositionPayload } from '../../../public/inpx-reader/reader-shared/android-position.js';
-import { isTextAnchorLandingVerified } from '../../../public/inpx-reader/reader-shared/text-anchor.js';
+import { isStaleExplodedFb2Anchor, isTextAnchorLandingVerified } from '../../../public/inpx-reader/reader-shared/text-anchor.js';
 
 describe('Android reader position payload', () => {
   it('adds section, paginator, page fraction, and layout anchors', () => {
@@ -48,6 +48,25 @@ describe('Android reader position payload', () => {
       textOffset: 1234,
       textQuote: 'Exact words after the anchor',
     })).toBe(false);
+  });
+
+  it('treats exploded FB2 chapter anchors as stale after paper-flow stitch', () => {
+    expect(isStaleExplodedFb2Anchor(
+      { sectionIndex: 4, textOffset: 1200, textSectionLength: 8000 },
+      { linearCount: 1, currentTextLength: 240_000 },
+    )).toBe(true);
+    expect(isStaleExplodedFb2Anchor(
+      { sectionIndex: 0, textOffset: 1200, textSectionLength: 8000 },
+      { linearCount: 1, currentTextLength: 240_000 },
+    )).toBe(true);
+    expect(isStaleExplodedFb2Anchor(
+      { sectionIndex: 0, textOffset: 1200, textSectionLength: 8000 },
+      { linearCount: 1, currentTextLength: 8100 },
+    )).toBe(false);
+    expect(isStaleExplodedFb2Anchor(
+      { sectionIndex: 0, textOffset: 1200, textSectionLength: 8000 },
+      { linearCount: 6, currentTextLength: 240_000 },
+    )).toBe(false);
   });
 
   it('waits for parent prompt response without a short auto-decline timeout', () => {

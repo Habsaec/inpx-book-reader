@@ -328,6 +328,23 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
   }
 }
 
+const HEALTH_PROBE_TIMEOUT_MS = 3_500;
+
+/** Cheap reachability check for auto URL switching. Does not require login. */
+export async function probeServerHealth(
+  config: ServerConfig,
+  timeoutMs = HEALTH_PROBE_TIMEOUT_MS,
+): Promise<boolean> {
+  const base = normalizeBaseUrl(config.url);
+  if (!base) return false;
+  try {
+    const healthRes = await apiFetchWithTimeout(config, '/health', {}, timeoutMs);
+    return healthRes.ok;
+  } catch {
+    return false;
+  }
+}
+
 function statusFallbackMessage(status: number): string {
   if (status === 401) return 'Сессия устройства устарела. Введите логин и пароль заново.';
   if (status === 403) return 'Недостаточно прав для этого действия.';
@@ -1205,6 +1222,29 @@ export async function fetchFacetBooks(
   if (opts?.hasSeries === true || opts?.hasSeries === 1) params.set('hasSeries', '1');
   else if (opts?.hasSeries === false || opts?.hasSeries === 0) params.set('hasSeries', '0');
   return apiJson(config, `/api/facet-books?${params}`);
+}
+
+const SERIES_DOWNLOAD_CAP = 500;
+
+/** All books in a facet, capped so a huge series cannot flood the download queue. */
+export async function fetchAllFacetBooks(
+  config: ServerConfig,
+  facet: 'authors' | 'series' | 'genres',
+  value: string,
+  opts?: Parameters<typeof fetchFacetBooks>[4],
+): Promise<InpxBookItem[]> {
+  const all: InpxBookItem[] = [];
+  let page = 1;
+  while (all.length < SERIES_DOWNLOAD_CAP && page <= 50) {
+    const data = await fetchFacetBooks(config, facet, value, page, opts);
+    const items = Array.isArray(data.items) ? data.items : [];
+    all.push(...items);
+    const pageSize = data.pageSize || 24;
+    const total = data.total || 0;
+    if (!items.length || all.length >= total || items.length < pageSize) break;
+    page += 1;
+  }
+  return all.slice(0, SERIES_DOWNLOAD_CAP);
 }
 
 export interface AuthorGroupedResult {

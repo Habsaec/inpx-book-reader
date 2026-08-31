@@ -28,6 +28,10 @@ interface StoredServerConfig {
   username?: string;
   password?: string;
   connectionStatus?: ServerConfig['connectionStatus'];
+  autoSwitch?: boolean;
+  localSsid?: string;
+  localUrl?: string;
+  alternateUrls?: string[];
 }
 
 const SecureCredentials = registerPlugin<SecureCredentialsPlugin>('SecureCredentials');
@@ -91,6 +95,17 @@ export function credentialsForPersist(config: ServerConfig): {
   };
 }
 
+function switchFieldsFromStored(stored: StoredServerConfig): Pick<ServerConfig, 'autoSwitch' | 'localSsid' | 'localUrl' | 'alternateUrls'> {
+  return {
+    autoSwitch: Boolean(stored.autoSwitch),
+    localSsid: stored.localSsid || '',
+    localUrl: stored.localUrl || '',
+    alternateUrls: Array.isArray(stored.alternateUrls)
+      ? stored.alternateUrls.map((u) => String(u || '').trim()).filter(Boolean)
+      : [],
+  };
+}
+
 export function initialServerConfig(): ServerConfig {
   const stored = readStoredConfig();
   if (isNativeApp()) {
@@ -101,6 +116,7 @@ export function initialServerConfig(): ServerConfig {
       deviceToken: '',
       deviceTokenId: '',
       connectionStatus: 'disconnected',
+      ...switchFieldsFromStored(stored),
     };
   }
 
@@ -116,6 +132,7 @@ export function initialServerConfig(): ServerConfig {
     username,
     password,
     connectionStatus: shouldReconnect ? 'testing' : 'disconnected',
+    ...switchFieldsFromStored(stored),
   };
 }
 
@@ -163,6 +180,7 @@ export async function loadServerConfig(): Promise<ServerConfig> {
       url: stored.url || DEFAULT_URL,
       username: username || stored.username || '',
       connectionStatus: stored.connectionStatus === 'connected' ? 'connected' : 'disconnected',
+      ...switchFieldsFromStored(stored),
     }));
   } catch {
     username = stored.username || '';
@@ -173,6 +191,7 @@ export async function loadServerConfig(): Promise<ServerConfig> {
         url: stored.url || DEFAULT_URL,
         username,
         connectionStatus: stored.connectionStatus === 'connected' ? 'connected' : 'disconnected',
+        ...switchFieldsFromStored(stored),
       }));
     } catch {
       /* localStorage недоступен — ничего не делаем */
@@ -193,6 +212,19 @@ export async function loadServerConfig(): Promise<ServerConfig> {
     deviceToken,
     deviceTokenId,
     connectionStatus: shouldReconnect ? 'testing' : 'disconnected',
+    ...switchFieldsFromStored(stored),
+  };
+}
+
+function publicStoredConfig(
+  config: ServerConfig,
+  connectionStatus: ServerConfig['connectionStatus'],
+): StoredServerConfig {
+  return {
+    url: config.url,
+    username: config.username || '',
+    connectionStatus,
+    ...switchFieldsFromStored(config),
   };
 }
 
@@ -201,26 +233,20 @@ export function persistServerConfig(config: ServerConfig): Promise<void> {
   const wiped = !config.username && !config.password && !config.deviceToken;
   persistQueue = persistQueue.catch(() => undefined).then(async () => {
     if (epoch !== credentialsEpoch) return;
+    const connectionStatus = wiped ? 'disconnected' : persistedConnectionStatus(config);
+    const publicConfig = publicStoredConfig(config, connectionStatus);
     if (wiped) {
       if (isNativeApp()) await SecureCredentials.clear();
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(publicConfig));
       return;
     }
-    const connectionStatus = persistedConnectionStatus(config);
     if (!isNativeApp()) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...config, connectionStatus }));
       return;
     }
 
     await SecureCredentials.save(credentialsForPersist(config));
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        url: config.url,
-        username: config.username || '',
-        connectionStatus,
-      }),
-    );
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(publicConfig));
   });
   return persistQueue;
 }
@@ -238,7 +264,20 @@ export async function clearServerCredentials(config?: ServerConfig): Promise<voi
       }
     }
     if (isNativeApp()) await SecureCredentials.clear();
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(
+        publicStoredConfig(
+          {
+            url: config?.url || DEFAULT_URL,
+            username: '',
+            connectionStatus: 'disconnected',
+            ...switchFieldsFromStored(config || {}),
+          },
+          'disconnected',
+        ),
+      ),
+    );
   });
   return persistQueue;
 }

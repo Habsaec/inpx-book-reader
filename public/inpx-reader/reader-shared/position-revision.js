@@ -74,6 +74,11 @@ export function shouldPromptLiveCrossDevice(localSessionId, local, server) {
   if (Number.isInteger(dismissed) && dismissed === serverRevision) return false;
   const pendingRevision = Number(local?.serverRevision);
   if (local?.pendingCrossDevicePrompt && pendingRevision === serverRevision) return false;
+  const baseRev = Number(local?.baseRevision) || 0;
+  const localServerRev = Number(local?.serverRevision) || 0;
+  if (serverRevision <= baseRev && serverRevision <= localServerRev) {
+    return false;
+  }
   return positionsDiffer(local, server);
 }
 

@@ -79,7 +79,10 @@ const textAnchorFromRange = (doc, range) => {
         return null
     }
     const text = normalizedSectionText(doc)
-    const textOffset = Math.max(0, Math.min(text.length, prefix.toString().replace(/[\t\n\f\r ]+/g, ' ').trim().length))
+    // Collapse whitespace like rangeFromTextOffset; strip only a leading
+    // space so a caret after a word-gap is not shortened by .trim().
+    const collapsed = prefix.toString().replace(/[\t\n\f\r ]+/g, ' ').replace(/^ /, '')
+    const textOffset = Math.max(0, Math.min(text.length, collapsed.length))
     return {
         textOffset,
         textQuote: text.slice(textOffset, textOffset + 96),
@@ -177,13 +180,18 @@ const getBoundingClientRect = target => {
 }
 
 const getVisibleRange = (doc, start, end, mapRect) => {
+    if (!doc?.body) return
     // first get all visible nodes
-    const acceptNode = node => {
+        const acceptNode = node => {
         const name = node.localName?.toLowerCase()
         // ignore all scripts, styles, and their children
         if (name === 'script' || name === 'style') return FILTER_REJECT
+        // skip-links / a11y chrome must not become the visible-range start
+        // (empty-start CFI → jump to chapter end; readest#4370)
+        if (node.nodeType === 1 && node.hasAttribute?.('cfi-inert')) return FILTER_REJECT
         if (node.nodeType === 1) {
             const { left, right } = mapRect(node.getBoundingClientRect())
+            if (left === 0 && right === 0) return FILTER_REJECT
             // no need to check child nodes if it's completely out of view
             if (right < start || left > end) return FILTER_REJECT
             // elements must be completely in view to be considered visible
@@ -199,6 +207,7 @@ const getVisibleRange = (doc, start, end, mapRect) => {
             const range = doc.createRange()
             range.selectNodeContents(node)
             const { left, right } = mapRect(range.getBoundingClientRect())
+            if (left === 0 && right === 0) return FILTER_REJECT
             // it's visible if any part of it is in view
             if (right >= start && left <= end) return FILTER_ACCEPT
         }
@@ -291,7 +300,10 @@ const setStylesImportant = (el, styles) => {
 }
 
 class View {
-    #observer = new ResizeObserver(() => this.expand())
+    #observer = new ResizeObserver(() => {
+        if (Number(globalThis.visualViewport?.scale) > 1.01) return
+        this.expand()
+    })
     #element = document.createElement('div')
     #iframe = document.createElement('iframe')
     #contentRange = document.createRange()
@@ -300,6 +312,7 @@ class View {
     #rtl = false
     #column = true
     #size
+    #lastExpandedSize = NaN
     #layout = {}
     constructor({ container, onExpand }) {
         this.container = container
@@ -360,7 +373,10 @@ class View {
                 // the resize observer above doesn't work in Firefox
                 // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)
                 // until the bug is fixed we can at least account for font load
-                doc.fonts.ready.then(() => this.expand())
+                doc.fonts.ready.then(() => {
+                    if (Number(globalThis.visualViewport?.scale) > 1.01) return
+                    this.expand()
+                })
 
                 resolve()
             }, { once: true })
@@ -383,6 +399,7 @@ class View {
             'column-width': 'auto',
             'height': 'auto',
             'width': 'auto',
+            'touch-action': 'none',
         })
         setStylesImportant(doc.body, {
             [vertical ? 'max-height' : 'max-width']: `${columnWidth}px`,
@@ -445,6 +462,7 @@ class View {
         }
     }
     expand() {
+        if (Number(globalThis.visualViewport?.scale) > 1.01) return
         const { documentElement } = this.document
         if (this.#column) {
             const side = this.#vertical ? 'height' : 'width'
@@ -458,6 +476,11 @@ class View {
             const contentSize = contentStart + contentRect[side]
             const pageCount = Math.ceil(contentSize / this.#size)
             const expandedSize = pageCount * this.#size
+            if (this.#lastExpandedSize === expandedSize
+                && this.#iframe.style[side] === `${expandedSize}px`) {
+                return
+            }
+            this.#lastExpandedSize = expandedSize
             this.#element.style.padding = '0'
             this.#iframe.style[side] = `${expandedSize}px`
             this.#element.style[side] = `${expandedSize + this.#size * 2}px`
@@ -531,6 +554,9 @@ export class Paginator extends HTMLElement {
     #sectionFrac = null
     #justAnchored = false
     #locked = false // while true, prevent any further navigation
+    #restoreBusy = false
+    #lastBoxInline = 0
+    #lastBoxBlock = 0
     #styles
     #styleMap = new WeakMap()
     #mediaQuery = matchMedia('(prefers-color-scheme: dark)')
@@ -682,19 +708,7 @@ export class Paginator extends HTMLElement {
                 else setSelectionTo(this.#anchor, -1)
             }
         })
-        const checkPointerSelection = debounce((range, sel) => {
-            if (!sel.rangeCount) return
-            const selRange = sel.getRangeAt(0)
-            const backward = selectionIsBackward(sel)
-            if (backward && selRange.compareBoundaryPoints(Range.START_TO_START, range) < 0)
-                this.prev()
-            else if (!backward && selRange.compareBoundaryPoints(Range.END_TO_END, range) > 0)
-                this.next()
-        }, 700)
         this.addEventListener('load', ({ detail: { doc } }) => {
-            let isPointerSelecting = false
-            doc.addEventListener('pointerdown', () => isPointerSelecting = true)
-            doc.addEventListener('pointerup', () => isPointerSelecting = false)
             let isKeyboardSelecting = false
             doc.addEventListener('keydown', () => isKeyboardSelecting = true)
             doc.addEventListener('keyup', () => isKeyboardSelecting = false)
@@ -704,9 +718,10 @@ export class Paginator extends HTMLElement {
                 if (!range) return
                 const sel = doc.getSelection()
                 if (!sel.rangeCount) return
-                if (isPointerSelecting && sel.type === 'Range')
-                    checkPointerSelection(range, sel)
-                else if (isKeyboardSelecting) {
+                // Android WebView: selection handles sit slightly outside the
+                // visible range, so extending from the first word used to
+                // prev()/next() (readest#873). Pointer-driven auto-flip is off.
+                if (isKeyboardSelecting) {
                     const selRange = sel.getRangeAt(0).cloneRange()
                     const backward = selectionIsBackward(sel)
                     if (!backward) selRange.collapse()
@@ -724,10 +739,19 @@ export class Paginator extends HTMLElement {
         }
         this.#mediaQuery.addEventListener('change', this.#mediaQueryListener)
     }
+    #boxMetrics() {
+        const box = this.#container.getBoundingClientRect()
+        return this.#vertical
+            ? { inline: box.height, block: box.width }
+            : { inline: box.width, block: box.height }
+    }
+    #pinched() {
+        return Number(globalThis.visualViewport?.scale) > 1.01
+    }
     attributeChangedCallback(name, _, value) {
         switch (name) {
             case 'flow':
-                this.render()
+                this.render(true)
                 break
             case 'gap':
             case 'margin':
@@ -740,12 +764,12 @@ export class Paginator extends HTMLElement {
                 } else {
                     this.#top.style.setProperty('--_' + name, value)
                 }
-                this.render()
+                this.render(true)
                 break
             case 'max-inline-size':
                 // needs explicit `render()` as it doesn't necessarily resize
                 this.#top.style.setProperty('--_' + name, value)
-                this.render()
+                this.render(true)
                 break
         }
     }
@@ -777,18 +801,8 @@ export class Paginator extends HTMLElement {
         this.#view = new View({
             container: this,
             onExpand: () => {
-                if (this.#layoutHeld) return
-                // Chapter turns set #anchor to 0/1. Never re-apply the previous
-                // chapter's page fraction onto the new section.
-                if (typeof this.#anchor === 'number') {
-                    this.#scrollToAnchor(this.#anchor)
-                    return
-                }
-                if (this.#sectionFrac != null) {
-                    void this.restoreSectionFrac('anchor')
-                    return
-                }
-                this.#scrollToAnchor(this.#anchor)
+                // Images/fonts grow the column strip. Re-seeking the text pin
+                // here flips pages back and forth while the user is reading.
             },
         })
         this.#container.append(this.#view.element)
@@ -902,15 +916,15 @@ export class Paginator extends HTMLElement {
 
         return { height, width, margin, gap, columnWidth }
     }
-    render() {
-        if (!this.#view) return
-        this.#view.render(this.#beforeRender({
-            vertical: this.#vertical,
-            rtl: this.#rtl,
-        }))
-        if (this.#layoutHeld) return
+    #restoreAfterReflow() {
+        // Chapter turns set #anchor to 0/1. Never re-apply the previous
+        // chapter's page fraction onto the new section.
         if (typeof this.#anchor === 'number') {
             this.#scrollToAnchor(this.#anchor)
+            return
+        }
+        if (this.#textOffset != null && !this.scrolled) {
+            void this.restoreTextAnchor(this.#textOffset, this.#textQuote)
             return
         }
         if (this.#sectionFrac != null) {
@@ -918,6 +932,31 @@ export class Paginator extends HTMLElement {
             return
         }
         this.#scrollToAnchor(this.#anchor)
+    }
+    render(force = false) {
+        if (!this.#view) return
+        // Pinch-zoom is a visual scale. Do not rebuild CSS columns.
+        if (!force && this.#pinched()) return
+        const { inline, block } = this.#boxMetrics()
+        const unchanged = !force
+            && this.#lastBoxInline > 8
+            && Math.abs(inline - this.#lastBoxInline) <= 8
+            && Math.abs(block - this.#lastBoxBlock) <= 8
+        if (unchanged) return
+        const prevInline = this.#lastBoxInline
+        const prevBlock = this.#lastBoxBlock
+        this.#view.render(this.#beforeRender({
+            vertical: this.#vertical,
+            rtl: this.#rtl,
+        }))
+        this.#lastBoxInline = inline
+        this.#lastBoxBlock = block
+        if (this.#layoutHeld) return
+        const viewportChanged = prevInline > 8 && (
+            Math.abs(inline - prevInline) > 8 || Math.abs(block - prevBlock) > 8
+        )
+        if (!viewportChanged) return
+        this.#restoreAfterReflow()
     }
     get scrolled() {
         return this.getAttribute('flow') === 'scrolled'
@@ -990,6 +1029,9 @@ export class Paginator extends HTMLElement {
     #sectionTextLength() {
         return Math.max(1, normalizedSectionText(this.#view?.document).length)
     }
+    get sectionTextLength() {
+        return this.#sectionTextLength()
+    }
     #textOffsetFromCurrentPage() {
         const { page, pages } = this
         if (this.scrolled || !(pages > 2)) return 0
@@ -1043,21 +1085,52 @@ export class Paginator extends HTMLElement {
     releaseLayout() {
         this.#layoutHeld = false
     }
+    #visibleTextOffset() {
+        const info = textAnchorFromRange(this.#view?.document, this.#lastVisibleRange)
+        if (info && Number.isInteger(info.textOffset) && info.textOffset > 0) return info.textOffset
+        if (info && Number.isInteger(info.textOffset) && this.page <= 1) return info.textOffset
+        return this.#textOffsetFromCurrentPage()
+    }
     async restoreTextAnchor(offset, quote = '') {
         this.pinTextAnchor(offset, quote)
-        if (this.#textOffset == null) return
-        if (this.scrolled) {
-            return this.#scrollToAnchor(
-                doc => rangeFromTextOffset(doc, this.#textOffset, this.#textQuote),
-                'navigation',
-            )
+        if (this.#textOffset == null || this.#restoreBusy) return
+        this.#restoreBusy = true
+        try {
+            if (this.scrolled) {
+                return this.#scrollToAnchor(
+                    doc => rangeFromTextOffset(doc, this.#textOffset, this.#textQuote),
+                    'anchor',
+                )
+            }
+            // Android WebView CSS columns: Range.getClientRects() is often viewport-
+            // relative (x≈0) → page 1. Map through page count, then nudge using the
+            // visible-range offset so a tall/short page after rotate keeps the same
+            // sentence instead of the same percentage of pages.
+            // reason 'anchor' must not commit mid-nudge as a user page-turn.
+            const size = this.size
+            if (!(size > 8)) return
+            const lastContent = Math.max(1, this.pages - 2)
+            let page = Math.min(lastContent, Math.max(1, this.#pageFromTextOffset(this.#textOffset)))
+            await this.#scrollToPage(page, 'anchor')
+            const target = this.#textOffset
+            let landed = this.#visibleTextOffset()
+            const dir = Number.isInteger(landed) && landed < target ? 1 : -1
+            for (let i = 0; i < 16; i++) {
+                if (!Number.isInteger(landed) || Math.abs(landed - target) <= 120) break
+                const next = page + dir
+                if (next < 1 || next > lastContent) break
+                await this.#scrollToPage(next, 'anchor')
+                const nextLanded = this.#visibleTextOffset()
+                if (Number.isInteger(nextLanded) && Math.abs(nextLanded - target) > Math.abs(landed - target)) {
+                    await this.#scrollToPage(page, 'anchor')
+                    break
+                }
+                page = next
+                landed = nextLanded
+            }
+        } finally {
+            this.#restoreBusy = false
         }
-        // Android WebView CSS columns: Range.getClientRects() is often viewport-
-        // relative (x≈0) → page 1 = start of chapter. Map the character through
-        // the post-reflow page count instead.
-        const size = this.size
-        if (!(size > 8)) return
-        return this.#scrollToPage(this.#pageFromTextOffset(this.#textOffset), 'navigation')
     }
     // this is the current position of the container
     get containerPosition() {
@@ -1080,15 +1153,27 @@ export class Paginator extends HTMLElement {
     }
 
     snap(vx, vy) {
+        if (!this.#scrollBounds) return
         const velocity = this.#vertical ? vy : vx
-        const [offset, a, b] = this.#scrollBounds
-        const { start, end, pages, size } = this
-        const min = Math.abs(offset) - a
-        const max = Math.abs(offset) + b
-        const d = velocity * (this.#rtl ? -size : size)
-        const page = Math.floor(
-            Math.max(min, Math.min(max, (start + end) / 2
-                + (isNaN(d) ? 0 : d))) / size)
+        const { pages, size } = this
+        if (!(size > 0)) return
+
+        const startPage = this.#touchState?.startPage != null ? this.#touchState.startPage : this.page
+        const startOffset = size * (this.#rtl ? -startPage : startPage)
+        const displacement = (this.containerPosition - startOffset) * (this.#rtl ? -1 : 1)
+        const v = (isNaN(velocity) ? 0 : velocity) * (this.#rtl ? -1 : 1)
+
+        let pageDelta = 0
+        if (displacement > size * 0.18 || v > 0.15) {
+            pageDelta = 1
+        } else if (displacement < -size * 0.18 || v < -0.15) {
+            pageDelta = -1
+        }
+
+        let page = startPage + pageDelta
+        const minPage = 0
+        const maxPage = Math.max(0, pages - 1)
+        page = Math.max(minPage, Math.min(maxPage, page))
 
         this.#scrollToPage(page, 'snap').then(() => {
             const dir = page <= 0 ? -1 : page >= pages - 1 ? 1 : null
@@ -1105,14 +1190,18 @@ export class Paginator extends HTMLElement {
         this.#touchState = {
             x: touch?.screenX, y: touch?.screenY,
             t: e.timeStamp,
-            vx: 0, xy: 0,
+            vx: 0, vy: 0,
+            dx: 0, dy: 0,
+            overscroll: 0,
+            startPage: this.page,
+            startPos: this.containerPosition,
         }
     }
     #onTouchMove(e) {
         const state = this.#touchState
-        if (state.pinched) return
+        if (!state || state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
-        if (this.scrolled || state.pinched) return
+        if (state.pinched) return
         if (e.touches.length > 1) {
             if (this.#touchScrolled) e.preventDefault()
             return
@@ -1122,28 +1211,80 @@ export class Paginator extends HTMLElement {
         if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
             return
         }
-        e.preventDefault()
         const touch = e.changedTouches[0]
         const x = touch.screenX, y = touch.screenY
         const dx = state.x - x, dy = state.y - y
         const dt = e.timeStamp - state.t
+        state.dx += dx
+        state.dy += dy
+
+        // iframe scrolling=no: native overflow on #container does not receive
+        // iframe touches on Android WebView. Drive scrollTop ourselves.
+        if (this.scrolled && !this.#vertical) {
+            const adx = Math.abs(dx), ady = Math.abs(dy)
+            if (!this.#touchScrolled) {
+                if (adx < 4 && ady < 4) return
+                if (ady < adx) return
+                this.#touchScrolled = true
+            }
+            e.preventDefault()
+            state.x = x
+            state.y = y
+            state.t = e.timeStamp
+            state.vx = dx / dt
+            state.vy = dy / dt
+            const atTop = this.start <= 1
+            const atBottom = this.viewSize - this.end <= 2
+            if (atTop && dy < 0) {
+                state.overscroll = (state.overscroll || 0) + dy
+            } else if (atBottom && dy > 0) {
+                state.overscroll = (state.overscroll || 0) + dy
+            } else {
+                state.overscroll = 0
+                const maxStart = Math.max(0, this.viewSize - this.size)
+                this.containerPosition = Math.max(0, Math.min(maxStart, this.start + dy))
+            }
+            return
+        }
+        if (this.scrolled) return
+
+        // Horizontal books: only follow a predominantly horizontal finger.
+        // Vertical toolbar-toggle swipes used to drag + snap on lift-off
+        // jitter (readest#5185).
+        if (!this.#vertical && Math.abs(state.dy) > Math.abs(state.dx)) {
+            state.x = x
+            state.y = y
+            state.t = e.timeStamp
+            state.vx = dx / dt
+            state.vy = dy / dt
+            return
+        }
+
+        e.preventDefault()
         state.x = x
         state.y = y
         state.t = e.timeStamp
         state.vx = dx / dt
         state.vy = dy / dt
         this.#touchScrolled = true
-        if (Math.abs(dx) >= Math.abs(dy)) {
-            this.scrollBy(dx, 0)
-        } else if (Math.abs(dy) > Math.abs(dx)) {
-            this.scrollBy(0, dy)
-        }
+        this.scrollBy(this.#vertical ? 0 : dx, this.#vertical ? dy : 0)
     }
     /** Событие с doc (iframe): reader может вызвать preventDefault на коротком тапе — тогда не snap(). */
     #onTouchEnd(e) {
+        const state = this.#touchState
+        const overscroll = state?.overscroll || 0
+        const touchScrolled = this.#touchScrolled
         this.#touchScrolled = false
-        if (this.scrolled) return
+        if (this.scrolled) {
+            const thresh = 56
+            if (overscroll > thresh && this.#adjacentIndex(1) != null) void this.next()
+            else if (overscroll < -thresh && this.#adjacentIndex(-1) != null) void this.prev()
+            return
+        }
         if (e?.defaultPrevented) return
+        // Whole gesture must be horizontal, not last-sample lift-off jitter.
+        if (!this.#vertical && state && Math.abs(state.dy || 0) > Math.abs(state.dx || 0)) return
+        if (!touchScrolled) return
 
         // XXX: Firefox seems to report scale as 1... sometimes...?
         // at this point I'm basically throwing `requestAnimationFrame` at
@@ -1288,6 +1429,7 @@ export class Paginator extends HTMLElement {
     }
     #afterScroll(reason) {
         const range = this.#getVisibleRange()
+        if (!range) return
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
         if (reason === 'page' || reason === 'snap' || reason === 'scroll' || reason === 'navigation') {
@@ -1487,7 +1629,10 @@ export class Paginator extends HTMLElement {
         })
 
         // needed because the resize observer doesn't work in Firefox
-        this.#view?.document?.fonts?.ready?.then(() => this.#view?.expand())
+        this.#view?.document?.fonts?.ready?.then(() => {
+            if (Number(globalThis.visualViewport?.scale) > 1.01) return
+            this.#view?.expand()
+        })
     }
     focusView() {
         this.#view.document.defaultView.focus()

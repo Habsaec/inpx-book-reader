@@ -67,6 +67,8 @@ interface CatalogBooksViewProps {
   onBookLongPress?: (book: Book) => void;
   onOpenSeries: (name: string, author: string) => void;
   onOpenOutsideSeries: () => void;
+  onDownloadSeries?: (seriesName: string) => void;
+  seriesDownloadBusy?: boolean;
   booksListLength: number;
   listTotal: number;
   booksLoadingMore: boolean;
@@ -125,6 +127,8 @@ export default function CatalogBooksView({
   onBookLongPress,
   onOpenSeries,
   onOpenOutsideSeries,
+  onDownloadSeries,
+  seriesDownloadBusy = false,
   booksListLength,
   listTotal,
   booksLoadingMore,
@@ -261,6 +265,8 @@ export default function CatalogBooksView({
           onBookClick={onBookClick}
           onBookLongPress={onBookLongPress}
           onOpenSeries={(name) => onOpenSeries(name, selectedAuthor)}
+          onDownloadSeries={onDownloadSeries}
+          seriesDownloadBusy={seriesDownloadBusy}
         />
       ) : authorShelfOnly && authorGrouped && selectedAuthor ? (
         <CatalogAuthorSeriesShelf

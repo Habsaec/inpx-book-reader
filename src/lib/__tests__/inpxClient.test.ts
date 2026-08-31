@@ -114,6 +114,24 @@ describe('testConnection', () => {
   });
 });
 
+describe('probeServerHealth', () => {
+  it('returns true when /health is ok', async () => {
+    const { probeServerHealth } = await import('../inpxClient');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+    await expect(probeServerHealth(baseConfig, 500)).resolves.toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('returns false when the host is unreachable', async () => {
+    const { probeServerHealth } = await import('../inpxClient');
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    }));
+    await expect(probeServerHealth(baseConfig, 500)).resolves.toBe(false);
+    vi.unstubAllGlobals();
+  });
+});
+
 describe('patchReaderAnnotationApi', () => {
   it('throws ApiError with server message on HTTP failure', async () => {
     const { patchReaderAnnotationApi } = await import('../inpxClient');

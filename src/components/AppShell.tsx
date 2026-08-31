@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Library, BookOpen, MoreHorizontal, Wifi, WifiOff, Download } from 'lucide-react';
+import { Home, Library, BookOpen, MoreHorizontal, Wifi, WifiOff, Globe, Download } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { BRAND_LOCKUP_SRC } from '../lib/brand';
 import { motion, semantic, radii, elevation } from '../ui/tokens';
@@ -15,7 +15,10 @@ interface AppShellProps {
   logoSrc: string | null;
   isOnline: boolean;
   isVerifyingConnection: boolean;
+  /** Connected to a LAN / configured local URL (vs Tailscale or other remote). */
+  isLocalConnection?: boolean;
   queuedCount?: number;
+  onOpenConnectionSettings?: () => void;
   children: React.ReactNode;
 }
 
@@ -26,7 +29,9 @@ export default function AppShell({
   logoSrc,
   isOnline,
   isVerifyingConnection,
+  isLocalConnection = false,
   queuedCount = 0,
+  onOpenConnectionSettings,
   children,
 }: AppShellProps) {
   let statusLabel = 'Офлайн';
@@ -38,8 +43,13 @@ export default function AppShell({
     StatusIcon = Download;
     iconClass = theme.accentText;
   } else if (isOnline) {
-    statusLabel = 'Онлайн';
-    StatusIcon = Wifi;
+    if (isLocalConnection) {
+      statusLabel = 'Онлайн — локальная сеть';
+      StatusIcon = Wifi;
+    } else {
+      statusLabel = 'Онлайн — внешняя сеть';
+      StatusIcon = Globe;
+    }
     iconClass = semantic.success;
   } else if (isVerifyingConnection) {
     statusLabel = 'Проверка связи';
@@ -70,14 +80,15 @@ export default function AppShell({
           )}
         </div>
 
-        <span
-          className={`inline-flex items-center justify-center min-h-12 min-w-12 ${radii.full} ${theme.panel}`}
-          title={statusLabel}
-          aria-label={statusLabel}
-          role="status"
+        <button
+          type="button"
+          onClick={onOpenConnectionSettings}
+          title={`${statusLabel}. Настройки подключения`}
+          aria-label={`${statusLabel}. Настройки подключения`}
+          className={`inline-flex items-center justify-center min-h-12 min-w-12 ${radii.full} ${theme.panel} ${theme.focusRing} ${motion.press}`}
         >
           <StatusIcon className={`w-5 h-5 ${iconClass}`} aria-hidden />
-        </span>
+        </button>
       </div>
 
       {!isOnline && !isVerifyingConnection && (

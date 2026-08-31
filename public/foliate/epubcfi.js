@@ -112,6 +112,25 @@ export const parse = cfi => {
     return { parent, start, end }
 }
 
+/**
+ * Degenerate range CFI whose start or end path is empty —
+ * e.g. `epubcfi(/6/24!/4,,/20/1:58)`. Resolves to the wrong end of the
+ * section, so a saved/synced location with this shape must be discarded
+ * (readest#4370 / foliate cfi-inert skip-link).
+ */
+export const isMalformedLocationCfi = cfi => {
+    try {
+        const parts = parse(cfi)
+        if (!parts.parent) return false
+        const isEmptyPath = segment =>
+            Array.isArray(segment)
+            && segment.every(group => Array.isArray(group) && group.length === 0)
+        return isEmptyPath(parts.start) || isEmptyPath(parts.end)
+    } catch {
+        return false
+    }
+}
+
 const partToString = ({ index, id, offset, temporal, spatial, text, side }) => {
     const param = side ? `;s=${side}` : ''
     return `/${index}`
@@ -191,7 +210,10 @@ const isElementNode = ({ nodeType }) => nodeType === 1
 const getChildNodes = (node, filter) => {
     const nodes = Array.from(node.childNodes)
         // "content other than element and character data is ignored"
-        .filter(node => isTextNode(node) || isElementNode(node))
+        .filter(node => {
+            if (node.nodeType === 1 && node.hasAttribute?.('cfi-inert')) return false
+            return isTextNode(node) || isElementNode(node)
+        })
     return filter ? nodes.map(node => {
         const accept = filter(node)
         if (accept === NodeFilter.FILTER_REJECT) return null

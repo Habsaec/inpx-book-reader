@@ -62,8 +62,9 @@ import { resolveNextInSeries, type NextInSeriesResult } from './lib/seriesNaviga
 import { syncContinueReadingWidget } from './lib/continueWidget';
 import { useDownloadQueue } from './hooks/useDownloadQueue';
 import { useSnackbar } from './ui/Snackbar';
-import { authHeader, coverUrl, fetchServerLogoBlob } from './lib/inpxClient';
+import { authHeader, bookContentUrl, coverUrl, displayCoverUrl, fetchServerLogoBlob } from './lib/inpxClient';
 import { warmCoverCache } from './lib/coverCache';
+import { isLocalServerUrl } from './lib/serverUrlSwitch';
 import type { Book } from './types';
 
 const CatalogTab = React.lazy(() => import('./components/CatalogTab'));
@@ -114,12 +115,16 @@ export default function App() {
   const [catalogSelectedSeries, setCatalogSelectedSeries] = React.useState<string | null>(null);
   const [catalogSelectedSubgenre, setCatalogSelectedSubgenre] = React.useState<{ parent: string; name: string } | null>(null);
   const [catalogReturnTo, setCatalogReturnTo] = React.useState<AppTab | null>(null);
+  /** Home search → catalog results. Applied even if CatalogTab mounts after the nav epoch bump. */
+  const [catalogPendingSearch, setCatalogPendingSearch] = React.useState<string | null>(null);
   /** Bumped on external catalog deep-links so CatalogTab resets search. */
   const [catalogNavEpoch, setCatalogNavEpoch] = React.useState(0);
   /** Bumped on Home tab re-tap — close «Показать всё» lists. */
   const [homeRootEpoch, setHomeRootEpoch] = React.useState(0);
   /** Bumped on Library tab re-tap — close overlays / shelf / back to root segment. */
   const [libraryRootEpoch, setLibraryRootEpoch] = React.useState(0);
+  /** Bumped when the header status icon opens connection settings. */
+  const [connectionFocusEpoch, setConnectionFocusEpoch] = React.useState(0);
   const readerOriginTabRef = React.useRef<AppTab>('home');
 
   const { resetExitPrompt } = useAppBackButton(() => snackbar.show('Ещё раз для выхода'));
@@ -140,6 +145,7 @@ export default function App() {
     series: string | null = null,
     returnTo: AppTab | null = null,
   ) => {
+    setCatalogPendingSearch(null);
     setActiveTab('catalog');
     setCatalogSubTab(subTab);
     setCatalogSelectedAuthor(author);
@@ -151,6 +157,7 @@ export default function App() {
   }, []);
 
   const handleOpenCatalogRoot = React.useCallback(() => {
+    setCatalogPendingSearch(null);
     setCatalogReturnTo(null);
     clearCatalogDrilldown();
     setCatalogSubTab('authors');
@@ -160,6 +167,7 @@ export default function App() {
 
   const handleCompleteCatalogReturn = React.useCallback(() => {
     const target = catalogReturnTo ?? 'home';
+    setCatalogPendingSearch(null);
     setCatalogReturnTo(null);
     clearCatalogDrilldown();
     setCatalogSubTab('authors');
@@ -167,9 +175,21 @@ export default function App() {
     setActiveTab(target);
   }, [catalogReturnTo, clearCatalogDrilldown]);
 
+  const handleHomeSearchSubmit = React.useCallback((query: string) => {
+    const q = query.trim();
+    if (!q) return;
+    setCatalogPendingSearch(q);
+    clearCatalogDrilldown();
+    setCatalogSubTab('books');
+    setCatalogReturnTo('home');
+    setCatalogNavEpoch((n) => n + 1);
+    setActiveTab('catalog');
+  }, [clearCatalogDrilldown]);
+
   const handleTabChange = React.useCallback((tab: AppTab) => {
     // Leaving Catalog abandons drill-down/return stack so re-entry is a clean root.
     if (tab !== 'catalog') {
+      setCatalogPendingSearch(null);
       setCatalogReturnTo(null);
       clearCatalogDrilldown();
       setCatalogSubTab('authors');
@@ -184,6 +204,7 @@ export default function App() {
       } else if (tab === 'library') {
         setLibraryRootEpoch((n) => n + 1);
       } else if (tab === 'catalog') {
+        setCatalogPendingSearch(null);
         setCatalogReturnTo(null);
         clearCatalogDrilldown();
         setCatalogSubTab('authors');
@@ -193,6 +214,11 @@ export default function App() {
 
     setActiveTab(tab);
   }, [activeTab, clearCatalogDrilldown]);
+
+  const handleOpenConnectionSettings = React.useCallback(() => {
+    handleTabChange('profile');
+    setConnectionFocusEpoch((n) => n + 1);
+  }, [handleTabChange]);
 
   const [appearance, setAppearance] = React.useState<AppAppearance>(
     () => parseAppAppearance(getAppSettingString(APP_SETTING_KEYS.theme)),
@@ -232,6 +258,7 @@ export default function App() {
 
   const inpxServer = useInpxServer(serverConfig, markServerDisconnected, markAuthExpired);
   const isOnline = inpxServer.online;
+  const isLocalConnection = isLocalServerUrl(serverConfig.url, serverConfig.localUrl);
   const canReadOnline = isOnline;
   const { siteName, logoSrc } = useServerBranding(serverConfig);
 
@@ -480,6 +507,26 @@ export default function App() {
     handleUpdateReaderAnnotation,
     handleRemoveReaderBookmark,
   } = bookActions;
+
+  const handleHomeSearchBook = React.useCallback((row: {
+    id: string;
+    title: string;
+    authors?: string;
+    authorsDisplay?: string;
+  }) => {
+    openBookDetails({
+      id: row.id,
+      title: row.title,
+      author: row.authorsDisplay || row.authors || '',
+      ext: 'fb2',
+      coverUrl: displayCoverUrl(serverConfig, row.id),
+      contentUrl: bookContentUrl(serverConfig, row.id),
+    });
+  }, [openBookDetails, serverConfig]);
+
+  const handleConsumePendingSearch = React.useCallback(() => {
+    setCatalogPendingSearch(null);
+  }, []);
 
   useAndroidLaunch({
     ready: serverConfigReady && libraryReady && storageDirectoryReady,
@@ -795,7 +842,9 @@ export default function App() {
           logoSrc={logoSrc}
           isOnline={isOnline}
           isVerifyingConnection={isVerifyingConnection}
+          isLocalConnection={isLocalConnection}
           queuedCount={queuedCount}
+          onOpenConnectionSettings={handleOpenConnectionSettings}
         >
           <TabScreenPanel active={activeTab === 'home'}>
             <HomeTab
@@ -815,6 +864,10 @@ export default function App() {
               fetchSectionBooks={isOnline ? inpxServer.fetchSectionBooks : undefined}
               onRefresh={isOnline ? () => inpxServer.refresh() : undefined}
               onGoCatalog={handleOpenCatalogRoot}
+              onSearchSubmit={handleHomeSearchSubmit}
+              onSearchAuthor={(name) => handleNavigateToCatalog('authors', name, null, 'home')}
+              onSearchSeries={(name) => handleNavigateToCatalog('series', null, name, 'home')}
+              onSearchBook={handleHomeSearchBook}
               onBookLongPress={openBookActions}
               isTabActive={activeTab === 'home' && !activeReader}
               homeRootEpoch={homeRootEpoch}
@@ -857,6 +910,8 @@ export default function App() {
                 onReturnToPreviousTab={handleCompleteCatalogReturn}
                 onClearReturnTo={() => setCatalogReturnTo(null)}
                 catalogNavEpoch={catalogNavEpoch}
+                pendingSearchQuery={catalogPendingSearch}
+                onConsumePendingSearch={handleConsumePendingSearch}
                 onBookLongPress={openBookActions}
                 onAuthExpired={markAuthExpired}
                 onConnectionLost={markServerDisconnected}
@@ -953,6 +1008,7 @@ export default function App() {
               einkDetected={einkDetected}
               localBookCount={downloadedBooksWithFile.length}
               localInProgressCount={localRecentReading.filter((b) => b.readProgress > 0 && b.readProgress < 99).length}
+              connectionFocusEpoch={connectionFocusEpoch}
             />
           </TabScreenPanel>
           <NextInSeriesSheet

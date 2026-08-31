@@ -303,70 +303,51 @@ export const makeFB2 = async blob => {
     })
 
     /**
-     * Split chapters into separate Foliate documents so each starts on a new page.
-     * CSS column-break is unreliable in Android WebView.
-     * Handles both nested <section><title>… and sibling <title> blocks in one section.
+     * Paper-book flow: keep the fiction body as one Foliate document so the next
+     * chapter can start on the same page. Notes stay a separate non-linear section.
      */
-    const isTitledSection = el => el?.localName === 'section'
-        && Boolean(el.querySelector(':scope > .title'))
-    const isTitleEl = el => el?.classList?.contains('title')
-    const explodeChapterSections = el => {
-        const kids = [...el.children]
-        const hasNestedChapters = kids.some(isTitledSection)
-        const siblingTitles = kids.filter(isTitleEl).length
-        if (!hasNestedChapters && siblingTitles <= 1) return [el]
-
-        const out = []
-        let buf = []
-        let titlesInBuf = 0
-        const flushBuf = () => {
-            if (!buf.length) return
-            const wrap = el.cloneNode(false)
-            for (const node of buf) wrap.appendChild(node)
-            buf = []
-            titlesInBuf = 0
-            if (countSectionText(wrap) > 0 || wrap.querySelector('.title, img, svg')) {
-                out.push(wrap)
+    const stitchFictionEls = (parts) => {
+        const els = parts.map(({ el }) => el).filter(Boolean)
+        if (!els.length) return null
+        if (els.length === 1) return els[0]
+        const wrap = els[0].ownerDocument.createElement('div')
+        wrap.classList.add('fb2-body')
+        for (const el of els) wrap.appendChild(el)
+        return wrap
+    }
+    const collectChapterTitles = (root) => {
+        const titles = []
+        const visit = (el) => {
+            if (!el?.children) return
+            for (const child of el.children) {
+                if (child.classList?.contains('title')) {
+                    const index = titles.length
+                    child.setAttribute(dataID, index)
+                    titles.push({ title: getElementText(child), index })
+                    continue
+                }
+                if (child.localName === 'section') visit(child)
             }
         }
-        for (const child of kids) {
-            if (isTitledSection(child)) {
-                flushBuf()
-                out.push(...explodeChapterSections(child))
-                continue
-            }
-            if (isTitleEl(child) && titlesInBuf >= 1) {
-                flushBuf()
-                buf.push(child)
-                titlesInBuf = 1
-                continue
-            }
-            if (isTitleEl(child)) titlesInBuf += 1
-            buf.push(child)
-        }
-        flushBuf()
-        return out.length ? out : [el]
+        visit(root)
+        return titles
     }
 
     const urls = []
-    const sectionData = bodyData[0][0]
-        // One Foliate section per chapter (flatten nested FB2 sections with titles)
-        .flatMap(({ el }) => explodeChapterSections(el).map(part => {
-            const ids = [part, ...part.querySelectorAll('[id]')].map(node => node.id)
-            const titles = Array.from(
-                part.querySelectorAll(':scope > section > .title'),
-                (titleEl, index) => {
-                    titleEl.setAttribute(dataID, index)
-                    return { title: getElementText(titleEl), index }
-                })
-            return { ids, titles: titles.length ? titles : null, el: part }
-        }))
-        // for additional bodies, only make one section for each body
-        .concat(bodyData.slice(1).map(([sections, body]) => {
+    const fictionEl = stitchFictionEls(bodyData[0]?.[0] ?? [])
+    const fictionTitles = collectChapterTitles(fictionEl)
+    const sectionData = [
+        ...(fictionEl ? [{
+            ids: [fictionEl, ...fictionEl.querySelectorAll('[id]')].map(node => node.id),
+            titles: fictionTitles.length ? fictionTitles : null,
+            el: fictionEl,
+        }] : []),
+        ...bodyData.slice(1).map(([sections, body]) => {
             const ids = sections.map(s => s.ids).flat()
             body.classList.add('notesBodyType')
             return { ids, el: body, linear: 'no' }
-        }))
+        }),
+    ]
         .map(({ ids, titles, el, linear }) => {
             const str = el.localName === 'body' ? templateBodySection(el) : template(el.outerHTML)
             const blob = new Blob([str], { type: MIME.XHTML })
@@ -397,17 +378,17 @@ export const makeFB2 = async blob => {
         return { id: index, load, createDocument, size, linear }
     })
 
-    book.toc = sectionData.map(({ title, titles }, index) => {
-        const id = index.toString()
-        return {
-            label: title,
-            href: id,
-            subitems: titles?.length ? titles.map(({ title, index }) => ({
-                label: title,
-                href: `${id}#${index}`,
-            })) : null,
+    book.toc = sectionData.flatMap(({ title, titles }, index) => {
+        const href = index.toString()
+        if (titles?.length) {
+            return titles.map(({ title: label, index: tid }) => ({
+                label,
+                href: `${href}#${tid}`,
+                subitems: null,
+            }))
         }
-    }).filter(item => item)
+        return title ? [{ label: title, href, subitems: null }] : []
+    }).filter(item => item.label)
 
     book.resolveHref = href => {
         let h = typeof href === 'string' ? href.trim() : ''

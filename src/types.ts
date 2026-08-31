@@ -87,6 +87,11 @@ export interface ServerConfig {
   deviceToken?: string;
   deviceTokenId?: string;
   connectionStatus: 'connected' | 'disconnected' | 'testing';
+  /** Prefer LAN URL on home Wi-Fi, then Tailscale/other URLs. */
+  autoSwitch?: boolean;
+  localSsid?: string;
+  localUrl?: string;
+  alternateUrls?: string[];
 }
 
 export interface SyncData {

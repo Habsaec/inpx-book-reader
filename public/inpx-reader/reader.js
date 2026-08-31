@@ -1,4 +1,4 @@
-import '/foliate/view.js?v=page-turn-1';
+import '/foliate/view.js?v=swipe-4';
 import { createTOCView } from '/foliate/ui/tree.js?v=fb2seek4';
 import { Overlayer } from '/foliate/overlayer.js?v=fb2seek4';
 import {
@@ -15,7 +15,7 @@ import {
 } from '/inpx-reader/reader-shared/reader-position.js';
 import { createSuppressionCounter } from '/inpx-reader/reader-shared/suppression-counter.js';
 import { enrichAndroidPositionPayload } from '/inpx-reader/reader-shared/android-position.js';
-import { isTextAnchorLandingVerified } from '/inpx-reader/reader-shared/text-anchor.js';
+import { isStaleExplodedFb2Anchor, isTextAnchorLandingVerified } from '/inpx-reader/reader-shared/text-anchor.js';
 import {
   TAP_ZONE_IDS,
   TAP_ACTION_LABELS,
@@ -24,6 +24,7 @@ import {
   normalizeTapZones,
   resolveTapZone9,
 } from '/inpx-reader/tap-zones.js';
+import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
 
 (function () {
   'use strict';
@@ -136,7 +137,6 @@ import {
   const rssChapterLeft = $('rss-chapter-left');
   const rssPct = $('rss-pct');
   const rssClock = $('rss-clock');
-  const hudFlashEl = $('reader-hud-flash');
   const autoFlipHud = $('reader-autoflip-hud');
   const gotoOverlay = $('reader-goto');
 
@@ -145,7 +145,6 @@ import {
   /** Last paginator screen estimate for status / goto. */
   let lastPageInfo = { current: 0, total: 0, chapterLeft: 0, chapterLabel: '' };
   let statusClockTimer = null;
-  let hudFlashTimer = null;
   let lastPageHapticAt = 0;
   let autoFlipTimer = null;
   let autoFlipArmed = false;
@@ -757,8 +756,7 @@ import {
     const mode = layoutMode();
     view.style.boxSizing = 'border-box';
     view.style.paddingInline = `${side}px`;
-    /* На телефоне (paginated): нижняя полоса статуса снаружи #reader-body —
-       Foliate footer margin только дублирует пустоту. Верх = verticalMargin. */
+    /* На телефоне (paginated): статус и панели поверх текста, не сжимают колонки. */
     if (mobileMq.matches && mode !== 'scrolled') {
       view.renderer.setAttribute('margin', '0px');
       view.renderer.setAttribute('margin-top', `${vert}px`);
@@ -1062,36 +1060,28 @@ import {
       pre { white-space: pre-wrap !important; }
       aside[epub|type~="endnote"],aside[epub|type~="footnote"],aside[epub|type~="note"],aside[epub|type~="rearnote"] { display: none; }
       a { color: ${link} !important; }
-      /* EPUB in-document chapter starts. FB2 chapters are separate Foliate sections. */
-      ${isFb2Book() ? '' : `
-      body:not(.notesBodyType) h1 {
-        break-before: column !important;
-        -webkit-column-break-before: always !important;
-        page-break-before: always !important;
-      }
+      /* Paper-book flow: next chapter continues on the same page. */
+      body:not(.notesBodyType) h1,
       body:not(.notesBodyType) section[epub|type~="chapter"],
       body:not(.notesBodyType) div[epub|type~="chapter"],
       body:not(.notesBodyType) article[epub|type~="chapter"],
       body:not(.notesBodyType) section.chapter,
       body:not(.notesBodyType) div.chapter {
-        break-before: column !important;
-        -webkit-column-break-before: always !important;
-        page-break-before: always !important;
-      }
-      body > h1:first-child,
-      body > header:first-child,
-      body > section:first-child > h1:first-child,
-      body > section.chapter:first-child,
-      body > div.chapter:first-child,
-      body > section[epub|type~="chapter"]:first-child,
-      body > div[epub|type~="chapter"]:first-child,
-      body > article[epub|type~="chapter"]:first-child {
         break-before: auto !important;
         -webkit-column-break-before: auto !important;
         page-break-before: auto !important;
       }
-      `}
       ${READER_LITE ? 'img,svg image { filter: grayscale(100%) contrast(115%) !important; }' : ''}
+      ${S.invert ? `
+      img, svg, video, canvas, image {
+        filter: invert(1) hue-rotate(180deg) !important;
+      }
+      ` : ''}
+      ${pubFont ? '' : `
+      p, li, div, span, td, th, blockquote, dd, dt, a, em, strong, i, b, u, section, article {
+        font-size: inherit !important;
+      }
+      `}
     `;
     const parts = [];
     const gf = GOOGLE_FONTS[S.font];
@@ -1259,14 +1249,15 @@ import {
     syncStatusStrip();
   }
 
-  function pinRendererTextAnchor(snap) {
+  function pinRendererTextAnchor(snap, force = false) {
     const renderer = view?.renderer;
     if (!renderer || typeof renderer.pinTextAnchor !== 'function') return;
     const loc = view?.lastLocation;
     const currentSection = Number(loc?.section?.current);
     const snapSection = Number(snap?.sectionIndex);
     if (
-      Number.isInteger(currentSection)
+      !force
+      && Number.isInteger(currentSection)
       && Number.isInteger(snapSection)
       && currentSection !== snapSection
     ) return;
@@ -1332,6 +1323,26 @@ import {
       releaseRendererLayout();
       endLayoutSuppress();
     }
+  }
+
+  let applySettingsTimer = null;
+  function requestApplySettings() {
+    const snap = captureStickyLayoutAnchor();
+    markLayoutChurn();
+    beginLayoutSuppress();
+    holdRendererLayout();
+    pinRendererTextAnchor(snap);
+    clearTimeout(applySettingsTimer);
+    applySettingsTimer = setTimeout(() => {
+      applySettingsTimer = null;
+      applySettings();
+    }, 140);
+  }
+  function flushApplySettings() {
+    if (applySettingsTimer == null) return;
+    clearTimeout(applySettingsTimer);
+    applySettingsTimer = null;
+    applySettings();
   }
 
   let layoutRestoreToken = 0;
@@ -1786,26 +1797,6 @@ import {
     } catch { /* ignore */ }
   }
 
-  function flashReadingHud() {
-    if (!hudFlashEl) return;
-    const chapter = formatChapterLabel(lastPageInfo.chapterLabel || ftChapter?.textContent || '');
-    const pct = fractionToProgress(currentFraction).toFixed(1) + '%';
-    const page =
-      lastPageInfo.total > 0
-        ? `${lastPageInfo.current}/${lastPageInfo.total}`
-        : '';
-    const parts = [chapter, page, pct].filter(Boolean);
-    if (!parts.length) return;
-    hudFlashEl.textContent = parts.join(' · ');
-    hudFlashEl.classList.add('is-visible');
-    hudFlashEl.setAttribute('aria-hidden', 'false');
-    clearTimeout(hudFlashTimer);
-    hudFlashTimer = setTimeout(() => {
-      hudFlashEl.classList.remove('is-visible');
-      hudFlashEl.setAttribute('aria-hidden', 'true');
-    }, 1600);
-  }
-
   /** Сбросить таймер скрытия, не показывая панели силой (если уже скрыты — ничего не делаем). */
   function scheduleChromeHide() {
     clearTimeout(chromeTimer);
@@ -1819,7 +1810,6 @@ import {
     if (panelOverlay.classList.contains('is-open')) return;
     if (document.body.classList.contains('chrome-hidden')) {
       setChromeVisible(true);
-      flashReadingHud();
       chromeTimer = setTimeout(() => setChromeVisible(false), CHROME_AUTOHIDE_MS());
     } else {
       setChromeVisible(false);
@@ -2001,7 +1991,7 @@ import {
     if (rssPct.parentElement !== right) right.appendChild(rssPct);
   }
 
-  /** #reader-body.bottom = --r-bottom-reserve; без этого текст лезет под «Глава / стр.». */
+  /** Высота статус-полосы для тостов/дока. Колонки книги не трогаем. */
   function applyStatusStripReserve(show) {
     const root = document.documentElement;
     root.classList.toggle('status-strip-on', Boolean(show));
@@ -2027,7 +2017,6 @@ import {
     const mode = S.statusMode || 'withChrome';
     statusStripEl.dataset.mode = mode;
     const show = mode !== 'hidden';
-    const wasVisible = statusStripEl.classList.contains('is-visible');
     statusStripEl.classList.toggle('is-visible', show);
     statusStripEl.setAttribute('aria-hidden', show ? 'false' : 'true');
 
@@ -2076,17 +2065,7 @@ import {
       }, 30_000);
     }
 
-    const applyReserveAndRelayout = () => {
-      const changed = applyStatusStripReserve(show) || wasVisible !== show;
-      if (!changed) return;
-      try { applyRendererLayout(); } catch { /* view may be absent */ }
-      try { window.dispatchEvent(new Event('resize')); } catch { /* ignore */ }
-    };
-    if (show) {
-      requestAnimationFrame(applyReserveAndRelayout);
-    } else {
-      applyReserveAndRelayout();
-    }
+    applyStatusStripReserve(show);
   }
   window.__READER_SYNC_STATUS_STRIP__ = syncStatusStrip;
 
@@ -2136,6 +2115,9 @@ import {
 
   function runTapAction(action) {
     if (!action || action === 'none') return;
+    // Taps during open/restore used to next()/prev() onto page 1 and then
+    // persist that as progress (readest#1983).
+    if (document.documentElement.classList.contains('is-restoring-position')) return;
     void acquireReaderWakeLock();
     switch (action) {
       case 'prevPage': view?.goLeft?.(); break;
@@ -2471,6 +2453,9 @@ import {
 
   function readerPositionFromLocation(loc) {
     const payload = sharedPositionFromLocation(loc, isFb2Active());
+    if (payload.position && isMalformedLocationCfi(payload.position)) {
+      payload.position = '';
+    }
     return enrichAndroidPositionPayload(payload, loc, view?.renderer, layoutMode());
   }
 
@@ -2540,6 +2525,8 @@ import {
 
   /** Last position the user intentionally reached (or a verified restore). */
   let committedPosition = null;
+  /** Bookmark/annotation deep-link: do not persist as reading progress until a user page turn. */
+  let previewPositionUntilUserTurn = false;
 
   function isBackwardPageDrift(prev, next) {
     if (!prev || !next) return false;
@@ -2572,6 +2559,10 @@ import {
   function savePosition(payload, reason) {
     if (positionSaveSuppression.isSuppressed()) return;
     const userTurn = reason === 'page' || reason === 'snap' || reason === 'scroll';
+    if (previewPositionUntilUserTurn) {
+      if (!userTurn) return;
+      previewPositionUntilUserTurn = false;
+    }
     if (
       !userTurn
       && isLayoutChurning()
@@ -2629,6 +2620,10 @@ import {
     syncTimer = null;
     // Always ack parent flush waiters — early return without notify left close stuck for 2s.
     if (positionSaveSuppression.isSuppressed()) {
+      ackParentFlush();
+      return;
+    }
+    if (previewPositionUntilUserTurn) {
       ackParentFlush();
       return;
     }
@@ -2870,6 +2865,14 @@ import {
     const frac = savedFraction(saved);
     const sectionIndex = Number(saved?.sectionIndex);
     const textOffset = Number(saved?.textOffset);
+    const linearCount = (view?.book?.sections || []).filter((s) => s?.linear !== 'no').length;
+    const currentTextLength = Number(
+      view?.renderer?.sectionTextLength ?? view?.lastLocation?.textSectionLength,
+    );
+    const staleExplodedSection = isStaleExplodedFb2Anchor(saved, {
+      linearCount,
+      currentTextLength,
+    });
     if (
       saved?.sectionIndex != null
       && saved?.textOffset != null
@@ -2877,6 +2880,7 @@ import {
       && sectionIndex >= 0
       && Number.isInteger(textOffset)
       && textOffset >= 0
+      && !staleExplodedSection
       && typeof view?.goToTextAnchor === 'function'
     ) {
       try {
@@ -2924,6 +2928,7 @@ import {
         : await goToReaderTarget(urlPos, { retries: 8 });
       posLog('restore', { method: isAnnotationTarget ? 'urlPos-annotation' : 'urlPos', ok });
       if (ok) {
+        previewPositionUntilUserTurn = true;
         await waitForLayoutSettled(800);
         return false;
       }
@@ -2964,7 +2969,7 @@ import {
       if (isFb2Active()) {
         method = await restoreFb2ReadingPosition(effectiveSaved) || 'none';
         if (!method || method === 'none') {
-          if (cfi && !isAppReaderPosition(cfi)) {
+          if (cfi && !isAppReaderPosition(cfi) && !isMalformedLocationCfi(cfi)) {
             const ok = await goToReaderTarget(cfi, { retries: 5 });
             method = ok ? 'cfi-fallback' : 'next';
             if (!ok) await view.renderer.next();
@@ -2973,9 +2978,18 @@ import {
             method = 'next';
           }
         }
-      } else if (cfi && !isAppReaderPosition(cfi)) {
+      } else if (cfi && !isAppReaderPosition(cfi) && !isMalformedLocationCfi(cfi)) {
         await view.init({ lastLocation: cfi });
         method = 'cfi';
+      } else if (cfi && isMalformedLocationCfi(cfi)) {
+        posLog('restore', { method: 'cfi-malformed-skip', cfi: cfi.slice(0, 48) });
+        if (frac > 0) {
+          await view.init({ lastLocation: { fraction: frac } });
+          method = 'fraction';
+        } else {
+          await view.renderer.next();
+          method = 'next';
+        }
       } else if (fb2Href && isFb2Href(fb2Href)) {
         await view.goTo(fb2Href);
         method = 'fb2Href';
@@ -4067,6 +4081,34 @@ import {
       });
     }
     document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
+    const paneOrder = ['text', 'look', 'controls', 'more'];
+    function showSettingsPane(name) {
+      const pane = paneOrder.includes(name) ? name : 'text';
+      document.querySelectorAll('.rs-nav-btn').forEach((b) => {
+        const on = b.dataset.rsPane === pane;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
+      });
+      document.querySelectorAll('.rs-pane').forEach((p) => {
+        p.hidden = p.dataset.rsPane !== pane;
+      });
+    }
+    document.querySelectorAll('.rs-nav-btn').forEach((btn) => {
+      btn.addEventListener('click', () => showSettingsPane(btn.dataset.rsPane));
+    });
+    $('rs-subtabs')?.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const buttons = [...document.querySelectorAll('.rs-nav-btn')];
+      const i = buttons.findIndex((b) => b.classList.contains('is-active'));
+      if (i < 0) return;
+      const next = e.key === 'ArrowRight'
+        ? buttons[(i + 1) % buttons.length]
+        : buttons[(i - 1 + buttons.length) % buttons.length];
+      showSettingsPane(next.dataset.rsPane);
+      next.focus();
+      e.preventDefault();
+    });
     $('reader-reset-settings')?.addEventListener('click', resetSettings);
 
     const textColorInput = $('rs-text-color');
@@ -4074,7 +4116,8 @@ import {
     if (textColorInput) {
       textColorInput.addEventListener('input', () => {
         S.textColor = textColorInput.value;
-        applySettings();
+        saveSettings();
+        applyBookStyles();
       });
     }
     textColorDefaultBtn?.addEventListener('click', () => {
@@ -4088,7 +4131,9 @@ import {
     if (bgColorInput) {
       bgColorInput.addEventListener('input', () => {
         S.bgColor = bgColorInput.value;
-        applySettings();
+        saveSettings();
+        applyShellBackground();
+        applyBookStyles();
       });
     }
     bgColorDefaultBtn?.addEventListener('click', () => {
@@ -4102,7 +4147,8 @@ import {
     if (linkColorInput) {
       linkColorInput.addEventListener('input', () => {
         S.linkColor = linkColorInput.value;
-        applySettings();
+        saveSettings();
+        applyBookStyles();
       });
     }
     linkColorDefaultBtn?.addEventListener('click', () => {
@@ -4113,16 +4159,6 @@ import {
 
     initBgImageSettings();
 
-    let applySettingsTimer = null;
-    const requestApplySettings = () => {
-      const snap = captureStickyLayoutAnchor();
-      markLayoutChurn();
-      beginLayoutSuppress();
-      holdRendererLayout();
-      pinRendererTextAnchor(snap);
-      clearTimeout(applySettingsTimer);
-      applySettingsTimer = setTimeout(() => applySettings(), 140);
-    };
     const wire = (id, valId, prop, fmt) => {
       const sl = $(id), vl = $(valId); if (!sl) return;
       sl.value = S[prop]; if (vl) vl.textContent = fmt ? fmt(S[prop]) : S[prop];
@@ -6479,9 +6515,7 @@ import {
     if (warmthDrag) return;
     const t = e.touches[0];
     if (!isLeftEdgeBrightnessZone(touchPageX(t.clientX, doc_))) return;
-    // Не refreshLightState здесь: async syncFromDevice на старте жеста
-    // откатывает raw и обрывает «туда-сюда».
-    suppressBookGesture = true;
+    // Не глушить тап: suppress только когда свайп яркости реально начался.
     const resume = takeLightResume('brightness');
     brightnessDrag = {
       id: t.identifier,
@@ -6601,9 +6635,6 @@ import {
       suppressBookGesture = true;
       // hard: иначе Foliate на touchend всё равно перелистнёт
       eatLightGestureEvent(e, { hard: true });
-    } else if (suppressBookGesture) {
-      // Краткий вертикальный сдвиг у края — не считать тапом/листанием
-      eatLightGestureEvent(e, { hard: true });
     }
     return wasActive;
   }
@@ -6644,7 +6675,6 @@ import {
     if (brightnessDrag) return;
     const t = e.touches[0];
     if (!isRightEdgeWarmthZone(touchPageX(t.clientX, doc_))) return;
-    suppressBookGesture = true;
     const resume = takeLightResume('warmth');
     warmthDrag = {
       id: t.identifier,
@@ -6751,8 +6781,6 @@ import {
       }
       suppressBookGesture = true;
       eatLightGestureEvent(e, { hard: true });
-    } else if (suppressBookGesture) {
-      eatLightGestureEvent(e, { hard: true });
     }
     return wasActive;
   }
@@ -6797,12 +6825,37 @@ import {
 
     let pinchStartDist = 0;
     let pinchStartSize = 0;
+    let pinchPendingSize = 0;
     function touchDistPinch(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
+    function applyPinchFontSize(size) {
+      const next = Math.round(Math.min(32, Math.max(12, size)));
+      pinchPendingSize = next;
+      if (next === S.fontSize) return;
+      S.fontSize = next;
+      refreshSettingsUI();
+      requestApplySettings();
+    }
+    function commitPinchFont() {
+      if (!pinchStartDist) {
+        pinchPendingSize = 0;
+        return;
+      }
+      pinchStartDist = 0;
+      const pending = pinchPendingSize;
+      pinchPendingSize = 0;
+      if (pending && pending !== S.fontSize) {
+        S.fontSize = pending;
+        refreshSettingsUI();
+      }
+      flushApplySettings();
+    }
 
     /* Тап по ссылке в режиме колонок: foliate на touchmove/touchend листает страницу и
      * перебивает клик; pointerup у нас срабатывает до click и зоны листания тоже мешают.
      * Не вызывать preventDefault на touchmove — иначе WebKit часто шлёт touchcancel, touchend
-     * не обрабатывает жест, а synthetic click не вызывается. */
+     * не обрабатывает жест, а synthetic click не вызывается.
+     * Зоны тапа (меню, листание) работают и в scrolled — иначе верхняя панель
+     * не открывается, а соседняя глава не загружается (Foliate держит одну секцию). */
     const LINK_TAP_SLOP = 28;
     let linkTapTouch = null;
     const isFlowPaginated = () => S.layout !== 'scrolled';
@@ -6888,6 +6941,7 @@ import {
     function finishLinkTapFromTouch(e, a) {
       linkTapTouch = null;
       pinchStartDist = 0;
+      pinchPendingSize = 0;
       e.stopImmediatePropagation();
       e.preventDefault();
       queueMicrotask(() => {
@@ -6924,7 +6978,7 @@ import {
           edgeMenuTrack = { x: t.clientX, y: t.clientY, armed: false };
         }
       }
-      if (isFlowPaginated() && e.touches.length === 1 && !e.target.closest?.('a[href]')) {
+      if (e.touches.length === 1 && !e.target.closest?.('a[href]')) {
         const t = e.touches[0];
         screenTapTrack = { x: t.clientX, y: t.clientY, t: Date.now(), longFired: false, longTimer: null };
         armScreenTapLongPress(doc);
@@ -6966,7 +7020,7 @@ import {
           edgeMenuTrack = null;
         }
       }
-      if (!isFlowPaginated() || !screenTapTrack || e.touches.length !== 1) return;
+      if (!screenTapTrack || e.touches.length !== 1) return;
       const t = e.touches[0];
       if (Math.hypot(t.clientX - screenTapTrack.x, t.clientY - screenTapTrack.y) > TAP_CANCEL_MOVE_PX) {
         clearScreenTapLongPress();
@@ -6994,7 +7048,6 @@ import {
         return;
       }
       edgeMenuTrack = null;
-      if (!isFlowPaginated()) return;
       if (isFootnoteOverlayOpen()) return;
       if (!screenTapTrack || e.changedTouches.length !== 1) return;
       if (screenTapTrack.longFired) {
@@ -7086,6 +7139,7 @@ import {
       if (e.touches.length === 2) {
         pinchStartDist = touchDistPinch(e.touches);
         pinchStartSize = S.fontSize;
+        pinchPendingSize = S.fontSize;
       }
     }, { passive: true });
     doc.addEventListener('touchmove', e => {
@@ -7093,10 +7147,10 @@ import {
       e.preventDefault();
       const ratio = touchDistPinch(e.touches) / pinchStartDist;
       const dampened = 1 + (ratio - 1) * 0.35;
-      const newSize = Math.round(Math.min(32, Math.max(12, pinchStartSize * dampened)));
-      if (newSize !== S.fontSize) { S.fontSize = newSize; applySettings(); refreshSettingsUI(); }
+      applyPinchFontSize(pinchStartSize * dampened);
     }, { passive: false });
-    doc.addEventListener('touchend', () => { pinchStartDist = 0; }, { passive: true });
+    doc.addEventListener('touchend', () => { commitPinchFont(); }, { passive: true });
+    doc.addEventListener('touchcancel', () => { commitPinchFont(); }, { passive: true });
 
     doc.addEventListener('pointerup', e => {
       /* Тач: зоны только в capture-touchend (ниже). Иначе pointerup и touchend оба листают —
@@ -7124,6 +7178,10 @@ import {
       const adx = Math.abs(dx), ady = Math.abs(dy);
       /* Мышь: горизонтальный свайп с любого места (как у многих десктоп-ридеров). Перо: только с края — иначе мешает выделению. */
       if (adx > 30 && adx > ady * 2 && dt < 800) {
+        if (document.documentElement.classList.contains('is-restoring-position')) {
+          pStart = null;
+          return;
+        }
         if (e.pointerType === 'mouse') {
           if (dx < 0) view?.goRight(); else view?.goLeft();
           void acquireReaderWakeLock();
@@ -7152,6 +7210,7 @@ import {
     doc.addEventListener('wheel', e => {
       if (S.layout === 'scrolled') return;
       if (e.ctrlKey || e.metaKey) return;
+      if (document.documentElement.classList.contains('is-restoring-position')) return;
       const dy = e.deltaY;
       const dx = e.deltaX;
       const mag = Math.hypot(dx, dy);
@@ -7268,10 +7327,31 @@ import {
     document.getElementById('reader-loading')?.remove();
   }
 
+  function ensureRestoreVeil() {
+    let veil = document.getElementById('reader-restore-veil');
+    if (veil) return veil;
+    veil = document.createElement('div');
+    veil.id = 'reader-restore-veil';
+    veil.className = 'reader-restore-veil';
+    veil.setAttribute('aria-busy', 'true');
+    veil.setAttribute('aria-label', 'Загрузка книги');
+    veil.innerHTML = '<div class="reader-spinner"></div><div class="reader-loading-text">Загрузка книги…</div>';
+    document.body.appendChild(veil);
+    return veil;
+  }
+
   function setRestoreVeil(on) {
-    const veil = document.getElementById('reader-restore-veil');
-    if (veil) veil.hidden = !on;
+    const veil = ensureRestoreVeil();
+    veil.hidden = !on;
+    veil.setAttribute('aria-busy', on ? 'true' : 'false');
     document.documentElement.classList.toggle('is-restoring-position', Boolean(on));
+  }
+
+  async function revealReaderAfterRestore() {
+    try {
+      await ensurePaginatorContentPage();
+      await waitForLayoutSettled(800);
+    } catch { /* still drop the veil */ }
   }
 
   async function waitForPaginatorReady(timeoutMs = 2500) {
@@ -7332,6 +7412,8 @@ import {
    * cryptic "Failed to load container file" message from foliate-js.
    */
   function showUnsupportedBanner(kind) {
+    hideReaderLoading();
+    setRestoreVeil(false);
     bookPagesEl?.classList.add('is-hidden');
     const downloadHref = globalThis.downloadBookPath ? globalThis.downloadBookPath(bookId) : `/download/${encodeURIComponent(bookId)}`;
     const title = kind === 'djvu' ? rt('readerJs.djvuUnsupportedTitle') : rt('readerJs.unsupportedTitle');
@@ -7426,6 +7508,7 @@ import {
     bookPagesEl?.classList.add('is-hidden');
     closeReaderFootnote();
     footnoteHandler = null;
+    setRestoreVeil(true);
 
     // Branch on book type: foliate-js doesn't handle PDF/DJVU. For PDF we let
     // the browser's native PDF viewer render the file; for DJVU we surface a
@@ -7440,6 +7523,8 @@ import {
       const pdfUrl = globalThis.apiBookPath
         ? globalThis.apiBookPath(bookId, 'content')
         : `/api/books/${encodeURIComponent(bookId)}/content`;
+      hideReaderLoading();
+      setRestoreVeil(false);
       readerBody.innerHTML = '<iframe class="reader-pdf-frame" src="' + pdfUrl + '" title="PDF"></iframe>';
       return;
     }
@@ -7480,7 +7565,6 @@ import {
     let bootRestoreInProgress = true;
     let openedView = false;
     try {
-      setRestoreVeil(true);
       if (needsRestore) positionSaveSuppression.begin();
 
       view = document.createElement('foliate-view');
@@ -7636,16 +7720,27 @@ import {
           console.warn('[reader] position restore', e);
         }
       }
-      if (typeof window.__SHOW_DEFERRED_CROSS_DEVICE_PROMPT__ === 'function') {
-        await window.__SHOW_DEFERRED_CROSS_DEVICE_PROMPT__();
-      }
     } finally {
-      bootRestoreInProgress = false;
+      await revealReaderAfterRestore();
+      if (typeof window.__READER_WAIT_OPEN_SYNC__ === 'function') {
+        await window.__READER_WAIT_OPEN_SYNC__(2500);
+      }
       try {
-        await ensurePaginatorContentPage();
+        if (typeof window.__SHOW_DEFERRED_CROSS_DEVICE_PROMPT__ === 'function') {
+          await window.__SHOW_DEFERRED_CROSS_DEVICE_PROMPT__();
+        }
       } catch { /* keep veil teardown */ }
+      bootRestoreInProgress = false;
+      clearTimeout(resizeTimer);
+      resizeTimer = null;
+      const replayViewport = pendingViewportPreserve;
+      viewportPreserveFrozen = false;
+      releaseRendererLayout();
+      endLayoutSuppress();
       setRestoreVeil(false);
       hideReaderLoading();
+      pendingViewportPreserve = false;
+      if (replayViewport) onViewportResize();
       if (needsRestore) positionSaveSuppression.end();
       if (openedView) {
         clearTimeout(chromeTimer);
@@ -7667,34 +7762,86 @@ import {
 
   /* Две колонки: при ресайзе окна пересчитать ширину колонки (без лишнего saveSettings). */
   let resizeTimer = null;
-  function onViewportResize() {
-    clearTimeout(resizeTimer);
-    if (!view?.renderer) return;
-    captureStickyLayoutAnchor();
-    pinRendererTextAnchor(layoutAnchorSticky);
-    if (typeof view.renderer.rememberSectionFrac === 'function') {
-      view.renderer.rememberSectionFrac();
+  let viewportPreserveFrozen = false;
+  let pendingViewportPreserve = false;
+
+  function anchorFromCommittedPosition() {
+    if (!committedPosition) return null;
+    return {
+      sectionIndex: Number(committedPosition.sectionIndex),
+      textOffset: Number(committedPosition.textOffset),
+      textQuote: String(committedPosition.textQuote || ''),
+      cfi: String(committedPosition.position || '').trim(),
+      fraction: Number(committedPosition.fraction) || 0,
+      fb2Href: committedPosition.fb2Href || null,
+      range: null,
+    };
+  }
+
+  function freezeViewportLayoutAnchor() {
+    if (viewportPreserveFrozen && isUsableLayoutAnchor(layoutAnchorSticky)) {
+      pinRendererTextAnchor(layoutAnchorSticky, true);
+      holdRendererLayout();
+      beginLayoutSuppress();
+      return;
     }
+    const size = Number(view?.renderer?.size);
+    const collapsed = !Number.isFinite(size) || size < 32;
+    const committed = anchorFromCommittedPosition();
+    let snap = collapsed ? layoutAnchorSticky : captureStickyLayoutAnchor();
+    if (committed && isUsableLayoutAnchor(committed) && (!snap || isLayoutAnchorJump(committed, snap))) {
+      snap = committed;
+    }
+    if (!isUsableLayoutAnchor(snap)) snap = layoutAnchorSticky;
+    if (isUsableLayoutAnchor(snap)) layoutAnchorSticky = snap;
+    pinRendererTextAnchor(layoutAnchorSticky, true);
     holdRendererLayout();
     beginLayoutSuppress();
+    viewportPreserveFrozen = true;
+  }
+
+  let lastViewportBox = { w: 0, h: 0 };
+
+  function onViewportResize() {
+    if (document.documentElement.classList.contains('is-restoring-position')) {
+      pendingViewportPreserve = true;
+      return;
+    }
+    if (!view?.renderer) return;
+    if (window.visualViewport && Number(window.visualViewport.scale) > 1.01) return;
+    const box = view.renderer.getBoundingClientRect();
+    if (
+      lastViewportBox.w > 0
+      && Math.abs(box.width - lastViewportBox.w) < 24
+      && Math.abs(box.height - lastViewportBox.h) < 24
+    ) {
+      return;
+    }
+    lastViewportBox = { w: box.width, h: box.height };
+    clearTimeout(resizeTimer);
+    freezeViewportLayoutAnchor();
     resizeTimer = setTimeout(async () => {
-      if (!view?.renderer) {
+      viewportPreserveFrozen = false;
+      pendingViewportPreserve = false;
+      if (!view?.renderer || document.documentElement.classList.contains('is-restoring-position')) {
+        pendingViewportPreserve = true;
         releaseRendererLayout();
         endLayoutSuppress();
         return;
       }
       applyRendererLayout();
       if (view.lastLocation) updateBookPageDisplay(view.lastLocation);
-      const snap = layoutAnchorSticky || (view.lastLocation ? snapshotLayoutAnchor(view.lastLocation) : null);
+      const snap = layoutAnchorSticky
+        || anchorFromCommittedPosition()
+        || (view.lastLocation ? snapshotLayoutAnchor(view.lastLocation) : null);
       if (snap) await preserveLocationAfterLayoutChange(snap, { applyStyles: false });
       else {
         releaseRendererLayout();
         endLayoutSuppress();
       }
-    }, 180);
+    }, 320);
   }
   window.addEventListener('resize', onViewportResize);
-  window.visualViewport?.addEventListener('resize', onViewportResize);
   window.addEventListener('orientationchange', onViewportResize);
 
   /** Explicit close path only — do not call on every pagehide (TTS keepalive uses pagehide). */
@@ -7704,14 +7851,12 @@ import {
     resizeTimer = null;
     clearTimeout(layoutPreserveTimer);
     layoutPreserveTimer = null;
+    clearTimeout(applySettingsTimer);
+    applySettingsTimer = null;
     layoutRestoreToken += 1;
     if (statusClockTimer != null) {
       clearInterval(statusClockTimer);
       statusClockTimer = null;
-    }
-    if (hudFlashTimer != null) {
-      clearTimeout(hudFlashTimer);
-      hudFlashTimer = null;
     }
     if (autoFlipTimer != null) {
       clearInterval(autoFlipTimer);
@@ -7719,7 +7864,6 @@ import {
     }
     autoFlipArmed = false;
     window.removeEventListener('resize', onViewportResize);
-    window.visualViewport?.removeEventListener('resize', onViewportResize);
     window.removeEventListener('orientationchange', onViewportResize);
     try {
       window.__READER_BOOTSTRAP_TEARDOWN__?.();
@@ -7782,8 +7926,9 @@ import {
   /* ===== Boot ===== */
   applySettings();
   initBrightnessGesture();
-  window.__READER_RESTORE_SAVED__ = async (saved) => {
+  window.__READER_RESTORE_SAVED__ = async (saved, opts = {}) => {
     if (!saved || !view) return false;
+    if (!opts?.force && !document.documentElement.classList.contains('is-restoring-position')) return false;
     positionSaveSuppression.begin();
     try {
       await restoreReadingPosition(saved, null);
@@ -7823,6 +7968,7 @@ import {
   };
   (async () => {
     try {
+      setRestoreVeil(true);
       try { window.__DEBUG_LOG__?.('H3', 'reader:boot', 'start', { bookId, bookExt }); } catch { /* */ }
       if (window.__READER_LOCAL_INIT__) {
         await window.__READER_LOCAL_INIT__;

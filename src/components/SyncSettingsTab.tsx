@@ -31,6 +31,7 @@ import { scanAppPairingQr, isQrScanCanceled } from '../lib/scanAppPairingQr';
 import type { AppAppearance, AppColorSource } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
 import DiagnosticsTab from './DiagnosticsTab';
+import ServerNetworkSettings, { canTestServerConnection } from './ServerNetworkSettings';
 import { textStyles, semantic, radii, elevation, motion } from '../ui/tokens';
 import Button from '../ui/Button';
 import { useSnackbar } from '../ui/Snackbar';
@@ -62,6 +63,8 @@ interface SyncSettingsTabProps {
   connectionError?: string | null;
   lastSynced: string | null;
   embedded?: boolean;
+  /** Bumped to scroll the connection block into view (header status icon). */
+  connectionFocusEpoch?: number;
 }
 
 export default function SyncSettingsTab({
@@ -86,6 +89,7 @@ export default function SyncSettingsTab({
   connectionError,
   lastSynced,
   embedded = false,
+  connectionFocusEpoch = 0,
 }: SyncSettingsTabProps) {
   const [pickingFolder, setPickingFolder] = React.useState(false);
   const [forgetting, setForgetting] = React.useState(false);
@@ -94,6 +98,8 @@ export default function SyncSettingsTab({
   const { viewMode: homeViewMode, setViewMode: setHomeViewMode } = useCatalogViewMode('home');
   const { viewMode: booksViewMode, setViewMode: setBooksViewMode } = useCatalogViewMode('books');
   const snackbar = useSnackbar();
+  const settingsScrollRef = React.useRef<HTMLDivElement>(null);
+  const connectionFocusSeen = React.useRef(connectionFocusEpoch);
   const themeInput = theme.input;
   const themeAccentText = theme.accentText;
   const themeTextMuted = theme.textMuted;
@@ -186,6 +192,12 @@ export default function SyncSettingsTab({
     };
   }, [storageDirectory, onChangeStorageDirectory]);
 
+  React.useLayoutEffect(() => {
+    if (connectionFocusEpoch === connectionFocusSeen.current) return;
+    connectionFocusSeen.current = connectionFocusEpoch;
+    settingsScrollRef.current?.scrollTo({ top: 0 });
+  }, [connectionFocusEpoch]);
+
   const appearanceOptions: Array<{ id: AppAppearance; label: string; icon: typeof Sun }> = [
     { id: 'light', label: 'День', icon: Sun },
     { id: 'dark', label: 'Ночь', icon: Moon },
@@ -215,8 +227,8 @@ export default function SyncSettingsTab({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-        <section className={sectionClass}>
+      <div ref={settingsScrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <section id="settings-server" className={sectionClass}>
           <div className="flex justify-between items-center select-none">
             <h3 className={textStyles.sectionLabel}>Сервер</h3>
             <span className={`${textStyles.captionBold} px-2.5 py-1 ${radii.full} ${
@@ -302,7 +314,7 @@ export default function SyncSettingsTab({
               </Button>
             )}
 
-            <Button fullWidth onClick={onTestConnection} disabled={serverConfig.connectionStatus === 'testing' || !serverConfig.url} loading={serverConfig.connectionStatus === 'testing'}>
+            <Button fullWidth onClick={onTestConnection} disabled={serverConfig.connectionStatus === 'testing' || !canTestServerConnection(serverConfig)} loading={serverConfig.connectionStatus === 'testing'}>
               {serverConfig.connectionStatus === 'testing' ? 'Подключение…' : 'Подключить'}
             </Button>
 
@@ -312,6 +324,11 @@ export default function SyncSettingsTab({
             </Button>
           </div>
         </section>
+
+        <ServerNetworkSettings
+          serverConfig={serverConfig}
+          onChangeServerConfig={onChangeServerConfig}
+        />
 
         <section className={sectionClass}>
           <h3 className={textStyles.sectionLabel}>Тема</h3>

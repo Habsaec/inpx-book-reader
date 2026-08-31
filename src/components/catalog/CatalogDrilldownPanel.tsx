@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Heart, Layers3, PenLine, Star, Tag } from 'lucide-react';
+import { ArrowLeft, Download, Heart, Layers3, PenLine, Star, Tag } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { Book, ServerConfig } from '../../types';
 import { displayAuthorName } from '../../lib/inpxClient';
@@ -30,6 +30,8 @@ interface CatalogDrilldownPanelProps {
   drillDownBackLabel?: string | null;
   onToggleFavoriteAuthor: (authorName: string) => void;
   onToggleFavoriteSeries: (seriesName: string) => void;
+  onDownloadSeries?: () => void;
+  seriesDownloadBusy?: boolean;
 }
 
 export function CatalogAuthorSeriesShelf({
@@ -79,6 +81,8 @@ export function CatalogAuthorGroupedList({
   onBookClick,
   onBookLongPress,
   onOpenSeries,
+  onDownloadSeries,
+  seriesDownloadBusy = false,
 }: {
   authorGrouped: AuthorGroupedState;
   isAppDark?: boolean;
@@ -93,6 +97,8 @@ export function CatalogAuthorGroupedList({
   onBookClick: (book: Book) => void;
   onBookLongPress?: (book: Book) => void;
   onOpenSeries: (seriesName: string) => void;
+  onDownloadSeries?: (seriesName: string) => void;
+  seriesDownloadBusy?: boolean;
 }) {
   const isDownloadingBook = (id: string) =>
     downloadingId === id || Boolean(queuedBookIds?.has(id));
@@ -106,16 +112,29 @@ export function CatalogAuthorGroupedList({
         if (!books.length) return null;
         return (
           <section key={s.name} className={`min-w-0 ${radii.lg} ${theme.card} ${elevation.card} px-3 py-3`}>
-            <button
-              type="button"
-              onClick={() => onOpenSeries(s.name)}
-              className={`mb-1 flex w-full items-baseline justify-between gap-2 text-left min-h-10 px-0.5 ${theme.focusRing}`}
-            >
-              <h3 className={`${textStyles.bookTitle} truncate`}>{s.displayName || s.name}</h3>
-              <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
-                {s.bookCount} кн.
-              </span>
-            </button>
+            <div className="mb-1 flex w-full items-center gap-1 min-h-10 px-0.5">
+              <button
+                type="button"
+                onClick={() => onOpenSeries(s.name)}
+                className={`flex min-w-0 flex-1 items-baseline justify-between gap-2 text-left ${theme.focusRing}`}
+              >
+                <h3 className={`${textStyles.bookTitle} truncate`}>{s.displayName || s.name}</h3>
+                <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
+                  {s.bookCount} кн.
+                </span>
+              </button>
+              {onDownloadSeries ? (
+                <button
+                  type="button"
+                  aria-label={`Скачать серию ${s.displayName || s.name}`}
+                  disabled={seriesDownloadBusy}
+                  onClick={() => onDownloadSeries(s.name)}
+                  className={`shrink-0 min-h-12 min-w-12 inline-flex items-center justify-center ${theme.focusRing} ${theme.accentText} disabled:opacity-50`}
+                >
+                  <Download className="w-4 h-4" aria-hidden />
+                </button>
+              ) : null}
+            </div>
             <div>
               {books.map((book, index) => (
                 <FlibustaBookRow
@@ -177,6 +196,8 @@ export default function CatalogDrilldownPanel({
   drillDownBackLabel = null,
   onToggleFavoriteAuthor,
   onToggleFavoriteSeries,
+  onDownloadSeries,
+  seriesDownloadBusy = false,
 }: CatalogDrilldownPanelProps) {
   const hasDrilldown = Boolean(selectedAuthor || selectedSeries || selectedSubgenre);
   if (!hasDrilldown) return null;
@@ -280,7 +301,7 @@ export default function CatalogDrilldownPanel({
           transition={{ duration: 0.18, ease: 'easeOut' }}
           className="mb-3.5 landscape:max-[500px]:mb-2"
         >
-          <div className="flex justify-between items-start gap-3">
+            <div className="flex justify-between items-start gap-3">
             <div className="flex gap-3 items-start min-w-0">
               <div className={`w-16 h-16 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center border shrink-0 ${theme.avatarBg}`}>
                 <Layers3 className={`w-7 h-7 landscape:max-[500px]:w-5 landscape:max-[500px]:h-5 ${theme.accentText}`} aria-hidden />
@@ -297,19 +318,30 @@ export default function CatalogDrilldownPanel({
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => onToggleFavoriteSeries(selectedSeries)}
-              aria-label={favoriteSeries.includes(selectedSeries) ? 'Убрать серию из избранного' : 'В избранное'}
-              className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${
-                favoriteSeries.includes(selectedSeries)
-                  ? 'text-[var(--app-warning)]'
-                  : theme.textMuted
-              }`}
-            >
-              <Star className={`w-5 h-5 ${favoriteSeries.includes(selectedSeries) ? 'fill-[var(--app-warning)]' : ''}`} aria-hidden />
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => onToggleFavoriteSeries(selectedSeries)}
+                aria-label={favoriteSeries.includes(selectedSeries) ? 'Убрать серию из избранного' : 'В избранное'}
+                className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${
+                  favoriteSeries.includes(selectedSeries)
+                    ? 'text-[var(--app-warning)]'
+                    : theme.textMuted
+                }`}
+              >
+                <Star className={`w-5 h-5 ${favoriteSeries.includes(selectedSeries) ? 'fill-[var(--app-warning)]' : ''}`} aria-hidden />
+              </button>
+            </div>
+            {onDownloadSeries ? (
+              <button
+                type="button"
+                onClick={onDownloadSeries}
+                disabled={seriesDownloadBusy}
+                className={`mt-3 flex w-full min-h-12 items-center justify-center gap-2 ${radii.button} ${textStyles.captionBold} ${theme.accentText} ${theme.accentMuted} ${theme.focusRing} ${motionTokens.press} disabled:opacity-50`}
+              >
+                <Download className="w-4 h-4" aria-hidden />
+                {seriesDownloadBusy ? 'Добавляем в очередь…' : 'Скачать серию'}
+              </button>
+            ) : null}
         </motion.div>
       )}
 

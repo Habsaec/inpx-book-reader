@@ -3,10 +3,6 @@ import { TOCProgress, SectionProgress } from './progress.js'
 import { Overlayer } from './overlayer.js'
 import { textWalker } from './text-walker.js'
 
-const normalizedTextLength = value => String(value ?? '')
-    .replace(/[\t\n\f\r ]+/g, ' ')
-    .trim().length
-
 const sectionTextNodes = doc => {
     const root = doc?.body ?? doc?.documentElement
     if (!root) return []
@@ -43,7 +39,8 @@ const textAnchorFromRange = (doc, range) => {
         return null
     }
     const text = normalizedSectionText(doc)
-    const textOffset = Math.max(0, Math.min(text.length, normalizedTextLength(prefix.toString())))
+    const collapsed = prefix.toString().replace(/[\t\n\f\r ]+/g, ' ').replace(/^ /, '')
+    const textOffset = Math.max(0, Math.min(text.length, collapsed.length))
     return {
         textOffset,
         textQuote: text.slice(textOffset, textOffset + 96),
@@ -187,7 +184,7 @@ export const makeBook = async file => {
             book = makeComicBook(loader, file)
         }
         else if (isFBZ(file)) {
-            const { makeFB2 } = await import('./fb2.js')
+            const { makeFB2 } = await import('./fb2.js?v=paper-flow')
             const { entries } = loader
             const entry = entries.find(entry => entry.filename.endsWith('.fb2'))
             const blob = await loader.loadBlob((entry ?? entries[0]).filename)
@@ -205,7 +202,7 @@ export const makeBook = async file => {
             book = await new MOBI({ unzlib: fflate.unzlibSync }).open(file)
         }
         else if (isFB2(file)) {
-            const { makeFB2 } = await import('./fb2.js')
+            const { makeFB2 } = await import('./fb2.js?v=paper-flow')
             book = await makeFB2(file)
         }
     }
@@ -350,7 +347,7 @@ export class View extends HTMLElement {
             await import('./fixed-layout.js')
             this.renderer = document.createElement('foliate-fxl')
         } else {
-            await import('./paginator.js?v=page-turn-1')
+            await import('./paginator.js?v=swipe-4')
             this.renderer = document.createElement('foliate-paginator')
         }
         this.renderer.setAttribute('exportparts', 'head,foot,filter,container')
@@ -573,7 +570,10 @@ export class View extends HTMLElement {
                 const [index, anchor] = this.#sectionProgress.getSection(target.fraction)
                 return { index, anchor }
             }
-            if (CFI.isCFI.test(target)) return this.resolveCFI(target)
+            if (CFI.isCFI.test(target)) {
+                if (CFI.isMalformedLocationCfi(target)) return
+                return this.resolveCFI(target)
+            }
             return this.book.resolveHref(target)
         } catch (e) {
             console.error(e)

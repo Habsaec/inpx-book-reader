@@ -89,13 +89,13 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/catalog` — поиск/просмотр каталога (без `q` тоже отдаёт книги); additive filters: `genre` (CSV/repeated, OR — хотя бы один), `lang`, `format`, `year`, `minRate`, `hasSeries` (1/0)
 - `GET /api/search?q=` — totals разделов `{ books, authors, series, preferredField?, routeField: null }`; drilldown через `/api/catalog?field=`; веб Enter всегда открывает книги с чипами Авторы/Серии (без hub / smart redirect)
 - `GET /api/search/genres?q=` — жанры среди книг текущей выдачи (фасет для фильтра; опционально format/year/minRate/hasSeries)
-- `GET /api/search/suggest` — подсказки поиска (книги/авторы/серии)
+- `GET /api/search/suggest` — подсказки поиска (книги/авторы/серии); тап по автору/серии открывает страницу сущности (`name` из suggest), а не поиск книг
 - `GET /api/catalog` — при пустой/слабой выдаче может быть additive `searchHints` (`tip`, `didYouMean`, `weak?`)
 - `GET /api/browse/authors` — список авторов
 - `GET /api/browse/authors/:value/grouped` — серии автора + `standaloneBooks` + `books[]` в каждой серии (режим списка как на веб); `lean=1` — только сводки серий без книг
 - `GET /api/browse/series` — список серий
 - `GET /api/browse/genres` — список жанров
-- `GET /api/facet-books` — книги по фасету (автор/серия/жанр); additive filters: `format`, `year`, `minRate`, `hasSeries` (1/0), `lang`
+- `GET /api/facet-books` — книги по фасету (автор/серия/жанр); additive filters: `format`, `year`, `minRate`, `hasSeries` (1/0), `lang`; страница серии — «Скачать серию» ставит в очередь все недостающие книги (не ZIP), потолок ~500
 
 #### Книги и контент
 - `GET /api/books/:id/meta` — метаданные из INPX-индекса (`seriesList`, автор, жанры) — **источник правды для скачивания и путей на диске**
@@ -155,7 +155,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 
 #### Настройки сервера
 - `GET /api/settings/ui` — UI настройки библиотеки: название, логотип, палитра, **скругление** (`radius` / `radiusPreset`), **тени** (`shadows` / `shadowPreset`), **фон** (`backgroundUrl`, `bgBlur`, `bgOverlayStrength`, `bgSize`, `bgPosition`), **панели** (`surfaceOpacity` 0–100, `surfaceBlur` 0–24px)
-- `GET /health` — проверка доступности сервера
+- `GET /health` — проверка доступности сервера (Настройки → Сеть: домашняя Wi‑Fi + LAN, запасные адреса сверху вниз; смена URL не сбрасывает device token)
 
 ### Android UI (независимый от сервера)
 
