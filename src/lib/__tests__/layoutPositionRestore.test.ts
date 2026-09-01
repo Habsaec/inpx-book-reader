@@ -200,7 +200,7 @@ describe('layout position restore after typography change', () => {
     const reader = readFileSync(readerPath, 'utf8');
     const css = readFileSync(cssPath, 'utf8');
     expect(css).toContain('.reader-restore-veil');
-    expect(css).toContain('bottom:var(--r-safe-bottom);');
+    expect(css).toContain('bottom:max(var(--r-safe-bottom), var(--r-status-h));');
     expect(css).not.toMatch(/#reader-body\{[^}]*bottom:var\(--r-bottom-reserve\)/);
     expect(reader).not.toContain('applyReserveAndRelayout');
     expect(css).not.toMatch(/html\.is-restoring-position\s+foliate-view\s*\{\s*visibility:\s*hidden/);

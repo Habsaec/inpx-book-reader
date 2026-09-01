@@ -141,7 +141,7 @@ html.has-bg-image.status-strip-on .reader-footer .ft-pct,
 html.has-bg-image body:has(.reader-status-strip.is-visible) .reader-footer .ft-pct{
   display:none;
 }
-/* Текст занимает экран (safe-area). Панели и статус — поверх, без смены высоты колонок. */
+/* Поле книги не заезжает под статус. Панели по-прежнему поверх — высота колонок не прыгает при hide/show chrome. */
 html.has-bg-image #reader-body{
   z-index:1;
   background:transparent !important;
@@ -155,8 +155,10 @@ body.chrome-hidden .reader-chrome{
   opacity:0;pointer-events:none;
 }
 body.chrome-hidden .reader-toolbar{transform:translateY(-100%)}
-/* Уезжает вниз под экран; статус-бар остаётся на месте */
-body.chrome-hidden .reader-footer{transform:translateY(calc(100% + 4px))}
+/* Сикбар стоит над статусом — сдвиг на 100% высоты оставляет дорожку на экране. */
+body.chrome-hidden .reader-footer{
+  transform:translateY(calc(100% + var(--r-status-h) + 8px));
+}
 
 /* ================================================================
    TOOLBAR
@@ -303,7 +305,8 @@ body.chrome-hidden .reader-tts-dock{
   position:fixed;
   top:var(--r-safe-top);
   right:var(--r-safe-right);
-  bottom:var(--r-safe-bottom);
+  /* Только статус, не футер: hide/show chrome не меняет высоту колонок. */
+  bottom:max(var(--r-safe-bottom), var(--r-status-h));
   left:var(--r-safe-left);
   overflow:hidden;
   background:var(--r-bg);

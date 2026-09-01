@@ -56,8 +56,10 @@ describe('reading gestures do not steal the page', () => {
 
   it('chrome toggle does not resize the reading box', () => {
     const css = readPublic('inpx-reader/reader.css');
-    expect(css).toContain('#reader-body{\n  position:fixed;\n  top:var(--r-safe-top);\n  right:var(--r-safe-right);\n  bottom:var(--r-safe-bottom);');
+    expect(css).toContain('#reader-body{\n  position:fixed;\n  top:var(--r-safe-top);\n  right:var(--r-safe-right);');
+    expect(css).toContain('bottom:max(var(--r-safe-bottom), var(--r-status-h));');
     expect(css).not.toMatch(/#reader-body\{[^}]*bottom:var\(--r-bottom-reserve\)/);
+    expect(css).toContain('transform:translateY(calc(100% + var(--r-status-h) + 8px))');
   });
 
   it('does not treat pinch as a safe-area / column resize', () => {

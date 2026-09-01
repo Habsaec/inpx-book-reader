@@ -756,11 +756,11 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const mode = layoutMode();
     view.style.boxSizing = 'border-box';
     view.style.paddingInline = `${side}px`;
-    /* На телефоне (paginated): статус и панели поверх текста, не сжимают колонки. */
+    /* На телефоне (paginated): боковые поля через paddingInline; верх/низ — дыхание над статусом. */
     if (mobileMq.matches && mode !== 'scrolled') {
       view.renderer.setAttribute('margin', '0px');
       view.renderer.setAttribute('margin-top', `${vert}px`);
-      view.renderer.setAttribute('margin-bottom', '0px');
+      view.renderer.setAttribute('margin-bottom', `${vert}px`);
     } else {
       view.renderer.setAttribute('margin', `${vert}px`);
       view.renderer.removeAttribute('margin-top');
@@ -1998,7 +1998,9 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const prev = root.style.getPropertyValue('--r-status-h').trim();
     if (!show || !statusStripEl) {
       root.style.setProperty('--r-status-h', '0px');
-      return prev !== '0px';
+      const changed = prev !== '0px';
+      if (changed && view?.renderer) onViewportResize();
+      return changed;
     }
     const measured = statusStripEl.getBoundingClientRect().height;
     const cs = getComputedStyle(root);
@@ -2008,7 +2010,9 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const h = Math.max(1, Math.ceil(measured > 0 ? measured : fallback));
     const next = `${h}px`;
     root.style.setProperty('--r-status-h', next);
-    return prev !== next;
+    const changed = prev !== next;
+    if (changed && view?.renderer) onViewportResize();
+    return changed;
   }
 
   function syncStatusStrip() {
