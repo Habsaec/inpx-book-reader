@@ -26,7 +26,7 @@ import {
   saveReadingPosition,
 } from '../inpxClient';
 import type { ServerConfig } from '../../types';
-import { pushReadingPositionWithRecovery } from '../readingPositionPush';
+import { pushReadingPositionWithRecovery, writePushSuccessFields } from '../readingPositionPush';
 
 const config: ServerConfig = {
   url: 'http://test/',
@@ -88,5 +88,36 @@ describe('pushReadingPositionWithRecovery', () => {
       4,
       undefined,
     );
+  });
+
+  it('copies local anchors into the server snapshot after a successful push', () => {
+    const fields = writePushSuccessFields(local({
+      fb2Href: '0#6',
+      sectionIndex: 0,
+      textOffset: 116699,
+      textQuote: 'local quote',
+      textSectionLength: 425639,
+      paginatorPage: 151,
+      paginatorPages: 560,
+      layoutMode: 'paginated',
+      positionSessionId: 'tablet-session',
+    }), {
+      positionVersion: 4,
+      revision: 14,
+      updatedAt: '2026-09-02T17:45:45.000Z',
+    }, 0.274174);
+
+    expect(fields).toMatchObject({
+      serverRevision: 14,
+      baseRevision: 14,
+      positionDirty: false,
+      pendingCrossDevicePrompt: false,
+      serverPositionFraction: 0.274174,
+      serverFb2Href: '0#6',
+      serverTextOffset: 116699,
+      serverPaginatorPage: 151,
+      serverPaginatorPages: 560,
+      serverSessionId: 'tablet-session',
+    });
   });
 });

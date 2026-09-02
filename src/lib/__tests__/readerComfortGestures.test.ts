@@ -54,6 +54,18 @@ describe('reading gestures do not steal the page', () => {
     expect(seed).not.toContain('if (restoring)');
   });
 
+  it('accepted cross-device restore stamps a fresh positionChangedAt', () => {
+    const bootstrap = readPublic('inpx-reader/bootstrap.js');
+    const apply = sliceFn(
+      bootstrap,
+      'function applyPendingServerSnapshot(store)',
+      'function dismissPendingServerSnapshot(store)',
+    );
+    expect(apply).toContain('store.positionChangedAt = new Date().toISOString()');
+    expect(apply).toContain('window.__READER_GET_CURRENT_POSITION__');
+    expect(apply).not.toContain('store.positionChangedAt = store.serverPositionUpdatedAt');
+  });
+
   it('chrome toggle does not resize the reading box', () => {
     const css = readPublic('inpx-reader/reader.css');
     expect(css).toContain('#reader-body{\n  position:fixed;\n  top:var(--r-safe-top);\n  right:var(--r-safe-right);');
@@ -79,6 +91,7 @@ describe('reading gestures do not steal the page', () => {
     const reader = readPublic('inpx-reader/reader.js');
     const restore = sliceFn(reader, 'window.__READER_RESTORE_SAVED__ = async (saved', '(async () => {');
     expect(restore).toContain('if (!opts?.force && !document.documentElement.classList.contains(\'is-restoring-position\')) return false');
+    expect(restore).toContain('restoreReadingPosition(saved, null, { ignoreUrl: true })');
     expect(restore).not.toContain('if (!alreadyVeiled) setRestoreVeil(true)');
   });
 

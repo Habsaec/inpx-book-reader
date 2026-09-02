@@ -79,6 +79,10 @@ export async function syncOpenBookPosition(
     storeLivePrompt(bookId, serverPos);
     return 'prompt';
   }
+  // Already waiting for the dialog: do not treat "don't re-prompt" as "safe to POST".
+  if (local.pendingCrossDevicePrompt) {
+    return 'prompt';
+  }
 
   if (sessionStatusFromActivityAt(local.lastUserActivityAt) === 'idle') {
     return 'idle';

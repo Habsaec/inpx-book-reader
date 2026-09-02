@@ -2920,9 +2920,9 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
    * @returns {Promise<boolean>} true — после restore нужна доводка saved (paginator/nudge).
    *   false — явный переход (?pos= закладка/заметка): saved settle запрещён.
    */
-  async function restoreReadingPosition(saved, urlPos) {
-    const urlFracRaw = new URLSearchParams(location.search).get('frac');
-    const urlFb2 = new URLSearchParams(location.search).get('fb2');
+  async function restoreReadingPosition(saved, urlPos, opts = {}) {
+    const urlFracRaw = opts.ignoreUrl ? null : new URLSearchParams(location.search).get('frac');
+    const urlFb2 = opts.ignoreUrl ? '' : new URLSearchParams(location.search).get('fb2');
     const urlFrac = urlFracRaw != null ? normalizeFraction(Number(urlFracRaw)) : 0;
 
     if (urlPos) {
@@ -7935,7 +7935,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     if (!opts?.force && !document.documentElement.classList.contains('is-restoring-position')) return false;
     positionSaveSuppression.begin();
     try {
-      await restoreReadingPosition(saved, null);
+      await restoreReadingPosition(saved, null, { ignoreUrl: true });
       if (
         saved.sectionIndex != null
         && saved.textOffset != null

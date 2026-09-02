@@ -85,6 +85,37 @@ describe('open-book live position sync', () => {
     expect(saveReadingPosition).not.toHaveBeenCalled();
   });
 
+  it('does not POST while a cross-device prompt is already pending', async () => {
+    writeOfflineReaderData('book-1', localPosition({
+      pendingCrossDevicePrompt: true,
+      serverRevision: 13,
+      baseRevision: 13,
+      lastUserActivityAt: new Date().toISOString(),
+      fraction: 0.274174,
+      progress: 27.4174,
+      sectionIndex: 0,
+      textOffset: 116699,
+      paginatorPage: 151,
+      paginatorPages: 560,
+      serverPositionFraction: 0.269207,
+      serverPositionProgress: 26.9207,
+      serverTextOffset: 114585,
+      serverPaginatorPage: 44,
+      serverPaginatorPages: 170,
+    }));
+    vi.mocked(fetchReadingPosition).mockResolvedValue(serverPosition({
+      sessionId: 'phone-session',
+      revision: 13,
+      fraction: 0.269207,
+      progress: 26.9207,
+      sectionIndex: 0,
+      textOffset: 114585,
+    }));
+
+    expect(await syncOpenBookPosition(config, 'book-1', 'tablet-session')).toBe('prompt');
+    expect(saveReadingPosition).not.toHaveBeenCalled();
+  });
+
   it('stores a live prompt when another session holds a different position', async () => {
     writeOfflineReaderData('book-1', localPosition({ positionDirty: false }));
     vi.mocked(fetchReadingPosition).mockResolvedValue(serverPosition());

@@ -241,6 +241,125 @@ describe('offline reader position restore', () => {
     });
   });
 
+  it('applyIframeReaderStore keeps newer host CAS when iframe snapshot is stale', () => {
+    const bookId = 'book-stale-iframe-cas';
+    writeOfflineReaderData(bookId, {
+      positionVersion: 4,
+      serverRevision: 9,
+      baseRevision: 9,
+      positionDirty: false,
+      position: null,
+      progress: 10.9414,
+      fraction: 0.109414,
+      fb2Href: '0#2',
+      sectionIndex: 0,
+      textOffset: 46571,
+      paginatorPage: 60,
+      paginatorPages: 560,
+      bookmarks: [],
+      annotations: [],
+      positionChangedAt: '2026-09-02T17:24:25.802Z',
+      serverPositionUpdatedAt: '2026-09-02 17:24:27',
+      serverPositionProgress: 10.9414,
+      serverPositionFraction: 0.109414,
+      serverFb2Href: '0#2',
+      serverTextOffset: 46571,
+      serverPaginatorPage: 60,
+    });
+
+    applyIframeReaderStore(bookId, {
+      serverRevision: 7,
+      baseRevision: 7,
+      positionDirty: true,
+      position: null,
+      progress: 10.944,
+      fraction: 0.10944,
+      fb2Href: '0#2',
+      sectionIndex: 0,
+      textOffset: 46582,
+      paginatorPage: 61,
+      paginatorPages: 560,
+      positionChangedAt: '2026-09-02T17:24:27.191Z',
+      serverPositionUpdatedAt: '2026-09-02 17:19:42',
+      serverPositionProgress: 6.9181,
+      serverPositionFraction: 0.069181,
+      serverFb2Href: '0#1',
+      serverTextOffset: 29446,
+      serverPaginatorPage: 38,
+      positionSaveReason: 'page',
+    });
+
+    expect(readOfflineReaderData(bookId)).toMatchObject({
+      fraction: 0.10944,
+      paginatorPage: 61,
+      textOffset: 46582,
+      positionDirty: true,
+      serverRevision: 9,
+      baseRevision: 9,
+      serverPositionProgress: 10.9414,
+      serverPositionFraction: 0.109414,
+      serverPositionUpdatedAt: '2026-09-02 17:24:27',
+      serverFb2Href: '0#2',
+      serverTextOffset: 46571,
+      serverPaginatorPage: 60,
+    });
+  });
+
+  it('applyIframeReaderStore keeps an accepted server snapshot over a newer restore-settle', () => {
+    const bookId = 'book-accept-after-settle';
+    writeOfflineReaderData(bookId, {
+      positionVersion: 4,
+      serverRevision: 15,
+      baseRevision: 13,
+      positionDirty: true,
+      pendingCrossDevicePrompt: true,
+      position: null,
+      progress: 27.4174,
+      fraction: 0.274174,
+      fb2Href: '0#6',
+      sectionIndex: 0,
+      textOffset: 116699,
+      paginatorPage: 151,
+      paginatorPages: 560,
+      bookmarks: [],
+      annotations: [],
+      positionChangedAt: '2026-09-02T17:53:37.153Z',
+      serverPositionUpdatedAt: '2026-09-02 17:53:26',
+      serverPositionProgress: 26.9207,
+      serverPositionFraction: 0.269207,
+      serverTextOffset: 114585,
+      serverPaginatorPage: 44,
+      serverPaginatorPages: 170,
+    });
+
+    applyIframeReaderStore(bookId, {
+      pendingCrossDevicePrompt: false,
+      positionDirty: false,
+      crossDeviceResolvedAt: '2026-09-02 17:53:26',
+      serverRevision: 15,
+      baseRevision: 15,
+      progress: 26.9146,
+      fraction: 0.269146,
+      fb2Href: '0#6',
+      sectionIndex: 0,
+      textOffset: 114559,
+      paginatorPage: 148,
+      paginatorPages: 560,
+      positionChangedAt: '2026-09-02 17:53:26',
+    });
+
+    expect(readOfflineReaderData(bookId)).toMatchObject({
+      fraction: 0.269146,
+      textOffset: 114559,
+      paginatorPage: 148,
+      paginatorPages: 560,
+      pendingCrossDevicePrompt: false,
+      positionDirty: false,
+      baseRevision: 15,
+      serverRevision: 15,
+    });
+  });
+
   it('persists iframe decline revision metadata in the parent store', () => {
     const bookId = 'book-iframe-decline';
     writeOfflineReaderData(bookId, {

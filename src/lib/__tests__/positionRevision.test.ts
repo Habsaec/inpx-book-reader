@@ -396,6 +396,58 @@ describe('revision/CAS position sync', () => {
     });
   });
 
+  it('does not background-push while a cross-device prompt is still unanswered', async () => {
+    writeOfflineReaderData('book-1', localPosition({
+      pendingCrossDevicePrompt: true,
+      positionDirty: true,
+      position: 'epubcfi(/6/8)',
+      progress: 40,
+      fraction: 0.4,
+    }));
+    vi.mocked(fetchReadingPosition).mockResolvedValue(serverPosition({
+      revision: 2,
+      position: 'epubcfi(/6/10)',
+      progress: 60,
+      fraction: 0.6,
+    }));
+
+    await syncOfflineReaderForBook(config, 'book-1');
+
+    expect(saveReadingPosition).not.toHaveBeenCalled();
+    expect(readOfflineReaderData('book-1')).toMatchObject({
+      fraction: 0.4,
+      pendingCrossDevicePrompt: true,
+      positionDirty: true,
+      baseRevision: 2,
+    });
+  });
+
+  it('does not re-open a prompt for a server snapshot the user already dismissed', async () => {
+    writeOfflineReaderData('book-1', localPosition({
+      positionDirty: true,
+      position: 'epubcfi(/6/8)',
+      progress: 40,
+      fraction: 0.4,
+      dismissedServerPositionUpdatedAt: '2026-07-12T12:00:00.000Z',
+    }));
+    vi.mocked(fetchReadingPosition).mockResolvedValue(serverPosition({
+      revision: 2,
+      updatedAt: '2026-07-12T12:00:00.000Z',
+    }));
+    vi.mocked(saveReadingPosition).mockRejectedValue(new ReadingPositionConflictError(serverPosition({
+      revision: 3,
+      updatedAt: '2026-07-12T12:00:00.000Z',
+    })));
+
+    await syncOfflineReaderForBook(config, 'book-1');
+
+    expect(readOfflineReaderData('book-1')).toMatchObject({
+      fraction: 0.4,
+      pendingCrossDevicePrompt: false,
+      positionDirty: true,
+    });
+  });
+
   it('pushes on close when pendingCrossDevicePrompt is set but local reading is dirty', async () => {
     writeOfflineReaderData('book-1', localPosition({
       positionDirty: true,

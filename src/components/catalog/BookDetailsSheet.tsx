@@ -360,7 +360,7 @@ export default function BookDetailsSheet({
               {(bookReviewLoading || bookReviewHtml) && (
                 <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
                   <h4 className={`${textStyles.sectionLabel} ${theme.text} flex items-center gap-2`}>
-                    <MessageSquare className="w-4 h-4" aria-hidden /> Рецензия
+                    <MessageSquare className="w-4 h-4" aria-hidden /> Отзывы
                   </h4>
                   {bookReviewLoading ? (
                     <TextBlockSkeleton lines={4} />

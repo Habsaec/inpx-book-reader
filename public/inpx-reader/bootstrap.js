@@ -159,13 +159,18 @@ function debugLog(hypothesisId, location, message, data) {
     if (Number.isFinite(Number(payload?.paginatorPages))) store.paginatorPages = Number(payload.paginatorPages);
     if (typeof payload?.layoutMode === 'string' && payload.layoutMode) store.layoutMode = payload.layoutMode;
     store.positionVersion = 4;
-    store.positionDirty = true;
-    store.dismissedServerRevision = null;
+    // restore-settle while a prompt is pending is not user intent: bumping
+    // positionChangedAt made the host discard the accepted server snapshot.
+    const deferPendingSettle = saveReason === 'restore-settle' && store.pendingCrossDevicePrompt;
+    if (!deferPendingSettle) {
+      store.positionDirty = true;
+      store.dismissedServerRevision = null;
+      touchPositionChanged(store);
+    }
     // Do not clear pendingCrossDevicePrompt here — restore-settle would wipe the
     // deferred conflict flag before __SHOW_DEFERRED_CROSS_DEVICE_PROMPT__ runs.
     if (saveReason) store.positionSaveReason = saveReason;
     else delete store.positionSaveReason;
-    touchPositionChanged(store);
     writeReaderData(store);
   }
 
@@ -464,8 +469,12 @@ function debugLog(hypothesisId, location, message, data) {
         incoming.dismissedServerPositionUpdatedAt ?? local.dismissedServerPositionUpdatedAt,
       crossDeviceResolvedAt: incoming.crossDeviceResolvedAt ?? local.crossDeviceResolvedAt,
       positionVersion: incoming.positionVersion ?? local.positionVersion,
-      serverRevision: incoming.serverRevision ?? local.serverRevision,
-      baseRevision: incoming.baseRevision ?? local.baseRevision,
+      serverRevision: incoming.serverRevision != null
+        ? Math.max(Number(local.serverRevision) || 0, Number(incoming.serverRevision) || 0)
+        : local.serverRevision,
+      baseRevision: incoming.baseRevision != null
+        ? Math.max(Number(local.baseRevision) || 0, Number(incoming.baseRevision) || 0)
+        : local.baseRevision,
       positionDirty: incoming.positionDirty ?? local.positionDirty,
       dismissedServerRevision:
         incoming.dismissedServerRevision !== undefined
@@ -610,7 +619,27 @@ function debugLog(hypothesisId, location, message, data) {
     }
     if (store.serverLayoutMode) store.layoutMode = store.serverLayoutMode;
     else delete store.layoutMode;
-    store.positionChangedAt = store.serverPositionUpdatedAt || new Date().toISOString();
+    const live = window.__READER_GET_CURRENT_POSITION__?.();
+    const livePages = Number(live?.paginatorPages);
+    const serverPages = Number(store.serverPaginatorPages);
+    if (live && Number.isFinite(livePages) && livePages > 0 && livePages !== serverPages) {
+      if (Number.isFinite(Number(live.paginatorPage))) store.paginatorPage = Number(live.paginatorPage);
+      store.paginatorPages = livePages;
+      if (Number.isFinite(Number(live.sectionPageFraction))) {
+        store.sectionPageFraction = Number(live.sectionPageFraction);
+      }
+      if (Number.isInteger(Number(live.textOffset)) && Number(live.textOffset) >= 0) {
+        store.textOffset = Number(live.textOffset);
+      }
+      if (typeof live.layoutMode === 'string' && live.layoutMode) store.layoutMode = live.layoutMode;
+      if (Number.isFinite(Number(live.fraction))) {
+        store.fraction = normalizeStoredFraction(live.fraction);
+        store.progress = fractionToStoredProgress(store.fraction);
+      }
+      if (live.fb2Href) store.fb2Href = String(live.fb2Href);
+    }
+    // Must be newer than restore-settle, or the host merge keeps the local coords.
+    store.positionChangedAt = new Date().toISOString();
     store.positionVersion = 4;
     acceptPendingPositionRevision(store);
     store.dismissedServerPositionUpdatedAt = null;
@@ -820,7 +849,7 @@ function debugLog(hypothesisId, location, message, data) {
         positionPromptResolved = true;
         if (store.pendingCrossDevicePrompt) {
           store.pendingCrossDevicePrompt = false;
-          writeReaderData(store, { skipParentNotify: true });
+          writeReaderData(store);
         }
         return;
       }

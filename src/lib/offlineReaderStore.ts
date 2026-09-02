@@ -264,6 +264,45 @@ function isSpuriousPositionReset(prev: OfflineReaderData, incoming: OfflineReade
   return incomingFrac < 0.02 && prevFrac > 0.05;
 }
 
+function serverSnapshotFieldsFrom(data: OfflineReaderData): Pick<
+  OfflineReaderData,
+  | 'serverRevision'
+  | 'baseRevision'
+  | 'serverSessionId'
+  | 'serverPosition'
+  | 'serverPositionUpdatedAt'
+  | 'serverPositionProgress'
+  | 'serverPositionFraction'
+  | 'serverFb2Href'
+  | 'serverSectionIndex'
+  | 'serverTextOffset'
+  | 'serverTextQuote'
+  | 'serverTextSectionLength'
+  | 'serverSectionPageFraction'
+  | 'serverPaginatorPage'
+  | 'serverPaginatorPages'
+  | 'serverLayoutMode'
+> {
+  return {
+    serverRevision: data.serverRevision ?? 0,
+    baseRevision: data.baseRevision ?? 0,
+    serverSessionId: data.serverSessionId ?? null,
+    serverPosition: data.serverPosition ?? null,
+    serverPositionUpdatedAt: data.serverPositionUpdatedAt ?? null,
+    serverPositionProgress: data.serverPositionProgress,
+    serverPositionFraction: data.serverPositionFraction,
+    serverFb2Href: data.serverFb2Href ?? null,
+    serverSectionIndex: data.serverSectionIndex ?? null,
+    serverTextOffset: data.serverTextOffset ?? null,
+    serverTextQuote: data.serverTextQuote ?? null,
+    serverTextSectionLength: data.serverTextSectionLength ?? null,
+    serverSectionPageFraction: data.serverSectionPageFraction ?? null,
+    serverPaginatorPage: data.serverPaginatorPage ?? null,
+    serverPaginatorPages: data.serverPaginatorPages ?? null,
+    serverLayoutMode: data.serverLayoutMode ?? null,
+  };
+}
+
 function positionFieldsFrom(data: OfflineReaderData): Pick<
   OfflineReaderData,
   | 'position'
@@ -297,11 +336,23 @@ function positionFieldsFrom(data: OfflineReaderData): Pick<
   };
 }
 
+function isAcceptedCrossDevicePull(
+  prev: OfflineReaderData,
+  payload: Partial<OfflineReaderData>,
+): boolean {
+  return Boolean(prev.pendingCrossDevicePrompt)
+    && payload.pendingCrossDevicePrompt === false
+    && Boolean(payload.crossDeviceResolvedAt)
+    && payload.positionDirty === false;
+}
+
 function pickBestPositionFields(
   prev: OfflineReaderData,
   incoming: OfflineReaderData,
   saveReason?: string | null,
+  acceptedPull = false,
 ): ReturnType<typeof positionFieldsFrom> {
+  if (acceptedPull) return positionFieldsFrom(incoming);
   const reason = saveReason != null ? String(saveReason) : '';
   const allowNearStart =
     reason === 'flush' || reason === 'navigation' || reason === 'restore-settle';
@@ -364,18 +415,37 @@ export function applyIframeReaderStore(
 ): void {
   const prev = readOfflineReaderData(bookId);
   const incoming = normalizeOfflineReaderData({ ...prev, ...payload });
-  const positionFields = pickBestPositionFields(prev, incoming, payload.positionSaveReason);
-  const iframeChangedPosition = Boolean(
-    payload.positionDirty
-    || (
-      payload.positionChangedAt
-      && payload.positionChangedAt !== prev.positionChangedAt
-    )
+  const acceptedPull = isAcceptedCrossDevicePull(prev, payload);
+  const positionFields = pickBestPositionFields(
+    prev,
+    incoming,
+    payload.positionSaveReason,
+    acceptedPull,
   );
+  const iframeChangedPosition = acceptedPull
+    ? false
+    : Boolean(
+      payload.positionDirty
+      || (
+        payload.positionChangedAt
+        && payload.positionChangedAt !== prev.positionChangedAt
+      )
+    );
+  const prevServerRev = prev.serverRevision ?? 0;
+  const prevBaseRev = prev.baseRevision ?? 0;
+  const incomingServerRev = payload.serverRevision !== undefined
+    ? (incoming.serverRevision ?? 0)
+    : prevServerRev;
+  const incomingBaseRev = payload.baseRevision !== undefined
+    ? (incoming.baseRevision ?? 0)
+    : prevBaseRev;
+  // Iframe memory lags host POSTs; a stale snapshot must not roll CAS back.
+  const iframeCasIsStale = incomingServerRev < prevServerRev || incomingBaseRev < prevBaseRev;
   const next = {
     ...prev,
     ...incoming,
     ...positionFields,
+    ...(iframeCasIsStale ? serverSnapshotFieldsFrom(prev) : {}),
     bookmarks: incoming.bookmarksChangedAt
       ? incoming.bookmarks
       : (incoming.bookmarks.length ? incoming.bookmarks : prev.bookmarks),
@@ -391,12 +461,8 @@ export function applyIframeReaderStore(
     bookmarksChangedAt: incoming.bookmarksChangedAt ?? prev.bookmarksChangedAt,
     annotationsChangedAt: incoming.annotationsChangedAt ?? prev.annotationsChangedAt,
     positionVersion: 4,
-    serverRevision: payload.serverRevision !== undefined
-      ? incoming.serverRevision
-      : (prev.serverRevision ?? 0),
-    baseRevision: payload.baseRevision !== undefined
-      ? incoming.baseRevision
-      : (prev.baseRevision ?? 0),
+    serverRevision: Math.max(prevServerRev, incomingServerRev),
+    baseRevision: Math.max(prevBaseRev, incomingBaseRev),
     positionDirty: iframeChangedPosition
       ? true
       : (payload.positionDirty !== undefined ? Boolean(payload.positionDirty) : Boolean(prev.positionDirty)),

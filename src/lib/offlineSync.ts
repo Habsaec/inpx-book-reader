@@ -135,6 +135,20 @@ export function writeServerSnapshotForDeferredPrompt(
   };
 }
 
+function isDismissedServerSnapshot(
+  local: OfflineReaderData,
+  serverPos: { updatedAt?: string | null; revision?: number | null },
+): boolean {
+  const serverUpdatedAt = serverPos.updatedAt || '';
+  if (serverUpdatedAt && serverUpdatedAt === (local.dismissedServerPositionUpdatedAt || '')) {
+    return true;
+  }
+  if (local.dismissedServerRevision == null || serverPos.revision == null) return false;
+  const dismissedRev = Number(local.dismissedServerRevision);
+  const serverRev = Number(serverPos.revision);
+  return Number.isInteger(dismissedRev) && Number.isInteger(serverRev) && dismissedRev === serverRev;
+}
+
 function updateServerPositionMetadata(
   local: OfflineReaderData,
   serverPos: Awaited<ReturnType<typeof fetchReadingPosition>>,
@@ -752,6 +766,8 @@ export async function syncOfflineReaderForBook(
 
   const baseRevision = local.baseRevision ?? 0;
   const serverRevision = serverPos.revision ?? 0;
+  const dismissedSnapshot = isDismissedServerSnapshot(local, serverPos);
+  const waitingForPrompt = Boolean(local.pendingCrossDevicePrompt) && !dismissedSnapshot;
   const revisionConflict =
     Boolean(local.positionDirty)
     && serverRevision !== baseRevision
@@ -759,7 +775,7 @@ export async function syncOfflineReaderForBook(
   // Same rule as finalizeReadingPositionSync: a deferred prompt must keep
   // local coordinates until the user answers — after-close sync must not pull.
   const deferPendingPrompt =
-    Boolean(local.pendingCrossDevicePrompt)
+    waitingForPrompt
     && !(local.positionDirty && localHasMeaningfulPosition(local));
   const useServerPosition =
     !deferPendingPrompt
@@ -796,9 +812,10 @@ export async function syncOfflineReaderForBook(
   let baseRevisionStored = baseRevision;
   let positionDirtyStored = Boolean(local.positionDirty);
   let dismissedServerRevisionStored = local.dismissedServerRevision ?? null;
-  let conflictSnapshot: OfflineReaderData | null = revisionConflict
-    ? writeServerSnapshotForDeferredPrompt(local, serverPos)
-    : null;
+  let conflictSnapshot: OfflineReaderData | null =
+    revisionConflict && !dismissedSnapshot
+      ? writeServerSnapshotForDeferredPrompt(local, serverPos)
+      : null;
 
   if (useServerPosition) {
     position = serverPos.position || null;
@@ -846,7 +863,8 @@ export async function syncOfflineReaderForBook(
     positionDirtyStored = false;
     dismissedServerRevisionStored = null;
   } else if (
-    !options?.neverPushPosition
+    !waitingForPrompt
+    && !options?.neverPushPosition
     && local.positionDirty
     && !revisionConflict
     && (progress < 99 || activity?.shouldPushReadState !== false)
@@ -867,8 +885,10 @@ export async function syncOfflineReaderForBook(
       dismissedServerRevisionStored = null;
     } catch (error) {
       if (isReadingPositionConflictError(error)) {
-        conflictSnapshot = writeServerSnapshotForDeferredPrompt(local, error.current);
-        serverRevisionStored = error.current.revision ?? serverRevisionStored;
+        if (!isDismissedServerSnapshot(local, error.current)) {
+          conflictSnapshot = writeServerSnapshotForDeferredPrompt(local, error.current);
+          serverRevisionStored = error.current.revision ?? serverRevisionStored;
+        }
       } else if (isAuthError(error)) {
         throw error;
       }
@@ -917,6 +937,9 @@ export async function syncOfflineReaderForBook(
       baseRevision: baseRevisionStored,
       positionDirty: positionDirtyStored,
       dismissedServerRevision: dismissedServerRevisionStored,
+      pendingCrossDevicePrompt: conflictSnapshot
+        ? true
+        : (dismissedSnapshot ? false : Boolean(local.pendingCrossDevicePrompt)),
       ...(conflictSnapshot ? {
         pendingCrossDevicePrompt: true,
         serverPosition: conflictSnapshot.serverPosition,
