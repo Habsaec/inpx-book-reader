@@ -1,7 +1,7 @@
 {
   "name": "inpx-book-reader",
   "private": true,
-  "version": "1.4.2",
+  "version": "1.4.3",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
