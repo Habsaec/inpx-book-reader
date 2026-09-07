@@ -2801,7 +2801,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
    * Same-layout reopen: textAnchor/scrollToRect often lands one page early.
    * When paginator page count matches the save, snap to the exact saved page.
    */
-  async function tryRestorePaginatorPage(saved) {
+  async function tryRestorePaginatorPage(saved, opts = {}) {
     const renderer = view?.renderer;
     if (!renderer || renderer.scrolled || typeof renderer.scrollToPageIndex !== 'function') return false;
     const savedPage = Number(saved?.paginatorPage);
@@ -2810,16 +2810,45 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     if (!Number.isFinite(savedPage) || !Number.isFinite(savedPages)) return false;
     if (savedPages < 3 || savedPage < 1 || savedPage > savedPages - 2) return false;
     if (Number(renderer.pages) !== savedPages) return false;
+    const currentSection = Number(view?.lastLocation?.section?.current);
     if (
       Number.isInteger(sectionIndex)
       && sectionIndex >= 0
-      && Number(view?.lastLocation?.section?.current) !== sectionIndex
+      && Number.isInteger(currentSection)
+      && currentSection !== sectionIndex
     ) {
       return false;
     }
+    if (Number(renderer.page) === savedPage) return true;
     await renderer.scrollToPageIndex(savedPage);
-    await waitForLayoutSettled(600);
+    await waitForLayoutSettled(opts.settleMs ?? 250);
     return Number(renderer.page) === savedPage;
+  }
+
+  /**
+   * Same phone/layout reopen: load the section without walking every text node
+   * (rangeFromTextOffset + getClientRects on a 400k-char FB2 is seconds),
+   * then jump to the saved paginator page.
+   */
+  async function tryFastRestorePaginatorPage(saved) {
+    const renderer = view?.renderer;
+    if (!renderer || renderer.scrolled || typeof renderer.goTo !== 'function') return false;
+    const savedPage = Number(saved?.paginatorPage);
+    const savedPages = Number(saved?.paginatorPages);
+    const sectionIndex = Number(saved?.sectionIndex);
+    if (!Number.isFinite(savedPage) || !Number.isFinite(savedPages)) return false;
+    if (savedPages < 3 || savedPage < 1 || savedPage > savedPages - 2) return false;
+    if (!Number.isInteger(sectionIndex) || sectionIndex < 0) return false;
+    const layoutMode = String(saved?.layoutMode || '');
+    if (layoutMode && layoutMode !== 'paginated') return false;
+    try {
+      await renderer.goTo({ index: sectionIndex, anchor: () => 0 });
+      if (Number(renderer.pages) !== savedPages) await waitForLayoutSettled(400);
+      if (Number(renderer.pages) !== savedPages) return false;
+      return tryRestorePaginatorPage(saved, { settleMs: 200 });
+    } catch {
+      return false;
+    }
   }
 
   /** If text-anchor restore sat one page early, nudge forward once. */
@@ -2877,6 +2906,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       linearCount,
       currentTextLength,
     });
+    if (!staleExplodedSection && await tryFastRestorePaginatorPage(saved)) return 'paginatorPage';
     if (
       saved?.sectionIndex != null
       && saved?.textOffset != null
@@ -7685,11 +7715,16 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
           // к последней позиции чтения — иначе прыжок обратно «куда читали».
           if (settleFromSaved && saved && view?.lastLocation) {
             // Same-layout reopen can still sit one page early after textAnchor;
-            // snap/nudge again once fonts are fully ready.
-            const bootDoc = getLoadedSectionDoc();
-            if (bootDoc) await waitForFontsReady(bootDoc, 3000);
-            if (!(await tryRestorePaginatorPage(saved))) {
-              await nudgeIfLandedOnePageEarly(saved);
+            // snap/nudge again once fonts are fully ready. Skip if the fast
+            // paginator jump already landed on the saved page.
+            const alreadyOnSavedPage = Number(saved.paginatorPage) === Number(view?.renderer?.page)
+              && Number(saved.paginatorPages) === Number(view?.renderer?.pages);
+            if (!alreadyOnSavedPage) {
+              const bootDoc = getLoadedSectionDoc();
+              if (bootDoc) await waitForFontsReady(bootDoc, 3000);
+              if (!(await tryRestorePaginatorPage(saved))) {
+                await nudgeIfLandedOnePageEarly(saved);
+              }
             }
             if (view?.lastLocation) {
               const landed = readerPositionFromLocation(view.lastLocation);

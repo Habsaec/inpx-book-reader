@@ -82,6 +82,10 @@ describe('layout position restore after typography change', () => {
     );
     const source = readFileSync(readerPath, 'utf8');
     expect(source).toContain('async function tryRestorePaginatorPage');
+    expect(source).toContain('async function tryFastRestorePaginatorPage');
+    expect(source).toContain('if (Number(renderer.page) === savedPage) return true');
+    expect(source).toContain("if (!staleExplodedSection && await tryFastRestorePaginatorPage(saved)) return 'paginatorPage'");
+    expect(source).toContain('alreadyOnSavedPage');
     expect(source).toContain('async function nudgeIfLandedOnePageEarly');
     expect(source).toContain('scrollToPageIndex(savedPage)');
     expect(source).toContain('flush-keep-committed');
