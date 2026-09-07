@@ -30,6 +30,7 @@ import { parsePairingQrPayload, redeemPairingCode } from '../lib/inpxClient';
 import { scanAppPairingQr, isQrScanCanceled } from '../lib/scanAppPairingQr';
 import type { AppAppearance, AppColorSource } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
+import AppUpdateSection from './AppUpdateSection';
 import DiagnosticsTab from './DiagnosticsTab';
 import ServerNetworkSettings, { canTestServerConnection } from './ServerNetworkSettings';
 import { textStyles, semantic, radii, elevation, motion } from '../ui/tokens';
@@ -488,6 +489,8 @@ export default function SyncSettingsTab({
             )}
           </div>
         </section>
+
+        <AppUpdateSection />
 
         <DiagnosticsTab
           serverUrl={serverConfig.url}
