@@ -56,6 +56,20 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 {
   return 0;
 }
 
+/** Не чаще раза в 12 часов — GitHub не должен дергаться на каждый запуск. */
+export const AUTO_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
+export function shouldAutoCheckAppUpdate(lastCheckAt: number, now: number): boolean {
+  if (!Number.isFinite(lastCheckAt) || lastCheckAt <= 0) return true;
+  return now - lastCheckAt >= AUTO_CHECK_INTERVAL_MS;
+}
+
+/** Один снэкбар на версию, пока пользователь не обновится. */
+export function shouldPromptAppUpdate(latestVersion: string, promptedVersion: string): boolean {
+  const latest = latestVersion.trim();
+  return Boolean(latest) && latest !== promptedVersion.trim();
+}
+
 interface GithubReleaseAsset {
   name?: string;
   size?: number;

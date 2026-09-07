@@ -25,6 +25,8 @@ export const APP_SETTING_KEYS = {
   settingsMigrated: 'settings_migrated_v1',
   onboardingDone: 'onboarding_done',
   einkMode: 'eink_mode',
+  appUpdateLastCheck: 'app_update_last_check',
+  appUpdatePrompted: 'app_update_prompted',
 } as const;
 
 /** Legacy localStorage keys → app_meta key */

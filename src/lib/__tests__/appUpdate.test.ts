@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAppUpdateCheckResult, compareVersions } from '../appUpdate';
+import { buildAppUpdateCheckResult, compareVersions, shouldAutoCheckAppUpdate, shouldPromptAppUpdate } from '../appUpdate';
 
 describe('compareVersions', () => {
   it('сравнивает семантические версии', () => {
@@ -14,6 +14,27 @@ describe('compareVersions', () => {
   it('нераспознанные версии не считаются новее', () => {
     expect(compareVersions('?', '1.4.4')).toBe(0);
     expect(compareVersions('1.5.0', '')).toBe(0);
+  });
+});
+
+describe('shouldAutoCheckAppUpdate', () => {
+  const hour = 60 * 60 * 1000;
+  it('проверяет, если ещё не было проверки', () => {
+    expect(shouldAutoCheckAppUpdate(0, 1000)).toBe(true);
+    expect(shouldAutoCheckAppUpdate(Number.NaN, 1000)).toBe(true);
+  });
+  it('не проверяет чаще интервала', () => {
+    expect(shouldAutoCheckAppUpdate(1000, 1000 + 11 * hour)).toBe(false);
+    expect(shouldAutoCheckAppUpdate(1000, 1000 + 12 * hour)).toBe(true);
+  });
+});
+
+describe('shouldPromptAppUpdate', () => {
+  it('показывает один раз на версию', () => {
+    expect(shouldPromptAppUpdate('1.4.7', '')).toBe(true);
+    expect(shouldPromptAppUpdate('1.4.7', '1.4.7')).toBe(false);
+    expect(shouldPromptAppUpdate('1.4.8', '1.4.7')).toBe(true);
+    expect(shouldPromptAppUpdate('', '1.4.7')).toBe(false);
   });
 });
 
