@@ -5,10 +5,11 @@
 import { registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 
-const RELEASES_LATEST_URL =
-  'https://api.github.com/repos/Habsaec/inpx-book-reader/releases/latest';
+const CHECK_TIMEOUT_MS = 12_000;
 
 interface AppUpdatePluginType {
+  /** Latest GitHub release JSON (native HTTP — WebView fetch hangs with CapacitorHttp). */
+  checkLatest(): Promise<{ json: string }>;
   /** Stream the release APK into app-private cache (progress via apkDownloadProgress). */
   downloadApk(options: { url: string }): Promise<{ bytesWritten: number }>;
   /** Hand the downloaded APK to the system package installer. */
@@ -100,13 +101,35 @@ export async function getCurrentAppVersion(): Promise<string> {
   }
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        window.clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 /** Проверить наличие новой версии APK на GitHub. Бросает при сетевой ошибке. */
 export async function checkForAppUpdate(): Promise<AppUpdateCheckResult> {
   const currentVersion = await getCurrentAppVersion();
-  const res = await fetch(RELEASES_LATEST_URL, {
-    headers: { Accept: 'application/vnd.github+json' },
-  });
-  if (!res.ok) throw new Error(`GitHub API HTTP ${res.status}`);
-  const release = (await res.json()) as GithubRelease;
+  const { json } = await withTimeout(
+    AppUpdate.checkLatest(),
+    CHECK_TIMEOUT_MS,
+    'Нет доступа к GitHub. Проверьте сеть или VPN.',
+  );
+  let release: GithubRelease;
+  try {
+    release = JSON.parse(json) as GithubRelease;
+  } catch {
+    throw new Error('Некорректный ответ сервера обновлений');
+  }
   return buildAppUpdateCheckResult(release, currentVersion);
 }

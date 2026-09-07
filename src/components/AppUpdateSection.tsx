@@ -162,8 +162,14 @@ export default function AppUpdateSection() {
           loading={checking}
           disabled={checking || phase === 'downloading'}
         >
-          <RefreshCw className="w-4 h-4 inline mr-1" aria-hidden />
-          Проверить обновления
+          {checking ? (
+            'Проверка…'
+          ) : (
+            <>
+              <RefreshCw className="w-4 h-4 inline mr-1" aria-hidden />
+              Проверить обновления
+            </>
+          )}
         </Button>
       </div>
     </section>
