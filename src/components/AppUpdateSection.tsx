@@ -6,6 +6,9 @@ import {
   AppUpdate,
   checkForAppUpdate,
   getCurrentAppVersion,
+  loadAppUpdateCheckResult,
+  saveAppUpdateCheckResult,
+  subscribeAppUpdateResult,
   type AppUpdateCheckResult,
 } from '../lib/appUpdate';
 import { textStyles, radii, elevation } from '../ui/tokens';
@@ -31,6 +34,16 @@ export default function AppUpdateSection() {
   React.useEffect(() => {
     if (!isNativeApp()) return;
     void getCurrentAppVersion().then(setCurrentVersion);
+    const saved = loadAppUpdateCheckResult();
+    if (saved) {
+      setResult(saved);
+      setCurrentVersion(saved.currentVersion);
+    }
+    return subscribeAppUpdateResult((next) => {
+      setResult(next);
+      setCurrentVersion(next.currentVersion);
+      setCheckError(null);
+    });
   }, []);
 
   if (!isNativeApp()) return null;
@@ -42,7 +55,9 @@ export default function AppUpdateSection() {
     setPhase('none');
     setProgress(null);
     try {
-      setResult(await checkForAppUpdate());
+      const next = await checkForAppUpdate();
+      saveAppUpdateCheckResult(next);
+      setResult(next);
     } catch (e) {
       setCheckError(e instanceof Error ? e.message : String(e));
     } finally {

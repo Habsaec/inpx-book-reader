@@ -27,6 +27,7 @@ export const APP_SETTING_KEYS = {
   einkMode: 'eink_mode',
   appUpdateLastCheck: 'app_update_last_check',
   appUpdatePrompted: 'app_update_prompted',
+  appUpdateLastResult: 'app_update_last_result',
 } as const;
 
 /** Legacy localStorage keys → app_meta key */

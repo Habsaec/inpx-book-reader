@@ -60,11 +60,8 @@ import {
 } from './lib/serverTheme';
 import { fetchSystemPalettes, type SystemPalettes } from './lib/systemTheme';
 import { APP_SETTING_KEYS, getAppSettingString, setAppSettingRaw } from './lib/appSettings';
-import {
-  checkForAppUpdate,
-  shouldAutoCheckAppUpdate,
-  shouldPromptAppUpdate,
-} from './lib/appUpdate';
+import { maybeAutoCheckAppUpdate } from './lib/appUpdate';
+import { App as CapApp } from '@capacitor/app';
 import { resolveNextInSeries, type NextInSeriesResult } from './lib/seriesNavigation';
 import { syncContinueReadingWidget } from './lib/continueWidget';
 import { useDownloadQueue } from './hooks/useDownloadQueue';
@@ -825,37 +822,40 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot gate
   }, [serverConfigReady, libraryReady, storageDirectoryReady]);
 
+  const snackbarShowRef = React.useRef(snackbar.show);
+  snackbarShowRef.current = snackbar.show;
+
   React.useEffect(() => {
     if (!isNativeApp()) return;
     if (!serverConfigReady || !libraryReady || !storageDirectoryReady) return;
     if (showOnboarding) return;
     if (getAppSettingString(APP_SETTING_KEYS.onboardingDone) !== '1') return;
-    const last = Number(getAppSettingString(APP_SETTING_KEYS.appUpdateLastCheck, '0'));
-    if (!shouldAutoCheckAppUpdate(last, Date.now())) return;
 
-    let cancelled = false;
-    void (async () => {
-      try {
-        const result = await checkForAppUpdate();
-        if (cancelled) return;
-        setAppSettingRaw(APP_SETTING_KEYS.appUpdateLastCheck, String(Date.now()));
-        if (!result.updateAvailable) return;
-        const prompted = getAppSettingString(APP_SETTING_KEYS.appUpdatePrompted, '');
-        if (!shouldPromptAppUpdate(result.latestVersion, prompted)) return;
-        if (activeReaderRef.current) return;
-        setAppSettingRaw(APP_SETTING_KEYS.appUpdatePrompted, result.latestVersion);
-        snackbar.show(`Доступна версия v${result.latestVersion}`, {
-          label: 'Обновить',
-          onClick: () => setActiveTab('profile'),
+    const run = () => {
+      void maybeAutoCheckAppUpdate()
+        .then(({ result, prompt }) => {
+          if (!result || !prompt || activeReaderRef.current) return;
+          setAppSettingRaw(APP_SETTING_KEYS.appUpdatePrompted, result.latestVersion);
+          snackbarShowRef.current(`Доступна версия v${result.latestVersion}`, {
+            label: 'Обновить',
+            onClick: () => setActiveTab('profile'),
+          });
+        })
+        .catch(() => {
+          /* сеть/GitHub — молча, ручная проверка остаётся в настройках */
         });
-      } catch {
-        /* сеть/GitHub — молча, ручная проверка остаётся в настройках */
-      }
-    })();
-    return () => {
-      cancelled = true;
     };
-  }, [serverConfigReady, libraryReady, storageDirectoryReady, showOnboarding, snackbar]);
+    run();
+    let handle: { remove: () => Promise<void> } | undefined;
+    void CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) run();
+    }).then((h) => {
+      handle = h;
+    });
+    return () => {
+      void handle?.remove();
+    };
+  }, [serverConfigReady, libraryReady, storageDirectoryReady, showOnboarding]);
 
   return (
     <MobileFrame>

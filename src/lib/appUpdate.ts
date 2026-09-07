@@ -4,6 +4,7 @@
  */
 import { registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
+import { APP_SETTING_KEYS, getAppSettingJson, getAppSettingString, setAppSettingJson, setAppSettingRaw } from './appSettings';
 
 const CHECK_TIMEOUT_MS = 12_000;
 
@@ -68,6 +69,70 @@ export function shouldAutoCheckAppUpdate(lastCheckAt: number, now: number): bool
 export function shouldPromptAppUpdate(latestVersion: string, promptedVersion: string): boolean {
   const latest = latestVersion.trim();
   return Boolean(latest) && latest !== promptedVersion.trim();
+}
+
+export function loadAppUpdateCheckResult(): AppUpdateCheckResult | null {
+  const raw = getAppSettingJson<AppUpdateCheckResult | null>(APP_SETTING_KEYS.appUpdateLastResult, null);
+  if (!raw || typeof raw !== 'object' || !raw.latestVersion) return null;
+  return raw;
+}
+
+export function saveAppUpdateCheckResult(result: AppUpdateCheckResult, now = Date.now()): void {
+  setAppSettingJson(APP_SETTING_KEYS.appUpdateLastResult, result);
+  setAppSettingRaw(APP_SETTING_KEYS.appUpdateLastCheck, String(now));
+}
+
+const resultListeners = new Set<(result: AppUpdateCheckResult) => void>();
+
+export function publishAppUpdateResult(result: AppUpdateCheckResult): void {
+  for (const listener of resultListeners) listener(result);
+}
+
+export function subscribeAppUpdateResult(listener: (result: AppUpdateCheckResult) => void): () => void {
+  resultListeners.add(listener);
+  return () => {
+    resultListeners.delete(listener);
+  };
+}
+
+let checkInFlight: Promise<AppUpdateCheckResult> | null = null;
+
+function checkForAppUpdateShared(): Promise<AppUpdateCheckResult> {
+  if (!checkInFlight) {
+    checkInFlight = checkForAppUpdate().finally(() => {
+      checkInFlight = null;
+    });
+  }
+  return checkInFlight;
+}
+
+/** Фоновая проверка: сеть не чаще интервала, если уже есть сохранённый результат. */
+export async function maybeAutoCheckAppUpdate(now = Date.now()): Promise<{
+  result: AppUpdateCheckResult | null;
+  prompt: boolean;
+}> {
+  const last = Number(getAppSettingString(APP_SETTING_KEYS.appUpdateLastCheck, '0'));
+  const saved = loadAppUpdateCheckResult();
+  if (!shouldAutoCheckAppUpdate(last, now) && saved) {
+    publishAppUpdateResult(saved);
+    return {
+      result: saved,
+      prompt: saved.updateAvailable && shouldPromptAppUpdate(
+        saved.latestVersion,
+        getAppSettingString(APP_SETTING_KEYS.appUpdatePrompted, ''),
+      ),
+    };
+  }
+  const result = await checkForAppUpdateShared();
+  saveAppUpdateCheckResult(result, now);
+  publishAppUpdateResult(result);
+  return {
+    result,
+    prompt: result.updateAvailable && shouldPromptAppUpdate(
+      result.latestVersion,
+      getAppSettingString(APP_SETTING_KEYS.appUpdatePrompted, ''),
+    ),
+  };
 }
 
 interface GithubReleaseAsset {
