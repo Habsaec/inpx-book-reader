@@ -337,7 +337,8 @@ export function resolveIsDark(appearance: AppAppearance): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-function applyPalette(palette: AppThemePalette, fontStack: string): void {
+/** Sets --app-* color vars from a palette; font only when fontStack is given (server theme). */
+export function applyPaletteVars(palette: AppThemePalette, fontStack?: string): void {
   const root = document.documentElement;
   root.style.setProperty('--app-bg', palette.bg);
   root.style.setProperty('--app-surface', palette.surface);
@@ -355,7 +356,7 @@ function applyPalette(palette: AppThemePalette, fontStack: string): void {
   root.style.setProperty('--app-topbar-bg', palette.topbarBg);
   root.style.setProperty('--app-topbar-border', palette.topbarBorder);
   root.style.setProperty('--app-cover-border', palette.coverBorder);
-  root.style.setProperty('--font-sans', fontStack);
+  if (fontStack) root.style.setProperty('--font-sans', fontStack);
 }
 
 export function clearServerThemeVars(): void {
@@ -370,7 +371,7 @@ export function applyServerThemeVars(theme: ServerUiTheme | null, isDark: boolea
   if (!theme) return;
   const palette = isDark ? theme.paletteDark : theme.paletteLight;
   if (!palette) return;
-  applyPalette(palette, theme.fontFamilyStack);
+  applyPaletteVars(palette, theme.fontFamilyStack);
 }
 
 export function clearServerChromeVars(): void {
@@ -413,7 +414,7 @@ export function androidRadiusFromServer(
   return { sm: '0.5rem', md: '0.75rem', lg: '1rem', button: '0.75rem' };
 }
 
-/** Radius, shadows, background — library chrome, independent of local color theme. */
+/** Radius, shadows, background — library chrome; applied only when colorSource === 'server'. */
 export function applyServerChromeVars(
   theme: ServerUiTheme | null,
   isDark: boolean,

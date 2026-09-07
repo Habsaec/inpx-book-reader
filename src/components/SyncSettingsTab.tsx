@@ -31,7 +31,6 @@ import { scanAppPairingQr, isQrScanCanceled } from '../lib/scanAppPairingQr';
 import type { AppAppearance, AppColorSource } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
 import AppUpdateSection from './AppUpdateSection';
-import DiagnosticsTab from './DiagnosticsTab';
 import ServerNetworkSettings, { canTestServerConnection } from './ServerNetworkSettings';
 import { textStyles, semantic, radii, elevation, motion } from '../ui/tokens';
 import Button from '../ui/Button';
@@ -62,7 +61,6 @@ interface SyncSettingsTabProps {
   }) => void;
   onForgetServer?: () => void;
   connectionError?: string | null;
-  lastSynced: string | null;
   embedded?: boolean;
   /** Bumped to scroll the connection block into view (header status icon). */
   connectionFocusEpoch?: number;
@@ -88,7 +86,6 @@ export default function SyncSettingsTab({
   onPairingLogin,
   onForgetServer,
   connectionError,
-  lastSynced,
   embedded = false,
   connectionFocusEpoch = 0,
 }: SyncSettingsTabProps) {
@@ -374,21 +371,23 @@ export default function SyncSettingsTab({
               })}
             </div>
           </div>
-          <label className={`flex items-center gap-3 min-h-12 ${hasServerBackground ? theme.interactive : 'opacity-60'}`}>
+          <label className={`flex items-center gap-3 min-h-12 ${hasServerBackground && colorSource === 'server' ? theme.interactive : 'opacity-60'}`}>
             <input
               id="server-background"
               type="checkbox"
               checked={useServerBackground}
-              disabled={!hasServerBackground}
+              disabled={!hasServerBackground || colorSource !== 'server'}
               onChange={(e) => onChangeUseServerBackground(e.target.checked)}
               className="w-5 h-5 shrink-0"
             />
             <span className={textStyles.body}>Фон</span>
           </label>
           <p className={`${textStyles.caption} ${themeTextMuted}`}>
-            {hasServerBackground
-              ? 'Обои библиотеки с сервера'
-              : 'На сервере нет фонового изображения'}
+            {colorSource !== 'server'
+              ? 'Доступно при цвете «Сервер»'
+              : hasServerBackground
+                ? 'Обои библиотеки с сервера'
+                : 'На сервере нет фонового изображения'}
           </p>
         </section>
 
@@ -491,13 +490,6 @@ export default function SyncSettingsTab({
         </section>
 
         <AppUpdateSection />
-
-        <DiagnosticsTab
-          serverUrl={serverConfig.url}
-          connectionStatus={serverConfig.connectionStatus}
-          storageLabel={storageDirectory?.label ?? null}
-          lastSynced={lastSynced}
-        />
       </div>
     </div>
   );

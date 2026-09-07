@@ -130,35 +130,25 @@ export default function HomeSearchBar({
           placeholder={isOnline ? 'Книга, автор или серия' : 'Поиск недоступен офлайн'}
           disabled={!isOnline}
           autoComplete="off"
-          className={`w-full ${radii.button} pl-12 pr-20 py-3.5 text-sm ${theme.inputFocus} transition-[colors,box-shadow] duration-200 ease-out ${theme.input} disabled:opacity-60`}
+          className={`w-full ${radii.button} pl-12 pr-14 py-3.5 text-sm ${theme.inputFocus} transition-[colors,box-shadow] duration-200 ease-out ${theme.input} disabled:opacity-60`}
         />
         <Search
           className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textMuted} pointer-events-none`}
           aria-hidden
         />
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-          {query.length > 0 && (
-            <button
-              type="button"
-              aria-label="Очистить поиск"
-              onClick={() => {
-                setQuery('');
-                inputRef.current?.focus();
-              }}
-              className={`${touchMin} inline-flex items-center justify-center rounded-full ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
-            >
-              <X className="w-4 h-4" aria-hidden />
-            </button>
-          )}
+        {query.length > 0 && (
           <button
-            type="submit"
-            aria-label="Искать"
-            disabled={!isOnline || !query.trim()}
-            className={`${touchMin} inline-flex items-center justify-center ${radii.button} ${theme.accentBg} text-white ${theme.focusRing} ${motion.press} disabled:opacity-50`}
+            type="button"
+            aria-label="Очистить поиск"
+            onClick={() => {
+              setQuery('');
+              inputRef.current?.focus();
+            }}
+            className={`absolute right-2 top-1/2 -translate-y-1/2 ${touchMin} inline-flex items-center justify-center rounded-full ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
           >
-            <Search className="w-4 h-4" aria-hidden />
+            <X className="w-4 h-4" aria-hidden />
           </button>
-        </div>
+        )}
       </form>
 
       {showHistory ? (

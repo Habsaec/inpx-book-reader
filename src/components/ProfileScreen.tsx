@@ -25,7 +25,6 @@ interface ProfileScreenProps {
   }) => void;
   onForgetServer?: () => void;
   connectionError?: string | null;
-  lastSynced: string | null;
   storageDirectory: StorageDirectory | null;
   onChangeStorageDirectory: (dir: StorageDirectory | null) => void;
   appearance: AppAppearance;
@@ -56,7 +55,6 @@ export default function ProfileScreen({
   onPairingLogin,
   onForgetServer,
   connectionError,
-  lastSynced,
   storageDirectory,
   onChangeStorageDirectory,
   appearance,
@@ -130,7 +128,6 @@ export default function ProfileScreen({
         onPairingLogin={onPairingLogin}
         onForgetServer={onForgetServer}
         connectionError={connectionError}
-        lastSynced={lastSynced}
         connectionFocusEpoch={connectionFocusEpoch}
       />
     </div>

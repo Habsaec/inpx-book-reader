@@ -48,6 +48,7 @@ import {
   type AppAppearance,
   type AppColorSource,
   applyAppThemeMode,
+  applyPaletteVars,
   applyServerChromeVars,
   applyServerThemeVars,
   clearServerChromeVars,
@@ -57,6 +58,7 @@ import {
   parseAppColorSource,
   resolveIsDark,
 } from './lib/serverTheme';
+import { fetchSystemPalettes, type SystemPalettes } from './lib/systemTheme';
 import { APP_SETTING_KEYS, getAppSettingString, setAppSettingRaw } from './lib/appSettings';
 import { resolveNextInSeries, type NextInSeriesResult } from './lib/seriesNavigation';
 import { syncContinueReadingWidget } from './lib/continueWidget';
@@ -383,6 +385,17 @@ export default function App() {
   const activeFavoriteAuthors = isOnline ? inpxServer.favoriteAuthors : favoriteAuthors;
   const activeFavoriteSeries = isOnline ? inpxServer.favoriteSeries : favoriteSeries;
 
+  const [systemPalettes, setSystemPalettes] = React.useState<SystemPalettes | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetchSystemPalettes().then((p) => {
+      if (!cancelled) setSystemPalettes(p);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [autoThemeTick, setAutoThemeTick] = React.useState(0);
   const isAppDark = React.useMemo(
     () => resolveIsDark(appearance),
@@ -440,12 +453,18 @@ export default function App() {
     applyAppThemeMode(isAppDark);
     if (colorSource === 'server') {
       applyServerThemeVars(serverUiTheme, isAppDark);
+      applyServerChromeVars(serverUiTheme, isAppDark, serverBgBlobUrl, useServerBackground);
+      void syncAndroidStatusBar(isAppDark, { eink: false });
     } else {
+      // «Система»: без серверных цветов, скруглений, теней и фона.
+      // Material You (Android 12+) — динамическая палитра ОС; иначе встроенная из index.css.
       clearServerThemeVars();
+      clearServerChromeVars();
+      const palette = systemPalettes ? (isAppDark ? systemPalettes.dark : systemPalettes.light) : null;
+      if (palette) applyPaletteVars(palette);
+      void syncAndroidStatusBar(isAppDark, { eink: false, bg: palette?.bg });
     }
-    applyServerChromeVars(serverUiTheme, isAppDark, serverBgBlobUrl, useServerBackground);
-    void syncAndroidStatusBar(isAppDark, { eink: false });
-  }, [isAppDark, appearance, colorSource, serverUiTheme, serverBgBlobUrl, useServerBackground, einkActive]);
+  }, [isAppDark, appearance, colorSource, serverUiTheme, serverBgBlobUrl, useServerBackground, einkActive, systemPalettes]);
 
   const { enqueueDownload, downloadingId, queuedBookIds } = useDownloadPipeline({
     serverConfig,
@@ -992,7 +1011,6 @@ export default function App() {
               onPairingLogin={applyPairingLogin}
               onForgetServer={() => setConnectionError(null)}
               connectionError={connectionError}
-              lastSynced={inpxServer.lastSynced}
               storageDirectory={storageDirectory}
               onChangeStorageDirectory={setStorageDirectory}
               appearance={appearance}
