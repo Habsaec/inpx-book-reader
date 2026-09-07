@@ -6,7 +6,7 @@ import { registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { APP_SETTING_KEYS, getAppSettingJson, getAppSettingString, setAppSettingJson, setAppSettingRaw } from './appSettings';
 
-const CHECK_TIMEOUT_MS = 12_000;
+const CHECK_TIMEOUT_MS = 15_000;
 
 interface AppUpdatePluginType {
   /** Latest GitHub release JSON (native HTTP — WebView fetch hangs with CapacitorHttp). */
@@ -57,8 +57,8 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 {
   return 0;
 }
 
-/** Не чаще раза в 12 часов — GitHub не должен дергаться на каждый запуск. */
-export const AUTO_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+/** Троттлинг для частых foreground/background — на холодный старт практически всегда идёт запрос. */
+export const AUTO_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
 export function shouldAutoCheckAppUpdate(lastCheckAt: number, now: number): boolean {
   if (!Number.isFinite(lastCheckAt) || lastCheckAt <= 0) return true;
@@ -71,9 +71,11 @@ export function shouldPromptAppUpdate(latestVersion: string, promptedVersion: st
   return Boolean(latest) && latest !== promptedVersion.trim();
 }
 
-export function loadAppUpdateCheckResult(): AppUpdateCheckResult | null {
+/** Сохранённый результат; после обновления APK старый (с другой currentVersion) отбрасывается. */
+export function loadAppUpdateCheckResult(currentVersion?: string): AppUpdateCheckResult | null {
   const raw = getAppSettingJson<AppUpdateCheckResult | null>(APP_SETTING_KEYS.appUpdateLastResult, null);
   if (!raw || typeof raw !== 'object' || !raw.latestVersion) return null;
+  if (currentVersion && raw.currentVersion !== currentVersion) return null;
   return raw;
 }
 
@@ -112,7 +114,7 @@ export async function maybeAutoCheckAppUpdate(now = Date.now()): Promise<{
   prompt: boolean;
 }> {
   const last = Number(getAppSettingString(APP_SETTING_KEYS.appUpdateLastCheck, '0'));
-  const saved = loadAppUpdateCheckResult();
+  const saved = loadAppUpdateCheckResult(await getCurrentAppVersion());
   if (!shouldAutoCheckAppUpdate(last, now) && saved) {
     publishAppUpdateResult(saved);
     return {

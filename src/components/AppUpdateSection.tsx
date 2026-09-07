@@ -33,15 +33,13 @@ export default function AppUpdateSection() {
 
   React.useEffect(() => {
     if (!isNativeApp()) return;
-    void getCurrentAppVersion().then(setCurrentVersion);
-    const saved = loadAppUpdateCheckResult();
-    if (saved) {
-      setResult(saved);
-      setCurrentVersion(saved.currentVersion);
-    }
+    void getCurrentAppVersion().then((version) => {
+      setCurrentVersion(version);
+      const saved = loadAppUpdateCheckResult(version);
+      if (saved) setResult((prev) => prev ?? saved);
+    });
     return subscribeAppUpdateResult((next) => {
       setResult(next);
-      setCurrentVersion(next.currentVersion);
       setCheckError(null);
     });
   }, []);

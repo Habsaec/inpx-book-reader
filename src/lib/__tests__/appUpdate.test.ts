@@ -18,14 +18,14 @@ describe('compareVersions', () => {
 });
 
 describe('shouldAutoCheckAppUpdate', () => {
-  const hour = 60 * 60 * 1000;
+  const minute = 60 * 1000;
   it('проверяет, если ещё не было проверки', () => {
     expect(shouldAutoCheckAppUpdate(0, 1000)).toBe(true);
     expect(shouldAutoCheckAppUpdate(Number.NaN, 1000)).toBe(true);
   });
   it('не проверяет чаще интервала', () => {
-    expect(shouldAutoCheckAppUpdate(1000, 1000 + 11 * hour)).toBe(false);
-    expect(shouldAutoCheckAppUpdate(1000, 1000 + 12 * hour)).toBe(true);
+    expect(shouldAutoCheckAppUpdate(1000, 1000 + 9 * minute)).toBe(false);
+    expect(shouldAutoCheckAppUpdate(1000, 1000 + 10 * minute)).toBe(true);
   });
 });
 

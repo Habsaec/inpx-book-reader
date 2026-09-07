@@ -50,7 +50,7 @@ public class AppUpdatePlugin extends Plugin {
         Pattern.compile("releases/tag/(v?\\d+\\.\\d+\\.\\d+)");
     private static final Pattern ATOM_TAG =
         Pattern.compile("Repository/\\d+/(v?\\d+\\.\\d+\\.\\d+)");
-    private static final int CHECK_TIMEOUT_MS = 10_000;
+    private static final int CHECK_TIMEOUT_MS = 13_000;
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
@@ -149,19 +149,46 @@ public class AppUpdatePlugin extends Plugin {
         String canonical = tag.startsWith("v") || tag.startsWith("V") ? tag : "v" + tag;
         String version = canonical.substring(1);
         String apkName = "INPX.Book.Reader." + version + ".apk";
-        JSONObject apk = new JSONObject();
-        apk.put("name", apkName);
-        apk.put("size", 0);
-        apk.put("browser_download_url",
-            "https://github.com/Habsaec/inpx-book-reader/releases/download/" + canonical + "/" + apkName);
+        String apkUrl =
+            "https://github.com/Habsaec/inpx-book-reader/releases/download/" + canonical + "/" + apkName;
         JSONArray assets = new JSONArray();
-        assets.put(apk);
+        // -1: сеть не ответила — считаем, что APK есть; 0/404: ассет ещё не приложен к релизу.
+        long apkSize = probeAssetSize(apkUrl);
+        if (apkSize != 0) {
+            JSONObject apk = new JSONObject();
+            apk.put("name", apkName);
+            apk.put("size", Math.max(0, apkSize));
+            apk.put("browser_download_url", apkUrl);
+            assets.put(apk);
+        }
         JSONObject release = new JSONObject();
         release.put("tag_name", canonical);
         release.put("html_url", "https://github.com/Habsaec/inpx-book-reader/releases/tag/" + canonical);
         release.put("assets", assets);
         release.put("body", "");
         return release.toString();
+    }
+
+    /** HEAD по ссылке ассета: >0 — размер, 0 — нет файла (404), -1 — не удалось проверить. */
+    private static long probeAssetSize(String url) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(6_000);
+            conn.setReadTimeout(6_000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestMethod("HEAD");
+            conn.setRequestProperty("User-Agent", USER_AGENT);
+            int code = conn.getResponseCode();
+            if (code == 404) return 0;
+            if (code < 200 || code >= 300) return -1;
+            long len = conn.getContentLengthLong();
+            return len > 0 ? len : -1;
+        } catch (Exception e) {
+            return -1;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     private static String readUtf8(InputStream stream, int maxChars) throws Exception {
