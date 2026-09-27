@@ -11,8 +11,9 @@ import {
   Trash2,
   Wifi,
 } from 'lucide-react';
+import { impactLight } from '../lib/haptics';
 import { theme } from '../lib/appTheme';
-import { textStyles, semantic, radii, motion, touchMin, elevation } from '../ui/tokens';
+import { textStyles, semantic, radii, motion, touchMin } from '../ui/tokens';
 import Button from '../ui/Button';
 import type { ServerConfig } from '../types';
 import { isAndroid } from '../lib/platform';
@@ -125,11 +126,11 @@ export default function ServerNetworkSettings({
   const inputClass = `w-full px-4 py-3.5 ${textStyles.body} ${radii.lg} ${theme.inputFocus} ${theme.input}`;
 
   return (
-    <section className={`${radii.lg} ${theme.card} ${elevation.card} p-5 space-y-5`}>
+    <section className="space-y-5">
       <div>
-        <h3 className={textStyles.sectionLabel}>Сеть</h3>
+        <h3 className={`${textStyles.labelBold} tracking-wide ${theme.textMuted}`}>Сеть</h3>
         <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>Текущий адрес сервера</p>
-        <div className={`mt-2 flex items-center gap-2 ${radii.lg} ${theme.panel} px-3 py-2.5`}>
+        <div className="mt-2 flex items-center gap-2 min-h-12">
           <Check className={`w-4 h-4 shrink-0 ${connected ? semantic.success : theme.textMuted}`} aria-hidden />
           <span className={`${textStyles.body} break-all`}>{currentUrl || '—'}</span>
         </div>
@@ -146,14 +147,17 @@ export default function ServerNetworkSettings({
           type="button"
           role="switch"
           aria-checked={Boolean(serverConfig.autoSwitch)}
-          onClick={() => onChangeServerConfig({ autoSwitch: !serverConfig.autoSwitch })}
-          className={`relative h-7 w-12 shrink-0 rounded-full ${theme.focusRing} ${
+          onClick={() => {
+            impactLight();
+            onChangeServerConfig({ autoSwitch: !serverConfig.autoSwitch });
+          }}
+          className={`inpx-switch relative h-7 w-12 shrink-0 rounded-full ${theme.focusRing} ${
             serverConfig.autoSwitch ? theme.accentBg : theme.panel
           }`}
         >
           <span
-            className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
-              serverConfig.autoSwitch ? 'left-5' : 'left-0.5'
+            className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform duration-200 ease-out ${
+              serverConfig.autoSwitch ? 'translate-x-[1.125rem]' : 'translate-x-0'
             }`}
           />
         </button>
@@ -333,7 +337,7 @@ function SettingsRow({
   onEdit: () => void;
 }) {
   return (
-    <div className={`flex items-center gap-3 min-h-14 px-3 ${radii.lg} ${theme.panel}`}>
+    <div className={`flex items-center gap-3 min-h-14 py-1 border-b ${theme.divider}`}>
       <Icon className={`w-4 h-4 shrink-0 ${theme.accentText}`} aria-hidden />
       <div className="min-w-0 flex-1 py-2">
         <p className={`${textStyles.caption} ${theme.textMuted}`}>{label}</p>

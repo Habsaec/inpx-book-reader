@@ -28,26 +28,29 @@ describe('runBookOpenOnlineSync', () => {
     expect(recordReadingHistory).not.toHaveBeenCalled();
   });
 
-  it('records reading history on open before position sync', async () => {
-    const order: string[] = [];
-    const recordReadingHistory = vi.fn().mockImplementation(async () => {
-      order.push('history');
+  it('does not wait for reading history before position sync', async () => {
+    let releaseHistory!: () => void;
+    const historyGate = new Promise<void>((resolve) => {
+      releaseHistory = resolve;
     });
-    const syncPosition = vi.fn().mockImplementation(async () => {
-      order.push('position');
-      return 'noop' satisfies CrossDevicePositionChoice;
-    });
+    const recordReadingHistory = vi.fn().mockImplementation(() => historyGate);
+    const syncPosition = vi.fn().mockResolvedValue('noop' satisfies CrossDevicePositionChoice);
     const syncReaderData = vi.fn().mockResolvedValue(undefined);
 
-    const result = await runBookOpenOnlineSync(true, config, 'book-1', null, {
+    const resultPromise = runBookOpenOnlineSync(true, config, 'book-1', null, {
       syncPosition,
       syncReaderData,
       recordReadingHistory,
     });
+    await vi.waitFor(() => {
+      expect(syncPosition).toHaveBeenCalled();
+      expect(syncReaderData).toHaveBeenCalled();
+    });
+    const result = await resultPromise;
+    releaseHistory();
 
     expect(result.syncFailed).toBe(false);
     expect(recordReadingHistory).toHaveBeenCalledWith('book-1');
-    expect(order).toEqual(['history', 'position']);
   });
 
   it('records history when opening at an explicit bookmark', async () => {
@@ -166,20 +169,20 @@ describe('runBookOpenOnlineSync', () => {
     expect(syncReaderData).not.toHaveBeenCalled();
   });
 
-  it('rethrows auth errors from history POST', async () => {
+  it('does not block position sync when history POST returns 401', async () => {
     const { ApiError } = await import('../inpxClient');
     const authErr = new ApiError('auth', 401);
     const recordReadingHistory = vi.fn().mockRejectedValue(authErr);
-    const syncPosition = vi.fn();
-    const syncReaderData = vi.fn();
+    const syncPosition = vi.fn().mockResolvedValue('noop' satisfies CrossDevicePositionChoice);
+    const syncReaderData = vi.fn().mockResolvedValue(undefined);
 
-    await expect(
-      runBookOpenOnlineSync(true, config, 'book-1', null, {
-        syncPosition,
-        syncReaderData,
-        recordReadingHistory,
-      }),
-    ).rejects.toBe(authErr);
-    expect(syncPosition).not.toHaveBeenCalled();
+    const result = await runBookOpenOnlineSync(true, config, 'book-1', null, {
+      syncPosition,
+      syncReaderData,
+      recordReadingHistory,
+    });
+
+    expect(result).toEqual({ positionChoice: 'noop', syncFailed: false });
+    expect(syncPosition).toHaveBeenCalled();
   });
 });

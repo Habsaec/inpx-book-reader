@@ -328,7 +328,8 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
   }
 }
 
-const HEALTH_PROBE_TIMEOUT_MS = 3_500;
+/** Long enough for a sleeping PC or a cold Wi-Fi path. A browser waits much longer than 3.5s. */
+const HEALTH_PROBE_TIMEOUT_MS = CONNECTION_TIMEOUT_MS;
 
 /** Cheap reachability check for auto URL switching. Does not require login. */
 export async function probeServerHealth(
@@ -338,7 +339,7 @@ export async function probeServerHealth(
   const base = normalizeBaseUrl(config.url);
   if (!base) return false;
   try {
-    const healthRes = await apiFetchWithTimeout(config, '/health', {}, timeoutMs);
+    const healthRes = await apiFetchWithTimeout(config, '/health', { cache: 'no-store' }, timeoutMs);
     return healthRes.ok;
   } catch {
     return false;
@@ -848,6 +849,19 @@ export async function deleteReaderBookmarkApi(config: ServerConfig, bookId: stri
   await apiDelete(config, apiBookPath(bookId, `bookmarks/${bmId}`));
 }
 
+export async function patchReaderBookmarkApi(
+  config: ServerConfig,
+  bookId: string,
+  bmId: number,
+  title: string,
+): Promise<void> {
+  await apiJson(config, apiBookPath(bookId, `bookmarks/${bmId}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+}
+
 export interface ReaderBookmarkListItem {
   id: number;
   bookId: string;
@@ -1079,7 +1093,7 @@ export async function searchCatalog(
 }
 
 export interface SearchSuggestions {
-  books: Array<{ id: string; title: string; authors?: string; authorsDisplay?: string }>;
+  books: Array<{ id: string; title: string; authors?: string; authorsDisplay?: string; seriesNo?: string | number }>;
   authors: Array<{ name: string; displayName?: string; bookCount?: number }>;
   series: Array<{ name: string; displayName?: string; bookCount?: number }>;
 }
@@ -1282,7 +1296,7 @@ export async function fetchAuthorPortraitBlob(config: ServerConfig, authorName: 
   } catch (e: unknown) {
     if (isAuthError(e)) throw e;
     if (controller.signal.aborted) {
-      throw new Error(`Timeout: сервер не ответил за ${Math.round(API_TIMEOUT_MS / 1000)} с`);
+      return null;
     }
     throw e;
   } finally {
@@ -1530,6 +1544,33 @@ export function formatAuthorLabel(value = ''): string {
   return authors.length > 3 ? `${head} и ещё ${authors.length - 3}` : head;
 }
 
+/** Separate people for author pages. INPX joins people with `:`, not a comma. */
+export function authorNamesFromItem(
+  item: Pick<InpxBookItem, 'authors' | 'authorsList'>,
+): string[] {
+  const list = item.authorsList?.length
+    ? item.authorsList
+    : String(item.authors || '').split(':');
+  const names = list.map((author) => formatSingleAuthorName(author)).filter(Boolean);
+  return [...new Set(names)].slice(0, 4);
+}
+
+/**
+ * Names to pass to `/api/facet-books?facet=authors`.
+ * A joined display line ("А, Б") is not an author key.
+ */
+export function authorFacetNames(book: { author?: string; authors?: string[] }): string[] {
+  const listed = (book.authors || []).map((name) => name.trim()).filter(Boolean);
+  if (listed.length) return listed.slice(0, 2);
+  const raw = (book.author || '').trim();
+  if (!raw || raw === 'Неизвестный автор') return [];
+  return raw
+    .split(/,\s+/)
+    .map((part) => part.replace(/\s+и ещё \d+$/u, '').trim())
+    .filter((part) => part && !/^и ещё \d+$/u.test(part))
+    .slice(0, 2);
+}
+
 export function formatAuthorsFromItem(
   item: Pick<InpxBookItem, 'authors' | 'authorsList' | 'authorsDisplay'>
 ): string {
@@ -1560,7 +1601,7 @@ export function formatSeriesVolumeLabel(value: unknown): string {
 export function pickSeriesFromItem(
   item: Pick<InpxBookItem, 'series' | 'seriesNo' | 'seriesList'>,
   preferredSeries?: string,
-): { series?: string; seriesNo?: number; seriesNoLabel?: string } {
+): { series?: string; seriesDisplay?: string; seriesNo?: number; seriesNoLabel?: string } {
   const prefer = preferredSeries?.trim();
   if (prefer && Array.isArray(item.seriesList)) {
     const match = item.seriesList.find(
@@ -1569,14 +1610,17 @@ export function pickSeriesFromItem(
     if (match?.name?.trim()) {
       return {
         series: match.name.trim(),
+        seriesDisplay: match.displayName?.trim() || undefined,
         seriesNo: parseSeriesNo(match.seriesNo),
         seriesNoLabel: formatSeriesVolumeLabel(match.seriesNo),
       };
     }
   }
   if (item.series?.trim()) {
+    const same = item.seriesList?.find((s) => s.name?.trim().toLowerCase() === item.series!.trim().toLowerCase());
     return {
       series: item.series.trim(),
+      seriesDisplay: same?.displayName?.trim() || undefined,
       seriesNo: parseSeriesNo(item.seriesNo),
       seriesNoLabel: formatSeriesVolumeLabel(item.seriesNo),
     };
@@ -1585,6 +1629,7 @@ export function pickSeriesFromItem(
   if (first?.name?.trim()) {
     return {
       series: first.name.trim(),
+      seriesDisplay: first.displayName?.trim() || undefined,
       seriesNo: parseSeriesNo(first.seriesNo),
       seriesNoLabel: formatSeriesVolumeLabel(first.seriesNo),
     };
@@ -1610,17 +1655,20 @@ export function mapServerBook(
   opts?: { preferredSeries?: string },
 ) {
   const author = formatAuthorsFromItem(item);
+  const authors = authorNamesFromItem(item);
   const genreParts = item.genresDisplayList || (item.genres ? item.genres.split(':') : []);
-  const { series, seriesNo, seriesNoLabel } = pickSeriesFromItem(item, opts?.preferredSeries);
+  const { series, seriesDisplay, seriesNo, seriesNoLabel } = pickSeriesFromItem(item, opts?.preferredSeries);
   const rawRate = item.libRate ?? (item as { lib_rate?: unknown }).lib_rate;
   return {
     id: item.id,
     title: item.title,
     author,
+    authors: authors.length ? authors : undefined,
     genre: genreParts[0] || 'Другое',
     subgenre: genreParts[1] || 'Разное',
     genresDisplay: genreParts.length ? genreParts : undefined,
     series,
+    seriesDisplay,
     seriesNo,
     seriesNoLabel: seriesNoLabel || (seriesNo != null ? String(seriesNo) : undefined),
     ext: (item.ext || 'fb2').replace(/^\./, ''),
@@ -1629,6 +1677,7 @@ export function mapServerBook(
     rating: starsFromLibRate(rawRate),
     date: item.date,
     year: Number(String(item.date || '').match(/\b(18|19|20)\d{2}\b/)?.[0]) || undefined,
+    lang: item.lang?.trim() || undefined,
     coverUrl: displayCoverUrl(config, item.id),
     contentUrl: bookContentUrl(config, item.id),
     readProgress: item.readProgress != null ? Math.round(Number(item.readProgress)) : undefined,

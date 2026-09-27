@@ -1,19 +1,23 @@
 import React from 'react';
-import { CheckSquare, HardDrive, Trash2, FolderPlus, X } from 'lucide-react';
+import { HardDrive, Trash2, FolderPlus } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, touchMin, radii } from '../ui/tokens';
 import { Book, ServerConfig } from '../types';
 import EmptyState from '../ui/EmptyState';
-import { ScreenLoader } from '../ui/Skeleton';
+import { BookListSkeleton } from '../ui/Skeleton';
 import CatalogBookList from './catalog/CatalogBookList';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
+import ViewModeToggle from '../ui/ViewModeToggle';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { UiShelf } from '../lib/inpxClient';
 import Button from '../ui/Button';
 import { readOfflineReaderData } from '../lib/offlineReaderStore';
+import { seriesVolumeSortKey } from '../lib/seriesVolumeSort';
+import { usePageTitle } from '../ui/pageTitle';
+import { useBarHeight } from '../ui/useBarHeight';
 
-type DeviceSort = 'recent' | 'title' | 'author';
+type DeviceSort = 'recent' | 'title' | 'author' | 'volume';
 
 interface DeviceLibraryTabProps {
   books: Book[];
@@ -25,9 +29,10 @@ interface DeviceLibraryTabProps {
   canDownloadOnline: boolean;
   downloadingId?: string | null;
   readingProgressByBookId?: Record<string, number>;
+  readIds?: Set<string>;
   shelves?: UiShelf[];
   onOpenBook: (book: Book) => void;
-  onContinueBook: (book: Book) => void;
+  /** Tap opens the book page, same as catalog and home. */
   onOpenDetails?: (book: Book) => void;
   onBookLongPress?: (book: Book) => void;
   onRemoveBooks?: (bookIds: string[]) => void | Promise<void>;
@@ -44,11 +49,10 @@ export default function DeviceLibraryTab({
   serverConfig,
   storageDirectory,
   storageDirectoryReady = true,
-  isOnline,
   readingProgressByBookId = {},
+  readIds,
   shelves = [],
   onOpenBook,
-  onContinueBook,
   onOpenDetails,
   onBookLongPress,
   onRemoveBooks,
@@ -58,12 +62,14 @@ export default function DeviceLibraryTab({
   embedded = false,
   resetEpoch = 0,
 }: DeviceLibraryTabProps) {
+  usePageTitle('На устройстве', undefined, !embedded);
   const [sort, setSort] = React.useState<DeviceSort>('recent');
   const [selectMode, setSelectMode] = React.useState(false);
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [shelfPickerOpen, setShelfPickerOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
-  const { viewMode } = useCatalogViewMode('books');
+  const [setToolEl, toolH] = useBarHeight();
+  const { viewMode, setViewMode } = useCatalogViewMode('books');
   const resetEpochSeen = React.useRef(resetEpoch);
 
   const sorted = React.useMemo(() => {
@@ -74,6 +80,18 @@ export default function DeviceLibraryTab({
       list.sort((a, b) => {
         const byAuthor = (a.author || '').localeCompare(b.author || '', 'ru');
         return byAuthor !== 0 ? byAuthor : a.title.localeCompare(b.title, 'ru');
+      });
+    } else if (sort === 'volume') {
+      list.sort((a, b) => {
+        const sa = (a.series || '').trim();
+        const sb = (b.series || '').trim();
+        if (!sa !== !sb) return sa ? -1 : 1;
+        const bySeries = sa.localeCompare(sb, 'ru');
+        if (bySeries !== 0) return bySeries;
+        const ka = seriesVolumeSortKey(a);
+        const kb = seriesVolumeSortKey(b);
+        if (ka !== kb) return ka - kb;
+        return a.title.localeCompare(b.title, 'ru');
       });
     } else {
       list.sort((a, b) => {
@@ -142,53 +160,87 @@ export default function DeviceLibraryTab({
   );
 
   if (!storageDirectoryReady) {
-    return <ScreenLoader label="Подготовка хранилища…" />;
+    return (
+      <div className="flex-1 overflow-y-auto inpx-page-scroll px-5 py-4" aria-busy aria-label="Подготовка хранилища">
+        <BookListSkeleton count={4} />
+      </div>
+    );
   }
 
   if (!storageDirectory?.uri) {
     return (
+      <div className="flex-1 overflow-y-auto inpx-page-scroll">
       <EmptyState
         icon={HardDrive}
-        title="Папка хранения не выбрана"
-        description="Укажите папку для книг в настройках, затем скачайте книги из поиска."
-        actionLabel={onGoProfile ? 'Открыть настройки' : undefined}
+        title="Выберите папку"
+        description="Книги хранятся на устройстве и доступны без интернета."
+        actionLabel={onGoProfile ? 'Выбрать папку' : undefined}
+        actionVariant="primary"
         onAction={onGoProfile}
       />
+      </div>
     );
   }
 
   if (sorted.length === 0) {
     return (
+      <div className="flex-1 overflow-y-auto inpx-page-scroll">
       <EmptyState
         icon={HardDrive}
-        title="На устройстве пока нет книг"
-        description={
-          isOnline
-            ? 'Скачайте книги из поиска — они появятся здесь и будут доступны без сети.'
-            : 'Подключитесь к серверу и скачайте книги, пока есть сеть.'
-        }
-        actionLabel={onGoCatalog ? 'Открыть поиск' : undefined}
+        title="Загрузок пока нет"
+        description="Здесь появятся книги, которые вы скачаете из каталога."
+        actionLabel={onGoCatalog ? 'Каталог' : undefined}
+        actionVariant="primary"
         onAction={onGoCatalog}
       />
+      </div>
     );
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden">
-      <div className={`px-5 pt-3 pb-3 shrink-0 space-y-3 ${theme.bg}`}>
-        {!embedded && (
-          <>
-            <h2 className={textStyles.title}>На устройстве</h2>
-            <p className={`${textStyles.caption} ${theme.textMuted}`}>
-              {sorted.length} {sorted.length === 1 ? 'книга' : sorted.length < 5 ? 'книги' : 'книг'}
-            </p>
-          </>
-        )}
-        <div className="flex items-center gap-2 flex-wrap">
-          <label className={`inline-flex min-w-0 max-w-[10.5rem] ${textStyles.caption} ${theme.textMuted}`}>
+    <div
+      className="relative flex-1 min-h-0 h-full"
+      style={{ ['--inpx-tool' as string]: `${toolH}px` }}
+    >
+      <div className="absolute inset-0 overflow-y-auto inpx-page-scroll px-5 py-4">
+        <CatalogBookList
+          books={sorted}
+          viewMode={viewMode}
+          serverConfig={serverConfig}
+          storageDirectory={storageDirectory}
+          downloadedBookIds={sorted.map((b) => b.id)}
+          readingProgressByBookId={readingProgressByBookId}
+          readIds={readIds}
+          selectedBookIds={selectMode ? selected : undefined}
+          virtualizeList={false}
+          onBookClick={(book) => {
+            if (selectMode) {
+              toggleSelected(book.id);
+              return;
+            }
+            if (onOpenDetails) {
+              onOpenDetails(book);
+              return;
+            }
+            onOpenBook(book);
+          }}
+          onBookLongPress={
+            selectMode
+              ? (book) => toggleSelected(book.id)
+              : onBookLongPress
+          }
+        />
+      </div>
+      <div
+        ref={setToolEl}
+        className="inpx-chrome inpx-chrome-top absolute inset-x-0 z-10 px-5 py-1 space-y-2"
+        style={{ top: 'calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px))' }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <label className={`min-w-0 ${textStyles.caption} ${theme.textMuted}`}>
             <span className="sr-only">Сортировка</span>
             <select
-              className={`w-full ${radii.button} border px-3 py-2.5 min-h-12 ${theme.input} ${theme.inputFocus}`}
+              className={`max-w-full bg-transparent pr-1 py-2 min-h-11 ${textStyles.body} ${theme.text} ${theme.focusRing}`}
               value={sort}
               onChange={(e) => setSort(e.target.value as DeviceSort)}
               aria-label="Сортировка"
@@ -196,20 +248,23 @@ export default function DeviceLibraryTab({
               <option value="recent">Недавно читал</option>
               <option value="title">Название</option>
               <option value="author">Автор</option>
+              <option value="volume">Номер тома</option>
             </select>
           </label>
-          <button
-            type="button"
-            className={`${touchMin} px-4 ${radii.button} inline-flex items-center gap-1.5 text-sm font-semibold ${theme.chip} ${theme.chipHover} ${theme.focusRing}`}
-            onClick={() => {
-              if (selectMode) exitSelect();
-              else setSelectMode(true);
-            }}
-            aria-pressed={selectMode}
-          >
-            {selectMode ? <X className="w-4 h-4" aria-hidden /> : <CheckSquare className="w-4 h-4" aria-hidden />}
-            {selectMode ? 'Отмена' : 'Выбрать'}
-          </button>
+          <div className="flex items-center shrink-0">
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            <button
+              type="button"
+              className={`${touchMin} px-2 inline-flex items-center gap-1.5 ${textStyles.captionBold} ${theme.accentText} ${theme.focusRing}`}
+              onClick={() => {
+                if (selectMode) exitSelect();
+                else setSelectMode(true);
+              }}
+              aria-pressed={selectMode}
+            >
+              {selectMode ? 'Отмена' : 'Выбрать'}
+            </button>
+          </div>
         </div>
         {selectMode && (
           <div className="flex items-center gap-2 flex-wrap">
@@ -251,37 +306,6 @@ export default function DeviceLibraryTab({
             ))}
           </div>
         )}
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-5 py-4">
-        <CatalogBookList
-          books={sorted}
-          viewMode={viewMode}
-          serverConfig={serverConfig}
-          storageDirectory={storageDirectory}
-          downloadedBookIds={sorted.map((b) => b.id)}
-          readingProgressByBookId={readingProgressByBookId}
-          selectedBookIds={selectMode ? selected : undefined}
-          virtualizeList={false}
-          onBookClick={(book) => {
-            if (selectMode) {
-              toggleSelected(book.id);
-              return;
-            }
-            if (onOpenDetails) {
-              onOpenDetails(book);
-              return;
-            }
-            const progress = readingProgressByBookId[book.id] ?? book.readProgress ?? 0;
-            if (progress > 0) onContinueBook(book);
-            else onOpenBook(book);
-          }}
-          onBookLongPress={
-            selectMode
-              ? (book) => toggleSelected(book.id)
-              : onBookLongPress
-          }
-        />
       </div>
     </div>
   );

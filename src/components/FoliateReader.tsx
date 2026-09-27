@@ -18,9 +18,8 @@ import {
   type SafeAreaInsets,
 } from '../lib/safeArea';
 import { useBackHandler } from '../hooks/useBackHandler';
-import { theme } from '../lib/appTheme';
-import { radii } from '../ui/tokens';
-import { ScreenLoader } from '../ui/Skeleton';
+import EmptyState from '../ui/EmptyState';
+import { BookOpen } from 'lucide-react';
 import { applyReaderOrientationLock } from '../lib/readerOrientation';
 import { APP_SETTING_KEYS, getAppSettingJson } from '../lib/appSettings';
 import { applyIframeReaderStore, primeReaderLocalStorage, readOfflineReaderData } from '../lib/offlineReaderStore';
@@ -212,7 +211,7 @@ export default function FoliateReader({
         }, flatToc),
       );
       const accepted = await dialog.confirm({
-        title: 'Позиция чтения',
+        title: 'Продолжить с другого устройства?',
         message: String(event.data.message || 'Ранее вы уже читали эту книгу на другом устройстве. Перейти на сохранённую позицию?'),
         positionCompare: {
           localLabel: 'Сейчас',
@@ -532,8 +531,11 @@ export default function FoliateReader({
         primeReaderLocalStorage(bookId);
         const readerData = readOfflineReaderData(bookId);
         const query = new URLSearchParams({ bookId, ext: bookExt });
-        if (initialPosition) query.set('pos', initialPosition);
-        else {
+        if (initialPosition) {
+          query.set('pos', initialPosition);
+          const ann = (readerData.annotations || []).find((item) => item.cfi && item.cfi === initialPosition);
+          if (ann) query.set('ann', String(ann.id));
+        } else {
           const frac = readerData.fraction != null && Number.isFinite(Number(readerData.fraction))
             ? Number(readerData.fraction)
             : (Number(readerData.progress) || 0) / 100;
@@ -985,26 +987,22 @@ export default function FoliateReader({
 
   if (loadError) {
     return (
-      <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 p-6 bg-[var(--app-bg)] text-[var(--app-text)]">
-        <p className="text-base font-semibold text-center">Не удалось открыть книгу</p>
-        <p className="text-sm text-center text-[var(--app-muted)] max-w-sm">{loadError}</p>
-        <button
-          type="button"
-          className={`min-h-12 px-4 text-sm font-bold text-[var(--app-link)] ${radii.button} ${theme.focusRing}`}
-          onClick={onClose}
-        >
-          ← Назад
-        </button>
+      <div className="fixed inset-0 z-[200] flex flex-col justify-center bg-[var(--app-bg)] text-[var(--app-text)]">
+        <EmptyState
+          icon={BookOpen}
+          tone="error"
+          title="Не удалось открыть книгу"
+          description="Проверьте файл на устройстве или скачайте книгу снова."
+          actionLabel="Назад"
+          actionVariant="secondary"
+          onAction={onClose}
+        />
       </div>
     );
   }
 
   if (!iframeSrc) {
-    return (
-      <div className="fixed inset-0 z-[200] flex flex-col bg-[var(--app-bg)] text-[var(--app-text)]" aria-busy aria-label="Загрузка книги">
-        <ScreenLoader label="Загрузка книги…" />
-      </div>
-    );
+    return <div className="fixed inset-0 z-[200] bg-[var(--app-bg)]" />;
   }
 
   return (

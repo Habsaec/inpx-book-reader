@@ -6,12 +6,12 @@ import { resolveLocalBookFile, clearLocalFileMeta } from '../lib/localBookAccess
 import { writeStoredStorageDirectory } from '../lib/storageDirectory';
 import { removeCoverFromDirectory } from '../lib/coverCache';
 import {
-  clearOfflineReaderData,
   clearOfflineReadingHistory,
   restoreOfflineReadingHistoryVisibility,
   clearOfflineReadMark,
   deleteOfflineReaderAnnotation,
   deleteOfflineReaderBookmark,
+  updateOfflineReaderBookmarkTitle,
   listLocalReaderAnnotations,
   listLocalReaderBookmarks,
   readOfflineReaderData,
@@ -49,7 +49,7 @@ import { enqueueSyncOp } from '../lib/localDb';
 import { dropQueuedRemoveHistoryOps, dropQueuedToggleReadOps } from '../lib/syncQueueProcessor';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { isStoragePermissionError, STORAGE_PERMISSION_REVOKED_MSG } from '../lib/storageDirectory';
-import { isImportedLocalBook } from '../lib/importExternalBook';
+import { isLocalOnlyBookId } from '../lib/importExternalBook';
 import { useSnackbar } from '../ui/Snackbar';
 import type { useInpxServer } from './useInpxServer';
 
@@ -134,6 +134,35 @@ export function useBookActions(opts: {
   const downloadedBooksWithFile = React.useMemo(
     () => downloadedBooks.filter((b) => Boolean(b.localFileName?.trim())),
     [downloadedBooks],
+  );
+
+  const registerDownloadedBook = React.useCallback(
+    (book: Book) => {
+      setDownloadedBooks((prev) => {
+        const i = prev.findIndex((b) => b.id === book.id);
+        if (i < 0) return [...prev, book];
+        const cur = prev[i];
+        const next = {
+          ...cur,
+          ...book,
+          localFileName: book.localFileName || cur.localFileName,
+          storageUri: book.storageUri || cur.storageUri,
+        };
+        if (
+          next.localFileName === cur.localFileName
+          && next.storageUri === cur.storageUri
+          && next.title === cur.title
+          && next.author === cur.author
+          && next.ext === cur.ext
+        ) {
+          return prev;
+        }
+        const copy = prev.slice();
+        copy[i] = next;
+        return copy;
+      });
+    },
+    [setDownloadedBooks],
   );
 
   const enrichBookMeta = React.useCallback(
@@ -303,7 +332,14 @@ export function useBookActions(opts: {
           writeOfflineReaderData(resolved.id, { ...cur, pendingCrossDevicePrompt: false });
         }
       }
-      setProgressList((prev) => upsertProgressFromLocalReader(prev, resolved));
+      const openedBook: Book = {
+        ...resolved,
+        ext: resolvedExt,
+        localFileName: loc.localFileName,
+        storageUri: loc.storageUri,
+      };
+      registerDownloadedBook(openedBook);
+      setProgressList((prev) => upsertProgressFromLocalReader(prev, openedBook));
       primeReaderLocalStorage(resolved.id);
       if (openSyncGenRef.current !== openGen) return;
       // Open immediately from local file — never wait on network sync.
@@ -314,7 +350,7 @@ export function useBookActions(opts: {
         initialPosition: explicitPos,
         localFile: { storageUri: loc.storageUri, localFileName: loc.localFileName },
       });
-      if (canReadOnline && !isImportedLocalBook(resolved)) {
+      if (canReadOnline && !isLocalOnlyBookId(resolved.id)) {
         const openedBookId = resolved.id;
         void (async () => {
           let syncFailed = false;
@@ -365,7 +401,7 @@ export function useBookActions(opts: {
         })();
       }
     },
-    [canReadOnline, enrichBookMeta, onStorageDirectoryResolved, promptDownloadBook, serverConfig, setDownloadedBooks, setProgressList, snackbar, storageDirectory, syncBookReaderData],
+    [canReadOnline, enrichBookMeta, onStorageDirectoryResolved, promptDownloadBook, registerDownloadedBook, serverConfig, setDownloadedBooks, setProgressList, snackbar, storageDirectory, syncBookReaderData],
   );
 
   const tryResolveAndOpenRef = React.useRef(tryResolveAndOpen);
@@ -413,7 +449,7 @@ export function useBookActions(opts: {
   );
 
   const performRemoveBook = React.useCallback(
-    async (bookId: string, mode: 'file' | 'file-and-data') => {
+    async (bookId: string) => {
       setRemovingBookIds((prev) => new Set(prev).add(bookId));
       try {
         const book = downloadedBooks.find((b) => b.id === bookId);
@@ -425,13 +461,6 @@ export function useBookActions(opts: {
           await removeBookFromDirectory(bookDirectory, book.localFileName, book.chaptersPath);
           await removeCoverFromDirectory(bookDirectory, bookId);
         }
-        if (mode === 'file-and-data') {
-          void clearOfflineReaderData(bookId).catch(() => {});
-          setProgressList((prev) => prev.filter((p) => p.bookId !== bookId));
-          setBookmarks((prev) => prev.filter((b) => b.bookId !== bookId));
-          setHighlights((prev) => prev.filter((h) => h.bookId !== bookId));
-          setShelves((prev) => prev.map((s) => ({ ...s, bookIds: s.bookIds.filter((id) => id !== bookId) })));
-        }
         setDownloadedBooks((prev) => prev.filter((b) => b.id !== bookId));
         downloadQueue.remove(bookId);
       } finally {
@@ -442,46 +471,40 @@ export function useBookActions(opts: {
         });
       }
     },
-    [downloadedBooks, setBookmarks, setDownloadedBooks, setHighlights, setProgressList, setShelves, storageDirectory],
+    [downloadedBooks, setDownloadedBooks, storageDirectory],
   );
 
   const handleRemoveBook = React.useCallback(
-    async (bookId: string, mode: 'file' | 'file-and-data' = 'file-and-data') => {
+    async (bookId: string) => {
       if (removingBookIds.has(bookId)) return;
       const book = downloadedBooks.find((b) => b.id === bookId);
       const title = book?.title ?? 'книгу';
       const ok = await dialog.confirm({
-        title: mode === 'file' ? 'Удалить файл?' : 'Удалить книгу и данные?',
-        message:
-          mode === 'file'
-            ? `Будет удалён файл «${title}» с устройства. Прогресс и заметки сохранятся.`
-            : `Будет удалено:\n• файл «${title}»\n• прогресс чтения\n• закладки и заметки\n• записи на полках`,
+        title: 'Удалить с устройства?',
+        message: `Файл «${title}» будет удалён. Прогресс, закладки, заметки и полки сохранятся.`,
         confirmLabel: 'Удалить',
         destructive: true,
       });
       if (!ok) return;
-      await performRemoveBook(bookId, mode);
+      await performRemoveBook(bookId);
     },
     [dialog, downloadedBooks, performRemoveBook, removingBookIds],
   );
 
   const handleRemoveBooks = React.useCallback(
-    async (bookIds: string[], mode: 'file' | 'file-and-data' = 'file') => {
+    async (bookIds: string[]) => {
       const ids = [...new Set(bookIds.filter(Boolean))];
       if (ids.length === 0) return;
       const ok = await dialog.confirm({
-        title: mode === 'file' ? 'Удалить файлы?' : 'Удалить книги и данные?',
-        message:
-          mode === 'file'
-            ? `Будут удалены файлы ${ids.length} книг с устройства. Прогресс и заметки сохранятся.`
-            : `Будут удалены файлы и локальные данные ${ids.length} книг.`,
+        title: 'Удалить файлы?',
+        message: `Файлы ${ids.length} книг будут удалены с устройства. Прогресс, закладки, заметки и полки сохранятся.`,
         confirmLabel: 'Удалить',
         destructive: true,
       });
       if (!ok) return;
       for (const id of ids) {
         if (removingBookIds.has(id)) continue;
-        await performRemoveBook(id, mode);
+        await performRemoveBook(id);
       }
     },
     [dialog, performRemoveBook, removingBookIds],
@@ -707,26 +730,29 @@ export function useBookActions(opts: {
       });
     }
     return out;
-  }, [progressList, downloadedBooksWithFile, isOnline, inpxServer.readingProgress, inpxServer.readIds]);
+  }, [progressList, downloadedBooksWithFile, isOnline, inpxServer.readingProgress, inpxServer.readIds, readerLocalVersion]);
 
   const localRecentReading = React.useMemo(
     () => buildLocalRecentReading(downloadedBooksWithFile),
-    [downloadedBooksWithFile],
+    [downloadedBooksWithFile, readerLocalVersion],
   );
 
   const finalizeReaderSession = React.useCallback(
     async (bookId: string): Promise<{ progress: number }> => {
-      const book = downloadedBooks.find((b) => b.id === bookId);
-      if (book) {
-        setProgressList((prev) => upsertProgressFromLocalReader(prev, book));
-      }
+      const book = downloadedBooks.find((b) => b.id === bookId) ?? {
+        id: bookId,
+        title: '',
+        author: '',
+        ext: 'fb2',
+      };
+      setProgressList((prev) => upsertProgressFromLocalReader(prev, book));
 
       const localProgress = () => {
         const local = readOfflineReaderData(bookId);
         return Math.round(Number(local.progress) || 0);
       };
 
-      if (!canReadOnline) {
+      if (!canReadOnline || isLocalOnlyBookId(bookId)) {
         return { progress: localProgress() };
       }
 
@@ -844,6 +870,21 @@ export function useBookActions(opts: {
   const localReaderAnnotations = React.useMemo(
     () => listLocalReaderAnnotations(downloadedBooksWithFile),
     [downloadedBooksWithFile, readerLocalVersion],
+  );
+
+  const handleUpdateReaderBookmark = React.useCallback(
+    async (bookId: string, bmId: number, title: string) => {
+      updateOfflineReaderBookmarkTitle(bookId, bmId, title);
+      bumpReaderLocal();
+      if (canReadOnline) {
+        try {
+          await inpxServer.patchReaderBookmark(bookId, bmId, title);
+        } catch {
+          /* local saved */
+        }
+      }
+    },
+    [bumpReaderLocal, canReadOnline, inpxServer],
   );
 
   const handleRemoveReaderBookmark = React.useCallback(
@@ -1018,20 +1059,24 @@ export function useBookActions(opts: {
   );
 
   const handleAddShelf = React.useCallback(
-    async (name: string) => {
+    async (name: string): Promise<number | string | null> => {
+      const trimmed = name.trim();
+      if (!trimmed) return null;
       if (isOnline) {
         try {
-          await inpxServer.addShelf(name);
+          const id = await inpxServer.addShelf(trimmed);
+          return id ?? null;
         } catch (e) {
           if (isAuthError(e)) {
             onAuthExpiredRef.current?.();
-            return;
+            return null;
           }
           throw e;
         }
-        return;
       }
-      setShelves((prev) => [...prev, { id: `shelf_${Date.now()}`, name, bookIds: [] }]);
+      const id = `shelf_${Date.now()}`;
+      setShelves((prev) => [...prev, { id, name: trimmed, bookIds: [] }]);
+      return id;
     },
     [inpxServer, isOnline, setShelves],
   );
@@ -1138,6 +1183,7 @@ export function useBookActions(opts: {
     downloadedBooksWithFile,
     readingProgressByBookId,
     localRecentReading,
+    registerDownloadedBook,
     localReaderBookmarks,
     localReaderAnnotations,
     bumpReaderLocal,
@@ -1158,6 +1204,7 @@ export function useBookActions(opts: {
     handleAddHighlight,
     handleRemoveHighlight,
     handleRemoveReaderBookmark,
+    handleUpdateReaderBookmark,
     handleRemoveReaderAnnotation,
     handleUpdateReaderAnnotation,
     handleRemoveReadingHistory,

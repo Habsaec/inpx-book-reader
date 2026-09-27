@@ -1,10 +1,15 @@
 export interface Book {
   id: string;
   title: string;
+  /** Joined display line, e.g. "Винокуров Юрий, Сапфир Олег". */
   author: string;
+  /** One name per person. Facet lookup uses these, not the joined line. */
+  authors?: string[];
   genre?: string;
   subgenre?: string;
   series?: string;
+  /** Human-cased series name from the INPX index (`seriesList[].displayName`); `series` stays the lookup key */
+  seriesDisplay?: string;
   seriesNo?: number;
   /** Raw volume label for UI (may be non-numeric, e.g. "1-2") */
   seriesNoLabel?: string;
@@ -22,6 +27,8 @@ export interface Book {
   userRating?: number; // User personal rating (1-5)
   downloadsCount?: number;
   year?: number;
+  /** INPX language code, e.g. `ru`. */
+  lang?: string;
   isFavorite?: boolean;
   shelves?: string[]; // IDs of shelves this book belongs to
   contentUrl?: string; // Real OPDS download URL

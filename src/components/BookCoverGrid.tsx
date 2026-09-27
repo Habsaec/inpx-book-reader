@@ -15,9 +15,12 @@ interface BookCoverGridProps {
   readIds?: Set<string>;
   readingProgressByBookId?: Record<string, number>;
   showSeriesVolume?: boolean;
+  showFileExt?: boolean;
   onBookClick: (book: Book) => void;
   onBookLongPress?: (book: Book) => void;
   selectedBookIds?: Set<string>;
+  downloadingBookIds?: Set<string>;
+  downloadProgressByBookId?: Record<string, number>;
   renderTileExtra?: (book: Book) => React.ReactNode;
 }
 
@@ -33,9 +36,12 @@ export default function BookCoverGrid({
   readIds,
   readingProgressByBookId,
   showSeriesVolume = false,
+  showFileExt = false,
   onBookClick,
   onBookLongPress,
   selectedBookIds,
+  downloadingBookIds,
+  downloadProgressByBookId,
   renderTileExtra,
 }: BookCoverGridProps) {
   const ordered = React.useMemo(
@@ -51,12 +57,14 @@ export default function BookCoverGrid({
             book={book}
             size="grid"
             showMeta
-            showSeriesVolume={showSeriesVolume}
+            showFileExt={showFileExt}
             serverConfig={serverConfig}
             storageDirectory={storageDirectory}
             readProgress={readingProgressByBookId?.[book.id] ?? book.readProgress}
             isRead={readIds?.has(book.id)}
             isDownloaded={downloadedBookIds.includes(book.id)}
+            isDownloading={downloadingBookIds?.has(book.id)}
+            downloadProgress={downloadProgressByBookId?.[book.id] ?? 0}
             selected={selectedBookIds?.has(book.id)}
             onClick={() => onBookClick(book)}
             onLongPress={onBookLongPress ? () => onBookLongPress(book) : undefined}

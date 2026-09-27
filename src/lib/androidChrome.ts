@@ -13,7 +13,7 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 export async function syncAndroidStatusBar(isDark: boolean, opts?: { eink?: boolean; bg?: string }): Promise<void> {
   if (Capacitor.getPlatform() !== 'android') return;
   const eink = Boolean(opts?.eink);
-  const bg = eink ? '#ffffff' : opts?.bg || (isDark ? '#1e1a16' : '#f5f1e8');
+  const bg = eink ? '#ffffff' : opts?.bg || (isDark ? '#111110' : '#f7f6f2');
   try {
     await StatusBar.setBackgroundColor({ color: bg });
     // Capacitor: Style.Light = тёмные иконки (светлый фон); Style.Dark = светлые иконки (тёмный фон).

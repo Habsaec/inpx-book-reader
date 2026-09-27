@@ -1,5 +1,6 @@
+// @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { parseServerUiTheme, resolveIsDark, androidRadiusFromServer, parseAppAppearance, parseAppColorSource } from '../serverTheme';
+import { parseServerUiTheme, resolveIsDark, androidRadiusFromServer, parseAppAppearance, parseAppColorSource, applyServerChromeVars } from '../serverTheme';
 
 describe('parseServerUiTheme', () => {
   it('maps appPalette from server API', () => {
@@ -12,6 +13,7 @@ describe('parseServerUiTheme', () => {
           bg: '#111',
           surface: '#222',
           text: '#eee',
+          accent: '#c46a63',
           link: '#gold',
         },
         appPaletteLight: {
@@ -25,6 +27,7 @@ describe('parseServerUiTheme', () => {
       '/logo.png',
     );
     expect(theme.siteName).toBe('Test Lib');
+    expect(theme.paletteDark?.accent).toBe('#c46a63');
     expect(theme.paletteDark?.link).toBe('#gold');
     expect(theme.paletteLight?.text).toBe('#111');
     expect(theme.fontFamilyStack).toContain('Lora');
@@ -141,5 +144,33 @@ describe('parseAppColorSource', () => {
     expect(parseAppColorSource(null, 'server')).toBe('server');
     expect(parseAppColorSource(null, 'light')).toBe('system');
     expect(parseAppColorSource(null, 'dark')).toBe('system');
+  });
+});
+
+describe('applyServerChromeVars', () => {
+  it('does not frost panels when the library wallpaper is off', () => {
+    const theme = parseServerUiTheme(
+      { hasBackground: true, backgroundUrl: '/bg.jpg', surfaceOpacity: 40, surfaceBlur: 12 },
+      'Lib',
+      null,
+    );
+    applyServerChromeVars(theme, false, null, true);
+    expect(document.documentElement.dataset.uiGlass).toBeUndefined();
+    expect(document.documentElement.dataset.uiBg).toBeUndefined();
+  });
+
+  it('frosts panels only while the wallpaper is actually showing', () => {
+    const theme = parseServerUiTheme(
+      { hasBackground: true, backgroundUrl: '/bg.jpg', surfaceOpacity: 40, surfaceBlur: 12 },
+      'Lib',
+      null,
+    );
+    applyServerChromeVars(theme, false, 'blob:bg', true);
+    expect(document.documentElement.dataset.uiGlass).toBe('1');
+    expect(document.documentElement.dataset.uiBg).toBe('1');
+
+    applyServerChromeVars(theme, false, 'blob:bg', false);
+    expect(document.documentElement.dataset.uiGlass).toBeUndefined();
+    expect(document.documentElement.dataset.uiBg).toBeUndefined();
   });
 });

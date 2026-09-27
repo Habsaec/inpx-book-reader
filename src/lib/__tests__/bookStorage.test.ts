@@ -29,9 +29,18 @@ import {
   bookFileExists,
   bookStorageRelativePath,
   checkBookFileState,
+  extFromStoragePath,
   resolveStorageFileUrl,
   sanitizeFileName,
 } from '../bookStorage';
+
+describe('extFromStoragePath', () => {
+  it('keeps composite fb2.zip instead of zip', () => {
+    expect(extFromStoragePath('Author/Title.fb2.zip')).toBe('fb2.zip');
+    expect(extFromStoragePath('book.epub')).toBe('epub');
+    expect(extFromStoragePath('book.zip')).toBe('zip');
+  });
+});
 
 describe('sanitizeFileName', () => {
   it('blocks path traversal segments', () => {

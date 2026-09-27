@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Folder, CheckCircle2, ArrowLeft, WifiOff, AlertCircle } from 'lucide-react';
+import { Heart, Folder, FolderPlus, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
@@ -8,16 +8,20 @@ import { mapServerBook, fetchAllReaderBookmarkList, fetchAllReaderAnnotationList
 import DeviceLibraryTab from './DeviceLibraryTab';
 import CatalogBookList from './catalog/CatalogBookList';
 import EntityPreviewRow from './EntityPreviewRow';
+import ShelfCard from './shelves/ShelfCard';
+import ViewModeToggle from '../ui/ViewModeToggle';
 import { BookGridSkeleton, BookListSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
-import { textStyles, touchMin } from '../ui/tokens';
+import { textStyles, touchMin, radii } from '../ui/tokens';
 import SegmentTabStrip from '../ui/SegmentTabStrip';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
 import { useHorizontalTabSwipe } from '../hooks/useHorizontalTabSwipe';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
-import PullToRefresh from './PullToRefresh';
+import { isFolderLocalBookId } from '../lib/importExternalBook';
+import LocalFolderBrowser from './mybooks/LocalFolderBrowser';
 import ReaderNotesPanel from './mybooks/ReaderNotesPanel';
 import ReaderBookmarksPanel from './mybooks/ReaderBookmarksPanel';
+import { useDownloadQueue } from '../hooks/useDownloadQueue';
 import {
   ensureOfflineReaderAnnotation,
   mergeReaderAnnotationLists,
@@ -28,8 +32,18 @@ import {
   type LocalReaderBookmarkItem,
 } from '../lib/offlineReaderStore';
 
-const LIBRARY_SEGS = ['downloaded', 'favorites', 'shelves', 'bookmarks', 'notes', 'read'] as const;
+const LIBRARY_SEGS = ['downloaded', 'local', 'favorites', 'shelves', 'read', 'bookmarks', 'notes'] as const;
 type LibrarySeg = (typeof LIBRARY_SEGS)[number];
+
+const SEG_TABS: { id: LibrarySeg; label: string }[] = [
+  { id: 'downloaded', label: 'Загрузки' },
+  { id: 'local', label: 'Папки' },
+  { id: 'favorites', label: 'Избранное' },
+  { id: 'shelves', label: 'Полки' },
+  { id: 'read', label: 'Прочитано' },
+  { id: 'bookmarks', label: 'Закладки' },
+  { id: 'notes', label: 'Заметки' },
+];
 
 interface MyBooksTabProps {
   serverConfig: ServerConfig;
@@ -53,11 +67,13 @@ interface MyBooksTabProps {
   loadShelfBooks?: (shelfId: number | string) => Promise<Book[]>;
   onOpenBook: (book: Book) => void;
   onContinueBook: (book: Book) => void;
-  /** Non-downloaded taps → details (shelves / read / etc.). */
+  onRegisterBook?: (book: Book) => void;
+  /** Book row tap → details on every shelf, including downloaded. */
   onOpenDetails?: (book: Book) => void;
   onBookLongPress?: (book: Book, context?: { shelfId?: number | string; shelfName?: string }) => void;
   onRemoveBooks?: (bookIds: string[]) => void | Promise<void>;
   onAddBooksToShelf?: (shelfId: number | string, bookIds: string[]) => void | Promise<void>;
+  onAddShelf?: (name: string) => Promise<number | string | null>;
   onOpenAuthor?: (name: string) => void;
   onOpenSeries?: (name: string) => void;
   onRemoveShelf?: (shelfId: string) => void | Promise<void>;
@@ -67,11 +83,13 @@ interface MyBooksTabProps {
   onRemoveReaderAnnotation?: (bookId: string, annId: number) => void | Promise<void>;
   onUpdateReaderAnnotation?: (bookId: string, annId: number, patch: { note?: string; color?: string }) => void | Promise<void>;
   onRemoveReaderBookmark?: (bookId: string, bmId: number) => void | Promise<void>;
+  onUpdateReaderBookmark?: (bookId: string, bmId: number, title: string) => void | Promise<void>;
   onGoCatalog?: () => void;
   onGoProfile?: () => void;
+  onOpenQueue?: () => void;
   /** Когда false — вкладка скрыта, но смонтирована (сохраняем seg / оверлеи). */
   isTabActive?: boolean;
-  /** Bumped when Library tab is re-selected — return to root («На устройстве»). */
+  /** Bumped when Library tab is re-selected — return to «Загрузки». */
   libraryRootEpoch?: number;
 }
 
@@ -97,10 +115,12 @@ export default function MyBooksTab({
   loadShelfBooks,
   onOpenBook,
   onContinueBook,
+  onRegisterBook,
   onOpenDetails,
   onBookLongPress,
   onRemoveBooks,
   onAddBooksToShelf,
+  onAddShelf,
   onOpenAuthor,
   onOpenSeries,
   localReaderAnnotations = [],
@@ -109,11 +129,21 @@ export default function MyBooksTab({
   onRemoveReaderAnnotation,
   onUpdateReaderAnnotation,
   onRemoveReaderBookmark,
+  onUpdateReaderBookmark,
   onGoCatalog,
   onGoProfile,
+  onOpenQueue,
   isTabActive = true,
   libraryRootEpoch = 0,
 }: MyBooksTabProps) {
+  const queueJobs = useDownloadQueue();
+  const queueChipCount = queueJobs.filter(
+    (j) =>
+      j.status === 'queued' ||
+      j.status === 'downloading' ||
+      j.status === 'saving' ||
+      j.status === 'error',
+  ).length;
   const handleBookTap = React.useCallback(
     (book: Book) => {
       if (onOpenDetails) {
@@ -126,18 +156,26 @@ export default function MyBooksTab({
   );
 
   const [seg, setSeg] = React.useState<LibrarySeg>('downloaded');
-  const { viewMode } = useCatalogViewMode('books');
-  const [sectionBooks, setSectionBooks] = React.useState<Book[]>([]);
+  const downloadedLibraryBooks = React.useMemo(
+    () => localOfflineBooks.filter((book) => !isFolderLocalBookId(book.id)),
+    [localOfflineBooks],
+  );
+  const { viewMode, setViewMode } = useCatalogViewMode('books');
+  const segBtnRefs = React.useRef<Partial<Record<LibrarySeg, HTMLButtonElement | null>>>({});
+  const [sectionBySeg, setSectionBySeg] = React.useState<{ favorites: Book[]; read: Book[] }>({
+    favorites: [],
+    read: [],
+  });
   const [sectionLoading, setSectionLoading] = React.useState(false);
-  const [sectionError, setSectionError] = React.useState(false);
+  const [, setSectionError] = React.useState(false);
   const [activeShelfId, setActiveShelfId] = React.useState<number | string | null>(null);
+  const [newShelfOpen, setNewShelfOpen] = React.useState(false);
+  const [newShelfName, setNewShelfName] = React.useState('');
+  const [newShelfBusy, setNewShelfBusy] = React.useState(false);
   const [shelfBooks, setShelfBooks] = React.useState<Book[]>([]);
   const [serverBookmarks, setServerBookmarks] = React.useState<LocalReaderBookmarkItem[] | null>(null);
   const [serverAnnotations, setServerAnnotations] = React.useState<LocalReaderAnnotationItem[] | null>(null);
   const [readerListsLoading, setReaderListsLoading] = React.useState(false);
-  const [readerListsError, setReaderListsError] = React.useState(false);
-  const [readerListsKey, setReaderListsKey] = React.useState(0);
-  const segBtnRefs = React.useRef<Partial<Record<LibrarySeg, HTMLButtonElement | null>>>({});
   const libraryRootEpochSeen = React.useRef(libraryRootEpoch);
 
   React.useEffect(() => {
@@ -145,6 +183,7 @@ export default function MyBooksTab({
     libraryRootEpochSeen.current = libraryRootEpoch;
     setActiveShelfId(null);
     setSeg('downloaded');
+    setNewShelfOpen(false);
   }, [libraryRootEpoch]);
 
   const authorRows = React.useMemo(() => {
@@ -157,19 +196,15 @@ export default function MyBooksTab({
     return favoriteSeries.map((name) => ({ name, displayName: name }));
   }, [favoriteSeriesItems, favoriteSeries]);
 
-  const segments: Array<{ id: LibrarySeg; label: string }> = [
-    { id: 'downloaded', label: 'На устройстве' },
-    { id: 'favorites', label: 'Избранное' },
-    { id: 'shelves', label: 'Полки' },
-    { id: 'bookmarks', label: 'Закладки' },
-    { id: 'notes', label: 'Заметки' },
-    { id: 'read', label: 'Прочитано' },
-  ];
-
   const goToSeg = React.useCallback((next: LibrarySeg) => {
     setSeg(next);
     setActiveShelfId(null);
+    setNewShelfOpen(false);
   }, []);
+
+  React.useEffect(() => {
+    segBtnRefs.current[seg]?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [seg]);
 
   const librarySwipe = useHorizontalTabSwipe(
     LIBRARY_SEGS,
@@ -179,67 +214,36 @@ export default function MyBooksTab({
   );
 
   React.useEffect(() => {
-    const btn = segBtnRefs.current[seg];
-    btn?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-  }, [seg]);
-
-  React.useEffect(() => {
-    if (seg === 'downloaded' || seg === 'shelves' || seg === 'bookmarks' || seg === 'notes' || !fetchSectionBooks) return;
-    if (!isOnline) {
-      setSectionBooks([]);
+    if (seg !== 'favorites' && seg !== 'read') return;
+    if (!fetchSectionBooks || !isOnline) {
       setSectionLoading(false);
-      setSectionError(false);
       return;
     }
-    if (seg === 'favorites') {
-      let cancelled = false;
-      setSectionLoading(true);
-      setSectionError(false);
-      fetchSectionBooks('bookmarks', 1)
-        .then((items) => {
-          if (!cancelled) setSectionBooks(items.map((b) => mapServerBook(b, serverConfig)));
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setSectionBooks([]);
-            setSectionError(true);
-          }
-        })
-        .finally(() => {
-          if (!cancelled) setSectionLoading(false);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (seg === 'read') {
-      let cancelled = false;
-      setSectionLoading(true);
-      setSectionError(false);
-      fetchSectionBooks('read', 1)
-        .then((items) => {
-          if (!cancelled) setSectionBooks(items.map((b) => mapServerBook(b, serverConfig)));
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setSectionBooks([]);
-            setSectionError(true);
-          }
-        })
-        .finally(() => {
-          if (!cancelled) setSectionLoading(false);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
+    const key = seg;
+    let cancelled = false;
+    setSectionLoading(true);
+    setSectionError(false);
+    const request = key === 'favorites' ? fetchSectionBooks('bookmarks', 1) : fetchSectionBooks('read', 1);
+    request
+      .then((items) => {
+        if (cancelled) return;
+        setSectionBySeg((prev) => ({ ...prev, [key]: items.map((b) => mapServerBook(b, serverConfig)) }));
+      })
+      .catch(() => {
+        if (!cancelled) setSectionError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setSectionLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [seg, fetchSectionBooks, serverConfig, isOnline]);
 
   React.useEffect(() => {
     if ((seg !== 'bookmarks' && seg !== 'notes') || !isOnline) return;
     let cancelled = false;
     setReaderListsLoading(true);
-    setReaderListsError(false);
     const load =
       seg === 'bookmarks'
         ? fetchAllReaderBookmarkList(serverConfig).then((rows) => {
@@ -249,16 +253,14 @@ export default function MyBooksTab({
             if (!cancelled) setServerAnnotations(rows.map(readerAnnotationFromApi));
           });
     load
-      .catch(() => {
-        if (!cancelled) setReaderListsError(true);
-      })
+      .catch(() => {})
       .finally(() => {
         if (!cancelled) setReaderListsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [seg, isOnline, serverConfig, readerListsKey]);
+  }, [seg, isOnline, serverConfig]);
 
   const displayBookmarks = React.useMemo(
     () => mergeReaderBookmarkLists(serverBookmarks ?? [], localReaderBookmarks),
@@ -269,36 +271,6 @@ export default function MyBooksTab({
     [serverAnnotations, localReaderAnnotations],
   );
 
-  const refreshSection = React.useCallback(async () => {
-    const refreshSeg = seg;
-    const refreshShelfId = activeShelfId;
-    try {
-      if (refreshSeg === 'favorites') {
-        if (!fetchSectionBooks) return;
-        setSectionError(false);
-        const items = await fetchSectionBooks('bookmarks', 1);
-        if (seg !== 'favorites') return;
-        setSectionBooks(items.map((b) => mapServerBook(b, serverConfig)));
-      } else if (refreshSeg === 'read') {
-        if (!fetchSectionBooks) return;
-        setSectionError(false);
-        const items = await fetchSectionBooks('read', 1);
-        if (seg !== 'read') return;
-        setSectionBooks(items.map((b) => mapServerBook(b, serverConfig)));
-      } else if (refreshSeg === 'shelves' && refreshShelfId != null && loadShelfBooks) {
-        setSectionError(false);
-        const books = await loadShelfBooks(refreshShelfId);
-        if (seg !== 'shelves' || activeShelfId !== refreshShelfId) return;
-        setShelfBooks(books);
-      }
-    } catch {
-      if (seg !== refreshSeg) return;
-      setSectionError(true);
-      if (refreshSeg === 'favorites' || refreshSeg === 'read') setSectionBooks([]);
-      if (refreshSeg === 'shelves') setShelfBooks([]);
-    }
-  }, [seg, fetchSectionBooks, serverConfig, activeShelfId, loadShelfBooks]);
-
   const inShelfDrilldown = seg === 'shelves' && activeShelfId != null;
   const activeShelfName = shelves.find((s) => s.id === activeShelfId)?.name;
   const shelfRevision = React.useMemo(
@@ -306,15 +278,24 @@ export default function MyBooksTab({
     [shelves],
   );
 
+  const localReadBooks = React.useMemo(
+    () => localOfflineBooks.filter((book) => (readingProgressByBookId?.[book.id] ?? book.readProgress ?? 0) >= 99),
+    [localOfflineBooks, readingProgressByBookId],
+  );
+
   const visibleSectionBooks = React.useMemo(() => {
-    if (seg === 'favorites' && bookmarkIds) {
-      return sectionBooks.filter((b) => bookmarkIds.has(b.id));
+    if (seg === 'favorites') {
+      const books = sectionBySeg.favorites;
+      return bookmarkIds ? books.filter((b) => bookmarkIds.has(b.id)) : books;
     }
-    if (seg === 'read' && readIds) {
-      return sectionBooks.filter((b) => readIds.has(b.id));
+    if (seg === 'read') {
+      const books = sectionBySeg.read;
+      if (readIds) return books.filter((b) => readIds.has(b.id));
+      if (books.length > 0) return books;
+      return localReadBooks;
     }
-    return sectionBooks;
-  }, [seg, sectionBooks, bookmarkIds, readIds]);
+    return [];
+  }, [seg, sectionBySeg, bookmarkIds, readIds, localReadBooks]);
 
   const shelfLoadGen = React.useRef(0);
   const lastShelfIdLoaded = React.useRef<number | string | null>(null);
@@ -351,26 +332,121 @@ export default function MyBooksTab({
 
   useOverlayBackHandler(isTabActive && inShelfDrilldown, () => setActiveShelfId(null));
 
-  return (
-    <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden">
-      <div className={`px-5 pt-4 pb-3 shrink-0 ${theme.bg}`}>
-        <div className="min-w-0">
-          <h2 className={textStyles.title}>Мои книги</h2>
-          <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>На устройстве и с сервера</p>
-        </div>
-        <SegmentTabStrip
-          tabs={segments}
-          active={seg}
-          tabRefs={segBtnRefs}
-          aria-label="Раздел библиотеки"
-          onChange={goToSeg}
-        />
+  const bookmarksPanel =
+    readerListsLoading && displayBookmarks.length === 0 ? (
+      <div className="px-5 py-4">
+        <BookListSkeleton count={5} />
       </div>
+    ) : (
+      <ReaderBookmarksPanel
+        bookmarks={displayBookmarks}
+        serverConfig={serverConfig}
+        downloadedBookIds={downloadedBookIds}
+        onOpenBookmark={(bookId, position, book) =>
+          onOpenBookAtPosition?.(bookId, position, book) ?? onContinueBook(book)
+        }
+        onRemoveBookmark={
+          onRemoveReaderBookmark
+            ? async (bookId, bmId) => {
+                setServerBookmarks((prev) =>
+                  prev?.filter((b) => !(b.bookId === bookId && b.id === bmId)) ?? null,
+                );
+                await onRemoveReaderBookmark(bookId, bmId);
+              }
+            : undefined
+        }
+        onRenameBookmark={
+          onUpdateReaderBookmark
+            ? async (bookId, bmId, title) => {
+                setServerBookmarks((prev) =>
+                  prev?.map((b) => (b.bookId === bookId && b.id === bmId ? { ...b, label: title } : b)) ?? null,
+                );
+                await onUpdateReaderBookmark(bookId, bmId, title);
+              }
+            : undefined
+        }
+      />
+    );
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden" {...librarySwipe}>
-        {seg === 'downloaded' ? (
+  const notesPanel =
+    readerListsLoading && displayAnnotations.length === 0 ? (
+      <div className="px-5 py-4">
+        <BookListSkeleton count={5} />
+      </div>
+    ) : (
+      <ReaderNotesPanel
+        annotations={displayAnnotations}
+        serverConfig={serverConfig}
+        downloadedBookIds={downloadedBookIds}
+        onOpenAnnotation={(bookId, cfi, book) => {
+          const an = displayAnnotations.find((item) => item.bookId === bookId && item.cfi === cfi);
+          if (an) {
+            ensureOfflineReaderAnnotation(bookId, {
+              id: an.id,
+              cfi: an.cfi,
+              text: an.text,
+              note: an.note,
+              color: an.color,
+            });
+          }
+          onOpenBookAtPosition?.(bookId, cfi, book) ?? onContinueBook(book);
+        }}
+        onRemoveAnnotation={
+          onRemoveReaderAnnotation
+            ? async (bookId, annId) => {
+                setServerAnnotations((prev) =>
+                  prev?.filter((a) => !(a.bookId === bookId && a.id === annId)) ?? null,
+                );
+                await onRemoveReaderAnnotation(bookId, annId);
+              }
+            : undefined
+        }
+        onUpdateAnnotation={onUpdateReaderAnnotation}
+      />
+    );
+
+  const tabsRef = React.useRef<HTMLDivElement>(null);
+  const [tabsH, setTabsH] = React.useState(58);
+
+  React.useLayoutEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const measure = () => setTabsH(el.offsetHeight);
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [queueChipCount]);
+
+  return (
+    <div className="relative flex-1 min-h-0 h-full overflow-hidden">
+      <div
+        className="inpx-books-pane absolute inset-0 min-h-0 flex flex-col"
+        style={{ ['--inpx-under' as string]: `${tabsH}px` }}
+        {...librarySwipe}
+      >
+        {seg === 'bookmarks' ? (
+          bookmarksPanel
+        ) : seg === 'notes' ? (
+          notesPanel
+        ) : seg === 'local' ? (
+          <div className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-4">
+            <LocalFolderBrowser
+              storageDirectory={storageDirectory ?? null}
+              serverConfig={serverConfig}
+              viewMode={viewMode}
+              onChangeViewMode={setViewMode}
+              downloadedBookIds={downloadedBookIds}
+              libraryBooks={localOfflineBooks}
+              readingProgressByBookId={readingProgressByBookId}
+              readIds={readIds}
+              onOpenBook={onContinueBook}
+              onRegisterBook={onRegisterBook}
+            />
+          </div>
+        ) : seg === 'downloaded' ? (
           <DeviceLibraryTab
-            books={localOfflineBooks}
+            books={downloadedLibraryBooks}
             serverConfig={serverConfig}
             storageDirectory={storageDirectory ?? null}
             storageDirectoryReady={storageDirectoryReady}
@@ -379,9 +455,9 @@ export default function MyBooksTab({
             canDownloadOnline={canDownloadOnline}
             downloadingId={downloadingId}
             readingProgressByBookId={readingProgressByBookId}
+            readIds={readIds}
             shelves={shelves}
             onOpenBook={onOpenBook}
-            onContinueBook={onContinueBook}
             onOpenDetails={onOpenDetails}
             onBookLongPress={onBookLongPress}
             onRemoveBooks={onRemoveBooks}
@@ -391,121 +467,89 @@ export default function MyBooksTab({
             embedded
             resetEpoch={libraryRootEpoch}
           />
-        ) : seg === 'bookmarks' ? (
-          readerListsLoading && displayBookmarks.length === 0 ? (
-            <div className="px-5 py-4">
-              <BookListSkeleton count={5} />
-            </div>
-          ) : readerListsError && displayBookmarks.length === 0 ? (
-            <EmptyState
-              icon={AlertCircle}
-              tone="error"
-              title="Не удалось загрузить закладки"
-              description="Проверьте подключение и попробуйте снова"
-              actionLabel="Повторить"
-              actionVariant="primary"
-              onAction={() => setReaderListsKey((k) => k + 1)}
-            />
-          ) : (
-            <ReaderBookmarksPanel
-              bookmarks={displayBookmarks}
-              serverConfig={serverConfig}
-              downloadedBookIds={downloadedBookIds}
-              onOpenBookmark={(bookId, position, book) =>
-                onOpenBookAtPosition?.(bookId, position, book) ?? onContinueBook(book)
-              }
-              onRemoveBookmark={
-                onRemoveReaderBookmark
-                  ? async (bookId, bmId) => {
-                      setServerBookmarks((prev) =>
-                        prev?.filter((b) => !(b.bookId === bookId && b.id === bmId)) ?? null,
-                      );
-                      await onRemoveReaderBookmark(bookId, bmId);
-                    }
-                  : undefined
-              }
-            />
-          )
-        ) : seg === 'notes' ? (
-          readerListsLoading && displayAnnotations.length === 0 ? (
-            <div className="px-5 py-4">
-              <BookListSkeleton count={5} />
-            </div>
-          ) : readerListsError && displayAnnotations.length === 0 ? (
-            <EmptyState
-              icon={AlertCircle}
-              tone="error"
-              title="Не удалось загрузить заметки"
-              description="Проверьте подключение и попробуйте снова"
-              actionLabel="Повторить"
-              actionVariant="primary"
-              onAction={() => setReaderListsKey((k) => k + 1)}
-            />
-          ) : (
-            <ReaderNotesPanel
-              annotations={displayAnnotations}
-              serverConfig={serverConfig}
-              downloadedBookIds={downloadedBookIds}
-              onOpenAnnotation={(bookId, cfi, book) => {
-                const an = displayAnnotations.find((item) => item.bookId === bookId && item.cfi === cfi);
-                if (an) {
-                  ensureOfflineReaderAnnotation(bookId, {
-                    id: an.id,
-                    cfi: an.cfi,
-                    text: an.text,
-                    note: an.note,
-                    color: an.color,
-                  });
-                }
-                onOpenBookAtPosition?.(bookId, cfi, book) ?? onContinueBook(book);
-              }}
-              onRemoveAnnotation={
-                onRemoveReaderAnnotation
-                  ? async (bookId, annId) => {
-                      setServerAnnotations((prev) =>
-                        prev?.filter((a) => !(a.bookId === bookId && a.id === annId)) ?? null,
-                      );
-                      await onRemoveReaderAnnotation(bookId, annId);
-                    }
-                  : undefined
-              }
-              onUpdateAnnotation={onUpdateReaderAnnotation}
-            />
-          )
         ) : (
-          <PullToRefresh
-            onRefresh={refreshSection}
-            disabled={!isOnline}
-            className="flex-1 overflow-y-auto px-5 py-4 space-y-4"
-          >
+          <div className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-4 space-y-4">
               {seg === 'shelves' && activeShelfId == null && (
-                shelves.length === 0 ? (
-                  <EmptyState
-                    icon={isOnline ? Folder : WifiOff}
-                    tone={isOnline ? undefined : 'offline'}
-                    title={isOnline ? 'Полок пока нет' : 'Нет локальных полок'}
-                    description={
-                      isOnline
-                        ? 'Создайте полку на сервере или найдите книги в поиске'
-                        : 'Офлайн доступны только полки, созданные на этом устройстве. Подключитесь к серверу для синхронизации.'
-                    }
-                    actionLabel={isOnline ? (onGoCatalog ? 'Открыть поиск' : undefined) : (onGoProfile ? 'Открыть настройки' : undefined)}
-                    actionVariant="primary"
-                    onAction={isOnline ? onGoCatalog : onGoProfile}
-                  />
-                ) : (
-                  shelves.map((s) => (
-                    <EntityPreviewRow
-                      key={String(s.id)}
-                      name={s.name}
-                      count={s.bookCount ?? 0}
-                      serverConfig={serverConfig}
-                      storageDirectory={storageDirectory}
-                      previewBookIds={s.previewBookIds}
-                      onClick={() => setActiveShelfId(s.id)}
+                <>
+                  {onAddShelf ? (
+                    newShelfOpen ? (
+                      <div className="flex gap-2">
+                        <input
+                          className={`flex-1 min-h-12 min-w-0 px-3 ${textStyles.body} ${radii.button} ${theme.input} ${theme.inputFocus}`}
+                          value={newShelfName}
+                          onChange={(e) => setNewShelfName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return;
+                            e.preventDefault();
+                            const name = newShelfName.trim();
+                            if (!name || newShelfBusy) return;
+                            setNewShelfBusy(true);
+                            void onAddShelf(name)
+                              .then(() => {
+                                setNewShelfName('');
+                                setNewShelfOpen(false);
+                              })
+                              .finally(() => setNewShelfBusy(false));
+                          }}
+                          placeholder="Название полки"
+                          maxLength={80}
+                          autoFocus
+                          disabled={newShelfBusy}
+                          aria-label="Название новой полки"
+                        />
+                        <button
+                          type="button"
+                          disabled={newShelfBusy || !newShelfName.trim()}
+                          onClick={() => {
+                            const name = newShelfName.trim();
+                            if (!name || newShelfBusy) return;
+                            setNewShelfBusy(true);
+                            void onAddShelf(name)
+                              .then(() => {
+                                setNewShelfName('');
+                                setNewShelfOpen(false);
+                              })
+                              .finally(() => setNewShelfBusy(false));
+                          }}
+                          className={`shrink-0 min-h-12 px-4 ${textStyles.bodyBold} ${theme.accentText} ${theme.focusRing} disabled:opacity-50`}
+                        >
+                          Создать
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setNewShelfOpen(true)}
+                        className={`w-full min-h-12 px-3 inline-flex items-center justify-center gap-2 ${textStyles.bodyBold} ${theme.accentText} ${radii.button} ${theme.chip} ${theme.focusRing}`}
+                      >
+                        <FolderPlus className="w-4 h-4" aria-hidden />
+                        Новая полка
+                      </button>
+                    )
+                  ) : null}
+                  {shelves.length === 0 && !newShelfOpen ? (
+                    <EmptyState
+                      icon={Folder}
+                      title="Полок пока нет"
+                      description="Соберите книги в коллекции — на потом, по жанру или автору."
+                      actionLabel={onAddShelf ? 'Создать полку' : onGoCatalog ? 'Каталог' : undefined}
+                      actionVariant="primary"
+                      onAction={onAddShelf ? () => setNewShelfOpen(true) : onGoCatalog}
                     />
-                  ))
-                )
+                  ) : (
+                    shelves.map((s) => (
+                      <ShelfCard
+                        key={String(s.id)}
+                        name={s.name}
+                        count={s.bookCount ?? 0}
+                        serverConfig={serverConfig}
+                        storageDirectory={storageDirectory}
+                        previewBookIds={s.previewBookIds}
+                        onClick={() => setActiveShelfId(s.id)}
+                      />
+                    ))
+                  )}
+                </>
               )}
 
               {seg === 'shelves' && activeShelfId != null && (
@@ -522,26 +566,16 @@ export default function MyBooksTab({
                       >
                         <ArrowLeft className="w-4 h-4" aria-hidden /> Назад
                       </button>
-                      <p className={`${textStyles.title} truncate`}>{activeShelfName ?? '…'}</p>
+                      <p className={`${textStyles.title} truncate flex-1 min-w-0`}>{activeShelfName ?? '…'}</p>
+                      <ViewModeToggle value={viewMode} onChange={setViewMode} />
                     </div>
-                    {sectionError ? (
-                      <EmptyState
-                        icon={AlertCircle}
-                        tone="error"
-                        title="Не удалось загрузить полку"
-                        description="Проверьте подключение и попробуйте снова"
-                        actionLabel="Повторить"
-                        actionVariant="primary"
-                        onAction={() => {
-                          void refreshSection().catch(() => setSectionError(true));
-                        }}
-                      />
-                    ) : shelfBooks.length === 0 ? (
+                    {shelfBooks.length === 0 ? (
                       <EmptyState
                         icon={Folder}
-                        title="На полке пусто"
-                        description="Добавьте книги на полку из поиска или карточки книги"
-                        actionLabel={onGoCatalog ? 'Открыть поиск' : undefined}
+                        title="Полка пуста"
+                        description="Добавьте сюда книги из библиотеки."
+                        actionLabel={onGoCatalog ? 'Каталог' : undefined}
+                        actionVariant="primary"
                         onAction={onGoCatalog}
                       />
                     ) : (
@@ -571,49 +605,24 @@ export default function MyBooksTab({
               )}
 
               {(seg === 'favorites' || seg === 'read') && (
-                !isOnline ? (
-                  <EmptyState
-                    icon={WifiOff}
-                    tone="offline"
-                    title="Нужен интернет"
-                    description={
-                      seg === 'favorites'
-                        ? 'Избранное синхронизируется с сервером'
-                        : 'Список прочитанного синхронизируется с сервером'
-                    }
-                    actionLabel={onGoProfile ? 'Открыть настройки' : undefined}
-                    actionVariant="primary"
-                    onAction={onGoProfile}
-                  />
-                ) : sectionLoading ? (
+                sectionLoading && visibleSectionBooks.length === 0 && (seg !== 'favorites' || (authorRows.length === 0 && seriesRows.length === 0)) ? (
                   <BookGridSkeleton count={6} />
-                ) : sectionError ? (
-                  <EmptyState
-                    icon={AlertCircle}
-                    tone="error"
-                    title="Не удалось загрузить"
-                    description="Проверьте подключение и попробуйте снова"
-                    actionLabel="Повторить"
-                    actionVariant="primary"
-                    onAction={() => {
-                      setSectionError(false);
-                      void refreshSection().catch(() => setSectionError(true));
-                    }}
-                  />
                 ) : seg === 'favorites' && authorRows.length === 0 && seriesRows.length === 0 && visibleSectionBooks.length === 0 ? (
                   <EmptyState
                     icon={Heart}
                     title="Избранное пусто"
-                    description="Добавляйте авторов, серии и книги из поиска"
-                    actionLabel={onGoCatalog ? 'Открыть поиск' : undefined}
+                    description="Добавляйте книги, авторов и серии из каталога."
+                    actionLabel={onGoCatalog ? 'Каталог' : undefined}
+                    actionVariant="primary"
                     onAction={onGoCatalog}
                   />
                 ) : seg === 'read' && visibleSectionBooks.length === 0 ? (
                   <EmptyState
                     icon={CheckCircle2}
                     title="Прочитанных книг пока нет"
-                    description="Отмечайте книги прочитанными во время чтения"
-                    actionLabel={onGoCatalog ? 'Открыть поиск' : undefined}
+                    description="Отмечайте книги прочитанными — они появятся здесь."
+                    actionLabel={onGoCatalog ? 'Каталог' : undefined}
+                    actionVariant="primary"
                     onAction={onGoCatalog}
                   />
                 ) : (
@@ -673,8 +682,32 @@ export default function MyBooksTab({
                   </>
                 )
               )}
-          </PullToRefresh>
+          </div>
         )}
+      </div>
+      <div
+        ref={tabsRef}
+        className="inpx-chrome inpx-chrome-top absolute inset-x-0 z-20 px-5 pt-1 pb-0.5"
+        style={{ top: 'var(--app-header-offset, 4rem)' }}
+      >
+        {queueChipCount > 0 && onOpenQueue ? (
+          <div className="flex justify-end pb-1">
+            <button
+              type="button"
+              onClick={onOpenQueue}
+              className={`shrink-0 min-h-11 px-3 ${textStyles.captionBold} ${theme.accentText} ${theme.focusRing}`}
+            >
+              {queueChipCount} в очереди
+            </button>
+          </div>
+        ) : null}
+        <SegmentTabStrip<LibrarySeg>
+          tabs={SEG_TABS}
+          active={seg}
+          tabRefs={segBtnRefs}
+          aria-label="Раздел библиотеки"
+          onChange={goToSeg}
+        />
       </div>
     </div>
   );

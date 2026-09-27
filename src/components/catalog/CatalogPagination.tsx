@@ -33,7 +33,7 @@ export default function CatalogPagination({
     pageItems.push(totalPages);
   }
 
-  const btnBase = `min-w-11 min-h-11 px-3 ${radii.button} text-xs font-semibold transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${theme.focusRing}`;
+  const btnBase = `min-w-11 min-h-11 px-3 ${radii.button} text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${theme.focusRing} ${motion.press}`;
 
   return (
     <div className="flex flex-wrap gap-2 mt-4 mb-2 justify-center items-center">
@@ -49,7 +49,7 @@ export default function CatalogPagination({
           <button
             key={item}
             type="button"
-            className={`${btnBase} ${motion.press} ${item === page ? theme.accentActive : `${theme.chip} ${theme.chipHover}`}`}
+            className={`${btnBase} ${item === page ? theme.accentActive : `${theme.chip} ${theme.chipHover}`}`}
             onClick={() => onPageChange(item)}
             aria-current={item === page ? 'page' : undefined}
           >

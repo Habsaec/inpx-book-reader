@@ -1,4 +1,4 @@
-import '/foliate/view.js?v=swipe-4';
+import '/foliate/view.js?v=sel2';
 import { createTOCView } from '/foliate/ui/tree.js?v=fb2seek4';
 import { Overlayer } from '/foliate/overlayer.js?v=fb2seek4';
 import {
@@ -24,7 +24,7 @@ import {
   normalizeTapZones,
   resolveTapZone9,
 } from '/inpx-reader/tap-zones.js';
-import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
+import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
 
 (function () {
   'use strict';
@@ -100,6 +100,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
   const bookId = window.__READER_BOOK_ID;
   const bookExt = window.__READER_BOOK_EXT;
   let effectiveBookExt = bookExt;
+  let openedBookFile = null;
   const READER_LITE = Boolean(window.__READER_LITE);
   const SETTINGS_STORAGE_KEY = READER_LITE ? 'reader-settings-lite' : 'reader-settings';
 
@@ -603,7 +604,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     theme: 'sepia', font: 'serif', fontSize: 18, lineHeight: 1.6,
     /* verticalMargin — дыхание текста внутри view; камера/safe-area — снаружи (#reader-body). */
     pageMargin: 32, verticalMargin: 16, columnGap: 7, maxWidth: 99999, maxBlockSize: 1440,
-    layout: 'paginated', textColor: '', bgColor: '', linkColor: '',
+    layout: 'paginated', pdfMode: 'page', textColor: '', bgColor: '', linkColor: '',
     bgImage: '', bgImageFit: 'cover', bgImagePaper: 0.35,
     justify: true, hyphenate: true,
     usePublisherFont: false, fontWeight: 400,
@@ -750,6 +751,13 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
   function applyRendererLayout() {
     if (!view?.renderer) return;
     invalidateBookPageCache();
+    if (view.isFixedLayout) {
+      view.style.paddingInline = '0';
+      view.style.paddingBlock = '0';
+      document.documentElement.classList.add('is-fixed-layout');
+      return;
+    }
+    document.documentElement.classList.remove('is-fixed-layout');
     const side = readerSideMarginPx();
     const gapPct = Math.max(0, Math.min(20, Number(S.columnGap) || 0));
     const vert = Math.max(0, Math.min(96, Number(S.verticalMargin) || 0));
@@ -816,6 +824,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       }
     }
     if (!['paginated', 'dual', 'scrolled'].includes(S.layout)) S.layout = defaults.layout;
+    if (S.pdfMode !== 'reflow') S.pdfMode = 'page';
     if (mobileMq.matches && S.layout === 'dual') S.layout = 'paginated';
     if (typeof S.justify !== 'boolean') S.justify = defaults.justify;
     if (typeof S.hyphenate !== 'boolean') S.hyphenate = defaults.hyphenate;
@@ -979,7 +988,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const paper = getEffectiveBgColor();
     const fg = getEffectiveTextColor();
     // Явный rgba: color-mix на Android WebView часто игнорируется → остаётся непрозрачный --r-bar
-    root.style.setProperty('--r-chrome-bg', hexToRgba(paper, 0.72));
+    root.style.setProperty('--r-chrome-bg', hexToRgba(paper, 0.88));
     root.style.setProperty('--r-chrome-line', hexToRgba(fg, 0.14));
     root.style.setProperty('--r-chrome-hover', hexToRgba(fg, 0.1));
   }
@@ -1742,7 +1751,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
   }
   function esc(s) { const d = document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.innerHTML; }
   let toastTimer = null;
-  function toast(msg) { if (!toastEl) return; toastEl.textContent = msg; toastEl.classList.add('is-visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('is-visible'), 2000); }
+  function toast(msg) { if (!toastEl) return; toastEl.textContent = msg; toastEl.classList.add('is-visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('is-visible'), 1400); }
   const bmDateFmt = new Intl.DateTimeFormat(rLocale() === 'en' ? 'en-US' : 'ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
   function fmtDate(v) { if (!v) return ''; const d = new Date(String(v).replaceAll(' ', 'T') + (String(v).includes('Z') ? '' : 'Z')); return Number.isNaN(d.getTime()) ? String(v) : bmDateFmt.format(d); }
 
@@ -1781,12 +1790,136 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     setChromeVisible(true);
   }
 
+  function closeOverflowMenu() {
+    const menu = $('tb-overflow-menu');
+    const btn = $('btn-overflow');
+    if (!menu?.classList.contains('is-open')) {
+      btn?.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const gen = ++popGen;
+    void dismissCard(menu).then((ok) => {
+      if (!ok || gen !== popGen) return;
+      menu.classList.remove('is-open');
+      menu.setAttribute('aria-hidden', 'true');
+      btn?.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  const motionReduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function readTranslateY(el) {
+    const t = getComputedStyle(el).transform;
+    if (!t || t === 'none') return 0;
+    try { return new DOMMatrix(t).m42; } catch { return 0; }
+  }
+  function readTranslateX(el) {
+    const t = getComputedStyle(el).transform;
+    if (!t || t === 'none') return 0;
+    try { return new DOMMatrix(t).m41; } catch { return 0; }
+  }
+
+  /** Critically damped by default. dampingRatio ~0.8 only after a flick. */
+  function springScalar(from, to, velocity, render, { response = 0.35, dampingRatio = 1 } = {}) {
+    let settle;
+    const done = new Promise((resolve) => { settle = resolve; });
+    const handle = { done, cancel() {} };
+    if (motionReduced() || !Number.isFinite(from) || !Number.isFinite(to)) {
+      render(to);
+      settle(true);
+      return handle;
+    }
+    const omega = (2 * Math.PI) / response;
+    const k = omega * omega;
+    const c = 2 * dampingRatio * omega;
+    let x = from;
+    let v = Number.isFinite(velocity) ? velocity : 0;
+    let last = 0;
+    let raf = 0;
+    let alive = true;
+    const finish = (ok) => { alive = false; handle.cancel = () => {}; settle(ok); };
+    handle.cancel = () => { cancelAnimationFrame(raf); finish(false); };
+    const step = (now) => {
+      if (!alive) return;
+      if (!last) last = now;
+      const dt = Math.min(0.032, (now - last) / 1000);
+      last = now;
+      const acc = -k * (x - to) - c * v;
+      v += acc * dt;
+      x += v * dt;
+      const settled = Math.abs(x - to) < 0.4 && Math.abs(v) < 12;
+      render(settled ? to : x);
+      if (settled) { finish(true); return; }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return handle;
+  }
+
+  const popAnims = new WeakMap();
+  let popGen = 0;
+  function popCard(card, originEl) {
+    if (!card) return;
+    popAnims.get(card)?.cancel();
+    if (motionReduced()) {
+      card.style.transform = '';
+      return;
+    }
+    if (originEl?.getBoundingClientRect) {
+      const br = originEl.getBoundingClientRect();
+      const er = card.getBoundingClientRect();
+      card.style.transformOrigin = `${br.left + br.width / 2 - er.left}px ${br.top + br.height / 2 - er.top}px`;
+    } else {
+      card.style.transformOrigin = '50% 50%';
+    }
+    const handle = springScalar(0.92, 1, 0, (s) => { card.style.transform = `scale(${s})`; }, { dampingRatio: 1, response: 0.28 });
+    popAnims.set(card, handle);
+  }
+  function dismissCard(card) {
+    if (!card) return Promise.resolve(true);
+    popAnims.get(card)?.cancel();
+    if (motionReduced()) {
+      card.style.transform = '';
+      return Promise.resolve(true);
+    }
+    const handle = springScalar(1, 0.96, 0, (s) => { card.style.transform = `scale(${s})`; }, { dampingRatio: 1, response: 0.2 });
+    popAnims.set(card, handle);
+    return handle.done.then((ok) => {
+      if (ok) card.style.transform = '';
+      return ok;
+    });
+  }
+
+  let chromeAnim = null;
+  function springChrome(show) {
+    chromeAnim?.cancel();
+    const bars = [$('toolbar'), $('reader-footer')].filter(Boolean);
+    if (motionReduced()) {
+      bars.forEach((el) => { el.style.transform = ''; });
+      chromeAnim = null;
+      return;
+    }
+    const handles = bars.map((el) => {
+      const statusH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--r-status-h')) || 0;
+      const hiddenY = el.id === 'toolbar'
+        ? -(el.offsetHeight || 48)
+        : (el.offsetHeight || 48) + statusH + 8;
+      const to = show ? 0 : hiddenY;
+      return springScalar(readTranslateY(el), to, 0, (y) => {
+        el.style.transform = `translateY(${y}px)`;
+      });
+    });
+    chromeAnim = { cancel() { handles.forEach((h) => h.cancel()); } };
+  }
+
   function setChromeVisible(show) {
     chromeVisible = show;
     const panelOpen = panelOverlay.classList.contains('is-open');
     const settingsPreview = panelOpen && panelOverlay.classList.contains('panel-settings-mode');
     const hideChrome = !(show || (panelOpen && !settingsPreview));
     document.body.classList.toggle('chrome-hidden', hideChrome);
+    springChrome(!hideChrome);
+    if (hideChrome) closeOverflowMenu();
   }
 
   function postReaderHaptic(kind) {
@@ -1890,6 +2023,64 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     });
   }
 
+  function isPdfBook() {
+    if (view?.book?.pdfMode) return true;
+    const ext = String(effectiveBookExt || bookExt || openedBookFile?.name || '')
+      .toLowerCase()
+      .replace(/^\./, '');
+    return ext === 'pdf' || ext.endsWith('.pdf');
+  }
+
+  function pdfOpenOptions() {
+    return { pdfReflow: isPdfBook() && S.pdfMode === 'reflow' };
+  }
+
+  function currentPdfPageIndex() {
+    const fromRenderer = Number(view?.renderer?.index);
+    if (Number.isInteger(fromRenderer) && fromRenderer >= 0) return fromRenderer;
+    const fromContents = Number(view?.renderer?.getContents?.()?.[0]?.index);
+    if (Number.isInteger(fromContents) && fromContents >= 0) return fromContents;
+    const fromLoc = Number(view?.lastLocation?.section?.current);
+    if (Number.isInteger(fromLoc) && fromLoc >= 0) return fromLoc;
+    return 0;
+  }
+
+  async function reopenPdfMode(mode) {
+    if (!openedBookFile || !view || !isPdfBook()) return;
+    const next = mode === 'reflow' ? 'reflow' : 'page';
+    if (S.pdfMode === next && (next === 'reflow') === !view.isFixedLayout) return;
+    const prev = S.pdfMode;
+    const index = currentPdfPageIndex();
+    const oldBook = view.book;
+    S.pdfMode = next;
+    saveSettings();
+    refreshSettingsUI();
+    setRestoreVeil(true);
+    try {
+      view.close();
+      oldBook?.destroy?.();
+      await view.open(openedBookFile, pdfOpenOptions());
+      applyRendererLayout();
+      applyBookStyles();
+      applyInvertFilter();
+      if (next === 'reflow') await waitForPaginatorReady();
+      await view.goTo(index);
+    } catch (err) {
+      console.warn(err);
+      S.pdfMode = prev;
+      saveSettings();
+      try {
+        await view.open(openedBookFile, pdfOpenOptions());
+        applyRendererLayout();
+        applyBookStyles();
+      } catch { /* */ }
+      toast('Не удалось переключить режим PDF');
+    } finally {
+      setRestoreVeil(false);
+      refreshSettingsUI();
+    }
+  }
+
   function isFb2Active() {
     // Формат книги известен серверу (__READER_BOOK_EXT) — доверяем расширению.
     // Раньше приоритет был у view.book.isFB2; если foliate его не выставлял,
@@ -1953,7 +2144,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const f = normalizeFraction(fraction);
     if (!seekBarUserActive) {
       currentFraction = f;
-      const pctDisplay = fractionToProgress(f).toFixed(1);
+      const pctDisplay = fractionToProgress(f).toFixed(1).replace(/\.0$/, '');
       if (seekBar) seekBar.value = f;
       updateSeekbar();
       if (pctLabel) pctLabel.textContent = pctDisplay + '%';
@@ -2173,16 +2364,22 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       pageEl.disabled = !(lastPageInfo.total > 0);
     }
     if (pageTotal) pageTotal.textContent = lastPageInfo.total > 0 ? `из ${lastPageInfo.total}` : 'из —';
+    popGen += 1;
     gotoOverlay.classList.add('is-open');
     gotoOverlay.setAttribute('aria-hidden', 'false');
+    popCard(gotoOverlay.querySelector('.rg-card'), $('ft-goto'));
     syncAutoFlipTimer();
   }
 
   function closeGotoDialog() {
-    if (!gotoOverlay) return;
-    gotoOverlay.classList.remove('is-open');
-    gotoOverlay.setAttribute('aria-hidden', 'true');
-    syncAutoFlipTimer();
+    if (!gotoOverlay || !gotoOverlay.classList.contains('is-open')) return;
+    const gen = ++popGen;
+    void dismissCard(gotoOverlay.querySelector('.rg-card')).then((ok) => {
+      if (!ok || gen !== popGen) return;
+      gotoOverlay.classList.remove('is-open');
+      gotoOverlay.setAttribute('aria-hidden', 'true');
+      syncAutoFlipTimer();
+    });
   }
 
   function initGotoDialog() {
@@ -2724,27 +2921,99 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     return false;
   }
 
-  /** Переход к заметке: Foliate showAnnotation (меню + range), иначе goTo. */
-  async function revealAnnotationAt(cfi, opts = {}) {
-    if (!view || !cfi) return false;
-    const retries = Math.max(1, Number(opts.retries) || 8);
-    if (typeof view.showAnnotation === 'function') {
-      for (let attempt = 0; attempt < retries; attempt++) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, 100 * attempt));
-        try {
-          await view.showAnnotation({ value: cfi });
-          document.documentElement.classList.add('annotation-goto-flash');
-          clearTimeout(revealAnnFlashTimer);
-          revealAnnFlashTimer = setTimeout(() => {
-            document.documentElement.classList.remove('annotation-goto-flash');
-          }, 1200);
-          return true;
-        } catch {
-          /* retry / fall through */
+  /** Range CFIs are rejected as locations; collapse to the highlight's start. */
+  function annotationGoTarget(cfi) {
+    const raw = String(cfi || '').trim();
+    if (!raw || !/^epubcfi\(/i.test(raw)) return raw;
+    try {
+      const start = collapse(raw);
+      if (start && !isMalformedLocationCfi(start)) return start;
+      const end = collapse(raw, true);
+      if (end && !isMalformedLocationCfi(end)) return end;
+    } catch { /* keep the original */ }
+    return raw;
+  }
+
+  function annotationStillAtStart() {
+    const page = Number(view?.renderer?.page);
+    const frac = readingFractionFromLocation(view?.lastLocation);
+    const pages = Number(view?.renderer?.pages);
+    if (Number.isFinite(pages) && pages > 3 && Number.isFinite(page) && page <= 1) return true;
+    return !(frac > 0.015);
+  }
+
+  /** Whitespace-insensitive offset of a quote inside a section document. */
+  function findTextOffset(doc, quote) {
+    const needle = String(quote || '').replace(/\s+/g, ' ').trim();
+    if (needle.length < 12 || !doc?.body) return null;
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    let raw = '';
+    let node;
+    while ((node = walker.nextNode())) raw += node.nodeValue || '';
+    const map = [];
+    let hay = '';
+    let prevSpace = false;
+    for (let i = 0; i < raw.length; i++) {
+      if (/\s/.test(raw[i])) {
+        if (!prevSpace) {
+          hay += ' ';
+          map.push(i);
+          prevSpace = true;
         }
+      } else {
+        hay += raw[i];
+        map.push(i);
+        prevSpace = false;
       }
     }
-    return goToReaderTarget(cfi, { retries });
+    const probe = needle.slice(0, 160);
+    let at = hay.indexOf(probe);
+    if (at < 0 && probe.length > 40) at = hay.indexOf(probe.slice(0, 40));
+    if (at < 0) return null;
+    return map[at];
+  }
+
+  async function goToAnnotationQuote(quote) {
+    if (!view?.goToTextAnchor) return false;
+    const sections = view.book?.sections || [];
+    const current = Number(view?.lastLocation?.section?.current);
+    const order = [];
+    if (Number.isInteger(current) && current >= 0) order.push(current);
+    for (let i = 0; i < sections.length; i++) if (i !== current) order.push(i);
+    const probe = String(quote || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    for (const index of order) {
+      let doc = index === current ? getLoadedSectionDoc() : null;
+      if (!doc) {
+        try { doc = await sections[index].createDocument(); } catch { continue; }
+      }
+      const offset = findTextOffset(doc, quote);
+      if (offset == null) continue;
+      try {
+        await view.goToTextAnchor(index, offset, probe);
+        await waitForLayoutSettled(1000);
+        return !annotationStillAtStart() || offset < 80;
+      } catch { /* next section */ }
+    }
+    return false;
+  }
+
+  /** Переход к заметке. CFI у FB2 часто «успешен», но остаётся на первой странице — тогда ищем цитату. */
+  async function revealAnnotationAt(cfi, opts = {}) {
+    if (!view || !cfi) return false;
+    const ann = annotationsData.find((a) => a?.cfi === cfi)
+      || annotationsData.find((a) => annotationGoTarget(a?.cfi) === annotationGoTarget(cfi));
+    const target = annotationGoTarget(cfi);
+    await goToReaderTarget(target, opts);
+    await waitForLayoutSettled(800);
+    let ok = !annotationStillAtStart();
+    if (!ok && ann?.text) ok = await goToAnnotationQuote(ann.text);
+    if (!ok) return false;
+    document.documentElement.classList.add('annotation-goto-flash');
+    clearTimeout(revealAnnFlashTimer);
+    revealAnnFlashTimer = setTimeout(() => {
+      document.documentElement.classList.remove('annotation-goto-flash');
+    }, 1200);
+    return true;
   }
   let revealAnnFlashTimer = null;
 
@@ -2956,9 +3225,14 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const urlFrac = urlFracRaw != null ? normalizeFraction(Number(urlFracRaw)) : 0;
 
     if (urlPos) {
-      const isAnnotationTarget = annotationsData.some((a) => a?.cfi && a.cfi === urlPos);
+      const urlAnn = new URLSearchParams(location.search).get('ann');
+      const ann = urlAnn
+        ? annotationsData.find((a) => String(a?.id) === String(urlAnn))
+        : annotationsData.find((a) => a?.cfi && a.cfi === urlPos);
+      const cfi = ann?.cfi || urlPos;
+      const isAnnotationTarget = Boolean(ann) || /^epubcfi\(/i.test(String(cfi));
       const ok = isAnnotationTarget
-        ? await revealAnnotationAt(urlPos, { retries: 8 })
+        ? await revealAnnotationAt(cfi, { retries: 8 })
         : await goToReaderTarget(urlPos, { retries: 8 });
       posLog('restore', { method: isAnnotationTarget ? 'urlPos-annotation' : 'urlPos', ok });
       if (ok) {
@@ -3279,9 +3553,19 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     applyAllAnnotations();
   };
 
+  let selMenuAnim = null;
   function hideSelMenu() {
     const m = $('reader-sel-menu');
-    if (m) { m.classList.remove('is-open'); m.setAttribute('aria-hidden', 'true'); }
+    if (!m) return;
+    selMenuAnim?.cancel();
+    const close = () => {
+      m.classList.remove('is-open');
+      m.setAttribute('aria-hidden', 'true');
+      m.style.transform = '';
+    };
+    if (!m.classList.contains('is-open') || motionReduced()) { close(); return; }
+    selMenuAnim = springScalar(1, 0.92, 0, (s) => { m.style.transform = `scale(${s})`; }, { dampingRatio: 1, response: 0.22 });
+    void selMenuAnim.done.then((ok) => { if (ok) close(); });
   }
   function rectToPage(rect, doc) {
     const win = doc?.defaultView;
@@ -3315,6 +3599,16 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     if (top < minY) top = Math.min(maxY, pageRect.bottom + 10);
     m.style.left = left + 'px';
     m.style.top = top + 'px';
+    const originX = Math.max(0, Math.min(mw, pageRect.cx - left));
+    const originY = top >= pageRect.bottom ? 0 : mh;
+    m.style.transformOrigin = `${originX}px ${originY}px`;
+    selMenuAnim?.cancel();
+    if (motionReduced()) {
+      m.style.transform = '';
+      return;
+    }
+    m.style.transform = 'scale(0.92)';
+    selMenuAnim = springScalar(0.92, 1, 0, (s) => { m.style.transform = `scale(${s})`; }, { dampingRatio: 1, response: 0.28 });
   }
   function maybeShowSelMenu(doc) {
     // Во время TTS фразы раньше выделялись через Selection — меню заметок всплывало само.
@@ -3436,16 +3730,23 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       $('rne-text').value = '';
     }
     hideSelMenu();
+    popGen += 1;
     ed.classList.add('is-open');
     ed.setAttribute('aria-hidden', 'false');
+    popCard(ed.querySelector('.rne-card'));
     setTimeout(() => { try { $('rne-text').focus(); } catch { /* */ } }, 60);
   }
   function closeNoteEditor() {
     const ed = $('reader-note-editor');
-    ed?.classList.remove('is-open');
-    ed?.setAttribute('aria-hidden', 'true');
-    pendingNote = null;
-    requestEinkPanelRefresh();
+    if (!ed?.classList.contains('is-open')) return;
+    const gen = ++popGen;
+    void dismissCard(ed.querySelector('.rne-card')).then((ok) => {
+      if (!ok || gen !== popGen) return;
+      ed.classList.remove('is-open');
+      ed.setAttribute('aria-hidden', 'true');
+      pendingNote = null;
+      requestEinkPanelRefresh();
+    });
   }
   async function saveNoteEditor() {
     if (!pendingNote) { closeNoteEditor(); return; }
@@ -3516,6 +3817,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const m = $('reader-sel-menu');
     m?.querySelectorAll('.rsm-color').forEach(b => b.addEventListener('click', () => createHighlightFromSel(b.dataset.color)));
     $('rsm-note')?.addEventListener('click', openNoteEditor);
+    $('rsm-bookmark')?.addEventListener('click', () => { hideSelMenu(); addBookmark(); });
     $('rsm-copy')?.addEventListener('click', copySelText);
     $('rsm-share')?.addEventListener('click', () => { void shareSelText(); });
     $('rsm-remove')?.addEventListener('click', removeActiveAnnotation);
@@ -3558,11 +3860,45 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
   }
 
   function wireSelection(doc) {
+    let touchDown = false;
     let selTimer = null;
-    doc.addEventListener('selectionchange', () => {
+    const hidePending = () => {
       clearTimeout(selTimer);
-      selTimer = setTimeout(() => maybeShowSelMenu(doc), 250);
+      hideSelMenu();
+    };
+    const armAfterRelease = () => {
+      clearTimeout(selTimer);
+      if (touchDown) return;
+      selTimer = setTimeout(() => {
+        if (!touchDown) maybeShowSelMenu(doc);
+      }, 420);
+    };
+    doc.addEventListener('selectionchange', () => {
+      hidePending();
+      armAfterRelease();
     });
+    doc.addEventListener('touchstart', () => {
+      touchDown = true;
+      hidePending();
+    }, true);
+    doc.addEventListener('touchend', () => {
+      touchDown = false;
+      armAfterRelease();
+    }, true);
+    doc.addEventListener('touchcancel', () => {
+      touchDown = false;
+      armAfterRelease();
+    }, true);
+    doc.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') return;
+      touchDown = true;
+      hidePending();
+    }, true);
+    doc.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'touch') return;
+      touchDown = false;
+      armAfterRelease();
+    }, true);
   }
 
   /* ===== TOC ===== */
@@ -3574,6 +3910,13 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     document.querySelectorAll('.toc-item').forEach(el => el.classList.toggle('is-active', !!currentTocHref && el.dataset.tocHref === currentTocHref));
   }
   function getTocIdx() { return tocData.findIndex(i => i.href === currentTocHref); }
+  /* Докрутить оглавление к текущей главе — после того как панель стала видимой (scrollIntoView в скрытом контейнере не работает). */
+  function scrollTocToCurrent() {
+    const c = $('toc-content'); if (!c) return;
+    const el = c.querySelector('[aria-current="page"], .toc-item.is-active');
+    if (!el) return;
+    requestAnimationFrame(() => { try { el.scrollIntoView({ block: 'center' }); } catch { /* */ } });
+  }
   function updateTocBtnState() { const i = getTocIdx(); if (tocPrevBtn) tocPrevBtn.disabled = i <= 0; if (tocNextBtn) tocNextBtn.disabled = i === -1 || i >= tocData.length - 1; }
   function goTocIdx(i) { const item = tocData[i]; if (!item || !view) return; view.goTo(item.href).catch(console.error); if (panelOverlay.classList.contains('is-open') && activePanelTab === 'toc') closePanel(); }
 
@@ -3607,6 +3950,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       }
     }
     updateTocHighlight(); updateTocBtnState();
+    if (!q && panelOverlay.classList.contains('is-open') && activePanelTab === 'toc') scrollTocToCurrent();
   }
 
   /* ===== Panel ===== */
@@ -3629,24 +3973,115 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     });
   }
   let panelHistoryPushed = false;
-  function openPanel(tab, { toggle = true } = {}) {
-    const t = tab || 'toc';
-    hideSelMenu();
-    if (toggle && panelOverlay.classList.contains('is-open') && activePanelTab === t) { closePanel(); return; }
-    const wasOpen = panelOverlay.classList.contains('is-open');
-    panelOverlay.classList.add('is-open');
-    switchTab(t);
-    syncPanelChrome(t);
-    refreshTriggers();
-    if (!wasOpen && !panelHistoryPushed) { history.pushState({ readerPanel: true }, ''); panelHistoryPushed = true; }
+  let sheetHandle = null;
+  let sheetGen = 0;
+  const sheetProject = (velocity) => (velocity / 1000) * 0.998 / (1 - 0.998);
+  const sheetRubber = (overshoot, dimension) => {
+    const limit = Math.max(1, dimension);
+    return (overshoot * limit * 0.55) / (limit + 0.55 * Math.abs(overshoot));
+  };
+  function sheetEls() {
+    return {
+      panel: panelOverlay.querySelector('.panel'),
+      backdrop: $('panel-backdrop'),
+    };
   }
-  function closePanelDirect() {
+  function sheetClosedY(panel) {
+    return Math.max(panel?.offsetHeight || 0, Math.round(window.innerHeight * 0.45));
+  }
+  function paintSheet(panel, backdrop, y, closedY) {
+    panel.style.transform = `translateY(${y}px)`;
+    if (backdrop) backdrop.style.opacity = String(1 - Math.min(1, Math.max(0, y / Math.max(1, closedY))));
+  }
+  function settleSheet(to, velocity) {
+    const { panel, backdrop } = sheetEls();
+    if (!panel) return Promise.resolve(false);
+    sheetHandle?.cancel();
+    const closedY = sheetClosedY(panel);
+    const from = readTranslateY(panel);
+    panel.classList.add('is-js');
+    const handle = springScalar(from, to, velocity, (y) => paintSheet(panel, backdrop, y, closedY), {
+      response: 0.3,
+      dampingRatio: 0.8,
+    });
+    sheetHandle = handle;
+    return handle.done.then((ok) => {
+      if (ok && Math.abs(from - to) > 12) postReaderHaptic('light');
+      return ok;
+    });
+  }
+  function settleDrawer(to, velocity) {
+    const { panel } = sheetEls();
+    if (!panel) return Promise.resolve(false);
+    sheetHandle?.cancel();
+    panel.classList.add('is-js');
+    const from = readTranslateX(panel);
+    const handle = springScalar(from, to, velocity, (x) => {
+      panel.style.transform = `translateX(${x}px)`;
+    }, { response: 0.4, dampingRatio: 1 });
+    sheetHandle = handle;
+    return handle.done.then((ok) => {
+      if (ok && Math.abs(from - to) > 12) postReaderHaptic('light');
+      return ok;
+    });
+  }
+  function finishClosePanel() {
+    sheetGen += 1;
+    sheetHandle?.cancel();
+    sheetHandle = null;
+    const { panel, backdrop } = sheetEls();
+    panel?.classList.remove('is-js');
+    if (panel) panel.style.transform = '';
+    if (backdrop) backdrop.style.opacity = '';
     panelOverlay.classList.remove('is-open', 'panel-mobile', 'panel-settings-mode');
     refreshTriggers();
     clearTimeout(chromeTimer);
     setChromeVisible(false);
     if (activePanelTab === 'search') { try { view?.clearSearch?.(); } catch { /* */ } }
     requestEinkPanelRefresh();
+  }
+  function openPanel(tab, { toggle = true } = {}) {
+    const t = tab || 'toc';
+    hideSelMenu();
+    if (toggle && panelOverlay.classList.contains('is-open') && activePanelTab === t) { closePanel(); return; }
+    const wasOpen = panelOverlay.classList.contains('is-open');
+    if (!wasOpen && !motionReduced()) {
+      const panel = panelOverlay.querySelector('.panel');
+      if (panel) {
+        panel.classList.add('is-js');
+        if (mobileMq.matches) panel.style.transform = `translateY(${sheetClosedY(panel)}px)`;
+        else panel.style.transform = `translateX(${panel.offsetWidth || 320}px)`;
+      }
+    }
+    panelOverlay.classList.add('is-open');
+    switchTab(t);
+    syncPanelChrome(t);
+    refreshTriggers();
+    if (!wasOpen && !motionReduced()) {
+      if (mobileMq.matches) void settleSheet(0, 0);
+      else void settleDrawer(0, 0);
+    }
+    if (!wasOpen && !panelHistoryPushed) { history.pushState({ readerPanel: true }, ''); panelHistoryPushed = true; }
+  }
+  function closePanelDirect() {
+    if (!panelOverlay.classList.contains('is-open')) return;
+    const { panel } = sheetEls();
+    if (panel && !motionReduced()) {
+      const gen = ++sheetGen;
+      if (mobileMq.matches) {
+        const closedY = sheetClosedY(panel);
+        void settleSheet(closedY, 0).then((ok) => {
+          if (ok && gen === sheetGen) finishClosePanel();
+        });
+      } else {
+        const closedX = panel.offsetWidth || 320;
+        void settleDrawer(closedX, 0).then((ok) => {
+          if (ok && gen === sheetGen) finishClosePanel();
+        });
+      }
+      return;
+    }
+    finishClosePanel();
   }
   function closePanel() {
     if (!panelOverlay.classList.contains('is-open')) return;
@@ -3674,6 +4109,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       });
     }
     if (tab === 'notes') renderNotesTab();
+    if (tab === 'toc') scrollTocToCurrent();
     if (tab === 'search') {
       const inp = $('book-search-input');
       if (inp) setTimeout(() => { try { inp.focus(); } catch { /* */ } }, 60);
@@ -3684,6 +4120,62 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
   });
   $('panel-backdrop')?.addEventListener('click', closePanel);
   $('panel-close')?.addEventListener('click', closePanel);
+  {
+    const { panel } = sheetEls();
+    const header = panel?.querySelector('.panel-header');
+    if (panel && header && !header.dataset.sheetWired) {
+      header.dataset.sheetWired = '1';
+      let drag = null;
+      header.addEventListener('pointerdown', (e) => {
+        if (!mobileMq.matches || !panelOverlay.classList.contains('is-open')) return;
+        if (e.button != null && e.button !== 0) return;
+        if (e.target?.closest?.('.panel-close, button, a, input, textarea')) return;
+        sheetHandle?.cancel();
+        header.setPointerCapture(e.pointerId);
+        drag = {
+          y0: e.clientY,
+          origin: readTranslateY(panel),
+          samples: [{ y: e.clientY, t: e.timeStamp }],
+        };
+      });
+      header.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        const closedY = sheetClosedY(panel);
+        const { backdrop } = sheetEls();
+        let y = drag.origin + (e.clientY - drag.y0);
+        if (y < 0) y = -sheetRubber(-y, closedY);
+        else if (y > closedY) y = closedY + sheetRubber(y - closedY, closedY);
+        paintSheet(panel, backdrop, y, closedY);
+        panel.classList.add('is-js');
+        drag.samples.push({ y: e.clientY, t: e.timeStamp });
+        if (drag.samples.length > 6) drag.samples.shift();
+      });
+      const endDrag = (e) => {
+        if (!drag) return;
+        const samples = drag.samples;
+        drag = null;
+        const last = samples[samples.length - 1];
+        const prev = samples[Math.max(0, samples.length - 4)];
+        const dt = last.t - prev.t;
+        const velocity = dt > 0 ? ((last.y - prev.y) / dt) * 1000 : 0;
+        const closedY = sheetClosedY(panel);
+        const current = readTranslateY(panel);
+        let to = 0;
+        if (velocity > 50) to = closedY;
+        else if (velocity < -50) to = 0;
+        else {
+          const projected = current + sheetProject(velocity);
+          to = Math.abs(projected - closedY) < Math.abs(projected) ? closedY : 0;
+        }
+        const gen = ++sheetGen;
+        void settleSheet(to, velocity).then((ok) => {
+          if (ok && to === closedY && gen === sheetGen) finishClosePanel();
+        });
+      };
+      header.addEventListener('pointerup', endDrag);
+      header.addEventListener('pointercancel', endDrag);
+    }
+  }
   panelTabs.forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
   mobileMq.addEventListener('change', () => {
     if (!panelOverlay.classList.contains('is-open')) return;
@@ -4022,6 +4514,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     initGotoDialog();
     bindSeg('[data-set-theme]', 'theme');
     bindSeg('[data-set-layout]', 'layout');
+    ensurePdfModeSettingsUi();
     bindSeg('[data-set-volume-keys]', 'volumeKeys');
     bindSeg('[data-set-status-mode]', 'statusMode');
     bindEinkRefreshSeg();
@@ -4199,6 +4692,15 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       sl.addEventListener('input', () => { S[prop] = Number(fmt ? Number(sl.value).toFixed(1) : sl.value); if (vl) vl.textContent = fmt ? fmt(S[prop]) : S[prop]; requestApplySettings(); });
     };
     wire('rs-font-size', 'rs-font-size-val', 'fontSize');
+    const bumpFontSize = (delta) => {
+      const sl = $('rs-font-size');
+      if (!sl) return;
+      const next = Math.min(32, Math.max(12, (Number(sl.value) || 18) + delta));
+      sl.value = String(next);
+      sl.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    $('rs-font-dec')?.addEventListener('click', () => bumpFontSize(-1));
+    $('rs-font-inc')?.addEventListener('click', () => bumpFontSize(1));
     wire('rs-line-height', 'rs-line-height-val', 'lineHeight', v => Number(v).toFixed(1));
     wire('rs-page-margin', 'rs-page-margin-val', 'pageMargin', v => `${Math.round(v)} px`);
     wire('rs-vertical-margin', 'rs-vertical-margin-val', 'verticalMargin', v => `${Math.round(v)} px`);
@@ -4346,10 +4848,61 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     refreshBgImageUi();
   }
 
+  function ensurePdfModeSettingsUi() {
+    const section = document.querySelector('[data-rs-section="layout"]');
+    if (section && !$('rs-pdf-mode')) {
+      const block = document.createElement('div');
+      block.className = 'rs-group';
+      block.id = 'rs-pdf-mode';
+      block.hidden = true;
+      block.innerHTML = '<div class="rs-label">PDF</div><div class="rs-seg">'
+        + '<button type="button" data-set-pdf-mode="page">Страница</button>'
+        + '<button type="button" data-set-pdf-mode="reflow">Reflow</button>'
+        + '</div>';
+      const title = section.querySelector('.rs-section-title');
+      if (title) title.after(block);
+      else section.prepend(block);
+    }
+    const layoutGroup = document.querySelector('[data-set-layout]')?.closest('.rs-group');
+    if (layoutGroup && !layoutGroup.id) layoutGroup.id = 'rs-ebook-layout';
+    document.querySelectorAll('[data-set-pdf-mode]').forEach(btn => {
+      if (btn.dataset.boundPdfMode === '1') return;
+      btn.dataset.boundPdfMode = '1';
+      btn.addEventListener('click', () => { void reopenPdfMode(btn.dataset.setPdfMode); });
+    });
+    const menu = $('tb-overflow-menu');
+    if (menu && !$('tb-overflow-pdf-mode')) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.id = 'tb-overflow-pdf-mode';
+      item.setAttribute('role', 'menuitem');
+      item.dataset.overflow = 'pdf-mode';
+      item.hidden = true;
+      item.textContent = 'PDF: Reflow';
+      menu.appendChild(item);
+    }
+  }
+
+  function syncPdfModeChrome() {
+    ensurePdfModeSettingsUi();
+    const pdf = isPdfBook();
+    const pdfModeGroup = $('rs-pdf-mode');
+    if (pdfModeGroup) pdfModeGroup.hidden = !pdf;
+    const ebookLayout = $('rs-ebook-layout');
+    if (ebookLayout) ebookLayout.hidden = pdf && S.pdfMode !== 'reflow';
+    const overflow = $('tb-overflow-pdf-mode');
+    if (overflow) {
+      overflow.hidden = !pdf;
+      overflow.textContent = S.pdfMode === 'reflow' ? 'PDF: страница' : 'PDF: Reflow';
+    }
+  }
+
   function refreshSettingsUI() {
     const toggle = (sel, attr, val) => document.querySelectorAll(sel).forEach(b => b.classList.toggle('is-active', b.dataset[attr] === val));
     toggle('[data-set-theme]', 'setTheme', S.theme);
     toggle('[data-set-layout]', 'setLayout', S.layout);
+    toggle('[data-set-pdf-mode]', 'setPdfMode', S.pdfMode);
+    syncPdfModeChrome();
     toggle('[data-set-volume-keys]', 'setVolumeKeys', S.volumeKeys);
     populateFontSelect();
     const fs = $('rs-font-family');
@@ -5135,6 +5688,38 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
   $('btn-toc')?.addEventListener('click', () => openPanel('toc'));
   $('btn-search')?.addEventListener('click', () => openPanel('search'));
   $('btn-bookmark-add')?.addEventListener('click', addBookmark);
+
+  const overflowBtn = $('btn-overflow');
+  const overflowMenu = $('tb-overflow-menu');
+  overflowBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = !overflowMenu?.classList.contains('is-open');
+    if (!open) { closeOverflowMenu(); return; }
+    popGen += 1;
+    overflowMenu.classList.add('is-open');
+    overflowMenu.setAttribute('aria-hidden', 'false');
+    overflowBtn.setAttribute('aria-expanded', 'true');
+    popCard(overflowMenu, overflowBtn);
+  });
+  overflowMenu?.addEventListener('click', (e) => {
+    const item = e.target?.closest?.('[data-overflow]');
+    if (!item) return;
+    if (item.dataset.overflow === 'pdf-mode') {
+      void reopenPdfMode(S.pdfMode === 'reflow' ? 'page' : 'reflow');
+      closeOverflowMenu();
+      return;
+    }
+    const map = { search: 'btn-search', bookmark: 'btn-bookmark-add', tts: 'btn-tts' };
+    const id = map[item.dataset.overflow];
+    if (id) $(id)?.click();
+    closeOverflowMenu();
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!overflowMenu?.classList.contains('is-open')) return;
+    if (overflowMenu.contains(e.target) || overflowBtn?.contains(e.target)) return;
+    closeOverflowMenu();
+  }, true);
+
   applyNextSeriesMeta(window.__READER_NEXT_SERIES);
   {
     const hintKey = 'inpx_reader_gesture_hint_v1';
@@ -5396,10 +5981,21 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
   function closeReaderFootnote() {
     const el = $('reader-footnote-overlay');
     if (!el || el.hidden) return;
-    const body = el.querySelector('.reader-footnote-body');
-    if (body) body.replaceChildren();
-    el.hidden = true;
-    document.body.classList.remove('reader-footnote-open');
+    const gen = ++popGen;
+    void dismissCard(el.querySelector('.reader-footnote-panel')).then((ok) => {
+      if (!ok || gen !== popGen) return;
+      const body = el.querySelector('.reader-footnote-body');
+      if (body) body.replaceChildren();
+      el.hidden = true;
+      document.body.classList.remove('reader-footnote-open');
+    });
+  }
+
+  function presentFootnote(overlay) {
+    popGen += 1;
+    overlay.hidden = false;
+    document.body.classList.add('reader-footnote-open');
+    popCard(overlay.querySelector('.reader-footnote-panel'));
   }
 
   function isFootnoteOverlayOpen() {
@@ -5433,7 +6029,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     wrap.appendChild(clonedNode);
     shell.body.appendChild(wrap);
     shell.overlay.hidden = false;
-    document.body.classList.add('reader-footnote-open');
+    presentFootnote(shell.overlay);
   }
 
   /**
@@ -5523,8 +6119,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       } catch (err) {
         console.warn('[reader] footnote styles', err);
       }
-      shell.overlay.hidden = false;
-      document.body.classList.add('reader-footnote-open');
+      presentFootnote(shell.overlay);
     });
     view.addEventListener('link', (e) => {
       if (S.enableFootnotes === false) return;
@@ -5541,10 +6136,13 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
 
   function hideDictPopup() {
     const el = $('reader-dict-popup');
-    if (el) {
+    if (!el?.classList.contains('is-open')) return;
+    const gen = ++popGen;
+    void dismissCard(el.querySelector('.reader-dict-card')).then((ok) => {
+      if (!ok || gen !== popGen) return;
       el.classList.remove('is-open');
       el.setAttribute('aria-hidden', 'true');
-    }
+    });
   }
 
   function showDictPopup(word, html) {
@@ -5554,8 +6152,10 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const body = el.querySelector('.reader-dict-body');
     if (title) title.textContent = word;
     if (body) body.innerHTML = html;
+    popGen += 1;
     el.classList.add('is-open');
     el.setAttribute('aria-hidden', 'false');
+    popCard(el.querySelector('.reader-dict-card'));
   }
 
   async function lookupWordDefinition(word) {
@@ -5888,6 +6488,15 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     /* hard — полностью отрезаем Foliate (иначе во время свайпа яркости листает страницу). */
     if (hard) {
       try { e.stopImmediatePropagation(); } catch { /* */ }
+    }
+  }
+
+  function hasSavedBrightness() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+      return Number.isFinite(Number(raw.brightness));
+    } catch {
+      return false;
     }
   }
 
@@ -6426,7 +7035,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       refreshLightState().then((res) => {
         if (isLightAdjustActive()) return;
         if (res) applyLightStateFromNative(res, { persist: true });
-        else if (!(isAppEinkMode() || S.theme === 'eink')) {
+        else if (hasSavedBrightness() && !(isAppEinkMode() || S.theme === 'eink')) {
           applyBrightnessLevel(readBrightnessLevel(), { persist: false });
         }
       });
@@ -6434,15 +7043,11 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       window.__INPX_NATIVE.getBrightness().then((res) => {
         if (isLightAdjustActive()) return;
         if (applyLightStateFromNative(res, { persist: true }) != null) return;
-        if (!(isAppEinkMode() || S.theme === 'eink')) {
+        if (hasSavedBrightness() && !(isAppEinkMode() || S.theme === 'eink')) {
           applyBrightnessLevel(readBrightnessLevel(), { persist: false });
         }
-      }).catch(() => {
-        if (!(isAppEinkMode() || S.theme === 'eink')) {
-          applyBrightnessLevel(readBrightnessLevel(), { persist: false });
-        }
-      });
-    } else if (!(isAppEinkMode() || S.theme === 'eink')) {
+      }).catch(() => {});
+    } else if (hasSavedBrightness() && !(isAppEinkMode() || S.theme === 'eink')) {
       applyBrightnessLevel(readBrightnessLevel(), { persist: false });
     }
     initWarmthGesture();
@@ -6458,12 +7063,12 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
         if (!brightnessInitPending) return;
         brightnessInitPending = false;
         // Без записи на устройство: только LCD software / уже прочитанное состояние
-        if (!(isAppEinkMode() || S.theme === 'eink')) {
+        if (hasSavedBrightness() && !(isAppEinkMode() || S.theme === 'eink')) {
           applyBrightnessLevel(readBrightnessLevel(), { persist: false });
         }
         initWarmthGesture();
       }, 500);
-    } else if (!(isAppEinkMode() || S.theme === 'eink')) {
+    } else if (hasSavedBrightness() && !(isAppEinkMode() || S.theme === 'eink')) {
       applyBrightnessLevel(readBrightnessLevel(), { persist: false });
       initWarmthGesture();
     } else {
@@ -6588,6 +7193,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       }
       if (dyFromStart < brightnessDrag.armDy) return false;
       brightnessDrag.active = true;
+      postReaderHaptic('light');
       brightnessDrag.yPrev = t.clientY;
       if (!Number.isFinite(brightnessDrag.startRaw)) {
         brightnessDrag.startRaw = Number(lightState?.brightnessRaw) || 0;
@@ -6744,6 +7350,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       }
       if (dyFromStart < warmthDrag.armDy) return false;
       warmthDrag.active = true;
+      postReaderHaptic('light');
       warmthDrag.yPrev = t.clientY;
       if (!Number.isFinite(warmthDrag.startRaw)) {
         warmthDrag.startRaw = Number(lightState?.warmthRaw) || 0;
@@ -6847,6 +7454,55 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     }, { capture: true, passive: true });
   }
 
+  const attachPdfPinch = (() => {
+    let startDist = 0;
+    let startScale = 1;
+    let lastScale = 1;
+    function dist(touches) {
+      return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+    }
+    return {
+      start(touches) {
+        const fxl = view?.renderer;
+        if (!view?.isFixedLayout || !fxl || touches.length !== 2) return;
+        startDist = dist(touches);
+        startScale = Number(fxl.scale) || 1;
+        lastScale = startScale;
+      },
+      move(touches) {
+        const fxl = view?.renderer;
+        if (!view?.isFixedLayout || !fxl || !startDist || touches.length !== 2) return false;
+        const fit = Number(fxl.fitScale) || startScale;
+        const next = Math.min(fit * 5, Math.max(fit, startScale * (dist(touches) / startDist)));
+        lastScale = next;
+        fxl.previewScale?.(next);
+        return true;
+      },
+      end(e) {
+        const fxl = view?.renderer;
+        if (!startDist) return;
+        if (e?.touches?.length) return;
+        startDist = 0;
+        fxl?.commitScale?.(lastScale);
+      },
+    };
+  })();
+
+  if (readerBody) {
+    readerBody.addEventListener('touchstart', e => {
+      if (e.touches.length === 2 && view?.isFixedLayout) attachPdfPinch.start(e.touches);
+    }, { passive: true });
+    readerBody.addEventListener('touchmove', e => {
+      if (view?.isFixedLayout && attachPdfPinch.move(e.touches)) e.preventDefault();
+    }, { passive: false });
+    readerBody.addEventListener('touchend', e => {
+      if (view?.isFixedLayout) attachPdfPinch.end(e);
+    }, { passive: true });
+    readerBody.addEventListener('touchcancel', e => {
+      if (view?.isFixedLayout) attachPdfPinch.end(e);
+    }, { passive: true });
+  }
+
   function wireDoc(doc) {
     if (readerWiredDocs.has(doc)) return;
     readerWiredDocs.add(doc);
@@ -6930,26 +7586,9 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       if (screenTapTrack) screenTapTrack.longTimer = null;
     }
 
-    function armScreenTapLongPress(doc_) {
-      clearScreenTapLongPress();
-      if (!screenTapTrack) return;
-      screenTapTrack.longTimer = setTimeout(() => {
-        if (!screenTapTrack || screenTapTrack.longFired) return;
-        try {
-          const sel = doc_?.getSelection?.();
-          if (sel && !sel.isCollapsed && String(sel).trim()) {
-            clearScreenTapLongPress();
-            screenTapTrack = null;
-            return;
-          }
-        } catch { /* */ }
-        screenTapTrack.longFired = true;
-        const coords = tapCoordsInHost(screenTapTrack.x, screenTapTrack.y, doc_);
-        const zone = coords?.zone || 'mm';
-        const action = S.tapZonesLong?.[zone] || 'none';
-        screenTapTrack = null;
-        runTapAction(action);
-      }, TAP_LONG_MS);
+    function armScreenTapLongPress() {
+      // Действие долгого нажатия решается на отпускании: пока палец лежит,
+      // система ещё только начинает выделение, и таймер открывал оглавление.
     }
 
     lightAdjustCancelers.add(() => {
@@ -7009,7 +7648,9 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
           ? (pageX - host.left) <= EDGE_MENU_PX
           : pageX <= EDGE_MENU_PX;
         if (fromLeft && !brightnessGestureBlocked()) {
-          edgeMenuTrack = { x: t.clientX, y: t.clientY, armed: false };
+          const sel = doc.getSelection?.();
+          const selecting = !!(sel && sel.rangeCount > 0 && !sel.isCollapsed);
+          if (!selecting) edgeMenuTrack = { x: t.clientX, y: t.clientY, t: Date.now(), armed: false };
         }
       }
       if (e.touches.length === 1 && !e.target.closest?.('a[href]')) {
@@ -7035,6 +7676,10 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       }
       if (edgeMenuTrack && e.touches.length === 1 && !edgeMenuTrack.armed) {
         const t = e.touches[0];
+        const sel = doc.getSelection?.();
+        if ((sel && sel.rangeCount > 0 && !sel.isCollapsed) || Date.now() - edgeMenuTrack.t > 220) {
+          edgeMenuTrack = null;
+        } else {
         const dx = t.clientX - edgeMenuTrack.x;
         const dy = t.clientY - edgeMenuTrack.y;
         const adx = Math.abs(dx);
@@ -7052,6 +7697,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
         }
         if (ady > 16 && ady >= adx) {
           edgeMenuTrack = null;
+        }
         }
       }
       if (!screenTapTrack || e.touches.length !== 1) return;
@@ -7099,12 +7745,25 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       const dt = Date.now() - screenTapTrack.t;
       const adx = Math.abs(t.clientX - screenTapTrack.x);
       const ady = Math.abs(t.clientY - screenTapTrack.y);
-      if (dt > TAP_MAX_MS || adx > TAP_SLOP_PX || ady > TAP_SLOP_PX) {
-        clearScreenTapLongPress();
-        screenTapTrack = null;
+      const start = screenTapTrack;
+      clearScreenTapLongPress();
+      screenTapTrack = null;
+      const hasSelection = () => {
+        try {
+          const sel = doc.getSelection?.();
+          return !!(sel && !sel.isCollapsed && String(sel).trim());
+        } catch { return false; }
+      };
+      if (dt >= TAP_LONG_MS && adx <= TAP_CANCEL_MOVE_PX && ady <= TAP_CANCEL_MOVE_PX) {
+        setTimeout(() => {
+          if (hasSelection()) return;
+          const coords = tapCoordsInHost(start.x, start.y, doc);
+          const zone = coords?.zone || 'mm';
+          runTapAction(S.tapZonesLong?.[zone] || 'none');
+        }, 180);
         return;
       }
-      clearScreenTapLongPress();
+      if (dt > TAP_MAX_MS || adx > TAP_SLOP_PX || ady > TAP_SLOP_PX) return;
       const coords = tapCoordsInHost(t.clientX, t.clientY, doc);
       const zone = coords?.zone || 'mm';
       const action = S.tapZonesShort?.[zone] || 'toggleChrome';
@@ -7171,20 +7830,35 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
 
     doc.addEventListener('touchstart', e => {
       if (e.touches.length === 2) {
+        if (view?.isFixedLayout) {
+          attachPdfPinch.start(e.touches);
+          return;
+        }
         pinchStartDist = touchDistPinch(e.touches);
         pinchStartSize = S.fontSize;
         pinchPendingSize = S.fontSize;
       }
     }, { passive: true });
     doc.addEventListener('touchmove', e => {
-      if (e.touches.length !== 2 || !pinchStartDist) return;
+      if (e.touches.length !== 2) return;
+      if (view?.isFixedLayout) {
+        if (attachPdfPinch.move(e.touches)) e.preventDefault();
+        return;
+      }
+      if (!pinchStartDist) return;
       e.preventDefault();
       const ratio = touchDistPinch(e.touches) / pinchStartDist;
       const dampened = 1 + (ratio - 1) * 0.35;
       applyPinchFontSize(pinchStartSize * dampened);
     }, { passive: false });
-    doc.addEventListener('touchend', () => { commitPinchFont(); }, { passive: true });
-    doc.addEventListener('touchcancel', () => { commitPinchFont(); }, { passive: true });
+    doc.addEventListener('touchend', e => {
+      if (view?.isFixedLayout) attachPdfPinch.end(e);
+      else commitPinchFont();
+    }, { passive: true });
+    doc.addEventListener('touchcancel', e => {
+      if (view?.isFixedLayout) attachPdfPinch.end(e);
+      else commitPinchFont();
+    }, { passive: true });
 
     doc.addEventListener('pointerup', e => {
       /* Тач: зоны только в capture-touchend (ниже). Иначе pointerup и touchend оба листают —
@@ -7363,14 +8037,16 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
 
   function ensureRestoreVeil() {
     let veil = document.getElementById('reader-restore-veil');
-    if (veil) return veil;
-    veil = document.createElement('div');
-    veil.id = 'reader-restore-veil';
-    veil.className = 'reader-restore-veil';
-    veil.setAttribute('aria-busy', 'true');
-    veil.setAttribute('aria-label', 'Загрузка книги');
-    veil.innerHTML = '<div class="reader-spinner"></div><div class="reader-loading-text">Загрузка книги…</div>';
-    document.body.appendChild(veil);
+    if (!veil) {
+      veil = document.createElement('div');
+      veil.id = 'reader-restore-veil';
+      veil.className = 'reader-restore-veil';
+      veil.hidden = true;
+      document.body.appendChild(veil);
+    }
+    // Подпись «Загрузка книги» остаётся только у #reader-loading внутри Foliate.
+    veil.replaceChildren();
+    veil.removeAttribute('aria-label');
     return veil;
   }
 
@@ -7384,7 +8060,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
   async function revealReaderAfterRestore() {
     try {
       await ensurePaginatorContentPage();
-      await waitForLayoutSettled(800);
+      await waitForLayoutSettled(250);
     } catch { /* still drop the veil */ }
   }
 
@@ -7432,18 +8108,15 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     // (Flibusta wrapper packs) classify as their underlying format.
     const raw = String(ext || '').toLowerCase().replace(/^\./, '');
     const e = raw.replace(/\.zip$/, '');
-    if (e === 'pdf') return 'pdf';
     if (e === 'djvu' || e === 'djv') return 'djvu';
+    if (e === 'pdf' || e === 'txt' || e === 'text') return 'foliate';
+    if (raw === 'zip' || raw.endsWith('.zip')) return 'foliate';
     if (e === 'fb2' || e === 'fbz' || e === 'epub' || e === 'mobi' || e === 'azw3' || e === 'kf8' || e === 'cbz') return 'foliate';
     return 'unsupported';
   }
 
   /**
-   * PDF/DJVU are not supported by foliate-js. For PDF we fall back to the
-   * browser's native PDF viewer (same-origin iframe, which Chrome/Edge/Firefox
-   * render via their built-in viewer). For DJVU — no browser has a native
-   * renderer, so we show a clear "download to read" banner instead of the
-   * cryptic "Failed to load container file" message from foliate-js.
+   * DJVU не рисуется ни Foliate, ни WebView.
    */
   function showUnsupportedBanner(kind) {
     hideReaderLoading();
@@ -7494,7 +8167,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       const fb2Entry = entries.find((entry) => /\.fb2$/i.test(String(entry.filename || '')));
       if (fb2Entry) {
         await reader.close();
-        return 'fb2';
+        return 'fb2.zip';
       }
       await reader.close();
     } catch {
@@ -7505,7 +8178,8 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
 
   /** Определяет реальный формат по содержимому — важно, если ext в URL/профиле неверный. */
   async function sniffBookExt(buffer, fallbackExt) {
-    const fb = String(fallbackExt || 'fb2').toLowerCase().replace(/^\./, '').replace(/\.zip$/, '');
+    const raw = String(fallbackExt || 'fb2').toLowerCase().replace(/^\./, '');
+    const fb = raw === 'zip' ? 'zip' : raw.replace(/\.zip$/, '');
     if (!buffer || buffer.byteLength < 4) return fb || 'fb2';
     const h = new Uint8Array(buffer);
     if (h[0] === 0x25 && h[1] === 0x50 && h[2] === 0x44 && h[3] === 0x46) return 'pdf';
@@ -7521,7 +8195,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       const zipKind = await inspectZipBookKind(buffer);
       if (zipKind) return zipKind;
       if (fb.includes('epub')) return 'epub';
-      if (fb === 'fb2' || fb === 'fbz') return 'fb2';
+      if (fb === 'fb2' || fb === 'fbz' || fb === 'zip' || raw === 'fb2.zip') return 'fb2.zip';
       if (fb.includes('mobi') || fb.includes('azw')) return fb;
       return 'epub';
     }
@@ -7542,26 +8216,14 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     bookPagesEl?.classList.add('is-hidden');
     closeReaderFootnote();
     footnoteHandler = null;
-    setRestoreVeil(true);
 
-    // Branch on book type: foliate-js doesn't handle PDF/DJVU. For PDF we let
-    // the browser's native PDF viewer render the file; for DJVU we surface a
-    // clear download prompt (no browser has a native DJVU renderer).
+    // PDF и TXT открывает Foliate: PDF — фиксированные страницы, TXT — обычная вёрстка.
     const kind = classifyExt(bookExt);
     const contentSuffix = 'content';
     const url = globalThis.apiBookPath
       ? globalThis.apiBookPath(bookId, contentSuffix)
       : `/api/books/${encodeURIComponent(bookId)}/${contentSuffix}`;
 
-    if (kind === 'pdf') {
-      const pdfUrl = globalThis.apiBookPath
-        ? globalThis.apiBookPath(bookId, 'content')
-        : `/api/books/${encodeURIComponent(bookId)}/content`;
-      hideReaderLoading();
-      setRestoreVeil(false);
-      readerBody.innerHTML = '<iframe class="reader-pdf-frame" src="' + pdfUrl + '" title="PDF"></iframe>';
-      return;
-    }
     if (kind === 'djvu') {
       showUnsupportedBanner('djvu');
       return;
@@ -7583,6 +8245,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const effectiveExt = await sniffBookExt(buffer, bookExt);
     effectiveBookExt = effectiveExt;
     const file = new File([buffer], 'book.' + effectiveExt.toLowerCase());
+    openedBookFile = file;
 
     const urlPos = new URLSearchParams(location.search).get('pos');
     const urlFracRaw = new URLSearchParams(location.search).get('frac');
@@ -7603,7 +8266,8 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
 
       view = document.createElement('foliate-view');
       readerBody.replaceChildren(view);
-      await view.open(file);
+      if (needsRestore) setRestoreVeil(true);
+      await view.open(file, pdfOpenOptions());
       openedView = true;
       await waitForPaginatorReady();
       try { window.__DEBUG_LOG__?.('H4', 'reader:loadBook', 'view.open ok', { effectiveExt }); } catch { /* */ }
@@ -7621,6 +8285,7 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       await syncReaderGoogleFont();
       applyBookStyles();
       applyInvertFilter();
+      refreshSettingsUI();
       await setBookChromeMetadata();
       await importCalibreHighlights();
 
@@ -7761,8 +8426,9 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
       }
     } finally {
       await revealReaderAfterRestore();
+      // 0 = apply seed if sync already finished; do not hold the veil on the network.
       if (typeof window.__READER_WAIT_OPEN_SYNC__ === 'function') {
-        await window.__READER_WAIT_OPEN_SYNC__(2500);
+        await window.__READER_WAIT_OPEN_SYNC__(0);
       }
       try {
         if (typeof window.__SHOW_DEFERRED_CROSS_DEVICE_PROMPT__ === 'function') {
@@ -8007,7 +8673,6 @@ import { isMalformedLocationCfi } from '/foliate/epubcfi.js';
   };
   (async () => {
     try {
-      setRestoreVeil(true);
       try { window.__DEBUG_LOG__?.('H3', 'reader:boot', 'start', { bookId, bookExt }); } catch { /* */ }
       if (window.__READER_LOCAL_INIT__) {
         await window.__READER_LOCAL_INIT__;

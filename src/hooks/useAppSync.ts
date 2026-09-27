@@ -54,7 +54,7 @@ export function useAppSync(opts: {
   const bookIdsRef = React.useRef<string[]>([]);
   bookIdsRef.current = downloadedBooksWithFile
     .map((b) => b.id)
-    .filter((id) => !String(id).startsWith('local:import:'));
+    .filter((id) => !String(id).startsWith('local:'));
 
   const setClosingBookId = React.useCallback((bookId: string | null) => {
     closingBookIdRef.current = bookId;

@@ -3,24 +3,43 @@ package ru.inpx.bookreader;
 import android.util.Base64;
 import android.os.Environment;
 import android.os.StatFs;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
+import androidx.activity.result.ActivityResult;
 import java.io.File;
 import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 @CapacitorPlugin(name = "BookStorage")
 public class BookStoragePlugin extends Plugin {
 
     private final ExecutorService downloadExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService listExecutor = Executors.newFixedThreadPool(2, r -> {
+        Thread thread = new Thread(r, "inpx-dir-list");
+        thread.setPriority(Thread.NORM_PRIORITY - 1);
+        return thread;
+    });
+    /** Разбор обложки не должен занимать поток плагина: иначе «Открываем папку» ждёт конец файла. */
+    private final ExecutorService coverExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "inpx-cover");
+        thread.setPriority(Thread.NORM_PRIORITY - 1);
+        return thread;
+    });
 
     @Override
     protected void handleOnDestroy() {
         downloadExecutor.shutdownNow();
+        listExecutor.shutdownNow();
+        coverExecutor.shutdownNow();
         super.handleOnDestroy();
     }
 
@@ -496,6 +515,168 @@ public class BookStoragePlugin extends Plugin {
             );
             JSObject ret = new JSObject();
             ret.put("data", Base64.encodeToString(header, Base64.NO_WRAP));
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject(e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
+    public void extractBookCover(PluginCall call) {
+        String treeUri = call.getString("treeUri");
+        String path = call.getString("path");
+        if (treeUri == null || path == null) {
+            call.reject("Missing arguments");
+            return;
+        }
+        android.content.Context context = getContext();
+        coverExecutor.execute(() -> {
+            try {
+                byte[] cover = BookStorageAccess.extractBookCover(context, treeUri, path);
+                JSObject ret = new JSObject();
+                ret.put("data", cover == null || cover.length < 32
+                    ? ""
+                    : Base64.encodeToString(cover, Base64.NO_WRAP));
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject(e.getMessage(), e);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void extractBookMeta(PluginCall call) {
+        String treeUri = call.getString("treeUri");
+        String path = call.getString("path");
+        if (treeUri == null || path == null) {
+            call.reject("Missing arguments");
+            return;
+        }
+        android.content.Context context = getContext();
+        coverExecutor.execute(() -> {
+            try {
+                BookStorageAccess.BookFileMeta meta = BookStorageAccess.extractBookMeta(context, treeUri, path);
+                JSObject ret = new JSObject();
+                ret.put("title", meta.title);
+                ret.put("author", meta.author);
+                ret.put("series", meta.series);
+                ret.put("seriesNo", meta.seriesNo);
+                ret.put("lang", meta.lang);
+                ret.put("genre", meta.genre);
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject(e.getMessage(), e);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void hasAllFilesAccess(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("granted", allFilesGranted());
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void canListFast(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("fast", BookStorageAccess.canListFast(call.getString("treeUri")));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestAllFilesAccess(PluginCall call) {
+        if (allFilesGranted()) {
+            JSObject ret = new JSObject();
+            ret.put("granted", true);
+            call.resolve(ret);
+            return;
+        }
+        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+        intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+        try {
+            startActivityForResult(call, intent, "allFilesResult");
+        } catch (Exception first) {
+            startActivityForResult(call, new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION), "allFilesResult");
+        }
+    }
+
+    @ActivityCallback
+    private void allFilesResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        JSObject ret = new JSObject();
+        ret.put("granted", allFilesGranted());
+        call.resolve(ret);
+    }
+
+    private static boolean allFilesGranted() {
+        return android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R
+            || Environment.isExternalStorageManager();
+    }
+
+    @PluginMethod
+    public void listDirectory(PluginCall call) {
+        try {
+            String treeUri = call.getString("treeUri");
+            String path = call.getString("path", "");
+            if (treeUri == null || treeUri.trim().isEmpty()) {
+                call.reject("Missing treeUri");
+                return;
+            }
+            String rel = path == null ? "" : path;
+            boolean refresh = Boolean.TRUE.equals(call.getBoolean("refresh", false));
+            if (!refresh) {
+                org.json.JSONArray cached = BookStorageAccess.readDirListCache(getContext(), treeUri, rel);
+                if (cached != null) {
+                    JSObject ret = new JSObject();
+                    ret.put("entries", new JSArray(cached.toString()));
+                    ret.put("stale", true);
+                    call.resolve(ret);
+                    return;
+                }
+            }
+            android.content.Context context = getContext();
+            listExecutor.execute(() -> {
+                try {
+                    if (!refresh && !allFilesGranted()) {
+                        org.json.JSONArray peek = BookStorageAccess.peekDiskListing(treeUri, rel);
+                        if (peek != null) {
+                            JSObject ret = new JSObject();
+                            ret.put("entries", new JSArray(peek.toString()));
+                            ret.put("stale", true);
+                            call.resolve(ret);
+                            return;
+                        }
+                    }
+                    org.json.JSONArray rows = BookStorageAccess.listDirectory(context, treeUri, rel);
+                    BookStorageAccess.writeDirListCache(context, treeUri, rel, rows);
+                    JSObject ret = new JSObject();
+                    ret.put("entries", new JSArray(rows.toString()));
+                    ret.put("stale", false);
+                    call.resolve(ret);
+                } catch (Exception e) {
+                    call.reject(e.getMessage(), e);
+                }
+            });
+        } catch (Exception e) {
+            call.reject(e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
+    public void listBookFiles(PluginCall call) {
+        try {
+            String treeUri = call.getString("treeUri");
+            if (treeUri == null || treeUri.trim().isEmpty()) {
+                call.reject("Missing treeUri");
+                return;
+            }
+            JSArray paths = new JSArray();
+            for (String path : BookStorageAccess.listBookRelPaths(getContext(), treeUri)) {
+                paths.put(path);
+            }
+            JSObject ret = new JSObject();
+            ret.put("paths", paths);
             call.resolve(ret);
         } catch (Exception e) {
             call.reject(e.getMessage(), e);

@@ -1,11 +1,10 @@
 import React from 'react';
-import { createPortal } from 'react-dom';
 import { X, Filter } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
-import { sheetBackdropClass, sheetPanelClass, sheetPanelStyle, SheetDragHandle } from '../../ui/SheetChrome';
+import { sheetPanelClass, SheetDragHandle } from '../../ui/SheetChrome';
+import DragSheet from '../../ui/DragSheet';
 import { textStyles, touchMin, radii, motion } from '../../ui/tokens';
 import Button from '../../ui/Button';
-import { useOverlayBackHandler } from '../../hooks/useBackHandler';
 import type {
   CatalogFormatFilter,
   CatalogHasSeriesFilter,
@@ -43,7 +42,7 @@ interface CatalogFilterSheetProps {
    * Prefer scoped genres from `/api/search/genres`.
    */
   resolveGenreOptions?: () => Promise<CatalogGenreOption[]>;
-  /** Demo/local pool only — server sort lives in the search header. */
+  /** Demo/local pool only — server book sort lives on the book list, not here. */
   showSort?: boolean;
   /** Hide genre multi-select (e.g. already inside a genre page). */
   showGenrePicker?: boolean;
@@ -92,8 +91,6 @@ export default function CatalogFilterSheet({
   const [activeGenreOptions, setActiveGenreOptions] = React.useState<CatalogGenreOption[]>(genreOptions);
   const [genresLoading, setGenresLoading] = React.useState(false);
 
-  useOverlayBackHandler(open, onClose);
-
   React.useEffect(() => {
     if (!open) return;
     setDraft({
@@ -138,8 +135,6 @@ export default function CatalogFilterSheet({
     });
   })();
 
-  if (!open) return null;
-
   const hasActive = draftHasActive(draft);
   const yearInputValue = draft.yearFilter > 0 ? String(draft.yearFilter) : '';
   const selectedSet = new Set(draft.genreFilters);
@@ -162,20 +157,14 @@ export default function CatalogFilterSheet({
     setDraft({ ...EMPTY_DRAFT, sortBy: draft.sortBy });
   };
 
-  return createPortal(
-    <div
-      className={`${sheetBackdropClass} z-[350]`}
-      onClick={onClose}
-      role="presentation"
+  return (
+    <DragSheet
+      open={open}
+      onClose={onClose}
+      labelledBy="catalog-filter-title"
+      zClass="z-[350]"
+      className={`${sheetPanelClass} px-5 pt-0 max-h-[80vh]`}
     >
-      <div
-        className={`${sheetPanelClass} px-5 pt-0 max-h-[80vh]`}
-        style={sheetPanelStyle()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="catalog-filter-title"
-        onClick={(e) => e.stopPropagation()}
-      >
         <SheetDragHandle />
         <div className="flex items-center justify-between gap-3 mb-5">
           <h2 id="catalog-filter-title" className={`${textStyles.title} flex items-center gap-2.5`}>
@@ -188,7 +177,7 @@ export default function CatalogFilterSheet({
             ref={closeRef}
             type="button"
             onClick={onClose}
-            className={`${touchMin} inline-flex items-center justify-center ${radii.button} ${theme.panel} ${theme.chipButton} ${theme.focusRing} ${motion.press}`}
+            className={`${touchMin} inline-flex items-center justify-center ${radii.button} ${theme.focusRing} ${motion.press}`}
             aria-label="Закрыть"
           >
             <X className="w-5 h-5" aria-hidden />
@@ -196,7 +185,7 @@ export default function CatalogFilterSheet({
         </div>
 
         <div className="space-y-5 overflow-y-auto flex-1 min-h-0 pb-4">
-          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+          <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Рейтинг
             </span>
@@ -217,7 +206,7 @@ export default function CatalogFilterSheet({
           </div>
 
           {showGenrePicker && (
-          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+          <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Жанры
               {draft.genreFilters.length > 0 ? ` (${draft.genreFilters.length})` : ''}
@@ -268,7 +257,7 @@ export default function CatalogFilterSheet({
                   <button
                     type="button"
                     onClick={() => setDraft((prev) => ({ ...prev, genreFilters: [] }))}
-                    className={`min-h-12 px-2 ${textStyles.caption} ${theme.textMuted} ${theme.focusRing}`}
+                    className={`min-h-12 px-2 ${textStyles.caption} ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
                   >
                     Сбросить жанры
                   </button>
@@ -282,7 +271,7 @@ export default function CatalogFilterSheet({
           </div>
           )}
 
-          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+          <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Год издания
             </span>
@@ -307,7 +296,7 @@ export default function CatalogFilterSheet({
             />
           </div>
 
-          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+          <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Наличие серии
             </span>
@@ -337,7 +326,7 @@ export default function CatalogFilterSheet({
             </div>
           </div>
 
-          <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+          <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
               Формат
             </span>
@@ -360,7 +349,7 @@ export default function CatalogFilterSheet({
           </div>
 
           {showSort && (
-            <div className={`${radii.lg} ${theme.panel} p-4 space-y-3`}>
+            <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
               <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
                 Сортировка
               </span>
@@ -389,8 +378,6 @@ export default function CatalogFilterSheet({
             Готово
           </Button>
         </div>
-      </div>
-    </div>,
-    document.body,
+    </DragSheet>
   );
 }

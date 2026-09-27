@@ -9,6 +9,7 @@ export interface AppThemePalette {
   surfaceHover: string;
   text: string;
   muted: string;
+  accent: string;
   link: string;
   linkHover: string;
   accentHover: string;
@@ -75,6 +76,7 @@ const APP_CSS_KEYS = [
   '--app-surface-hover',
   '--app-text',
   '--app-muted',
+  '--app-accent',
   '--app-link',
   '--app-link-hover',
   '--app-accent-hover',
@@ -141,6 +143,7 @@ function paletteFromApi(raw: Record<string, unknown>, mode: 'dark' | 'light'): A
     surfaceHover: req('surfaceHover', req('surface')),
     text: req('text'),
     muted: req('muted', req('text')),
+    accent: req('accent', req('link')),
     link: req('link'),
     linkHover: req('linkHover', req('link')),
     accentHover: req('accentHover', req('link')),
@@ -167,6 +170,7 @@ function legacyPalette(
     surfaceHover: surface,
     text: text || (isDark ? '#e8e0d4' : '#2e2418'),
     muted: text || (isDark ? '#9a8e7e' : '#7a6a58'),
+    accent: link,
     link,
     linkHover: isDark ? '#efc06f' : '#a86a0a',
     accentHover: '#a1671b',
@@ -316,9 +320,13 @@ export function parseAppColorSource(
   return 'system';
 }
 
+export function readCachedServerUiTheme(): ServerUiTheme | null {
+  return getAppSettingJson<ServerUiTheme | null>(CACHE_KEY, null);
+}
+
 export async function fetchServerUiTheme(config: ServerConfig): Promise<ServerUiTheme | null> {
   if (config.connectionStatus !== 'connected' || !config.url) {
-    return getAppSettingJson<ServerUiTheme | null>(CACHE_KEY, null);
+    return readCachedServerUiTheme();
   }
   try {
     const branding = await fetchServerBranding(config);
@@ -326,7 +334,7 @@ export async function fetchServerUiTheme(config: ServerConfig): Promise<ServerUi
     setAppSettingJson(CACHE_KEY, theme);
     return theme;
   } catch {
-    return getAppSettingJson<ServerUiTheme | null>(CACHE_KEY, null);
+    return readCachedServerUiTheme();
   }
 }
 
@@ -345,6 +353,7 @@ export function applyPaletteVars(palette: AppThemePalette, fontStack?: string): 
   root.style.setProperty('--app-surface-hover', palette.surfaceHover);
   root.style.setProperty('--app-text', palette.text);
   root.style.setProperty('--app-muted', palette.muted);
+  root.style.setProperty('--app-accent', palette.accent || palette.link);
   root.style.setProperty('--app-link', palette.link);
   root.style.setProperty('--app-link-hover', palette.linkHover);
   root.style.setProperty('--app-accent-hover', palette.accentHover);
@@ -469,7 +478,9 @@ export function applyServerChromeVars(
     root.style.removeProperty('--app-bg-transform');
   }
 
-  const useGlass = showBackground || theme.surfaceBlur > 0 || theme.surfaceOpacity !== 88;
+  // Glass without wallpaper becomes a frosted veil over the page (settings form
+  // looks like half the screen is covered). Only frost panels on the library bg.
+  const useGlass = showBackground;
   if (useGlass) {
     root.dataset.uiGlass = '1';
     const fill = `color-mix(in srgb, var(--app-surface) ${theme.surfaceOpacity}%, transparent)`;

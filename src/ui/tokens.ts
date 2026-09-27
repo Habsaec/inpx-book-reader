@@ -1,32 +1,31 @@
-/** Design tokens — единая типографика и отступы для Android UI. */
+/** Design tokens — four UI type levels; book titles stay serif. */
+
+const typeSecondary = 'text-[0.8125rem] leading-[1.125rem]';
+const typeBody = 'text-[0.9375rem] leading-[1.375rem]';
 
 export const textStyles = {
-  /** 12px — микротекст, бейджи, chips (минимум для читаемости) */
-  micro: 'text-xs leading-snug',
-  microBold: 'text-xs font-bold leading-snug',
-  microCaps: 'text-xs font-black uppercase tracking-wider leading-snug',
-  /** 12px — подписи в каталоге, табы */
-  label: 'text-xs leading-snug',
-  labelBold: 'text-xs font-bold leading-snug',
-  labelCaps: 'text-xs font-black uppercase tracking-wider leading-snug',
-  /** 14px — минимальный основной текст */
-  body: 'text-sm leading-snug',
-  bodyBold: 'text-sm font-semibold leading-snug',
-  /** 12px — вторичный текст, метки */
-  caption: 'text-xs leading-snug',
-  captionBold: 'text-xs font-bold leading-snug',
-  /** 16px — заголовки экранов */
-  title: 'text-2xl font-bold leading-tight tracking-tight',
-  /** 20px — hero / continue reading */
-  display: 'text-3xl font-bold leading-tight tracking-tight',
-  /** Serif — названия книг в списках */
-  bookTitle: 'font-serif text-base font-semibold leading-snug',
-  /** Serif — hero «Продолжить чтение» */
-  bookTitleHero: 'font-serif text-2xl font-bold leading-tight',
-  /** Заголовки секций (Недавно, Новинки…) */
-  sectionLabel: 'text-lg font-semibold leading-snug tracking-tight',
-  /** Числа в статистике профиля */
-  statNumber: 'font-serif text-2xl font-bold leading-tight tabular-nums',
+  /** Secondary — 13/18 */
+  micro: typeSecondary,
+  microBold: `${typeSecondary} font-semibold`,
+  microCaps: `${typeSecondary} font-semibold uppercase tracking-wide`,
+  label: typeSecondary,
+  labelBold: `${typeSecondary} font-semibold`,
+  labelCaps: `${typeSecondary} font-semibold uppercase tracking-wide`,
+  tabLabel: `${typeSecondary} font-medium`,
+  caption: typeSecondary,
+  captionBold: `${typeSecondary} font-semibold`,
+  /** Body — 15/22 */
+  body: typeBody,
+  bodyBold: `${typeBody} font-semibold`,
+  /** Screen title — 28/32, 600 */
+  title: 'text-[1.75rem] leading-8 font-semibold tracking-tight',
+  display: 'text-[1.75rem] leading-8 font-semibold tracking-tight',
+  /** Book titles — serif, same sizes as UI section/body */
+  bookTitle: 'font-serif text-base font-semibold leading-snug min-w-0 max-w-full [overflow-wrap:anywhere]',
+  bookTitleHero: 'font-serif text-xl font-semibold leading-6 tracking-tight min-w-0 max-w-full [overflow-wrap:anywhere]',
+  /** Section title — 20/24, 600 */
+  sectionLabel: 'text-xl leading-6 font-semibold tracking-tight',
+  statNumber: 'text-[1.75rem] leading-8 font-semibold tabular-nums',
 } as const;
 
 export const spacing = {
@@ -34,10 +33,12 @@ export const spacing = {
   sm: 'p-2',
   md: 'p-3',
   lg: 'p-4',
-  xl: 'p-6',
+  xl: 'p-5',
   gapSm: 'gap-2',
   gapMd: 'gap-3',
   gapLg: 'gap-4',
+  gapXl: 'gap-6',
+  shelfY: 'space-y-8',
 } as const;
 
 export const radii = {
@@ -53,16 +54,11 @@ export const radii = {
 export const touchMin = 'min-w-12 min-h-12';
 
 export const motion = {
-  colors: 'transition-colors duration-200 ease-out',
-  press: 'transition-transform duration-150 ease-out active:scale-[0.98]',
+  /** Color shift. Same transition list as press, so the two classes do not override each other. */
+  colors: 'inpx-ui-transition',
+  press: 'inpx-press',
   /** Catalog book tile — pairs with .inpx-book-press in index.css */
   bookPress: 'inpx-book-press',
-  /** Screen/tab enter — pairs with .inpx-screen-enter in index.css */
-  screenEnter: 'inpx-screen-enter',
-  segIndicator: 'transition-[transform,width] duration-200 ease-out will-change-transform',
-  /** Transform-only enter; pair with animation that never sets opacity:0 */
-  enterY: 'transition-transform duration-200 ease-out will-change-transform',
-  navIcon: 'transition-transform duration-200 ease-out',
 } as const;
 
 export const semantic = {
@@ -76,8 +72,8 @@ export const semantic = {
 } as const;
 
 export const elevation = {
-  card: 'shadow-[var(--app-shadow-sm)]',
-  hero: 'shadow-[var(--app-shadow-lg)]',
-  sheet: 'shadow-[var(--app-shadow-lg)]',
+  card: 'shadow-none',
+  hero: 'shadow-none',
+  sheet: 'shadow-[var(--app-shadow-md)]',
   menu: 'shadow-[var(--app-shadow-md)]',
 } as const;

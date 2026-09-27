@@ -90,6 +90,7 @@ async function fetchAndMergeMeta(config: ServerConfig, book: Book): Promise<Book
       genre: book.genre || fromServer.genre,
       subgenre: book.subgenre || fromServer.subgenre,
       genresDisplay: book.genresDisplay ?? fromServer.genresDisplay,
+      rating: book.rating || fromServer.rating,
     };
   } catch {
     return book;

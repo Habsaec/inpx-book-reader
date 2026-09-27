@@ -148,4 +148,28 @@ describe('localDb migration', () => {
     const books = await getAllBooks();
     expect(books.map((b) => b.id).sort()).toEqual(['keep']);
   });
+
+  it('persistLibrarySnapshot keeps local-only books missing from the snapshot', async () => {
+    const { initLocalDb, persistLibrarySnapshot, getAllBooks, upsertBook } = await import('../localDb');
+    await initLocalDb();
+    await upsertBook({ id: 'keep', title: 'Keep', author: 'A', ext: 'fb2' });
+    await upsertBook({
+      id: 'local:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      title: 'Zip',
+      author: 'Local',
+      ext: 'zip',
+    });
+    await persistLibrarySnapshot({
+      books: [{ id: 'keep', title: 'Keep', author: 'A', ext: 'fb2' }],
+      progress: [],
+      bookmarks: [],
+      highlights: [],
+      shelves: [],
+    });
+    const books = await getAllBooks();
+    expect(books.map((b) => b.id).sort()).toEqual([
+      'keep',
+      'local:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    ]);
+  });
 });

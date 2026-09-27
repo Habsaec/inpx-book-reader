@@ -1,29 +1,32 @@
 import React from 'react';
 import { theme } from '../lib/appTheme';
 import {
-  Settings,
   Sun,
   Moon,
   Tv,
   ShieldCheck,
   LogOut,
-  AlertTriangle,
   QrCode,
-  LayoutGrid,
-  List,
 } from 'lucide-react';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
+import ViewModeToggle from '../ui/ViewModeToggle';
 import { ServerConfig } from '../types';
 import {
   StorageDirectory,
   pickStorageDirectory,
-  getDefaultStorageDirectory,
   ensureStorageDirectory,
-  DEFAULT_STORAGE_LABEL,
-  isDefaultStorageDirectory,
   isValidStorageDirectory,
 } from '../lib/storageDirectory';
 import { isAndroid } from '../lib/platform';
+import { BookStorage } from '../lib/bookStoragePlugin';
+import {
+  addLibraryFolder,
+  defaultLibraryFolder,
+  readLibraryFolders,
+  removeLibraryFolder,
+  setDefaultLibraryFolder,
+  setHideDefaultInLocal,
+} from '../lib/libraryFolders';
 import { insecureHttpWarning } from '../lib/serverUrl';
 import { clearServerCredentials } from '../lib/secureServerConfig';
 import { parsePairingQrPayload, redeemPairingCode } from '../lib/inpxClient';
@@ -32,9 +35,23 @@ import type { AppAppearance, AppColorSource } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
 import AppUpdateSection from './AppUpdateSection';
 import ServerNetworkSettings, { canTestServerConnection } from './ServerNetworkSettings';
-import { textStyles, semantic, radii, elevation, motion } from '../ui/tokens';
+import { textStyles, semantic, radii, motion } from '../ui/tokens';
+import { usePageTitle } from '../ui/pageTitle';
 import Button from '../ui/Button';
+import { useDialog } from '../ui/Dialog';
 import { useSnackbar } from '../ui/Snackbar';
+import { useCalmMotion } from '../hooks/useCalmMotion';
+import {
+  exportAppSettingsJson,
+  getHomeRecentMode,
+  getStorageNameStyle,
+  importAppSettingsJson,
+  setAppSettingRaw,
+  APP_SETTING_KEYS,
+  type HomeRecentMode,
+  type StorageNameStyle,
+} from '../lib/appSettings';
+import { motion as Motion } from 'motion/react';
 
 interface SyncSettingsTabProps {
   storageDirectory: StorageDirectory | null;
@@ -62,6 +79,8 @@ interface SyncSettingsTabProps {
   onForgetServer?: () => void;
   connectionError?: string | null;
   embedded?: boolean;
+  /** Profile summary rendered at the top of the settings scroll. */
+  scrollHeader?: React.ReactNode;
   /** Bumped to scroll the connection block into view (header status icon). */
   connectionFocusEpoch?: number;
 }
@@ -87,8 +106,10 @@ export default function SyncSettingsTab({
   onForgetServer,
   connectionError,
   embedded = false,
+  scrollHeader,
   connectionFocusEpoch = 0,
 }: SyncSettingsTabProps) {
+  usePageTitle('Настройки', undefined, !embedded);
   const [pickingFolder, setPickingFolder] = React.useState(false);
   const [forgetting, setForgetting] = React.useState(false);
   const [scanning, setScanning] = React.useState(false);
@@ -96,6 +117,15 @@ export default function SyncSettingsTab({
   const { viewMode: homeViewMode, setViewMode: setHomeViewMode } = useCatalogViewMode('home');
   const { viewMode: booksViewMode, setViewMode: setBooksViewMode } = useCatalogViewMode('books');
   const snackbar = useSnackbar();
+  const [homeRecent, setHomeRecent] = React.useState(getHomeRecentMode);
+  const [libraryFolders, setLibraryFolders] = React.useState(() => readLibraryFolders(storageDirectory));
+  React.useEffect(() => {
+    const refresh = () => setLibraryFolders(readLibraryFolders(storageDirectory));
+    window.addEventListener('inpx-settings', refresh);
+    return () => window.removeEventListener('inpx-settings', refresh);
+  }, [storageDirectory]);
+  const [nameStyle, setNameStyle] = React.useState(getStorageNameStyle);
+  const dialog = useDialog();
   const settingsScrollRef = React.useRef<HTMLDivElement>(null);
   const connectionFocusSeen = React.useRef(connectionFocusEpoch);
   const themeInput = theme.input;
@@ -108,8 +138,12 @@ export default function SyncSettingsTab({
     setPickingFolder(true);
     try {
       const picked = await pickStorageDirectory();
-      if (picked) {
-        onChangeStorageDirectory(picked);
+      if (isValidStorageDirectory(picked)) {
+        const next = addLibraryFolder(libraryFolders, picked);
+        setLibraryFolders(next);
+        const def = defaultLibraryFolder(next);
+        onChangeStorageDirectory({ label: def.label, uri: def.uri });
+        snackbar.show(next.folders.length === libraryFolders.folders.length ? 'Эта папка уже в списке' : 'Папка добавлена');
       }
     } catch (error) {
       snackbar.show(error instanceof Error ? error.message : 'Не удалось выбрать папку', undefined, 'error');
@@ -118,18 +152,16 @@ export default function SyncSettingsTab({
     }
   };
 
-  const handleResetFolder = async () => {
-    setPickingFolder(true);
-    try {
-      const defaultDir = await getDefaultStorageDirectory();
-      if (defaultDir) onChangeStorageDirectory(defaultDir);
-    } finally {
-      setPickingFolder(false);
-    }
-  };
-
   const handleForgetServer = async () => {
     if (scanning) return;
+    const accepted = await dialog.confirm({
+      title: 'Забыть сервер?',
+      message: 'Адрес и данные входа будут удалены с этого устройства.',
+      confirmLabel: 'Забыть',
+      cancelLabel: 'Отмена',
+      destructive: true,
+    });
+    if (!accepted) return;
     setForgetting(true);
     const gen = ++authActionGen.current;
     const snapshot = serverConfig;
@@ -190,11 +222,30 @@ export default function SyncSettingsTab({
     };
   }, [storageDirectory, onChangeStorageDirectory]);
 
+  const scrollServerIntoView = React.useCallback(() => {
+    const root = settingsScrollRef.current;
+    const server = root?.querySelector('#settings-server');
+    if (!root || !(server instanceof HTMLElement)) {
+      root?.scrollTo({ top: 0 });
+      return;
+    }
+    const top = server.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop;
+    root.scrollTo({ top: Math.max(0, top) });
+  }, []);
+
   React.useLayoutEffect(() => {
     if (connectionFocusEpoch === connectionFocusSeen.current) return;
     connectionFocusSeen.current = connectionFocusEpoch;
-    settingsScrollRef.current?.scrollTo({ top: 0 });
-  }, [connectionFocusEpoch]);
+    scrollServerIntoView();
+  }, [connectionFocusEpoch, scrollServerIntoView]);
+
+  const connecting = serverConfig.connectionStatus === 'testing';
+  React.useLayoutEffect(() => {
+    if (!connecting) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+    scrollServerIntoView();
+  }, [connecting, scrollServerIntoView]);
 
   const appearanceOptions: Array<{ id: AppAppearance; label: string; icon: typeof Sun }> = [
     { id: 'light', label: 'День', icon: Sun },
@@ -206,35 +257,27 @@ export default function SyncSettingsTab({
     { id: 'system', label: 'Система' },
   ];
 
-  const sectionClass = `${radii.lg} ${theme.card} ${elevation.card} p-5 space-y-4`;
-  const inputClass = `w-full px-4 py-3.5 ${textStyles.body} ${radii.lg} ${theme.inputFocus} ${themeInput}`;
+  const sectionClass = `space-y-3`;
+  const sectionTitle = `${textStyles.labelBold} tracking-wide ${theme.textMuted}`;
+  const inputClass = `w-full px-4 py-3.5 ${textStyles.body} ${radii.md} ${theme.inputFocus} ${themeInput}`;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden">
-      {!embedded && (
-        <div className={`px-5 py-4 shrink-0 border-b ${theme.header}`}>
-          <div className="flex items-center gap-3">
-            <span className={`inline-flex items-center justify-center w-11 h-11 ${radii.lg} ${theme.accentMuted}`}>
-              <Settings className={`w-5 h-5 ${themeAccentText}`} />
-            </span>
-            <div>
-              <h2 className={textStyles.title}>Настройки</h2>
-              <p className={`${textStyles.caption} ${theme.textMuted}`}>Сервер, тема и хранение</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div ref={settingsScrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div
+        ref={settingsScrollRef}
+        data-large-title={embedded ? '' : undefined}
+        className="flex-1 overflow-y-auto inpx-page-scroll px-5 py-4 space-y-8"
+      >
+        {scrollHeader}
         <section id="settings-server" className={sectionClass}>
-          <div className="flex justify-between items-center select-none">
-            <h3 className={textStyles.sectionLabel}>Сервер</h3>
-            <span className={`${textStyles.captionBold} px-2.5 py-1 ${radii.full} ${
-              serverConfig.connectionStatus === 'testing' ? `${semantic.warningBg} ${semantic.warning} animate-pulse` :
-              serverConfig.connectionStatus === 'connected' ? semantic.successBg :
-              `${theme.panel} ${theme.textMuted}`
+          <div className="flex justify-between items-baseline gap-3 select-none">
+            <h3 className={sectionTitle}>Сервер</h3>
+            <span className={`${textStyles.caption} ${
+              connecting ? semantic.warning :
+              serverConfig.connectionStatus === 'connected' ? semantic.success :
+              theme.textMuted
             }`}>
-              {serverConfig.connectionStatus === 'testing'
+              {connecting
                 ? 'Проверка…'
                 : serverConfig.connectionStatus === 'connected'
                   ? 'Подключён'
@@ -243,10 +286,9 @@ export default function SyncSettingsTab({
           </div>
 
           {httpWarning && (
-            <div className={`flex gap-2 ${radii.lg} px-4 py-3 border border-[color-mix(in_srgb,var(--app-warning)_25%,transparent)] ${semantic.warningBg}`} role="alert">
-              <AlertTriangle className={`w-4 h-4 shrink-0 ${semantic.warning}`} aria-hidden />
-              <p className={`${textStyles.caption} ${semantic.warning} leading-relaxed`}>{httpWarning}</p>
-            </div>
+            <p className={`${textStyles.caption} ${semantic.warning} leading-relaxed`} role="alert">
+              {httpWarning}
+            </p>
           )}
 
           <div className="space-y-4">
@@ -263,12 +305,13 @@ export default function SyncSettingsTab({
                 autoCorrect="off"
                 spellCheck={false}
                 autoComplete="url"
+                disabled={connecting}
                 className={inputClass}
               />
             </div>
 
             {connectionError && (
-              <p role="alert" className={`${textStyles.caption} px-4 py-3 ${radii.lg} ${semantic.errorBg}`}>{connectionError}</p>
+              <p role="alert" className={`${textStyles.caption} ${semantic.error}`}>{connectionError}</p>
             )}
 
             <div className="grid grid-cols-2 gap-3">
@@ -280,6 +323,7 @@ export default function SyncSettingsTab({
                   value={serverConfig.username || ''}
                   onChange={(e) => onChangeServerConfig({ username: e.target.value })}
                   autoComplete="username"
+                  disabled={connecting}
                   className={inputClass}
                 />
               </div>
@@ -291,32 +335,31 @@ export default function SyncSettingsTab({
                   value={serverConfig.password || ''}
                   onChange={(e) => onChangeServerConfig({ password: e.target.value })}
                   autoComplete="current-password"
+                  disabled={connecting}
                   className={inputClass}
                 />
               </div>
             </div>
 
             {isAndroid() && (
-              <div className={`flex items-center gap-2 ${radii.lg} px-4 py-3 ${theme.panel}`}>
+              <p className={`${textStyles.caption} ${themeTextMuted} inline-flex items-center gap-2`}>
                 <ShieldCheck className={`w-4 h-4 shrink-0 ${themeAccentText}`} aria-hidden />
-                <p className={`${textStyles.caption} leading-relaxed ${themeTextMuted}`}>
-                  Пароль защищён Android Keystore
-                </p>
-              </div>
+                Пароль защищён Android Keystore
+              </p>
             )}
 
             {isAndroid() && (
-              <Button fullWidth variant="secondary" onClick={() => void handleScanQr()} loading={scanning} disabled={scanning || forgetting}>
+              <Button fullWidth variant="secondary" onClick={() => void handleScanQr()} loading={scanning} disabled={scanning || forgetting || connecting}>
                 <QrCode className="w-4 h-4 inline mr-1" aria-hidden />
                 Сканировать QR
               </Button>
             )}
 
-            <Button fullWidth onClick={onTestConnection} disabled={serverConfig.connectionStatus === 'testing' || !canTestServerConnection(serverConfig)} loading={serverConfig.connectionStatus === 'testing'}>
-              {serverConfig.connectionStatus === 'testing' ? 'Подключение…' : 'Подключить'}
+            <Button fullWidth onClick={onTestConnection} disabled={connecting || !canTestServerConnection(serverConfig)} loading={connecting}>
+              {connecting ? 'Подключение…' : 'Подключить'}
             </Button>
 
-            <Button variant="secondary" fullWidth onClick={() => void handleForgetServer()} loading={forgetting} disabled={forgetting || scanning}>
+            <Button variant="danger" fullWidth onClick={() => void handleForgetServer()} loading={forgetting} disabled={forgetting || scanning || connecting}>
               <LogOut className="w-4 h-4 inline mr-1" aria-hidden />
               Забыть сервер
             </Button>
@@ -329,167 +372,291 @@ export default function SyncSettingsTab({
         />
 
         <section className={sectionClass}>
-          <h3 className={textStyles.sectionLabel}>Тема</h3>
-          <div className="flex flex-wrap gap-2">
-            {appearanceOptions.map((item) => {
-              const Icon = item.icon;
-              const isSel = appearance === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onChangeAppearance(item.id)}
-                  aria-pressed={isSel}
-                  className={`min-h-11 px-4 ${radii.button} inline-flex items-center gap-1.5 ${textStyles.caption} ${theme.focusRing} ${motion.press} ${
-                    isSel ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" aria-hidden />
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="space-y-2">
-            <p className={`${textStyles.bodyBold} ${theme.text}`}>Цвет</p>
-            <div className="flex flex-wrap gap-2">
-              {colorOptions.map((item) => {
-                const isSel = colorSource === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onChangeColorSource(item.id)}
-                    aria-pressed={isSel}
-                    className={`min-h-11 px-4 ${radii.button} inline-flex items-center ${textStyles.caption} ${theme.focusRing} ${motion.press} ${
-                      isSel ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                );
+          <h3 className={sectionTitle}>Внешний вид</h3>
+          <div>
+            <SettingsChoice
+              label="Тема"
+              options={appearanceOptions.map((item) => {
+                const Icon = item.icon;
+                return {
+                  id: item.id,
+                  label: item.label,
+                  selected: appearance === item.id,
+                  onSelect: () => onChangeAppearance(item.id),
+                  icon: <Icon className="w-3.5 h-3.5" aria-hidden />,
+                };
               })}
-            </div>
-          </div>
-          <label className={`flex items-center gap-3 min-h-12 ${hasServerBackground && colorSource === 'server' ? theme.interactive : 'opacity-60'}`}>
-            <input
-              id="server-background"
-              type="checkbox"
-              checked={useServerBackground}
-              disabled={!hasServerBackground || colorSource !== 'server'}
-              onChange={(e) => onChangeUseServerBackground(e.target.checked)}
-              className="w-5 h-5 shrink-0"
             />
-            <span className={textStyles.body}>Фон</span>
-          </label>
-          <p className={`${textStyles.caption} ${themeTextMuted}`}>
-            {colorSource !== 'server'
-              ? 'Доступно при цвете «Сервер»'
-              : hasServerBackground
-                ? 'Обои библиотеки с сервера'
-                : 'На сервере нет фонового изображения'}
-          </p>
-        </section>
-
-        <section className={sectionClass}>
-          <h3 className={textStyles.sectionLabel}>Вид книг</h3>
-          {(
-            [
-              {
-                key: 'home',
-                label: 'Главная',
-                hint: 'Недавно, новинки и рекомендации на главной',
-                value: homeViewMode,
-                onChange: setHomeViewMode,
-              },
-              {
-                key: 'books',
-                label: 'Остальное',
-                hint: 'Каталог, мои книги, новинки и рекомендации «Показать всё»',
-                value: booksViewMode,
-                onChange: setBooksViewMode,
-              },
-            ] as const
-          ).map((group) => (
-            <div key={group.key} className="space-y-3">
-              <p className={`${textStyles.bodyBold} ${theme.text}`}>{group.label}</p>
-              <div className="flex flex-wrap gap-2">
-                {([
-                  { id: 'list' as const, label: 'Список', Icon: List },
-                  { id: 'grid' as const, label: 'Карточки', Icon: LayoutGrid },
-                ]).map((item) => {
-                  const isSel = group.value === item.id;
-                  const Icon = item.Icon;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => group.onChange(item.id)}
-                      aria-pressed={isSel}
-                      className={`min-h-11 px-4 ${radii.button} inline-flex items-center gap-1.5 ${textStyles.caption} ${theme.focusRing} ${motion.press} ${
-                        isSel ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5" aria-hidden />
-                      {item.label}
-                    </button>
-                  );
-                })}
+            <SettingsChoice
+              label="Цвет"
+              options={colorOptions.map((item) => ({
+                id: item.id,
+                label: item.label,
+                selected: colorSource === item.id,
+                onSelect: () => onChangeColorSource(item.id),
+              }))}
+            />
+            <SettingsChoice
+              label="Фон"
+              hint={
+                colorSource !== 'server'
+                  ? 'Доступно при цвете «Сервер»'
+                  : hasServerBackground
+                    ? 'Обои библиотеки с сервера'
+                    : 'На сервере нет фонового изображения'
+              }
+              disabled={!(hasServerBackground && colorSource === 'server')}
+              options={([false, true] as const).map((on) => ({
+                id: on ? 'on' : 'off',
+                label: on ? 'Вкл' : 'Выкл',
+                selected: useServerBackground === on,
+                onSelect: () => {
+                  if (hasServerBackground && colorSource === 'server' && useServerBackground !== on) {
+                    onChangeUseServerBackground(on);
+                  }
+                },
+              }))}
+            />
+            <SettingsChoice
+              label="E-Ink"
+              hint={
+                einkMode === 'auto'
+                  ? (einkDetected ? 'Обнаружено e-ink устройство' : 'Обычный экран')
+                  : einkMode === 'on'
+                    ? 'Высокий контраст, без анимаций'
+                    : 'Режим e-ink выключен'
+              }
+              options={([
+                { id: 'auto' as const, label: 'Авто' },
+                { id: 'on' as const, label: 'Вкл' },
+                { id: 'off' as const, label: 'Выкл' },
+              ]).map((item) => ({
+                id: item.id,
+                label: item.label,
+                selected: einkMode === item.id,
+                onSelect: () => onChangeEinkMode(item.id),
+              }))}
+            />
+            {(
+              [
+                {
+                  key: 'home',
+                  label: 'Главная',
+                  hint: 'Недавно, новинки и рекомендации на главной',
+                  value: homeViewMode,
+                  onChange: setHomeViewMode,
+                },
+                {
+                  key: 'books',
+                  label: 'Остальное',
+                  hint: 'Каталог, мои книги, новинки и рекомендации «Показать всё»',
+                  value: booksViewMode,
+                  onChange: setBooksViewMode,
+                },
+              ] as const
+            ).map((group) => (
+              <div key={group.key} className="flex items-center justify-between gap-3 min-h-14 py-3 border-b border-[color:var(--app-border)] last:border-b-0">
+                <div className="min-w-0">
+                  <p className={`${textStyles.body} ${theme.text}`}>{group.label}</p>
+                  <p className={`${textStyles.caption} ${themeTextMuted}`}>{group.hint}</p>
+                </div>
+                <ViewModeToggle value={group.value} onChange={group.onChange} />
               </div>
-              <p className={`${textStyles.caption} ${themeTextMuted}`}>{group.hint}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </section>
 
         <section className={sectionClass}>
-          <h3 className={textStyles.sectionLabel}>E-Ink</h3>
-          <div className="flex flex-wrap gap-2">
-            {([
-              { id: 'auto' as const, label: 'Авто' },
-              { id: 'on' as const, label: 'Вкл' },
-              { id: 'off' as const, label: 'Выкл' },
-            ]).map((item) => {
-              const isSel = einkMode === item.id;
+          <h3 className={sectionTitle}>Хранилище</h3>
+          <div className="space-y-2 py-1">
+            {libraryFolders.folders.map((folder) => {
+              const isDefault = folder.id === libraryFolders.defaultId;
               return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onChangeEinkMode(item.id)}
-                  aria-pressed={isSel}
-                  className={`min-h-11 px-5 ${radii.button} ${textStyles.caption} ${theme.focusRing} ${motion.press} ${
-                    isSel ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
-                  }`}
-                >
-                  {item.label}
-                </button>
+                <div key={folder.id} className="flex items-center gap-2 min-h-12">
+                  <button
+                    type="button"
+                    className={`min-w-0 flex-1 text-left ${theme.focusRing}`}
+                    onClick={() => {
+                      const next = setDefaultLibraryFolder(libraryFolders, folder.id);
+                      setLibraryFolders(next);
+                      onChangeStorageDirectory({ label: folder.label, uri: folder.uri });
+                    }}
+                  >
+                    <p className={`${textStyles.body} ${theme.text}`}>{folder.label}</p>
+                    <p className={`${textStyles.caption} ${themeTextMuted}`}>
+                      {isDefault
+                        ? (libraryFolders.hideDefaultInLocal ? 'Папка по умолчанию · скрыта в разделе «Папки»' : 'Папка по умолчанию')
+                        : 'Нажмите, чтобы сделать основной'}
+                    </p>
+                  </button>
+                  {isDefault && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        const next = setHideDefaultInLocal(libraryFolders, !libraryFolders.hideDefaultInLocal);
+                        setLibraryFolders(next);
+                        window.dispatchEvent(new Event('inpx-settings'));
+                      }}
+                    >
+                      {libraryFolders.hideDefaultInLocal ? 'Показать' : 'Скрыть'}
+                    </Button>
+                  )}
+                  {libraryFolders.folders.length > 1 && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        const next = removeLibraryFolder(libraryFolders, folder.id);
+                        setLibraryFolders(next);
+                        const def = defaultLibraryFolder(next);
+                        onChangeStorageDirectory({ label: def.label, uri: def.uri });
+                      }}
+                    >
+                      Убрать
+                    </Button>
+                  )}
+                </div>
               );
             })}
           </div>
-          <p className={`${textStyles.caption} ${themeTextMuted}`}>
-            {einkMode === 'auto'
-              ? (einkDetected ? 'Обнаружено e-ink устройство' : 'Обычный экран')
-              : einkMode === 'on'
-                ? 'Высокий контраст, без анимаций'
-                : 'Режим e-ink выключен'}
-          </p>
+          <Button className="w-full whitespace-nowrap" onClick={handlePickFolder} loading={pickingFolder} disabled={pickingFolder}>
+            Добавить папку
+          </Button>
         </section>
 
         <section className={sectionClass}>
-          <h3 className={textStyles.sectionLabel}>Папка книг</h3>
-          <p className={`${textStyles.body} break-all ${theme.textMuted}`}>{storageDirectory?.label || DEFAULT_STORAGE_LABEL}</p>
-          <div className="flex gap-2 items-center">
-            <Button className="min-w-0 flex-1 whitespace-nowrap" onClick={handlePickFolder} loading={pickingFolder} disabled={pickingFolder}>
-              Выбрать папку
+          <h3 className={sectionTitle}>Главная и файлы</h3>
+          <SettingsChoice
+            label="Новинки"
+            hint="Блок на главной"
+            options={([
+              ['on', 'Все'],
+              ['fav', 'Мои авторы'],
+              ['off', 'Скрыть'],
+            ] as const).map(([id, label]) => ({
+              id,
+              label,
+              selected: homeRecent === id,
+              onSelect: () => {
+                setAppSettingRaw(APP_SETTING_KEYS.homeRecent, id satisfies HomeRecentMode);
+                setHomeRecent(id);
+                window.dispatchEvent(new Event('inpx-settings'));
+              },
+            }))}
+          />
+          <SettingsChoice
+            label="Имена папок"
+            hint="Как называть автора и серию на диске"
+            options={([
+              ['original', 'Как в каталоге'],
+              ['translit', 'Латиницей'],
+            ] as const).map(([id, label]) => ({
+              id,
+              label,
+              selected: nameStyle === id,
+              onSelect: () => {
+                setAppSettingRaw(APP_SETTING_KEYS.storageNames, id satisfies StorageNameStyle);
+                setNameStyle(id);
+              },
+            }))}
+          />
+          <div className="flex gap-2 pt-2">
+            <Button className="min-w-0 flex-1" variant="secondary" onClick={() => void saveSettingsBackup(storageDirectory, snackbar.show)}>
+              Сохранить настройки
             </Button>
-            {storageDirectory && !isDefaultStorageDirectory(storageDirectory) && (
-              <Button className="min-w-0 flex-1 whitespace-nowrap" variant="secondary" onClick={handleResetFolder} disabled={pickingFolder}>
-                По умолчанию
-              </Button>
-            )}
+            <Button className="min-w-0 flex-1" variant="secondary" onClick={() => void loadSettingsBackup(storageDirectory, snackbar.show)}>
+              Восстановить
+            </Button>
           </div>
         </section>
 
-        <AppUpdateSection />
+        <AppUpdateSection serverConfig={serverConfig} />
+      </div>
+    </div>
+  );
+}
+
+const SETTINGS_BACKUP_PATH = '.inpx-reader/settings-backup.json';
+
+async function saveSettingsBackup(dir: StorageDirectory | null, show: (message: string) => void) {
+  if (!dir?.uri) {
+    show('Сначала выберите папку книг');
+    return;
+  }
+  await BookStorage.writeTextFile({
+    treeUri: dir.uri,
+    path: SETTINGS_BACKUP_PATH,
+    content: await exportAppSettingsJson(),
+  });
+  show('Настройки записаны в папку книг');
+}
+
+async function loadSettingsBackup(dir: StorageDirectory | null, show: (message: string) => void) {
+  if (!dir?.uri) {
+    show('Сначала выберите папку книг');
+    return;
+  }
+  const { content } = await BookStorage.readTextFile({ treeUri: dir.uri, path: SETTINGS_BACKUP_PATH });
+  const n = await importAppSettingsJson(content);
+  window.dispatchEvent(new Event('inpx-settings'));
+  show(n > 0 ? 'Настройки восстановлены' : 'В файле нет настроек');
+}
+
+function SettingsChoice({
+  label,
+  hint,
+  options,
+  disabled = false,
+}: {
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+  options: Array<{
+    id: string;
+    label: string;
+    selected: boolean;
+    onSelect: () => void;
+    icon?: React.ReactNode;
+  }>;
+}) {
+  const calm = useCalmMotion();
+  return (
+    <div className="py-3 space-y-2 border-b border-[color:var(--app-border)]">
+      <div>
+        <p className={`${textStyles.body} ${theme.text}`}>{label}</p>
+        {hint ? <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>{hint}</p> : null}
+      </div>
+      <div
+        role="radiogroup"
+        aria-label={label}
+        className={`flex p-1 ${radii.button} bg-[var(--app-panel-soft)] ${disabled ? 'opacity-40' : ''}`}
+      >
+        {options.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="radio"
+            aria-checked={item.selected}
+            disabled={disabled}
+            onClick={() => {
+              if (!item.selected) item.onSelect();
+            }}
+            className={`relative min-h-12 flex-1 inline-flex items-center justify-center gap-1.5 px-2 ${radii.button} ${textStyles.body} ${theme.focusRing} ${motion.press} disabled:pointer-events-none ${
+              item.selected ? theme.text : theme.textMuted
+            } ${calm && item.selected ? 'bg-[var(--app-surface)]' : ''}`}
+          >
+            {item.selected && !calm ? (
+              <Motion.span
+                layoutId={`settings-segment-${label}`}
+                className={`absolute inset-0 ${radii.button} border border-[color:var(--app-border)] bg-[var(--app-surface)]`}
+                transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
+              />
+            ) : null}
+            <span className="relative z-10 inline-flex items-center justify-center gap-1.5">
+              {item.icon}
+              {item.label}
+            </span>
+          </button>
+        ))}
       </div>
     </div>
   );

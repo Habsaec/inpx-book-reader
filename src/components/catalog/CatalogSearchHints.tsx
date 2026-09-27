@@ -1,6 +1,6 @@
 import React from 'react';
 import { theme } from '../../lib/appTheme';
-import { textStyles, radii, elevation, motion } from '../../ui/tokens';
+import { textStyles, motion } from '../../ui/tokens';
 import type { CatalogSearchHints } from '../../lib/inpxClient';
 
 interface Props {
@@ -15,7 +15,7 @@ export default function CatalogSearchHintsBanner({ hints, onDidYouMean }: Props)
   if (!tip && !typos.length) return null;
 
   return (
-    <div className={`mb-4 ${radii.lg} ${theme.card} ${elevation.card} px-4 py-3.5 space-y-2.5`}>
+    <div className="mb-4 space-y-2">
       {tip ? <p className={`${textStyles.body} ${theme.textMuted}`}>{tip}</p> : null}
       {typos.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -25,7 +25,7 @@ export default function CatalogSearchHintsBanner({ hints, onDidYouMean }: Props)
               key={q}
               type="button"
               onClick={() => onDidYouMean(q)}
-              className={`min-h-10 px-4 ${radii.button} ${textStyles.captionBold} ${theme.accentText} ${theme.accentMuted} ${theme.focusRing} ${motion.press}`}
+              className={`min-h-12 px-1 ${textStyles.body} ${theme.accentText} ${theme.focusRing} ${motion.press}`}
             >
               {q}
             </button>

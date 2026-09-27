@@ -55,7 +55,7 @@ describe('layout position restore after typography change', () => {
     expect(source).toContain('textOffset <= 0 && page > 1');
     expect(source).toContain('cloneRange');
     expect(source).toContain('captureStickyLayoutAnchor');
-    expect(source).toContain('import \'/foliate/view.js?v=swipe-4\'');
+    expect(source).toContain('import \'/foliate/view.js?v=sel2\'');
     expect(source).toContain('holdRendererLayout()');
     expect(source).toContain('layoutAnchorSticky = snap;\n      pinRendererTextAnchor(snap);');
     expect(source).toContain('function pinRendererTextAnchor(snap, force = false)');
@@ -160,7 +160,7 @@ describe('layout position restore after typography change', () => {
     expect(source).toContain('async #landAtSectionEdge(atEnd)');
     expect(source).toContain('if (numericDest)');
     expect(source).toContain('#beginSectionTurn(prev)');
-    expect(view).toContain('await import(\'./paginator.js?v=swipe-4\')');
+    expect(view).toContain('await import(\'./paginator.js?v=sel2\')');
     expect(view).toContain('await import(\'./fb2.js?v=paper-flow\')');
     expect(view).toContain('async goToTextAnchor(index, textOffset, textQuote = \'\')');
   });
@@ -226,7 +226,8 @@ describe('layout position restore after typography change', () => {
     const bootStart = reader.indexOf('} finally {', reader.indexOf('async function loadBook'));
     const bootEnd = reader.indexOf('function onViewportResize', bootStart);
     const boot = reader.slice(bootStart, bootEnd);
-    expect(boot.indexOf('__READER_WAIT_OPEN_SYNC__')).toBeGreaterThanOrEqual(0);
+    expect(boot.indexOf('__READER_WAIT_OPEN_SYNC__(0)')).toBeGreaterThanOrEqual(0);
+    expect(boot).not.toContain('__READER_WAIT_OPEN_SYNC__(2500)');
     expect(boot.indexOf('__SHOW_DEFERRED_CROSS_DEVICE_PROMPT__')).toBeGreaterThan(boot.indexOf('__READER_WAIT_OPEN_SYNC__'));
     expect(boot.indexOf('setRestoreVeil(false)')).toBeGreaterThan(boot.indexOf('__SHOW_DEFERRED_CROSS_DEVICE_PROMPT__'));
     expect(boot).toContain('if (replayViewport) onViewportResize()');
@@ -257,6 +258,7 @@ describe('layout position restore after typography change', () => {
     expect(bootstrap).toContain('seedNeedsRestore');
     expect(bootstrap).not.toContain('seedTouchedStore');
     expect(bootstrap).toContain('inpx-reader-open-sync-done');
+    expect(bootstrap).toContain('Number.isFinite(parsed) ? Math.max(0, parsed) : 2500');
     expect(bootstrap).not.toContain('Number(before.sectionIndex) !== Number(merged.sectionIndex)');
     expect(bootstrap).not.toContain('Late silent pull after open');
   });

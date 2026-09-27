@@ -8,7 +8,6 @@
  */
 
 import React from 'react';
-import { useDragControls } from 'motion/react';
 import MobileFrame from './components/MobileFrame';
 import ProfileScreen from './components/ProfileScreen';
 import HomeTab from './components/HomeTab';
@@ -17,6 +16,8 @@ import NextInSeriesSheet from './components/NextInSeriesSheet';
 import OnboardingFlow from './components/OnboardingFlow';
 import BookActionsSheet, { type BookActionsTarget } from './components/BookActionsSheet';
 import BookDetailsSheet from './components/catalog/BookDetailsSheet';
+import DownloadQueueSheet from './components/DownloadQueueSheet';
+import { CATALOG_BROWSE_ROOT } from './components/catalog/catalogTypes';
 import AppShell, { type AppTab } from './components/AppShell';
 import { MissingLocalBookFallback } from './components/MissingLocalBookFallback';
 import { BRAND_LOCKUP_SRC } from './lib/brand';
@@ -41,7 +42,7 @@ import {
 } from './lib/storageDirectory';
 import { isAndroid, isNativeApp } from './lib/platform';
 import { theme } from './lib/appTheme';
-import { ScreenLoader } from './ui/Skeleton';
+import { BookListSkeleton } from './ui/Skeleton';
 import TabScreenPanel from './ui/TabScreenPanel';
 import { syncAndroidStatusBar } from './lib/androidChrome';
 import {
@@ -54,6 +55,7 @@ import {
   clearServerChromeVars,
   clearServerThemeVars,
   fetchServerUiTheme,
+  readCachedServerUiTheme,
   parseAppAppearance,
   parseAppColorSource,
   resolveIsDark,
@@ -64,15 +66,15 @@ import { maybeAutoCheckAppUpdate } from './lib/appUpdate';
 import { App as CapApp } from '@capacitor/app';
 import { resolveNextInSeries, type NextInSeriesResult } from './lib/seriesNavigation';
 import { syncContinueReadingWidget } from './lib/continueWidget';
-import { useDownloadQueue } from './hooks/useDownloadQueue';
 import { useSnackbar } from './ui/Snackbar';
 import { authHeader, bookContentUrl, coverUrl, displayCoverUrl, fetchServerLogoBlob } from './lib/inpxClient';
 import { warmCoverCache } from './lib/coverCache';
-import { isLocalServerUrl } from './lib/serverUrlSwitch';
+import { isBookDownloadInFlight, resolveBookPrimaryAction } from './lib/bookOpenPolicy';
 import type { Book } from './types';
 
+import FoliateReader from './components/FoliateReader';
+
 const CatalogTab = React.lazy(() => import('./components/CatalogTab'));
-const FoliateReader = React.lazy(() => import('./components/FoliateReader'));
 
 export default function App() {
   const snackbar = useSnackbar();
@@ -87,15 +89,8 @@ export default function App() {
   const nextSeriesGenRef = React.useRef(0);
   const [showOnboarding, setShowOnboarding] = React.useState(false);
   const [actionsTarget, setActionsTarget] = React.useState<BookActionsTarget | null>(null);
-
-  const openBookActions = React.useCallback((book: Book, context?: { shelfId?: number; shelfName?: string }) => {
-    setActionsTarget({
-      book,
-      shelfId: context?.shelfId,
-      shelfName: context?.shelfName,
-    });
-  }, []);
-  const bookDetailsDrag = useDragControls();
+  const [queueSheetOpen, setQueueSheetOpen] = React.useState(false);
+  const openSavedBookRef = React.useRef<(book: Book) => void>(() => {});
 
   const library = useLocalLibrary();
   const {
@@ -114,7 +109,7 @@ export default function App() {
     setFavoriteSeries,
   } = library;
 
-  const [catalogSubTab, setCatalogSubTab] = React.useState<'books' | 'authors' | 'series' | 'genres'>('authors');
+  const [catalogSubTab, setCatalogSubTab] = React.useState<'books' | 'authors' | 'series' | 'genres'>(CATALOG_BROWSE_ROOT);
   const [catalogSelectedAuthor, setCatalogSelectedAuthor] = React.useState<string | null>(null);
   const [catalogSelectedSeries, setCatalogSelectedSeries] = React.useState<string | null>(null);
   const [catalogSelectedSubgenre, setCatalogSelectedSubgenre] = React.useState<{ parent: string; name: string } | null>(null);
@@ -164,7 +159,7 @@ export default function App() {
     setCatalogPendingSearch(null);
     setCatalogReturnTo(null);
     clearCatalogDrilldown();
-    setCatalogSubTab('authors');
+    setCatalogSubTab(CATALOG_BROWSE_ROOT);
     setCatalogNavEpoch((n) => n + 1);
     setActiveTab('catalog');
   }, [clearCatalogDrilldown]);
@@ -174,7 +169,7 @@ export default function App() {
     setCatalogPendingSearch(null);
     setCatalogReturnTo(null);
     clearCatalogDrilldown();
-    setCatalogSubTab('authors');
+    setCatalogSubTab(CATALOG_BROWSE_ROOT);
     setCatalogNavEpoch((n) => n + 1);
     setActiveTab(target);
   }, [catalogReturnTo, clearCatalogDrilldown]);
@@ -185,10 +180,10 @@ export default function App() {
     setCatalogPendingSearch(q);
     clearCatalogDrilldown();
     setCatalogSubTab('books');
-    setCatalogReturnTo('home');
+    setCatalogReturnTo(activeTab === 'catalog' ? null : activeTab);
     setCatalogNavEpoch((n) => n + 1);
     setActiveTab('catalog');
-  }, [clearCatalogDrilldown]);
+  }, [activeTab, clearCatalogDrilldown]);
 
   const handleTabChange = React.useCallback((tab: AppTab) => {
     // Leaving Catalog abandons drill-down/return stack so re-entry is a clean root.
@@ -196,7 +191,7 @@ export default function App() {
       setCatalogPendingSearch(null);
       setCatalogReturnTo(null);
       clearCatalogDrilldown();
-      setCatalogSubTab('authors');
+      setCatalogSubTab(CATALOG_BROWSE_ROOT);
     } else {
       setCatalogReturnTo(null);
     }
@@ -211,7 +206,7 @@ export default function App() {
         setCatalogPendingSearch(null);
         setCatalogReturnTo(null);
         clearCatalogDrilldown();
-        setCatalogSubTab('authors');
+        setCatalogSubTab(CATALOG_BROWSE_ROOT);
         setCatalogNavEpoch((n) => n + 1);
       }
     }
@@ -262,7 +257,6 @@ export default function App() {
 
   const inpxServer = useInpxServer(serverConfig, markServerDisconnected, markAuthExpired);
   const isOnline = inpxServer.online;
-  const isLocalConnection = isLocalServerUrl(serverConfig.url, serverConfig.localUrl);
   const canReadOnline = isOnline;
   const { siteName, logoSrc } = useServerBranding(serverConfig);
 
@@ -325,11 +319,17 @@ export default function App() {
     };
   }, [libraryReady]);
 
+  React.useLayoutEffect(() => {
+    if (!libraryReady) return;
+    setServerUiTheme((prev) => prev ?? readCachedServerUiTheme());
+  }, [libraryReady]);
+
   React.useEffect(() => {
     let cancelled = false;
     void fetchServerUiTheme(serverConfig)
       .then((theme) => {
-        if (!cancelled) setServerUiTheme(theme);
+        if (cancelled) return;
+        setServerUiTheme((prev) => theme ?? prev ?? readCachedServerUiTheme());
       })
       .catch(() => {});
     return () => {
@@ -443,7 +443,7 @@ export default function App() {
     };
   }, [einkActive, useServerBackground, serverUiTheme?.backgroundUrl, serverConfig.connectionStatus, serverConfig.url]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (einkActive) {
       // E-ink palette comes from html[data-eink="1"] CSS; keep stored color theme intact.
       clearServerThemeVars();
@@ -474,6 +474,7 @@ export default function App() {
     canReadOnline,
     setDownloadedBooks,
     onAuthExpired: markAuthExpired,
+    onOpenSaved: (book) => openSavedBookRef.current(book),
   });
 
   const bookActions = useBookActions({
@@ -517,6 +518,8 @@ export default function App() {
     handleOpenBookAtPosition,
     handleRemoveBook,
     handleRemoveBooks,
+    handleAddShelf,
+    handleAddBookToShelf,
     handleAddBooksToShelf,
     handleToggleFavoriteAuthor,
     handleToggleFavoriteSeries,
@@ -527,23 +530,9 @@ export default function App() {
     handleRemoveReaderAnnotation,
     handleUpdateReaderAnnotation,
     handleRemoveReaderBookmark,
+    handleUpdateReaderBookmark,
+    registerDownloadedBook,
   } = bookActions;
-
-  const handleHomeSearchBook = React.useCallback((row: {
-    id: string;
-    title: string;
-    authors?: string;
-    authorsDisplay?: string;
-  }) => {
-    openBookDetails({
-      id: row.id,
-      title: row.title,
-      author: row.authorsDisplay || row.authors || '',
-      ext: 'fb2',
-      coverUrl: displayCoverUrl(serverConfig, row.id),
-      contentUrl: bookContentUrl(serverConfig, row.id),
-    });
-  }, [openBookDetails, serverConfig]);
 
   const handleConsumePendingSearch = React.useCallback(() => {
     setCatalogPendingSearch(null);
@@ -557,9 +546,7 @@ export default function App() {
     downloadedBooks,
     onContinueBook: handleContinueBook,
     onOpenBook: handleOpenBookCard,
-    onRegisterImportedBook: (book) => {
-      setDownloadedBooks((prev) => (prev.some((b) => b.id === book.id) ? prev : [...prev, book]));
-    },
+    onRegisterImportedBook: registerDownloadedBook,
     onTabChange: handleTabChange,
   });
 
@@ -576,6 +563,106 @@ export default function App() {
       }
     },
     [enqueueDownload, setDownloadPromptError, snackbar],
+  );
+
+  const handleBookPrimaryAction = React.useCallback((book: Book) => {
+    setActionsTarget(null);
+    setQueueSheetOpen(false);
+    setDownloadPromptBook(null);
+    setDownloadPromptError(null);
+    const hasFile = downloadedBookIdsWithFile.includes(book.id);
+    const isDownloading = isBookDownloadInFlight(book.id, downloadingId, queuedBookIds);
+    const progress = readingProgressByBookId[book.id] ?? book.readProgress ?? 0;
+    const action = resolveBookPrimaryAction({
+      hasFile,
+      isDownloading,
+      progress,
+      isRead: inpxServer.readIds?.has(book.id),
+    });
+    if (action.kind === 'downloading') return;
+    if (action.kind === 'download') {
+      if (!canReadOnline) {
+        snackbar.show('Нет связи — скачивание недоступно', undefined, 'error');
+        return;
+      }
+      void handleDownloadBookFromUi(book).catch(() => {});
+      return;
+    }
+    void handleContinueBook(book);
+  }, [
+    canReadOnline,
+    downloadedBookIdsWithFile,
+    downloadingId,
+    handleContinueBook,
+    handleDownloadBookFromUi,
+    inpxServer.readIds,
+    queuedBookIds,
+    readingProgressByBookId,
+    setDownloadPromptBook,
+    setDownloadPromptError,
+    snackbar,
+  ]);
+  openSavedBookRef.current = handleBookPrimaryAction;
+
+  const openQueueSheet = React.useCallback(() => {
+    setActionsTarget(null);
+    setDownloadPromptBook(null);
+    setDownloadPromptError(null);
+    setQueueSheetOpen(true);
+  }, [setDownloadPromptBook, setDownloadPromptError]);
+
+  const openBookDetailsExclusive = React.useCallback((book: Book) => {
+    setActionsTarget(null);
+    setQueueSheetOpen(false);
+    openBookDetails(book);
+  }, [openBookDetails]);
+
+  const openBookActions = React.useCallback((book: Book, context?: { shelfId?: number | string; shelfName?: string }) => {
+    setDownloadPromptBook(null);
+    setDownloadPromptError(null);
+    setQueueSheetOpen(false);
+    setActionsTarget({
+      book,
+      shelfId: context?.shelfId,
+      shelfName: context?.shelfName,
+    });
+  }, [setDownloadPromptBook, setDownloadPromptError]);
+
+  const handleHomeSearchBook = React.useCallback((row: {
+    id: string;
+    title: string;
+    authors?: string;
+    authorsDisplay?: string;
+  }) => {
+    handleBookPrimaryAction({
+      id: row.id,
+      title: row.title,
+      author: row.authorsDisplay || row.authors || '',
+      ext: 'fb2',
+      coverUrl: displayCoverUrl(serverConfig, row.id),
+      contentUrl: bookContentUrl(serverConfig, row.id),
+    });
+  }, [handleBookPrimaryAction, serverConfig]);
+
+  const uiShelves = React.useMemo(
+    () =>
+      isOnline
+        ? inpxServer.shelves
+        : localShelves.map((s) => ({
+            id: s.id,
+            name: s.name,
+            bookCount: s.bookIds.length,
+            previewBookIds: s.bookIds.slice(0, 4),
+          })),
+    [isOnline, inpxServer.shelves, localShelves],
+  );
+
+  const handleAddBookToShelfFromUi = React.useCallback(
+    async (bookId: string, shelfId: number | string) => {
+      await handleAddBookToShelf(bookId, String(shelfId));
+      snackbar.show('Добавлено на полку', undefined, 'success');
+    },
+    [handleAddBookToShelf, snackbar],
   );
 
   useLocalBookFileVerification({
@@ -602,7 +689,7 @@ export default function App() {
         setCatalogNavEpoch((n) => n + 1);
         return;
       }
-      handleNavigateToCatalog('authors', name, null, activeTab);
+      handleNavigateToCatalog(CATALOG_BROWSE_ROOT, name, null, activeTab);
     },
     [activeTab, handleNavigateToCatalog, setDownloadPromptBook],
   );
@@ -617,18 +704,18 @@ export default function App() {
         setCatalogNavEpoch((n) => n + 1);
         return;
       }
-      handleNavigateToCatalog('series', null, name, activeTab);
+      handleNavigateToCatalog(CATALOG_BROWSE_ROOT, null, name, activeTab);
     },
     [activeTab, handleNavigateToCatalog, setDownloadPromptBook],
   );
 
   const handleOpenAuthorFromProfile = React.useCallback(
-    (name: string) => handleNavigateToCatalog('authors', name, null, 'library'),
+    (name: string) => handleNavigateToCatalog(CATALOG_BROWSE_ROOT, name, null, 'library'),
     [handleNavigateToCatalog],
   );
 
   const handleOpenSeriesFromProfile = React.useCallback(
-    (name: string) => handleNavigateToCatalog('series', null, name, 'library'),
+    (name: string) => handleNavigateToCatalog(CATALOG_BROWSE_ROOT, null, name, 'library'),
     [handleNavigateToCatalog],
   );
 
@@ -672,11 +759,6 @@ export default function App() {
     onAuthExpired: markAuthExpired,
   });
 
-  const downloadJobs = useDownloadQueue();
-  const queuedCount = React.useMemo(
-    () => downloadJobs.filter((j) => j.status === 'queued' || j.status === 'downloading' || j.status === 'saving').length,
-    [downloadJobs],
-  );
   const handleCloseReader = React.useCallback(async () => {
     const closingId = activeReaderRef.current?.bookId ?? null;
     if (closingId) setClosingBookId(closingId);
@@ -862,7 +944,7 @@ export default function App() {
       {!serverConfigReady || !libraryReady || !storageDirectoryReady ? (
         <div
           className={`flex-1 flex flex-col items-center justify-center gap-4 ${theme.bg} ${theme.text}`}
-          style={{ backgroundColor: '#1e1a16' }}
+          style={{ backgroundColor: '#111110' }}
         >
           <img
             src={BRAND_LOCKUP_SRC}
@@ -872,7 +954,7 @@ export default function App() {
           <p className={`text-xs font-bold ${theme.textMuted}`}>Защищаем подключение…</p>
         </div>
       ) : showOnboarding ? (
-        <div key="onboarding" className="flex-1 min-h-0 flex flex-col inpx-screen-enter">
+        <TabScreenPanel active>
         <OnboardingFlow
           serverConfig={serverConfig}
           onChangeServerConfig={handleServerConfigChange}
@@ -883,7 +965,7 @@ export default function App() {
           onChangeStorageDirectory={setStorageDirectory}
           onComplete={completeOnboarding}
         />
-        </div>
+        </TabScreenPanel>
       ) : (
         <>
         {/* Keep shell mounted under the reader so catalog drill-down/search survive close. */}
@@ -898,9 +980,13 @@ export default function App() {
           logoSrc={logoSrc}
           isOnline={isOnline}
           isVerifyingConnection={isVerifyingConnection}
-          isLocalConnection={isLocalConnection}
-          queuedCount={queuedCount}
           onOpenConnectionSettings={handleOpenConnectionSettings}
+          onOpenQueue={openQueueSheet}
+          serverConfig={serverConfig}
+          onSearchSubmit={handleHomeSearchSubmit}
+          onSearchAuthor={(name) => handleNavigateToCatalog(CATALOG_BROWSE_ROOT, name, null, activeTab === 'catalog' ? null : activeTab)}
+          onSearchSeries={(name) => handleNavigateToCatalog(CATALOG_BROWSE_ROOT, null, name, activeTab === 'catalog' ? null : activeTab)}
+          onSearchBook={handleHomeSearchBook}
         >
           <TabScreenPanel active={activeTab === 'home'}>
             <HomeTab
@@ -909,20 +995,21 @@ export default function App() {
               serverConfig={serverConfig}
               isAppDark={isAppDark}
               isOnline={isOnline}
-              isVerifyingConnection={isVerifyingConnection}
               downloadedBookIds={downloadedBookIdsWithFile}
               localRecentReading={localRecentReading}
               readingProgressByBookId={readingProgressByBookId}
               storageDirectory={storageDirectory}
-              onContinueBook={handleContinueBook}
-              onOpenBook={handleContinueBook}
-              onOpenDetails={openBookDetails}
+              onOpenBook={handleBookPrimaryAction}
+              onOpenDetails={openBookDetailsExclusive}
+              downloadingId={downloadingId}
+              queuedBookIds={queuedBookIds}
               fetchSectionBooks={isOnline ? inpxServer.fetchSectionBooks : undefined}
               onRefresh={isOnline ? () => inpxServer.refresh() : undefined}
               onGoCatalog={handleOpenCatalogRoot}
+              onGoProfile={handleOpenConnectionSettings}
               onSearchSubmit={handleHomeSearchSubmit}
-              onSearchAuthor={(name) => handleNavigateToCatalog('authors', name, null, 'home')}
-              onSearchSeries={(name) => handleNavigateToCatalog('series', null, name, 'home')}
+              onSearchAuthor={(name) => handleNavigateToCatalog(CATALOG_BROWSE_ROOT, name, null, 'home')}
+              onSearchSeries={(name) => handleNavigateToCatalog(CATALOG_BROWSE_ROOT, null, name, 'home')}
               onSearchBook={handleHomeSearchBook}
               onBookLongPress={openBookActions}
               isTabActive={activeTab === 'home' && !activeReader}
@@ -930,11 +1017,12 @@ export default function App() {
               readIds={isOnline ? inpxServer.readIds : undefined}
               onAuthExpired={markAuthExpired}
               onConnectionLost={markServerDisconnected}
+              siteName={siteName}
             />
           </TabScreenPanel>
 
           <TabScreenPanel active={activeTab === 'catalog'}>
-            <React.Suspense fallback={<ScreenLoader label="Загрузка каталога…" />}>
+            <React.Suspense fallback={<div className="flex-1 px-5 py-4"><BookListSkeleton count={8} /></div>}>
               <CatalogTab
                 serverConfig={serverConfig}
                 onEnqueueDownload={handleDownloadBookFromUi}
@@ -969,6 +1057,11 @@ export default function App() {
                 pendingSearchQuery={catalogPendingSearch}
                 onConsumePendingSearch={handleConsumePendingSearch}
                 onBookLongPress={openBookActions}
+                onOpenDetails={openBookDetailsExclusive}
+                onCloseDetails={() => {
+                  setDownloadPromptBook(null);
+                  setDownloadPromptError(null);
+                }}
                 onAuthExpired={markAuthExpired}
                 onConnectionLost={markServerDisconnected}
               />
@@ -989,16 +1082,7 @@ export default function App() {
               readingProgressByBookId={readingProgressByBookId}
               readIds={isOnline ? inpxServer.readIds : undefined}
               bookmarkIds={isOnline ? inpxServer.bookmarkIds : undefined}
-              shelves={
-                isOnline
-                  ? inpxServer.shelves
-                  : localShelves.map((s) => ({
-                      id: s.id,
-                      name: s.name,
-                      bookCount: s.bookIds.length,
-                      previewBookIds: s.bookIds.slice(0, 4),
-                    }))
-              }
+              shelves={uiShelves}
               favoriteAuthors={activeFavoriteAuthors}
               favoriteSeries={activeFavoriteSeries}
               favoriteAuthorItems={isOnline ? inpxServer.favoriteAuthorItems : undefined}
@@ -1014,23 +1098,27 @@ export default function App() {
                       return downloadedBooksWithFile.filter((b) => ids.has(b.id));
                     }
               }
-              onOpenBook={handleOpenBookCard}
+              onOpenBook={handleBookPrimaryAction}
               onContinueBook={handleContinueBook}
-              onOpenDetails={openBookDetails}
+              onRegisterBook={registerDownloadedBook}
+              onOpenDetails={openBookDetailsExclusive}
               onBookLongPress={openBookActions}
               onRemoveBooks={handleRemoveBooks}
-              onAddBooksToShelf={isOnline ? handleAddBooksToShelf : undefined}
+              onAddBooksToShelf={handleAddBooksToShelf}
+              onAddShelf={handleAddShelf}
               onOpenAuthor={handleOpenAuthorFromProfile}
               onOpenSeries={handleOpenSeriesFromProfile}
               onRemoveShelf={handleRemoveShelfConfirmed}
               onGoCatalog={handleOpenCatalogRoot}
               onGoProfile={() => handleTabChange('profile')}
+              onOpenQueue={openQueueSheet}
               localReaderAnnotations={localReaderAnnotations}
               localReaderBookmarks={localReaderBookmarks}
               onOpenBookAtPosition={handleOpenBookAtPosition}
               onRemoveReaderAnnotation={handleRemoveReaderAnnotation}
               onUpdateReaderAnnotation={handleUpdateReaderAnnotation}
               onRemoveReaderBookmark={handleRemoveReaderBookmark}
+              onUpdateReaderBookmark={handleUpdateReaderBookmark}
               isTabActive={activeTab === 'library' && !activeReader}
               libraryRootEpoch={libraryRootEpoch}
             />
@@ -1079,7 +1167,7 @@ export default function App() {
             }}
             onContinue={handleNextSeriesContinue}
             onOpenSeries={(seriesName) => {
-              handleNavigateToCatalog('series', null, seriesName, readerOriginTabRef.current);
+              handleNavigateToCatalog(CATALOG_BROWSE_ROOT, null, seriesName, readerOriginTabRef.current);
             }}
           />
         </AppShell>
@@ -1087,8 +1175,7 @@ export default function App() {
 
         {activeReader && resolvedReaderFile ? (
           <div className="fixed inset-0 z-[200] flex flex-col min-h-0">
-            <React.Suspense fallback={<ScreenLoader label="Загрузка читалки…" />}>
-              <FoliateReader
+            <FoliateReader
                 key={activeReader.bookId}
                 bookId={activeReader.bookId}
                 bookTitle={activeReader.title}
@@ -1111,8 +1198,7 @@ export default function App() {
                 onClose={() => { void handleCloseReader(); }}
                 onStoreSynced={bumpReaderLocal}
                 onOpenNextInSeries={handleOpenNextInSeriesFromReader}
-              />
-            </React.Suspense>
+            />
           </div>
         ) : activeReader ? (
           <MissingLocalBookFallback
@@ -1134,7 +1220,7 @@ export default function App() {
       )}
 
       <BookDetailsSheet
-        book={activeReader ? null : downloadPromptBook}
+        book={activeReader || queueSheetOpen || actionsTarget ? null : downloadPromptBook}
         onClose={() => {
           setDownloadPromptBook(null);
           setDownloadPromptError(null);
@@ -1169,45 +1255,46 @@ export default function App() {
           );
         }}
         onSelectBook={setDownloadPromptBook}
-        bookmarkIds={isOnline ? inpxServer.bookmarkIds : undefined}
         readIds={isOnline ? inpxServer.readIds : undefined}
-        onToggleBookBookmark={isOnline ? handleToggleBookBookmark : undefined}
-        onToggleRead={handleToggleReadStatus}
+        readingProgressByBookId={readingProgressByBookId}
         isAppDark={isAppDark}
         onOpenAuthor={handleOpenAuthorFromBook}
         onOpenSeries={handleOpenSeriesFromBook}
-        dragControls={bookDetailsDrag}
         onAuthExpired={markAuthExpired}
+        shelves={uiShelves}
+        onAddToShelf={handleAddBookToShelfFromUi}
+        onCreateShelf={handleAddShelf}
+        isBookmarked={downloadPromptBook ? inpxServer.bookmarkIds?.has(downloadPromptBook.id) : false}
+        onToggleBookmark={isOnline ? handleToggleBookBookmark : undefined}
+        onOpenActions={openBookActions}
+      />
+
+      <DownloadQueueSheet
+        open={queueSheetOpen && !activeReader}
+        onClose={() => setQueueSheetOpen(false)}
+        onOpenSaved={handleBookPrimaryAction}
       />
 
       <BookActionsSheet
-        target={activeReader ? null : actionsTarget}
+        target={activeReader || queueSheetOpen ? null : actionsTarget}
         serverConfig={serverConfig}
         storageDirectory={storageDirectory}
         isDownloaded={
           actionsTarget ? downloadedBookIdsWithFile.includes(actionsTarget.book.id) : false
         }
-        isDownloading={
-          actionsTarget
-            ? downloadingId === actionsTarget.book.id || queuedBookIds.has(actionsTarget.book.id)
-            : false
-        }
         isRead={actionsTarget ? inpxServer.readIds?.has(actionsTarget.book.id) : false}
         isBookmarked={actionsTarget ? inpxServer.bookmarkIds?.has(actionsTarget.book.id) : false}
         isOnline={isOnline}
         onClose={() => setActionsTarget(null)}
-        onOpen={(book) => {
-          void handleContinueBook(book);
-        }}
-        onOpenDetails={openBookDetails}
-        onDownload={(book) => {
-          void handleDownloadBookFromUi(book).catch(() => {});
-        }}
+        onOpenDetails={openBookDetailsExclusive}
         onToggleRead={handleToggleReadStatus}
         onToggleBookmark={isOnline ? handleToggleBookBookmark : undefined}
         onRemoveFromShelf={(bookId, shelfId) => {
           void handleRemoveBookFromShelf(bookId, String(shelfId));
         }}
+        shelves={uiShelves}
+        onAddToShelf={handleAddBookToShelfFromUi}
+        onCreateShelf={handleAddShelf}
         onRemove={(bookId) => {
           void handleRemoveBook(bookId);
         }}

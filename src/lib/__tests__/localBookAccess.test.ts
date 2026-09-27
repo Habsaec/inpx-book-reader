@@ -8,6 +8,8 @@ vi.mock('../bookStorage', () => ({
 }));
 
 vi.mock('../storageDirectory', () => ({
+  DEFAULT_STORAGE_LABEL: 'Download/INPXLibraryReader',
+  DEFAULT_STORAGE_URI: 'downloads://INPXLibraryReader',
   isValidStorageDirectory: (d: { uri?: string } | null) => Boolean(d?.uri),
   normalizeStorageDirectory: (d: { label: string; uri?: string } | null | undefined) => d ?? null,
   readStoredStorageDirectory: vi.fn(() => ({ label: 'Saved', uri: 'content://saved-tree' })),

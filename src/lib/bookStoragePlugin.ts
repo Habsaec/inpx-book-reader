@@ -49,6 +49,24 @@ export interface BookStoragePlugin {
   }): Promise<{ absolutePath: string }>;
   /** Recover a persisted SAF grant for Download/<folder> after JS forgot the content:// URI. */
   getPersistedDownloadsTree(options?: { folder?: string }): Promise<{ uri: string | null }>;
+  extractBookCover(options: { treeUri: string; path: string }): Promise<{ data: string }>;
+  extractBookMeta(options: { treeUri: string; path: string }): Promise<{
+    title: string;
+    author: string;
+    series: string;
+    seriesNo: string;
+    lang: string;
+    genre: string;
+  }>;
+  listDirectory(options: {
+    treeUri: string;
+    path?: string;
+    refresh?: boolean;
+  }): Promise<{ entries: { name: string; path: string; directory: boolean }[]; stale?: boolean }>;
+  hasAllFilesAccess(): Promise<{ granted: boolean }>;
+  canListFast(options: { treeUri: string }): Promise<{ fast: boolean }>;
+  requestAllFilesAccess(): Promise<{ granted: boolean }>;
+  listBookFiles(options: { treeUri: string }): Promise<{ paths: string[] }>;
   readStorageFileHeader(options: {
     treeUri: string;
     path: string;

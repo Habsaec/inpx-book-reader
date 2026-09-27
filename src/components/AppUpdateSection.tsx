@@ -11,7 +11,8 @@ import {
   subscribeAppUpdateResult,
   type AppUpdateCheckResult,
 } from '../lib/appUpdate';
-import { textStyles, radii, elevation } from '../ui/tokens';
+import { textStyles, radii } from '../ui/tokens';
+import type { ServerConfig } from '../types';
 import Button from '../ui/Button';
 import { useSnackbar } from '../ui/Snackbar';
 
@@ -21,15 +22,32 @@ function formatMb(bytes: number): string {
 
 type DownloadPhase = 'none' | 'downloading' | 'done';
 
-/** Настройки → «Обновление приложения»: проверка GitHub-релизов, скачивание APK, установка. */
-export default function AppUpdateSection() {
+/** Настройки → «О приложении»: версия, проверка GitHub-релизов, скачивание APK, установка. */
+export default function AppUpdateSection({ serverConfig }: { serverConfig?: ServerConfig }) {
   const snackbar = useSnackbar();
   const [currentVersion, setCurrentVersion] = React.useState('—');
   const [checking, setChecking] = React.useState(false);
   const [result, setResult] = React.useState<AppUpdateCheckResult | null>(null);
   const [checkError, setCheckError] = React.useState<string | null>(null);
   const [phase, setPhase] = React.useState<DownloadPhase>('none');
+  const [serverVersion, setServerVersion] = React.useState('');
   const [progress, setProgress] = React.useState<{ loaded: number; total: number } | null>(null);
+
+  React.useEffect(() => {
+    if (!isNativeApp()) return;
+    const base = serverConfig?.url?.replace(/\/$/, '');
+    if (!base) return;
+    let cancelled = false;
+    void fetch(`${base}/health`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { version?: string } | null) => {
+        if (!cancelled && data?.version) setServerVersion(String(data.version));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [serverConfig?.url]);
 
   React.useEffect(() => {
     if (!isNativeApp()) return;
@@ -105,11 +123,18 @@ export default function AppUpdateSection() {
       : 0;
 
   return (
-    <section className={`${radii.lg} ${theme.card} ${elevation.card} p-5 space-y-4`}>
-      <div className="flex justify-between items-center">
-        <h3 className={textStyles.sectionLabel}>Обновление приложения</h3>
-        <span className={`${textStyles.caption} ${theme.textMuted}`}>v{currentVersion}</span>
+    <section className="space-y-3">
+      <h3 className={`${textStyles.labelBold} tracking-wide ${theme.textMuted}`}>О приложении</h3>
+      <div className="flex items-center justify-between gap-3 min-h-12">
+        <p className={`${textStyles.body} ${theme.text}`}>Версия</p>
+        <p className={`${textStyles.body} tabular-nums ${theme.textMuted}`}>v{currentVersion}</p>
       </div>
+      {serverVersion && (
+        <div className="flex items-center justify-between gap-3 min-h-12">
+          <p className={`${textStyles.body} ${theme.text}`}>Сервер</p>
+          <p className={`${textStyles.body} tabular-nums ${theme.textMuted}`}>v{serverVersion}</p>
+        </div>
+      )}
 
       {checkError && (
         <p className={`${textStyles.caption} text-[var(--app-danger)]`}>
@@ -143,8 +168,8 @@ export default function AppUpdateSection() {
             <div className="space-y-1.5">
               <div className={`h-1.5 ${radii.full} ${theme.panel} overflow-hidden`}>
                 <div
-                  className={`h-full ${theme.progress} transition-[width] duration-200`}
-                  style={{ width: `${progressPct}%` }}
+                  className={`h-full w-full origin-left ${theme.progress}`}
+                  style={{ transform: `scaleX(${progressPct / 100})` }}
                 />
               </div>
               <p className={`${textStyles.caption} ${theme.textMuted}`}>

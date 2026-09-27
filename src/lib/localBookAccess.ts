@@ -8,6 +8,7 @@ import {
   readStoredStorageDirectory,
   type StorageDirectory,
 } from './storageDirectory';
+import { readLibraryFolders } from './libraryFolders';
 
 export interface ResolvedLocalBookFile {
   storageUri: string;
@@ -69,6 +70,9 @@ export async function resolveLocalBookFileDetailed(
   const candidates: StorageDirectory[] = [];
   pushCandidate(candidates, primaryStorage);
   pushCandidate(candidates, readStoredStorageDirectory());
+  for (const folder of readLibraryFolders(primaryStorage ?? null).folders) {
+    pushCandidate(candidates, { label: folder.label, uri: folder.uri });
+  }
   pushCandidate(candidates, book.storageUri ? { label: '', uri: book.storageUri } : null);
   pushCandidate(candidates, await getDefaultStorageDirectory());
   candidates.sort((a, b) => safGrantRank(a.uri) - safGrantRank(b.uri));

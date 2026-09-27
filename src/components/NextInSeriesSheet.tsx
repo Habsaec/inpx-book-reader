@@ -1,15 +1,14 @@
 import React from 'react';
-import { createPortal } from 'react-dom';
-import { X, BookOpen, Play } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { textStyles, elevation, radii } from '../ui/tokens';
+import { textStyles, elevation } from '../ui/tokens';
 import Button from '../ui/Button';
-import { sheetBackdropClass, sheetPanelClass, sheetPanelStyle } from '../ui/SheetChrome';
+import { SheetDragHandle, sheetPanelClass } from '../ui/SheetChrome';
+import DragSheet from '../ui/DragSheet';
 import BookCover from './BookCover';
 import type { NextInSeriesResult } from '../lib/seriesNavigation';
 import type { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
-import { useOverlayBackHandler } from '../hooks/useBackHandler';
 
 interface NextInSeriesSheetProps {
   open: boolean;
@@ -28,41 +27,32 @@ export default function NextInSeriesSheet({
   storageDirectory,
   onClose,
   onContinue,
-  onOpenSeries,
 }: NextInSeriesSheetProps) {
-  useOverlayBackHandler(open, onClose);
+  const resultRef = React.useRef(result);
+  if (result) resultRef.current = result;
+  const shown = result ?? resultRef.current;
+  if (!shown) return null;
 
-  if (!open || !result) return null;
-
-  const { next, seriesDisplayName, current } = result;
+  const { next, seriesDisplayName, current } = shown;
   const nextNo = next.seriesNo;
 
-  return createPortal(
-    <div className={sheetBackdropClass} onClick={onClose}>
-      <div
-        className={`${sheetPanelClass} px-5 pt-4 ${elevation.sheet}`}
-        style={sheetPanelStyle()}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="next-series-title"
-      >
+  return (
+    <DragSheet
+      open={open && Boolean(result)}
+      onClose={onClose}
+      labelledBy="next-series-title"
+      className={`${sheetPanelClass} px-5 pt-4 ${elevation.sheet}`}
+    >
+        <SheetDragHandle />
         <div className="flex items-center justify-between mb-3">
           <h2 id="next-series-title" className={textStyles.title}>
-            Следующая в серии
+            Читать дальше?
           </h2>
-          <button
-            type="button"
-            aria-label="Закрыть"
-            onClick={onClose}
-            className={`min-h-12 min-w-12 inline-flex items-center justify-center ${radii.button} ${theme.chipButton} ${theme.focusRing}`}
-          >
-            <X className="w-5 h-5" />
-          </button>
         </div>
 
         <p className={`${textStyles.caption} ${theme.textMuted} mb-4`}>
-          «{current.title}» прочитана. Продолжить серию «{seriesDisplayName}»?
+          «{current.title}» прочитана. Следующая в серии «{seriesDisplayName}»: {next.title}
+          {nextNo != null ? ` · том ${nextNo}` : ''}
         </p>
 
         <div className="flex gap-3 mb-5">
@@ -97,25 +87,12 @@ export default function NextInSeriesSheet({
             }}
           >
             <Play className="w-4 h-4 mr-1.5" aria-hidden />
-            Читать дальше
-          </Button>
-          <Button
-            variant="secondary"
-            fullWidth
-            onClick={() => {
-              onOpenSeries(result.seriesName);
-              onClose();
-            }}
-          >
-            <BookOpen className="w-4 h-4 mr-1.5" aria-hidden />
-            Вся серия
+            Читать
           </Button>
           <Button variant="ghost" fullWidth onClick={onClose}>
             Позже
           </Button>
         </div>
-      </div>
-    </div>,
-    document.body,
+    </DragSheet>
   );
 }

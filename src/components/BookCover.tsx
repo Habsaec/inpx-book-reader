@@ -125,13 +125,14 @@ export default function BookCover({
 
   React.useEffect(() => {
     let cancelled = false;
+    setFailed(false);
+    const mem = peekCoverMemory(bookId, variant);
+    setSrc(mem);
+    if (mem) return;
 
+    let request = 0;
     async function load() {
-      setFailed(false);
-      const mem = peekCoverMemory(bookId, variant);
-      setSrc(mem);
-      if (mem) return;
-
+      const token = ++request;
       try {
         const url = await resolveCoverUrl({
           bookId,
@@ -139,15 +140,16 @@ export default function BookCover({
           directory: storageDirectory,
           config: serverConfig,
         });
-        if (cancelled) return;
+        if (cancelled || token !== request) return;
         if (url) {
+          setFailed(false);
           setSrc(url);
           return;
         }
         setSrc(null);
         setFailed(true);
       } catch {
-        if (!cancelled) {
+        if (!cancelled && token === request) {
           setSrc(null);
           setFailed(true);
         }
@@ -155,8 +157,15 @@ export default function BookCover({
     }
 
     void load();
+    const onReady = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (id !== bookId) return;
+      void load();
+    };
+    window.addEventListener('inpx-local-cover', onReady);
     return () => {
       cancelled = true;
+      window.removeEventListener('inpx-local-cover', onReady);
     };
   }, [
     bookId,

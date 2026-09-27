@@ -1,6 +1,7 @@
 import React from 'react';
 import { Star } from 'lucide-react';
 import { theme } from '../lib/appTheme';
+import { seriesLabel } from '../lib/seriesLabel';
 import type { Book } from '../types';
 import { textStyles, semantic } from '../ui/tokens';
 
@@ -42,7 +43,7 @@ export default function BookMetaSummary({
   const size = sizeLabel(book.size);
   const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));
   const seriesText = book.series
-    ? `${book.series}${book.seriesNo ? ` · ${book.seriesNo}` : ''}`
+    ? `${seriesLabel(book)}${book.seriesNo ? ` · ${book.seriesNo}` : ''}`
     : '';
 
   if (gridAlign) {

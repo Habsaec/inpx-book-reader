@@ -48,6 +48,16 @@ export async function importExternalBookFromUri(
   };
 }
 
+/** Локальная папка (`local:<sha256>`) или импорт (`local:import:…`) — нет серверного bookId. */
+export function isLocalOnlyBookId(id: string): boolean {
+  return id.startsWith('local:');
+}
+
+/** Книга из проводника «Папки» (`local:<sha256>`), не импорт и не скачивание с сервера. */
+export function isFolderLocalBookId(id: string): boolean {
+  return id.startsWith('local:') && !id.startsWith('local:import:');
+}
+
 export function isImportedLocalBook(book: Book): boolean {
   return book.id.startsWith('local:import:');
 }

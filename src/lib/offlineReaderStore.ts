@@ -813,6 +813,20 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+export function updateOfflineReaderBookmarkTitle(bookId: string, bookmarkId: number, title: string): boolean {
+  const data = readOfflineReaderData(bookId);
+  const idx = data.bookmarks.findIndex((b) => b.id === bookmarkId);
+  if (idx < 0) return false;
+  const next = [...data.bookmarks];
+  next[idx] = { ...next[idx], title };
+  writeOfflineReaderData(bookId, {
+    ...data,
+    bookmarks: next,
+    bookmarksChangedAt: nowIso(),
+  });
+  return true;
+}
+
 export function deleteOfflineReaderBookmark(bookId: string, bookmarkId: number): boolean {
   const data = readOfflineReaderData(bookId);
   const removed = data.bookmarks.find((b) => b.id === bookmarkId);

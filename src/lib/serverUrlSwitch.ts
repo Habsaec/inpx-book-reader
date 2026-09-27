@@ -71,3 +71,51 @@ export function candidateServerUrls(config: ServerConfig, ssid?: string | null):
   }
   return uniqueNormalizedUrls([local, ...alts, current]);
 }
+
+/**
+ * Probe every candidate at once. An earlier URL wins when it answers;
+ * a later one is used only after every earlier probe has failed.
+ */
+export function firstReachableUrl(
+  urls: string[],
+  probe: (url: string) => Promise<boolean>,
+): Promise<string | null> {
+  if (urls.length === 0) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let pending = urls.length;
+    let settled = false;
+    const failed = new Set<number>();
+    const reachable = new Map<number, string>();
+    const finish = (url: string | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(url);
+    };
+    const consider = () => {
+      for (let i = 0; i < urls.length; i++) {
+        const url = reachable.get(i);
+        if (url) {
+          finish(url);
+          return;
+        }
+        if (!failed.has(i)) return;
+      }
+      if (pending === 0) finish(null);
+    };
+    urls.forEach((url, index) => {
+      probe(url).then(
+        (alive) => {
+          pending -= 1;
+          if (alive) reachable.set(index, url);
+          else failed.add(index);
+          consider();
+        },
+        () => {
+          pending -= 1;
+          failed.add(index);
+          consider();
+        },
+      );
+    });
+  });
+}

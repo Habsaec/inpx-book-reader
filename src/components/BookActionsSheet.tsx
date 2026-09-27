@@ -1,28 +1,30 @@
 import React from 'react';
-import { createPortal } from 'react-dom';
 import {
   X,
-  Download,
-  BookOpen,
   CheckCircle2,
   Trash2,
   Info,
   Heart,
   FolderMinus,
+  FolderPlus,
 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, elevation, radii, motion } from '../ui/tokens';
 import Button from '../ui/Button';
-import { SheetDragHandle, sheetBackdropClass, sheetPanelClass, sheetPanelStyle } from '../ui/SheetChrome';
+import { SheetDragHandle, sheetPanelClass } from '../ui/SheetChrome';
+import DragSheet from '../ui/DragSheet';
 import BookCover from './BookCover';
+import ShelfPicker from './ShelfPicker';
 import type { Book, ServerConfig } from '../types';
+import { displayBookTitle } from '../lib/seriesLabel';
 import type { StorageDirectory } from '../lib/storageDirectory';
+import type { UiShelf } from '../lib/inpxClient';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
 
 export type BookActionsTarget = {
   book: Book;
   /** When opened from a shelf book grid — enables «Убрать с полки». */
-  shelfId?: number;
+  shelfId?: number | string;
   shelfName?: string;
 };
 
@@ -31,76 +33,66 @@ interface BookActionsSheetProps {
   serverConfig: ServerConfig;
   storageDirectory?: StorageDirectory | null;
   isDownloaded: boolean;
-  isDownloading?: boolean;
   isRead?: boolean;
   isBookmarked?: boolean;
   isOnline: boolean;
   onClose: () => void;
-  onOpen: (book: Book) => void;
-  onDownload?: (book: Book) => void;
   onToggleRead?: (bookId: string) => void;
   onToggleBookmark?: (bookId: string) => void;
-  onRemoveFromShelf?: (bookId: string, shelfId: number) => void;
+  onRemoveFromShelf?: (bookId: string, shelfId: number | string) => void;
   onRemove?: (bookId: string) => void;
   onOpenDetails?: (book: Book) => void;
+  shelves?: UiShelf[];
+  onAddToShelf?: (bookId: string, shelfId: number | string) => void | Promise<void>;
+  onCreateShelf?: (name: string) => Promise<number | string | null>;
 }
 
 /**
- * Unified long-press menu for every book surface (Home, Catalog, Library).
- * Action order is fixed so the same gesture always feels the same.
+ * Secondary actions only. Tap on a cover/row runs the primary action;
+ * long-press / ⋮ opens this sheet.
  */
 export default function BookActionsSheet({
   target,
   serverConfig,
   storageDirectory,
   isDownloaded,
-  isDownloading,
   isRead,
   isBookmarked,
   isOnline,
   onClose,
-  onOpen,
-  onDownload,
   onToggleRead,
   onToggleBookmark,
   onRemoveFromShelf,
   onRemove,
   onOpenDetails,
+  shelves = [],
+  onAddToShelf,
+  onCreateShelf,
 }: BookActionsSheetProps) {
   const open = Boolean(target);
-  useOverlayBackHandler(open, onClose);
+  const shownRef = React.useRef(target);
+  if (target) shownRef.current = target;
+  const shown = target ?? shownRef.current;
+  const [shelfPickerOpen, setShelfPickerOpen] = React.useState(false);
+  const [shelfBusy, setShelfBusy] = React.useState(false);
+  useOverlayBackHandler(open && shelfPickerOpen, () => setShelfPickerOpen(false));
 
-  // Ignore backdrop click from the same long-press that opened the sheet (ghost click).
-  const [backdropArmed, setBackdropArmed] = React.useState(false);
   React.useEffect(() => {
-    if (!open) {
-      setBackdropArmed(false);
-      return;
-    }
-    setBackdropArmed(false);
-    const t = window.setTimeout(() => setBackdropArmed(true), 450);
-    return () => window.clearTimeout(t);
-  }, [open, target?.book.id]);
+    if (!open) setShelfPickerOpen(false);
+  }, [open]);
 
-  if (!target) return null;
-  const { book, shelfId, shelfName } = target;
-  const showRemoveFromShelf =
-    shelfId != null && Number.isFinite(shelfId) && Boolean(onRemoveFromShelf);
+  if (!shown) return null;
+  const { book, shelfId, shelfName } = shown;
+  const showRemoveFromShelf = shelfId != null && Boolean(onRemoveFromShelf);
 
-  return createPortal(
-    <div
-      className={sheetBackdropClass}
-      onClick={() => {
-        if (backdropArmed) onClose();
-      }}
-    >      <div
-        className={`${sheetPanelClass} px-5 pt-4 ${elevation.sheet}`}
-        style={sheetPanelStyle()}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="book-actions-title"
-      >
+  return (
+    <DragSheet
+      open={open}
+      onClose={onClose}
+      swallowOpeningPointer
+      labelledBy="book-actions-title"
+      className={`${sheetPanelClass} px-5 pt-4 ${elevation.sheet}`}
+    >
         <SheetDragHandle />
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex gap-3 min-w-0">
@@ -118,7 +110,7 @@ export default function BookActionsSheet({
             </div>
             <div className="min-w-0">
               <h2 id="book-actions-title" className={`${textStyles.bookTitle} line-clamp-2`}>
-                {book.title}
+                {displayBookTitle(book)}
               </h2>
               <p className={`${textStyles.caption} ${theme.textMuted} truncate mt-0.5`}>{book.author}</p>
             </div>
@@ -134,31 +126,6 @@ export default function BookActionsSheet({
         </div>
 
         <div className="flex flex-col gap-2.5">
-          {isDownloaded ? (
-            <Button
-              fullWidth
-              onClick={() => {
-                onOpen(book);
-                onClose();
-              }}
-            >
-              <BookOpen className="w-4 h-4" aria-hidden />
-              Читать
-            </Button>
-          ) : isOnline && onDownload ? (
-            <Button
-              fullWidth
-              disabled={isDownloading}
-              onClick={() => {
-                onDownload(book);
-                onClose();
-              }}
-            >
-              <Download className="w-4 h-4" aria-hidden />
-              {isDownloading ? 'Качается…' : 'Скачать'}
-            </Button>
-          ) : null}
-
           {onOpenDetails && (
             <Button
               fullWidth
@@ -169,7 +136,7 @@ export default function BookActionsSheet({
               }}
             >
               <Info className="w-4 h-4" aria-hidden />
-              Подробнее
+              О книге
             </Button>
           )}
 
@@ -220,6 +187,50 @@ export default function BookActionsSheet({
             </Button>
           )}
 
+          {(onAddToShelf || onCreateShelf) && (
+            shelfPickerOpen ? (
+              <div className="pt-1">
+                <p className={`${textStyles.captionBold} ${theme.textMuted} mb-2`}>На полку</p>
+                <ShelfPicker
+                  shelves={shelves}
+                  excludeShelfId={shelfId}
+                  busy={shelfBusy}
+                  onPick={(id) => {
+                    if (!onAddToShelf) return;
+                    setShelfBusy(true);
+                    void Promise.resolve(onAddToShelf(book.id, id)).finally(() => {
+                      setShelfBusy(false);
+                      onClose();
+                    });
+                  }}
+                  onCreate={
+                    onCreateShelf
+                      ? async (name) => {
+                          setShelfBusy(true);
+                          try {
+                            const id = await onCreateShelf(name);
+                            if (id != null && onAddToShelf) await onAddToShelf(book.id, id);
+                            onClose();
+                          } finally {
+                            setShelfBusy(false);
+                          }
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+            ) : (
+              <Button
+                fullWidth
+                variant="secondary"
+                onClick={() => setShelfPickerOpen(true)}
+              >
+                <FolderPlus className="w-4 h-4" aria-hidden />
+                На полку
+              </Button>
+            )
+          )}
+
           {isDownloaded && onRemove && (
             <Button
               fullWidth
@@ -234,8 +245,6 @@ export default function BookActionsSheet({
             </Button>
           )}
         </div>
-      </div>
-    </div>,
-    document.body,
+    </DragSheet>
   );
 }

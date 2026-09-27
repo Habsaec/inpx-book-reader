@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   candidateServerUrls,
+  firstReachableUrl,
   isLocalServerUrl,
   looksLikeHomeLanUrl,
   normalizeSsid,
@@ -36,6 +37,26 @@ describe('candidateServerUrls', () => {
 
   it('tries LAN first when the current SSID is unknown', () => {
     expect(candidateServerUrls(base, '')[0]).toBe('http://192.168.10.69:8096');
+  });
+});
+
+describe('firstReachableUrl', () => {
+  it('waits for a higher-priority URL that answers after a faster fallback', async () => {
+    const picked = await firstReachableUrl(['http://lan', 'http://away'], async (url) => {
+      if (url.endsWith('away')) return true;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return true;
+    });
+    expect(picked).toBe('http://lan');
+  });
+
+  it('uses the next URL when the preferred one is down', async () => {
+    const picked = await firstReachableUrl(['http://dead', 'http://alive'], async (url) => url.endsWith('alive'));
+    expect(picked).toBe('http://alive');
+  });
+
+  it('returns null when every probe fails', async () => {
+    await expect(firstReachableUrl(['http://a', 'http://b'], async () => false)).resolves.toBeNull();
   });
 });
 

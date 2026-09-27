@@ -28,7 +28,48 @@ export const APP_SETTING_KEYS = {
   appUpdateLastCheck: 'app_update_last_check',
   appUpdatePrompted: 'app_update_prompted',
   appUpdateLastResult: 'app_update_last_result',
+  homeRecent: 'home_recent',
+  storageNames: 'storage_names',
+  libraryFolders: 'library_folders',
 } as const;
+
+export type HomeRecentMode = 'on' | 'off' | 'fav';
+export type StorageNameStyle = 'original' | 'translit';
+
+export function getHomeRecentMode(): HomeRecentMode {
+  const raw = getAppSettingString(APP_SETTING_KEYS.homeRecent, 'on');
+  return raw === 'off' || raw === 'fav' ? raw : 'on';
+}
+
+export function getStorageNameStyle(): StorageNameStyle {
+  return getAppSettingString(APP_SETTING_KEYS.storageNames, 'original') === 'translit' ? 'translit' : 'original';
+}
+
+const SETTINGS_BACKUP_SKIP = new Set(['server_theme_cache', 'server_background']);
+
+export async function exportAppSettingsJson(): Promise<string> {
+  const keys = await getAllAppSettingKeys();
+  const settings: Record<string, string> = {};
+  for (const key of keys) {
+    if (SETTINGS_BACKUP_SKIP.has(key)) continue;
+    const value = await getAppSetting(key);
+    if (value != null) settings[key] = value;
+  }
+  return JSON.stringify({ kind: 'inpx-reader-settings', settings }, null, 2);
+}
+
+export async function importAppSettingsJson(raw: string): Promise<number> {
+  const parsed = JSON.parse(raw) as { settings?: Record<string, string> };
+  const settings = parsed?.settings;
+  if (!settings || typeof settings !== 'object') throw new Error('Не файл настроек читалки');
+  let n = 0;
+  for (const [key, value] of Object.entries(settings)) {
+    if (!key || typeof value !== 'string' || SETTINGS_BACKUP_SKIP.has(key)) continue;
+    setAppSettingRaw(key, value);
+    n += 1;
+  }
+  return n;
+}
 
 /** Legacy localStorage keys → app_meta key */
 const LEGACY_LS_MAP: Record<string, string> = {

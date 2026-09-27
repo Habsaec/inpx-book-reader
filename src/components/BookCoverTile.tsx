@@ -1,16 +1,14 @@
 import React from 'react';
-import { Check, Download, Star } from 'lucide-react';
+import { Check, Smartphone, Star } from 'lucide-react';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { theme } from '../lib/appTheme';
 import { textStyles, motion, semantic } from '../ui/tokens';
+import { displayBookTitle, seriesLabel } from '../lib/seriesLabel';
+import { isBookFinished } from '../lib/bookOpenPolicy';
 import BookCover from './BookCover';
-import BookMetaSummary from './BookMetaSummary';
-import CoverRatingBadge from './CoverRatingBadge';
-
-function readEinkFlag(): boolean {
-  return typeof document !== 'undefined' && document.documentElement.dataset.eink === '1';
-}
+import ReadMark from './ReadMark';
+import ReadProgressBar from './ReadProgressBar';
 
 /** Fallback tile width before first measure (CSS px). */
 export const BOOK_COVER_TILE_WIDTH_PX = 110;
@@ -71,6 +69,7 @@ export interface BookCoverTileProps {
   isDownloaded?: boolean;
   showMeta?: boolean;
   showAuthor?: boolean;
+  showFileExt?: boolean;
   /**
    * `shelf` — fixed px width from layout helper (Home / grid).
    * `grid` — fill parent track (legacy; prefer shelf + tileWidthPx).
@@ -78,8 +77,9 @@ export interface BookCoverTileProps {
   size?: 'shelf' | 'grid';
   /** Override shelf tile width (from ResizeObserver). */
   tileWidthPx?: number;
-  showSeriesVolume?: boolean;
   selected?: boolean;
+  isDownloading?: boolean;
+  downloadProgress?: number;
   onClick?: () => void;
   onLongPress?: () => void;
   className?: string;
@@ -96,37 +96,28 @@ export default function BookCoverTile({
   isDownloaded = false,
   showMeta = true,
   showAuthor = true,
+  showFileExt = false,
   size = 'grid',
   tileWidthPx,
-  showSeriesVolume = false,
   selected = false,
+  isDownloading = false,
+  downloadProgress = 0,
   onClick,
   onLongPress,
   className = '',
 }: BookCoverTileProps) {
-  const progress = isRead ? 100 : Math.max(0, Math.min(100, Math.round(readProgress || book.readProgress || 0)));
-  const isFullyRead = isRead || progress >= 100;
-  const showProgressPct = progress > 0 && progress < 100 && !isFullyRead;
+  const progress = Math.max(0, Math.min(100, Math.round(readProgress || book.readProgress || 0)));
+  const finished = isBookFinished(progress, isRead);
   const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));
-  const volumeLabel = showSeriesVolume
-    ? (book.seriesNoLabel || (book.seriesNo != null ? String(book.seriesNo) : '')).trim()
-    : '';
-  const titleText = volumeLabel ? `${volumeLabel}. ${book.title}` : book.title;
+  const titleText = displayBookTitle(book);
+  const extLabel = showFileExt && book.ext ? book.ext.toUpperCase() : '';
+  const seriesText = showFileExt ? seriesLabel(book) : '';
+  const fileLine = [extLabel, seriesText].filter(Boolean).join(' · ');
   const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = React.useRef(false);
   const isShelf = size === 'shelf';
   const shelfW = Math.max(1, Math.round(tileWidthPx ?? BOOK_COVER_TILE_WIDTH_PX));
   const shelfH = Math.round(shelfW * 1.5);
-  const [isEink, setIsEink] = React.useState(readEinkFlag);
-
-  React.useEffect(() => {
-    const el = document.documentElement;
-    const sync = () => setIsEink(el.dataset.eink === '1');
-    sync();
-    const obs = new MutationObserver(sync);
-    obs.observe(el, { attributes: true, attributeFilter: ['data-eink'] });
-    return () => obs.disconnect();
-  }, []);
 
   const clearLongPress = () => {
     if (longPressTimer.current) {
@@ -185,63 +176,27 @@ export default function BookCoverTile({
             height={isShelf ? shelfH : undefined}
             className="absolute inset-0 w-full h-full max-w-full max-h-full !rounded-none !border-0"
           />
-          {volumeLabel ? (
+          {isDownloading ? (
             <span
-              className="absolute top-1.5 right-1.5 z-[6] min-w-6 h-6 px-1.5 rounded-md bg-black/75 text-white inline-flex items-center justify-center text-xs font-bold tabular-nums"
-              aria-label={`Том ${volumeLabel}`}
+              className="absolute bottom-1.5 right-1.5 z-[6] rounded bg-black/70 px-1 py-px text-white tabular-nums leading-none"
+              aria-label={`Скачивание ${Math.round(downloadProgress)}%`}
             >
-              {volumeLabel}
+              <span className={`${textStyles.microBold} text-[10px]`}>{Math.round(downloadProgress)}%</span>
             </span>
           ) : null}
-          {isFullyRead && (
+          {finished && !isDownloading ? <ReadMark /> : null}
+          {isDownloaded && !isDownloading ? (
             <span
-              className={`absolute z-[6] w-6 h-6 rounded-full bg-[var(--app-success)] text-white flex items-center justify-center shadow border border-white/40 ${
-                volumeLabel ? 'bottom-2 right-1.5' : 'top-1.5 right-1.5'
-              }`}
-              title="Прочитано"
-              aria-label="Прочитано"
-            >
-              <Check className="w-3.5 h-3.5" strokeWidth={3} aria-hidden />
-            </span>
-          )}
-          {isDownloaded && !isFullyRead && (
-            <span
-              className="absolute z-[6] bottom-2 left-1.5 w-6 h-6 rounded-full bg-black/65 text-white inline-flex items-center justify-center"
+              className="absolute z-[6] bottom-1.5 left-1.5 w-5 h-5 rounded-full bg-black/65 text-white inline-flex items-center justify-center"
               title="На устройстве"
               aria-label="На устройстве"
             >
-              <Download className="w-3 h-3" aria-hidden />
+              <Smartphone className="w-3 h-3" strokeWidth={2.5} aria-hidden />
             </span>
-          )}
-          {progress > 0 && (
+          ) : null}
+          {rating > 0 && !isDownloading && (
             <span
-              className="absolute inset-x-0 bottom-0 z-[6] h-1 bg-black/35"
-              role="progressbar"
-              aria-valuenow={progress}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`Прогресс чтения ${progress}%`}
-            >
-              <span
-                className={`block h-full ${progress >= 100 ? 'bg-[var(--app-success)]' : theme.progress}`}
-                style={{ width: `${progress}%` }}
-              />
-            </span>
-          )}
-          {showProgressPct && (
-            <span
-              className="absolute bottom-1.5 right-1.5 z-[6] rounded bg-black/70 px-1 py-px text-white tabular-nums leading-none"
-              aria-hidden
-            >
-              <span className={`${textStyles.microBold} text-[10px]`}>{progress}%</span>
-            </span>
-          )}
-          {/* Pre-ribbon rating (e-ink): Star + digit pill on the cover */}
-          {isEink && rating > 0 && (
-            <span
-              className={`absolute z-[6] inline-flex items-center gap-0.5 rounded-md bg-black/75 px-1.5 py-0.5 text-white ${
-                progress > 0 ? 'bottom-2 right-1.5' : 'bottom-1.5 right-1.5'
-              }`}
+              className="absolute z-[6] top-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-md bg-black/75 px-1.5 py-0.5 text-white"
               aria-label={`Рейтинг ${rating} из 5`}
             >
               <Star className={`w-3 h-3 fill-current ${semantic.warning}`} aria-hidden />
@@ -257,24 +212,21 @@ export default function BookCoverTile({
             </span>
           )}
         </span>
-        {/* Sibling of inner — same as server `.cover` (above spine groove overlay); hidden on e-ink via CSS */}
-        {!isEink ? (
-          <CoverRatingBadge rating={rating} coverWidthPx={isShelf ? shelfW : undefined} />
-        ) : null}
       </span>
       {showMeta && (
-        <span className="flex flex-col min-w-0 gap-1.5 mt-3">
-          <p className={`${textStyles.bookTitle} line-clamp-3 text-[15px] font-semibold leading-snug`}>{titleText}</p>
-          {showAuthor && (
-            <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-2 opacity-80`}>
+        <span className="flex flex-col min-w-0 gap-1 mt-3">
+          <p className={`${textStyles.bookTitle} line-clamp-2`}>{titleText}</p>
+          {showAuthor ? (
+            <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-1`}>
               {book.author || '\u00a0'}
             </p>
-          )}
-          {!isShelf && (
-            <span className="flex flex-col mt-0.5 min-h-0">
-              <BookMetaSummary book={book} compact gridAlign />
-            </span>
-          )}
+          ) : null}
+          {fileLine ? (
+            <p className={`${textStyles.micro} ${theme.textMuted} line-clamp-2`}>{fileLine}</p>
+          ) : null}
+          {!finished && progress > 0 && !isDownloading ? (
+            <ReadProgressBar value={progress} />
+          ) : null}
         </span>
       )}
     </button>

@@ -156,6 +156,22 @@ function composeReaderSettingsPanel(html) {
       </div>
 
       <div class="rs-pane" id="rs-pane-text" data-rs-pane="text" role="tabpanel" aria-labelledby="rs-tab-text">
+      <section class="rs-section" data-rs-section="font">
+        <h3 class="rs-section-title">Размер</h3>
+        <div class="rs-group">
+          <div class="rs-stepper">
+            <button type="button" class="rs-stepper-btn" id="rs-font-dec" aria-label="Мельче">A−</button>
+            <span class="rs-stepper-val" id="rs-font-size-val">18</span>
+            <button type="button" class="rs-stepper-btn" id="rs-font-inc" aria-label="Крупнее">A+</button>
+          </div>
+          <div class="rs-slider">
+            <span class="rs-icon">A</span>
+            <input type="range" id="rs-font-size" name="readerFontSize" min="12" max="32" step="1" aria-label="Размер шрифта">
+            <span class="rs-icon rs-icon-lg">A</span>
+          </div>
+        </div>
+      </section>
+
       <section class="rs-section" data-rs-section="presets">
         <h3 class="rs-section-title">Пресеты</h3>
         <div class="rs-group">
@@ -167,7 +183,7 @@ function composeReaderSettingsPanel(html) {
         </div>
       </section>
 
-      <section class="rs-section" data-rs-section="font">
+      <section class="rs-section" data-rs-section="font-face">
         <h3 class="rs-section-title">Шрифт</h3>
         <div class="rs-group">
           <div class="rs-label">Гарнитура</div>
@@ -187,15 +203,6 @@ function composeReaderSettingsPanel(html) {
           </select>
         </div>
         <div class="rs-group">
-          <div class="rs-label">Размер</div>
-          <div class="rs-slider">
-            <span class="rs-icon">A</span>
-            <input type="range" id="rs-font-size" name="readerFontSize" min="12" max="32" step="1">
-            <span class="rs-val" id="rs-font-size-val">18</span>
-            <span class="rs-icon rs-icon-lg">A</span>
-          </div>
-        </div>
-        <div class="rs-group">
           <div class="rs-label">Высота строки</div>
           <div class="rs-slider">
             <span class="rs-icon">&equiv;</span>
@@ -205,6 +212,8 @@ function composeReaderSettingsPanel(html) {
         </div>
       </section>
 
+      <details class="rs-details">
+        <summary>Дополнительно</summary>
       <section class="rs-section" data-rs-section="typography">
         <h3 class="rs-section-title">Абзац</h3>
         <div class="rs-group">
@@ -235,6 +244,7 @@ function composeReaderSettingsPanel(html) {
           </div>
         </div>
       </section>
+      </details>
       </div>
 
       <div class="rs-pane" id="rs-pane-look" data-rs-pane="look" role="tabpanel" aria-labelledby="rs-tab-look" hidden>
@@ -249,6 +259,8 @@ function composeReaderSettingsPanel(html) {
             <button class="rs-theme-dot" type="button" data-set-theme="eink"><span class="rs-dot-label">E-Ink</span></button>
           </div>
         </div>
+        <details class="rs-details">
+          <summary>Дополнительно</summary>
         <div class="rs-group">
           <div class="rs-color-stack">
             <div class="rs-color-line">
@@ -307,6 +319,7 @@ function composeReaderSettingsPanel(html) {
           </label>
         </div>
         <div id="rs-brightness-slot"></div>
+        </details>
       </section>
 
       <section class="rs-section" data-rs-section="layout">
@@ -319,6 +332,8 @@ function composeReaderSettingsPanel(html) {
             <button type="button" data-set-layout="scrolled">Прокрутка</button>
           </div>
         </div>
+        <details class="rs-details">
+          <summary>Дополнительно</summary>
         <div class="rs-group" id="rs-layout-paginated">
           <div class="rs-label">Ширина колонки</div>
           <div class="rs-slider">
@@ -362,23 +377,13 @@ function composeReaderSettingsPanel(html) {
             <span class="rs-icon" aria-hidden="true">≡</span>
           </div>
         </div>
+        </details>
       </section>
       </div>
 
       <div class="rs-pane" id="rs-pane-controls" data-rs-pane="controls" role="tabpanel" aria-labelledby="rs-tab-controls" hidden>
       <section class="rs-section" data-rs-section="controls">
-        <h3 class="rs-section-title">Тапы</h3>
-        <div class="rs-group">
-          <div class="rs-label">Зоны экрана</div>
-          <div class="rs-seg rs-tap-mode-seg">
-            <button type="button" data-tap-edit="short" class="is-active">Короткий тап</button>
-            <button type="button" data-tap-edit="long">Долгий тап</button>
-          </div>
-          <div class="rs-tap-grid" id="rs-tap-grid" role="group" aria-label="Зоны экрана"></div>
-          <select id="rs-tap-action" class="rs-select" aria-label="Действие зоны" hidden></select>
-          <div class="rs-hint" id="rs-tap-hint">Клетка, затем действие</div>
-          <button type="button" class="rs-tap-reset" id="rs-tap-reset">Сброс зон</button>
-        </div>
+        <h3 class="rs-section-title">Листание</h3>
         <div class="rs-group">
           <div class="rs-label">Автолист</div>
           <div class="rs-slider">
@@ -403,6 +408,20 @@ function composeReaderSettingsPanel(html) {
           <div class="rs-hint">E-Ink: громкость листает страницы. Яркость — левый край, температура — правый.</div>
         </div>
         <div id="rs-volume-keys-slot"></div>
+        <details class="rs-details">
+          <summary>Дополнительно — зоны экрана</summary>
+        <div class="rs-group">
+          <div class="rs-label">Зоны экрана</div>
+          <div class="rs-seg rs-tap-mode-seg">
+            <button type="button" data-tap-edit="short" class="is-active">Короткий тап</button>
+            <button type="button" data-tap-edit="long">Долгий тап</button>
+          </div>
+          <div class="rs-tap-grid" id="rs-tap-grid" role="group" aria-label="Зоны экрана"></div>
+          <select id="rs-tap-action" class="rs-select" aria-label="Действие зоны" hidden></select>
+          <div class="rs-hint" id="rs-tap-hint">Клетка, затем действие</div>
+          <button type="button" class="rs-tap-reset" id="rs-tap-reset">Сброс зон</button>
+        </div>
+        </details>
       </section>
       </div>
 
@@ -480,7 +499,34 @@ function injectAlReaderChrome(source) {
   if (!out.includes('id="ft-goto"')) {
     out = out.replace(
       /(<span class="ft-pct" id="ft-pct">)/,
-      '<button type="button" class="ft-goto-btn" id="ft-goto" title="Перейти…" aria-label="Перейти к позиции">⋯</button>\n  $1',
+      '<button type="button" class="ft-goto-btn" id="ft-goto" title="Перейти к позиции" aria-label="Перейти к позиции">Перейти</button>\n  $1',
+    );
+  } else {
+    out = out.replace(
+      /<button type="button" class="ft-goto-btn" id="ft-goto"[^>]*>.*?<\/button>/,
+      '<button type="button" class="ft-goto-btn" id="ft-goto" title="Перейти к позиции" aria-label="Перейти к позиции">Перейти</button>',
+    );
+  }
+
+  if (!out.includes('id="btn-overflow"')) {
+    out = out.replace(
+      /(<button class="tb-btn" type="button" id="btn-settings"[\s\S]*?<\/button>)\s*<\/div>\s*<\/div>/,
+      `$1
+    <button class="tb-btn tb-overflow-btn" type="button" id="btn-overflow" title="Ещё" aria-label="Ещё" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="18" r="1.7" fill="currentColor" stroke="none"/></svg></button>
+  </div>
+</div>
+<div class="tb-overflow-menu" id="tb-overflow-menu" role="menu" aria-hidden="true">
+  <button type="button" role="menuitem" data-overflow="search">Поиск</button>
+  <button type="button" role="menuitem" data-overflow="bookmark">Закладка</button>
+  <button type="button" role="menuitem" data-overflow="tts">Озвучка</button>
+</div>`,
+    );
+  }
+
+  if (!out.includes('id="rsm-bookmark"')) {
+    out = out.replace(
+      /<button type="button" class="rsm-btn" id="rsm-note"[^>]*>Заметка<\/button>/,
+      '<button type="button" class="rsm-btn" id="rsm-note">Заметка</button>\n  <button type="button" class="rsm-btn" id="rsm-bookmark">Закладка</button>',
     );
   }
 
@@ -553,10 +599,7 @@ html = injectAlReaderChrome(html);
 if (!html.includes('id="reader-restore-veil"')) {
   html = html.replace(
     /<div id="reader-body">/,
-    `<div class="reader-restore-veil" id="reader-restore-veil" aria-busy="true" aria-label="Загрузка книги">
-  <div class="reader-spinner"></div>
-  <div class="reader-loading-text">Загрузка книги…</div>
-</div>
+    `<div class="reader-restore-veil" id="reader-restore-veil" hidden></div>
 <div id="reader-body">`,
   );
 }
@@ -577,6 +620,15 @@ fs.writeFileSync(out, html);
 console.log('Wrote', out, html.length, 'bytes', `v=${version}`);
 if (!html.includes(`src="/inpx-reader/reader.js?v=${version}"`)) {
   console.error('Reader script is missing a cache-busting query; WebView will keep stale JS');
+  process.exit(1);
+}
+if (!html.includes('id="reader-loading"')) {
+  console.error('Foliate book loader #reader-loading is missing');
+  process.exit(1);
+}
+const veilMarkup = html.match(/<div class="reader-restore-veil" id="reader-restore-veil"[^>]*>[\s\S]*?<\/div>/);
+if (veilMarkup && veilMarkup[0].includes('Загрузка книги')) {
+  console.error('Restore veil must not repeat the Foliate loading message');
   process.exit(1);
 }
 if (!html.includes('id="rs-tap-grid"') || !html.includes('id="reader-goto"') || !html.includes('id="ft-goto"')) {

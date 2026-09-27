@@ -4,6 +4,7 @@ import {
   authHeader,
   formatAuthorLabel,
   formatAuthorsFromItem,
+  authorFacetNames,
   pickSeriesFromItem,
   mapServerBook,
   starsFromLibRate,
@@ -225,6 +226,22 @@ describe('mapServerBook', () => {
   it('maps 1..5 libRate without dividing by 20', () => {
     const book = mapServerBook({ ...item, libRate: 5 }, baseConfig);
     expect(book.rating).toBe(5);
+  });
+});
+
+describe('authorFacetNames', () => {
+  it('splits a joined display line into people', () => {
+    expect(authorFacetNames({ author: 'Винокуров Юрий, Сапфир Олег' })).toEqual([
+      'Винокуров Юрий',
+      'Сапфир Олег',
+    ]);
+  });
+
+  it('prefers the per-person list over the joined line', () => {
+    expect(authorFacetNames({
+      author: 'Винокуров Юрий, Сапфир Олег',
+      authors: ['Винокуров Юрий'],
+    })).toEqual(['Винокуров Юрий']);
   });
 });
 

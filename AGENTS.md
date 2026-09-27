@@ -16,7 +16,7 @@
 | API-first | Метаданные и sync — только через `/api/*` сервера, не из FB2/локальных эвристик |
 | Парность изменений | Новый endpoint на сервере → `inpxClient.ts` + UI; новая фича в reader → endpoint на сервере |
 | Sync по `bookId` | Позиция, закладки, заметки синхронизируются; путь файла на диске — snapshot при скачивании |
-| Серия и путь | `GET /api/books/:id/meta` → `seriesList` из INPX-индекса → `bookStorage.ts` |
+| Серия и путь | `GET /api/books/:id/meta` → `seriesList` из INPX-индекса → `bookStorage.ts`. `Book.series` — lookup-ключ (lowercase, для навигации/фасетов), `Book.seriesDisplay` — человекочитаемое имя из `seriesList[].displayName`; в UI выводить через `seriesLabel(book)` (`src/lib/seriesLabel.ts`) |
 | Перезапуск сервера | После новых routes в `inpx-library-server` |
 
 Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem.mdc` (always apply).
@@ -102,7 +102,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/books/:id/content` — скачать книгу
   - ID с NUL/control-символами (Flibusta): путь `/api/books/b64/<base64url>/content` (см. `bookRef.ts` / серверный `book-ref.js`), иначе HTTP 400
 - `GET /api/books/:id/cover` — обложка (full)
-- `GET /api/books/:id/cover-thumb` — обложка (миниатюра)
+- `GET /api/books/:id/cover-thumb` — обложка (миниатюра). Для книг в `.7z` сервер не распаковывает FB2 ради миниатюры (solid 7z иначе подвешивает HTTP). Таймаут портрета/обложки не считается потерей связи с сервером.
 - `GET /api/books/:id/details` — детали книги
 - `GET /api/books/:id/review` — рецензия на книгу
 - `GET /api/authors/portrait` — портрет автора
@@ -120,8 +120,10 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/books/:id/bookmarks` — закладки книги
 - `POST /api/books/:id/bookmarks` — добавить закладку
 - `DELETE /api/books/:id/bookmarks/:bmId` — удалить закладку
+- `PATCH /api/books/:id/bookmarks/:bmId` — переименовать закладку (`title`, до 500 символов)
 - `GET /api/books/:id/annotations` — заметки книги
 - `POST /api/books/:id/annotations` — добавить заметку
+- `PATCH /api/books/:id/annotations/:aid` — изменить текст заметки и/или цвет выделения (`note`, `color`)
 - `DELETE /api/books/:id/annotations/:aid` — удалить заметку
 
 #### История и activity sync
@@ -167,7 +169,7 @@ Android-приложение имеет **собственный мобильн�
 - Брендинг библиотеки через `GET /api/settings/ui` (название, логотип) — опционально
 
 **Своё в приложении:**
-- Навигация, табы, жесты, safe-area, кнопка «Назад»
+- Навигация: нижние табы **Главная → Каталог → Мои книги → Профиль**; настройки — внутри Профиля, не отдельный таб
 - Layout списков и карточек — под Android WebView
 - Анимации с учётом WebView: `MotionConfig reducedMotion="user"`, только transform/scale (без enter через `opacity: 0`)
 
@@ -328,7 +330,7 @@ npm run lint
 ### 4. Сервер и «офлайн»
 - **Сервер нужен для:** каталог, поиск, скачивание, синхронизация прогресса/закладок/заметок
 - **Сервер не нужен для:** чтения текста книги (файл уже на диске)
-- Индикация статуса подключения в шапке приложения
+- Офлайн: спокойный баннер, когда каталог или скачивание недоступны (не постоянный LAN/внешняя в шапке)
 
 ### 5. Мобильный UI/UX
 - Адаптация под маленькие экраны

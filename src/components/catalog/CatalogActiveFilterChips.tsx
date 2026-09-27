@@ -33,7 +33,7 @@ function Chip({
   onRemove: () => void;
 }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 min-h-10 pl-4 pr-2 ${radii.button} text-xs font-semibold ${theme.accentMuted} ${theme.accentText}`}>
+    <span className={`inline-flex items-center gap-1.5 min-h-12 pl-4 pr-2 ${radii.button} text-xs font-semibold ${theme.accentMuted} ${theme.accentText}`}>
       {label}
       <button
         type="button"
@@ -110,7 +110,7 @@ export default function CatalogActiveFilterChips({
       <button
         type="button"
         onClick={onClearAll}
-        className={`min-h-10 px-4 text-xs font-semibold ${radii.button} ${theme.chip} ${theme.chipHover} ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
+        className={`min-h-12 px-4 text-xs font-semibold ${radii.button} ${theme.chip} ${theme.chipHover} ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
       >
         Сбросить всё
       </button>

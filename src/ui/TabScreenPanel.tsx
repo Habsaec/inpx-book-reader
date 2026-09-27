@@ -6,15 +6,11 @@ interface TabScreenPanelProps {
   className?: string;
 }
 
-/**
- * Keeps inactive tabs mounted (hidden) and animates the active tab on switch.
- * Элемент стабилен (без key): снятие/установка класса inpx-screen-enter
- * перезапускает CSS-анимацию без размонтирования поддерева.
- */
+/** Inactive tabs stay mounted. No enter motion — tab switches happen constantly. */
 export default function TabScreenPanel({ active, children, className = '' }: TabScreenPanelProps) {
   return (
     <div
-      className={`flex-1 min-h-0 flex flex-col h-full overflow-hidden ${active ? 'inpx-screen-enter' : 'hidden'} ${className}`}
+      className={`flex-1 min-h-0 flex flex-col h-full overflow-hidden ${active ? '' : 'hidden'} ${className}`}
       aria-hidden={active ? undefined : true}
     >
       {children}

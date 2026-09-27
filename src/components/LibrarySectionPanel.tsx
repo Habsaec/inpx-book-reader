@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, AlertCircle, RefreshCw, BookOpen, Filter } from 'lucide-react';
+import { AlertCircle, BookOpen, Filter } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
@@ -13,8 +13,10 @@ import CatalogBookList from './catalog/CatalogBookList';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
 import type { CatalogFormatFilter, CatalogHasSeriesFilter } from './catalog/catalogTypes';
 import { BookGridSkeleton } from '../ui/Skeleton';
+import { useBarHeight } from '../ui/useBarHeight';
 import EmptyState from '../ui/EmptyState';
-import { textStyles, touchMin, semantic, radii } from '../ui/tokens';
+import { textStyles, touchMin, radii } from '../ui/tokens';
+import { usePageTitle } from '../ui/pageTitle';
 
 export type LibrarySectionView = 'recent' | 'recommended';
 
@@ -126,6 +128,7 @@ export default function LibrarySectionPanel({
   const { viewMode } = useCatalogViewMode('books');
 
   useOverlayBackHandler(isTabActive, onClose);
+  usePageTitle(meta.title, onClose, isTabActive);
 
   React.useEffect(() => {
     if (!isTabActive) onClose();
@@ -294,46 +297,14 @@ export default function LibrarySectionPanel({
     [onOpenBook, onOpenDetails],
   );
 
+  const [setToolEl, toolH] = useBarHeight();
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden">
-      <div className={`px-4 pt-3 pb-2 shrink-0 border-b ${theme.header}`}>
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            type="button"
-            aria-label="Назад"
-            onClick={onClose}
-            className={`${touchMin} inline-flex items-center gap-1 px-1 shrink-0 ${textStyles.bodyBold} ${theme.accentText} ${theme.focusRing}`}
-          >
-            <ArrowLeft className="w-4 h-4" aria-hidden /> Назад
-          </button>
-          <div className="min-w-0">
-            <h2 className={`${textStyles.title} truncate`}>{meta.title}</h2>
-            <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-2`}>{meta.subtitle}</p>
-          </div>
-        </div>
-      </div>
-
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => setFilterSheetOpen(true)}
-            className={`flex items-center gap-1.5 min-h-12 px-3 py-2 ${radii.button} ${theme.interactive} ${textStyles.captionBold} ${
-              hasActiveFilters ? theme.accentActive : `${theme.chip} ${theme.chipHover}`
-            }`}
-          >
-            <Filter className="w-4 h-4" aria-hidden />
-            Фильтры{hasActiveFilters ? ' •' : ''}
-          </button>
-          <div className="flex items-center gap-1 min-w-0">
-            <BookSortBar
-              value={sortBy}
-              options={SORT_OPTIONS[view]}
-              onChange={handleSortChange}
-            />
-          </div>
-        </div>
-
+    <div
+      className="relative flex-1 min-h-0 h-full"
+      style={{ ['--inpx-tool' as string]: `${toolH}px` }}
+    >
+      <div ref={scrollRef} className="absolute inset-0 overflow-y-auto inpx-page-scroll px-4 py-3">
         <CatalogActiveFilterChips
           minRating={minRating}
           formatFilter={formatFilter}
@@ -371,20 +342,16 @@ export default function LibrarySectionPanel({
         />
 
         {error && !loading ? (
-          <div className={`flex items-center justify-between gap-2 py-4 ${textStyles.caption} ${semantic.error}`}>
-            <span className="inline-flex items-center gap-1.5 min-w-0">
-              <AlertCircle className="w-4 h-4 shrink-0" aria-hidden />
-              Не удалось загрузить список
-            </span>
-            <button
-              type="button"
-              onClick={() => setReloadKey((k) => k + 1)}
-              className={`shrink-0 inline-flex items-center gap-1 font-bold underline ${theme.focusRing}`}
-            >
-              <RefreshCw className="w-3.5 h-3.5" aria-hidden />
-              Повторить
-            </button>
-          </div>
+          <EmptyState
+            compact
+            tone="error"
+            icon={AlertCircle}
+            title="Не удалось загрузить список"
+            description="Проверьте соединение с сервером."
+            actionLabel="Повторить"
+            actionVariant="secondary"
+            onAction={() => setReloadKey((k) => k + 1)}
+          />
         ) : loading || computing ? (
           <div className="space-y-3" aria-busy aria-label={computing ? 'Подбираем рекомендации…' : 'Загрузка'}>
             {computing && (
@@ -429,6 +396,35 @@ export default function LibrarySectionPanel({
             />
           </>
         )}
+      </div>
+
+      <div
+        ref={setToolEl}
+        className="inpx-chrome inpx-chrome-top absolute inset-x-0 z-20 px-4 py-1"
+        style={{ top: 'var(--app-header-offset, 4rem)' }}
+      >
+        {meta.subtitle ? (
+          <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-2`}>{meta.subtitle}</p>
+        ) : null}
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setFilterSheetOpen(true)}
+            className={`flex items-center gap-1.5 min-h-11 px-1 ${textStyles.captionBold} ${theme.focusRing} ${
+              hasActiveFilters ? theme.accentActive : theme.textMuted
+            }`}
+          >
+            <Filter className="w-4 h-4" aria-hidden />
+            Фильтры{hasActiveFilters ? ' •' : ''}
+          </button>
+          <div className="flex items-center gap-1 min-w-0">
+            <BookSortBar
+              value={sortBy}
+              options={SORT_OPTIONS[view]}
+              onChange={handleSortChange}
+            />
+          </div>
+        </div>
       </div>
 
       <CatalogFilterSheet

@@ -1,12 +1,12 @@
 import React from "react";
 
-import { createPortal } from "react-dom";
-
 import { theme } from "../lib/appTheme";
 
-import { textStyles, radii, elevation } from "./tokens";
+import { textStyles, elevation } from "./tokens";
 
 import Button from "./Button";
+import DragSheet from "./DragSheet";
+import { SheetDragHandle } from "./SheetChrome";
 
 export interface DialogPositionCompare {
   localLabel: string;
@@ -53,24 +53,24 @@ export function useDialog(): DialogContextValue {
 
 function DialogModal({
   state,
+  open,
   onClose,
 }: {
   state: DialogOptions;
+  open: boolean;
   onClose: (result: boolean) => void;
 }) {
-  const panelRef = React.useRef<HTMLDivElement>(null);
+  const [panelEl, setPanelEl] = React.useState<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
+    if (!open || !panelEl) return;
 
     const focusables = () =>
-      Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+      Array.from(panelEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
         (el) => !el.hasAttribute("disabled"),
       );
 
-    const first = focusables()[0];
-    first?.focus();
+    focusables()[0]?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -98,26 +98,20 @@ function DialogModal({
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [onClose, open, panelEl]);
 
   return (
-    <div
-      className="fixed inset-0 z-[600] flex items-end justify-center bg-black/50"
-      role="presentation"
-      onClick={() => onClose(false)}
+    <DragSheet
+      open={open}
+      onClose={() => onClose(false)}
+      labelledBy="dialog-title"
+      describedBy="dialog-message"
+      role="alertdialog"
+      zClass="z-[600]"
+      className={`w-full max-w-lg rounded-t-[var(--app-radius-lg)] rounded-b-none border-t ${theme.sheet} ${elevation.sheet} px-5 pt-3 space-y-4 overscroll-contain`}
     >
-      <div
-        ref={panelRef}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="dialog-title"
-        aria-describedby="dialog-message"
-        className={`w-full max-w-lg rounded-t-3xl rounded-b-none border-t border-x border-[color:var(--app-border)] ${theme.sheet} ${elevation.sheet} px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-4 inpx-enter-y overscroll-contain`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex justify-center pb-1" aria-hidden>
-          <div className="w-10 h-1 rounded-full bg-[color-mix(in_srgb,var(--app-text)_18%,transparent)]" />
-        </div>
+      <div ref={setPanelEl}>
+        <SheetDragHandle />
         <h2
           id="dialog-title"
           className={`${textStyles.title} ${theme.text}`}
@@ -134,7 +128,7 @@ function DialogModal({
 
         {state.positionCompare ? (
           <div
-            className={`rounded-xl border ${theme.panel} px-3 py-3 space-y-2`}
+            className={`rounded-[var(--app-radius-md)] border ${theme.panel} px-3 py-3 space-y-2`}
           >
             <div className="flex items-baseline justify-between gap-3">
               <span
@@ -186,7 +180,7 @@ function DialogModal({
           </Button>
         </div>
       </div>
-    </div>
+    </DragSheet>
   );
 }
 
@@ -219,19 +213,21 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = React.useMemo(() => ({ confirm, dismiss }), [confirm, dismiss]);
+  const shownRef = React.useRef(state);
+  if (state) shownRef.current = state;
+  const shown = state ?? shownRef.current;
 
   return (
     <DialogContext.Provider value={value}>
       {children}
 
-      {state &&
-        createPortal(
-          <DialogModal
-            state={state}
-            onClose={close}
-          />,
-          document.body,
-        )}
+      {shown ? (
+        <DialogModal
+          open={Boolean(state)}
+          state={shown}
+          onClose={close}
+        />
+      ) : null}
     </DialogContext.Provider>
   );
 }

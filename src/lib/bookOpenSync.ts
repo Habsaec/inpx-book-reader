@@ -36,13 +36,10 @@ export async function runBookOpenOnlineSync(
   const alive = () => !deps.shouldContinue || deps.shouldContinue();
 
   try {
+    // History is "continue reading" bookkeeping — never block position/bookmarks on it.
+    // A slow POST used to hold the restore veil for the full 2.5s wait.
     if (deps.recordReadingHistory) {
-      try {
-        await deps.recordReadingHistory(bookId);
-      } catch (e) {
-        if (isAuthError(e)) throw e;
-      }
-      if (!alive()) return { positionChoice: null, syncFailed: false };
+      void deps.recordReadingHistory(bookId).catch(() => {});
     }
     if (!initialPosition?.trim()) {
       if (deps.yieldForUi) await deps.yieldForUi();

@@ -66,8 +66,10 @@ function debugLog(hypothesisId, location, message, data) {
   const localFileName = config?.localFileName || '';
 
   function extFromPath(path) {
-    const m = String(path || '').match(/\.([a-z0-9]+)$/i);
-    return m ? m[1].toLowerCase() : '';
+    const lower = String(path || '').toLowerCase();
+    if (lower.endsWith('.fb2.zip')) return 'fb2.zip';
+    const m = lower.match(/\.([a-z0-9]+)$/);
+    return m ? m[1] : '';
   }
 
   const bookId = params.get('bookId') || config?.bookId || '';
@@ -388,7 +390,8 @@ function debugLog(hypothesisId, location, message, data) {
       enqueueSeedRestore(payloadFromStore(readReaderData()));
     }
     if (!openSyncDone) {
-      const ms = Math.max(0, Number(timeoutMs) || 2500);
+      const parsed = Number(timeoutMs);
+      const ms = Number.isFinite(parsed) ? Math.max(0, parsed) : 2500;
       await new Promise((resolve) => {
         const timer = window.setTimeout(() => {
           markOpenSyncDone();

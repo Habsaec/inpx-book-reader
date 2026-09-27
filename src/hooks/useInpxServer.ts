@@ -26,6 +26,7 @@ import {
   fetchReaderBookmarks,
   addReaderBookmarkApi,
   deleteReaderBookmarkApi,
+  patchReaderBookmarkApi,
   fetchReaderAnnotations,
   addReaderAnnotationApi,
   deleteReaderAnnotationApi,
@@ -404,6 +405,25 @@ export function useInpxServer(
     [config, online, withAuthGuard],
   );
 
+  const patchReaderBookmark = React.useCallback(
+    async (bookId: string, bmId: number, title: string) => {
+      if (!online) return false;
+      await withAuthGuard(() => patchReaderBookmarkApi(config, bookId, bmId, title));
+      setProfile((p) =>
+        p
+          ? {
+              ...p,
+              readerBookmarks: p.readerBookmarks.map((b) =>
+                b.bookId === bookId && b.id === bmId ? { ...b, label: title } : b,
+              ),
+            }
+          : p,
+      );
+      return true;
+    },
+    [config, online, withAuthGuard],
+  );
+
   const addAnnotation = React.useCallback(
     async (bookId: string, cfi: string, text: string, note: string, color: string) => {
       if (!online) return null;
@@ -561,6 +581,7 @@ export function useInpxServer(
     loadReaderData,
     addReaderBookmark,
     deleteReaderBookmark,
+    patchReaderBookmark,
     addAnnotation,
     deleteAnnotation,
     patchAnnotation,

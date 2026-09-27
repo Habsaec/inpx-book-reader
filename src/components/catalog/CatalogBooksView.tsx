@@ -1,8 +1,10 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Filter, Inbox, WifiOff } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
-import { textStyles, radii } from '../../ui/tokens';
+import { motion, textStyles } from '../../ui/tokens';
 import EmptyState from '../../ui/EmptyState';
+import ViewModeToggle from '../../ui/ViewModeToggle';
 import { Book, ServerConfig } from '../../types';
 import type { StorageDirectory } from '../../lib/storageDirectory';
 import type { AuthorGroupedState } from '../../hooks/useCatalogData';
@@ -12,6 +14,7 @@ import CatalogFilterSheet, { type CatalogFilterDraft, type CatalogGenreOption } 
 import CatalogLoadMore from './CatalogLoadMore';
 import CatalogPagination from './CatalogPagination';
 import BookSortBar from './BookSortBar';
+import { CatalogToolSlot } from './CatalogSearchHeader';
 import { CatalogAuthorGroupedList, CatalogAuthorSeriesShelf } from './CatalogDrilldownPanel';
 import type { CatalogBookSort } from '../../lib/inpxClient';
 import { useCatalogViewMode } from '../../hooks/useCatalogViewMode';
@@ -53,11 +56,15 @@ interface CatalogBooksViewProps {
   /** Server book sort (genre / search). */
   bookSort?: CatalogBookSort;
   onBookSortChange?: (sort: CatalogBookSort) => void;
-  /** Compact title/rating chips (genre page). */
+  /** Compact title/rating chips (genre / search / series). */
   showBookSortBar?: boolean;
   onClearAuthor: () => void;
   onClearSeries: () => void;
   onClearSubgenre: () => void;
+  onEditQuery?: () => void;
+  onGoLanding?: () => void;
+  /** Number of active book filters for the button badge. */
+  filterCount?: number;
   downloadedBookIds: string[];
   downloadingId?: string | null;
   queuedBookIds?: Set<string>;
@@ -118,6 +125,9 @@ export default function CatalogBooksView({
   onClearAuthor,
   onClearSeries,
   onClearSubgenre,
+  onEditQuery,
+  onGoLanding,
+  filterCount,
   downloadedBookIds,
   downloadingId = null,
   queuedBookIds,
@@ -141,7 +151,7 @@ export default function CatalogBooksView({
   onScrollToTop,
 }: CatalogBooksViewProps) {
   const [filterSheetOpen, setFilterSheetOpen] = React.useState(false);
-  const { viewMode } = useCatalogViewMode('books');
+  const { viewMode, setViewMode } = useCatalogViewMode('books');
   const showBooksSection = subTab === 'books' || Boolean(selectedAuthor || selectedSeries || selectedSubgenre);
   if (!showBooksSection) return null;
 
@@ -152,12 +162,16 @@ export default function CatalogBooksView({
     }
     return map;
   }, [genreOptions]);
-  const hasActiveFilters =
-    minRating > 0 ||
-    formatFilter !== 'all' ||
-    (showGenrePicker && genreFilters.length > 0) ||
-    (yearFilter >= 1800 && yearFilter <= 2100) ||
-    hasSeriesFilter !== 'any';
+  const activeFilterCount =
+    filterCount ??
+    [
+      minRating > 0,
+      formatFilter !== 'all',
+      showGenrePicker && genreFilters.length > 0,
+      yearFilter >= 1800 && yearFilter <= 2100,
+      hasSeriesFilter !== 'any',
+    ].filter(Boolean).length;
+  const hasActiveFilters = activeFilterCount > 0;
   const authorRoot =
     Boolean(
       isServerBrowse &&
@@ -193,38 +207,50 @@ export default function CatalogBooksView({
   // List = Flibusta groups (series → books). Grid / no books payload = series shelf.
   const authorListGrouped = authorRoot && viewMode === 'list' && hasAuthorListBooks;
   const authorShelfOnly = authorRoot && !authorListGrouped;
+  const searchEmpty = subTab === 'books' && !selectedAuthor && !selectedSeries && !selectedSubgenre;
   const showEmpty = currentBooks.length === 0 && !authorRoot;
+  const toolSlot = React.useContext(CatalogToolSlot);
+  const tools = (
+    <div className="flex items-center justify-between gap-2">
+      {showFilters ? (
+        <button
+          type="button"
+          onClick={() => setFilterSheetOpen(true)}
+          className={`flex items-center gap-2 min-h-11 px-1 ${theme.focusRing} ${motion.press} ${textStyles.body} ${
+            hasActiveFilters ? theme.accentText : theme.textMuted
+          }`}
+        >
+          <Filter className="w-4 h-4" aria-hidden />
+          Фильтры
+          {activeFilterCount > 0 ? (
+            <span className={`tabular-nums ${theme.accentText}`}>{activeFilterCount}</span>
+          ) : null}
+        </button>
+      ) : (
+        <span />
+      )}
+      <div className="flex items-center gap-1 min-w-0">
+        {showBookSortBar && onBookSortChange ? (
+          <BookSortBar
+            value={bookSort}
+            options={[
+              { id: 'recent', label: 'Новые' },
+              { id: 'title', label: 'Название' },
+              { id: 'author', label: 'Автор' },
+              { id: 'series', label: selectedSeries ? 'Тома' : 'Серия' },
+              { id: 'rating', label: 'Рейтинг' },
+            ]}
+            onChange={(id) => onBookSortChange(id as CatalogBookSort)}
+          />
+        ) : null}
+        <ViewModeToggle value={viewMode} onChange={setViewMode} />
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex-1 flex flex-col">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        {showFilters ? (
-          <button
-            type="button"
-            onClick={() => setFilterSheetOpen(true)}
-            className={`flex items-center gap-2 min-h-12 px-4 py-2.5 ${radii.button} ${theme.interactive} ${textStyles.captionBold} ${
-              hasActiveFilters ? theme.accentActive : `${theme.chip} ${theme.chipHover}`
-            }`}
-          >
-            <Filter className="w-4 h-4" aria-hidden />
-            Фильтры{hasActiveFilters ? ' •' : ''}
-          </button>
-        ) : (
-          <span />
-        )}
-        <div className="flex items-center gap-1 min-w-0">
-          {showBookSortBar && onBookSortChange ? (
-            <BookSortBar
-              value={bookSort}
-              options={[
-                { id: 'title', label: 'А–Я' },
-                { id: 'rating', label: 'Рейтинг' },
-              ]}
-              onChange={(id) => onBookSortChange(id as CatalogBookSort)}
-            />
-          ) : null}
-        </div>
-      </div>
+      {toolSlot ? createPortal(tools, toolSlot) : <div className="mb-2">{tools}</div>}
 
       {showFilters && (
       <CatalogActiveFilterChips
@@ -234,10 +260,10 @@ export default function CatalogBooksView({
         genreLabels={genreLabels}
         yearFilter={yearFilter}
         hasSeriesFilter={hasSeriesFilter}
-        selectedAuthor={selectedAuthor}
-        selectedSeries={selectedSeries}
-        /* Genre hero already shows the open genre — chip would duplicate. */
-        selectedSubgenre={showGenrePicker ? selectedSubgenre : null}
+        selectedAuthor={null}
+        selectedSeries={null}
+        /* Genre/author/series heroes already name the page — chips are book filters only. */
+        selectedSubgenre={null}
         onClearMinRating={() => onMinRatingChange(0)}
         onClearFormat={() => onFormatFilterChange('all')}
         onClearGenre={(code) => onGenreFiltersChange(genreFilters.filter((g) => g !== code))}
@@ -285,17 +311,34 @@ export default function CatalogBooksView({
             tone="offline"
             title="Нет подключения"
             description="Подключитесь к серверу, чтобы искать книги в каталоге"
-            actionLabel={hasActiveFilters || selectedAuthor || selectedSeries || selectedSubgenre ? 'Сбросить фильтры' : undefined}
-            onAction={hasActiveFilters || selectedAuthor || selectedSeries || selectedSubgenre ? onClearAllFilters : undefined}
+            actionLabel={onGoLanding ? 'К разделам' : undefined}
+            onAction={onGoLanding}
             actionVariant="primary"
           />
         ) : (
           <EmptyState
             icon={Inbox}
             title="Ничего не найдено"
-            description="Попробуйте другой запрос или сбросьте фильтры"
-            actionLabel={hasActiveFilters || selectedAuthor || selectedSeries || selectedSubgenre ? 'Сбросить' : undefined}
-            onAction={hasActiveFilters || selectedAuthor || selectedSeries || selectedSubgenre ? onClearAllFilters : undefined}
+            description={hasActiveFilters ? 'Сбросьте фильтры или измените запрос.' : 'Попробуйте изменить запрос.'}
+            actionLabel={
+              searchEmpty && onEditQuery
+                ? 'Изменить запрос'
+                : onGoLanding
+                  ? 'К разделам'
+                  : hasActiveFilters
+                    ? 'Сбросить'
+                    : undefined
+            }
+            onAction={
+              searchEmpty && onEditQuery
+                ? onEditQuery
+                : onGoLanding
+                  ? onGoLanding
+                  : hasActiveFilters
+                    ? onClearAllFilters
+                    : undefined
+            }
+            actionVariant="primary"
           />
         )
       ) : !authorListGrouped && currentBooks.length > 0 ? (

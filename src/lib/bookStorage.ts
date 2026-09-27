@@ -8,6 +8,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { Book } from '../types';
+import { getStorageNameStyle } from './appSettings';
 import type { StorageDirectory } from './storageDirectory';
 import { isStoragePermissionError } from './storageDirectory';
 import { computeBufferDigest } from './fileDigest';
@@ -39,14 +40,32 @@ export function sanitizeFileName(name: string): string {
 
 /** Расширение из относительного пути на диске (`Author/Series/1-Title.epub` → `epub`). */
 export function extFromStoragePath(relativePath: string): string {
-  const m = relativePath.match(/\.([a-z0-9]+)$/i);
-  return m?.[1]?.toLowerCase() || '';
+  const lower = String(relativePath || '').toLowerCase();
+  if (lower.endsWith('.fb2.zip')) return 'fb2.zip';
+  const m = lower.match(/\.([a-z0-9]+)$/);
+  return m?.[1] || '';
+}
+
+const RU_TO_LAT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'zh', з: 'z', и: 'i', й: 'y',
+  к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f',
+  х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+};
+
+export function transliterateFilePart(value: string): string {
+  return value.replace(/[а-яё]/gi, (ch) => {
+    const lower = ch.toLowerCase();
+    const mapped = RU_TO_LAT[lower] ?? ch;
+    return ch === lower ? mapped : mapped.charAt(0).toUpperCase() + mapped.slice(1);
+  });
 }
 
 export function bookStorageRelativePath(book: Book): string {
-  const author = sanitizeFileName(book.author || 'Неизвестный автор');
-  const series = sanitizeFileName(book.series || 'Без серии');
-  const title = sanitizeFileName(book.title || 'Без названия');
+  const style = getStorageNameStyle();
+  const name = (value: string) => sanitizeFileName(style === 'translit' ? transliterateFilePart(value) : value);
+  const author = name(book.author || 'Неизвестный автор');
+  const series = name(book.seriesDisplay || book.series || 'Без серии');
+  const title = name(book.title || 'Без названия');
   const ext = (book.ext || 'fb2').replace(/^\./, '');
   // Distinct bookIds can share author/series/title — suffix keeps SAF paths unique.
   const idKey = safeBookIdFileKey(book.id);

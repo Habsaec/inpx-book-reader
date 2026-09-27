@@ -16,8 +16,8 @@ if (!paginator.includes('if (numericDest)')) missing.push('paginator.js: numeric
 if (!paginator.includes('clearTextAnchor()')) missing.push('paginator.js: clearTextAnchor');
 if (!paginator.includes('#beginSectionTurn(prev)')) missing.push('paginator.js: beginSectionTurn');
 if (!paginator.includes('iframe scrolling=no')) missing.push('paginator.js: scrolled touch scroll');
-if (!view.includes("paginator.js?v=swipe-4")) missing.push('view.js: paginator.js?v=swipe-4');
-if (!reader.includes("view.js?v=swipe-4")) missing.push('reader.js: view.js?v=swipe-4');
+if (!view.includes("paginator.js?v=sel2")) missing.push('view.js: paginator.js?v=sel2');
+if (!reader.includes("view.js?v=sel2")) missing.push('reader.js: view.js?v=sel2');
 if (!paginator.includes('Math.abs(state.dy) > Math.abs(state.dx)')) {
   missing.push('paginator.js: vertical-swipe page-turn guard');
 }

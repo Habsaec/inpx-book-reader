@@ -1,7 +1,7 @@
 import React from 'react';
 import { theme } from '../lib/appTheme';
-import { textStyles, semantic } from '../ui/tokens';
-import { Cloud, HardDrive, Loader2 } from 'lucide-react';
+import { textStyles } from '../ui/tokens';
+import { Cloud, Loader2, Smartphone } from 'lucide-react';
 
 interface DownloadStatusLabelProps {
   isDownloaded: boolean;
@@ -21,20 +21,22 @@ export default function DownloadStatusLabel({
       <span
         className={`inline-flex items-center gap-1 ${textStyles.microBold} ${theme.accentText} ${className}`}
       >
-        <Loader2 className="w-3 h-3 shrink-0 animate-spin" aria-hidden />
-        Качается
+        <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" aria-hidden />
+        <span className="sr-only">Скачивается</span>
       </span>
     );
   }
 
   if (isDownloaded) {
+    /* Contexts that spell out «На сервере» get the matching «На устройстве» text; compact rows stay icon-only. */
     return (
       <span
-        className={`inline-flex items-center ${semantic.success} ${className}`}
+        className={`inline-flex items-center gap-1 ${showNotDownloaded ? textStyles.microBold : ''} ${theme.textMuted} ${className}`}
         title="На устройстве"
         aria-label="На устройстве"
       >
-        <HardDrive className="w-3.5 h-3.5 shrink-0 opacity-80" aria-hidden />
+        <Smartphone className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} aria-hidden />
+        {showNotDownloaded ? 'На устройстве' : null}
       </span>
     );
   }

@@ -20,6 +20,7 @@ export function useDownloadPipeline(opts: {
   canReadOnline: boolean;
   setDownloadedBooks: React.Dispatch<React.SetStateAction<Book[]>>;
   onAuthExpired?: () => void;
+  onOpenSaved?: (book: Book) => void;
 }) {
   const { serverConfig, storageDirectory, canReadOnline, setDownloadedBooks, onAuthExpired } = opts;
   const snackbar = useSnackbar();
@@ -27,6 +28,8 @@ export function useDownloadPipeline(opts: {
   snackbarShowRef.current = snackbar.show;
   const onAuthExpiredRef = React.useRef(onAuthExpired);
   onAuthExpiredRef.current = onAuthExpired;
+  const onOpenSavedRef = React.useRef(opts.onOpenSaved);
+  onOpenSavedRef.current = opts.onOpenSaved;
 
   const persistDownload = React.useCallback(
     async (
@@ -129,7 +132,16 @@ export function useDownloadPipeline(opts: {
       storageDirectory,
       canDownload: canReadOnline && Boolean(storageDirectory?.uri),
       onComplete: async (book, content, buffer, native) => persistDownload(book, content, buffer, native),
-      onSaved: () => {},
+      onSaved: (book) => {
+        snackbarShowRef.current(
+          'Сохранено — Читать',
+          {
+            label: 'Читать',
+            onClick: () => onOpenSavedRef.current?.(book),
+          },
+          'success',
+        );
+      },
       onError: (book, error) => {
         if (looksLikeAuthDownloadError(error)) {
           onAuthExpiredRef.current?.();

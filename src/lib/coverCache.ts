@@ -111,6 +111,30 @@ export function peekCoverMemory(bookId: string, variant: 'thumb' | 'full' = 'thu
   return memoryCache.get(coverMemKey(bookId, variant)) ?? null;
 }
 
+/** Обложка уже лежит в кэше приложения — файл книги снова читать не нужно. */
+export async function hasStoredCover(bookId: string): Promise<boolean> {
+  if (!bookId) return false;
+  if (peekCoverMemory(bookId, 'thumb')) return true;
+  const appPath = appCoverPath(bookId, 'thumb');
+  if (appCacheExistsCache.get(appPath) === true) return true;
+  if (!isNativeApp()) {
+    try {
+      const raw = await idbGet(coverIdbKey(bookId, 'thumb'));
+      return raw instanceof Blob ? raw.size >= 32 : typeof raw === 'string' && raw.length > 32;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    const exists = await BookStorage.appCacheFileExists({ path: appPath });
+    const ok = Boolean(exists?.exists);
+    rememberAppCacheExists(appPath, ok);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function peekPortraitMemory(authorName: string): string | null {
   return memoryCache.get(portraitMemKey(authorName)) ?? null;
 }

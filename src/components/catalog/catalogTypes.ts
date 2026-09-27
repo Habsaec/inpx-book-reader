@@ -3,10 +3,13 @@ export type CatalogSubTab = 'books' | 'authors' | 'series' | 'genres';
 /** Full set (legacy / back-handler). */
 export const CATALOG_SUB_TABS: CatalogSubTab[] = ['books', 'authors', 'series', 'genres'];
 
-/** Browse catalog root (start screen). */
-export const CATALOG_BROWSE_ROOT: CatalogSubTab = 'authors';
+/**
+ * Catalog root is the landing (search + Авторы/Серии/Жанры), not the A–Я authors list.
+ * Implemented as idle `books` without a committed query or entity page.
+ */
+export const CATALOG_BROWSE_ROOT: CatalogSubTab = 'books';
 
-/** Browse catalog: Авторы / Серии / Жанры (no «Книги»). */
+/** Browse section lists: Авторы / Серии / Жанры (opened from landing cards). */
 export const CATALOG_BROWSE_TABS: CatalogSubTab[] = ['authors', 'series', 'genres'];
 
 /** Active search: books / authors / series (no genres). */

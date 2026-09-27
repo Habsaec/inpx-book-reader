@@ -1,6 +1,5 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { ChevronRight, ChevronDown, Tag, Library, User, Inbox } from 'lucide-react';
+import { ChevronRight, Tag, Library, User, Inbox } from 'lucide-react';
 import { ServerConfig } from '../../types';
 import { theme } from '../../lib/appTheme';
 import type { StorageDirectory } from '../../lib/storageDirectory';
@@ -10,7 +9,7 @@ import BookSortBar from './BookSortBar';
 import type { LocalGenreAgg } from '../../lib/catalogAggregations';
 import type { AuthorSeriesSort } from '../../lib/catalogAggregations';
 import type { CatalogSubTab } from './catalogTypes';
-import { textStyles } from '../../ui/tokens';
+import { motion, textStyles } from '../../ui/tokens';
 import EmptyState from '../../ui/EmptyState';
 
 export interface CatalogEntityAuthor {
@@ -54,6 +53,8 @@ interface CatalogEntityListsProps {
   selectedAuthor: string | null;
   selectedSeries: string | null;
   selectedSubgenre: { parent: string; name: string } | null;
+  onGoLanding?: () => void;
+  onEditQuery?: () => void;
 }
 
 const ENTITY_SORT_OPTIONS: { id: AuthorSeriesSort; label: string }[] = [
@@ -109,6 +110,8 @@ export default function CatalogEntityLists({
   selectedAuthor,
   selectedSeries,
   selectedSubgenre,
+  onGoLanding,
+  onEditQuery,
 }: CatalogEntityListsProps) {
   const themeAccentText = theme.accentText;
 
@@ -119,7 +122,14 @@ export default function CatalogEntityLists({
           <EntitySortBar label="Сортировка авторов:" sortBy={authorSortBy} onChange={onAuthorSortChange} />
         )}
         {authors.length === 0 ? (
-          <EmptyState icon={User} title="Список авторов пуст" description="Попробуйте обновить каталог или изменить поиск" />
+          <EmptyState
+            icon={User}
+            title="Ничего не найдено"
+            description="Попробуйте изменить запрос."
+            actionLabel={onEditQuery ? 'Изменить запрос' : onGoLanding ? 'К разделам' : undefined}
+            onAction={onEditQuery || onGoLanding}
+            actionVariant="primary"
+          />
         ) : (
           <>
             <div>
@@ -141,7 +151,7 @@ export default function CatalogEntityLists({
                     type="button"
                     key={author.name}
                     onClick={() => onOpenAuthor(author.name)}
-                    className={`w-full border-b last:border-b-0 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.divider} ${theme.focusRing}`}
+                    className={`w-full min-h-12 border-b last:border-b-0 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.divider} ${theme.focusRing} ${motion.press}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center border text-sm shrink-0 ${theme.iconBg}`}>
@@ -184,7 +194,14 @@ export default function CatalogEntityLists({
           <EntitySortBar label="Сортировка серий:" sortBy={seriesSortBy} onChange={onSeriesSortChange} />
         )}
         {series.length === 0 ? (
-          <EmptyState icon={Library} title="Список серий пуст" description="Попробуйте обновить каталог или изменить поиск" />
+          <EmptyState
+            icon={Library}
+            title="Ничего не найдено"
+            description="Попробуйте изменить запрос."
+            actionLabel={onEditQuery ? 'Изменить запрос' : onGoLanding ? 'К разделам' : undefined}
+            onAction={onEditQuery || onGoLanding}
+            actionVariant="primary"
+          />
         ) : (
           <>
             <div>
@@ -203,7 +220,7 @@ export default function CatalogEntityLists({
                 type="button"
                 key={item.name}
                 onClick={() => onOpenSeries(item.name)}
-                className={`w-full border-b last:border-b-0 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.divider} ${theme.focusRing}`}
+                className={`w-full min-h-12 border-b last:border-b-0 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.divider} ${theme.focusRing} ${motion.press}`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={`w-9 h-9 rounded-lg flex items-center justify-center border shrink-0 ${theme.iconBg}`}>
@@ -245,7 +262,14 @@ export default function CatalogEntityLists({
     return (
       <div className="space-y-2.5">
         {genres.length === 0 ? (
-          <EmptyState icon={Inbox} title="Список жанров пуст" description="Попробуйте обновить каталог" />
+          <EmptyState
+            icon={Inbox}
+            title="Ничего не найдено"
+            description="Попробуйте изменить запрос."
+            actionLabel={onGoLanding ? 'К разделам' : undefined}
+            onAction={onGoLanding}
+            actionVariant="primary"
+          />
         ) : (
           genres.map((genreItem) => {
           const isExpanded = !!expandedGenres[genreItem.name];
@@ -256,7 +280,7 @@ export default function CatalogEntityLists({
                 type="button"
                 onClick={() => onToggleGenreExpand(genreItem.name)}
                 aria-expanded={isExpanded}
-                className={`w-full py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.focusRing}`}
+                className={`w-full py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <Tag className={`w-4 h-4 ${themeAccentText}`} aria-hidden />
@@ -267,37 +291,32 @@ export default function CatalogEntityLists({
                     </p>
                   </div>
                 </div>
-                {isExpanded ? (
-                  <ChevronDown className={`w-4 h-4 shrink-0 ${theme.textMuted}`} aria-hidden />
-                ) : (
-                  <ChevronRight className={`w-4 h-4 shrink-0 ${theme.textMuted}`} aria-hidden />
-                )}
+                <ChevronRight
+                  className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-out ${isExpanded ? 'rotate-90' : ''} ${theme.textMuted}`}
+                  aria-hidden
+                />
               </button>
-              <AnimatePresence initial={false}>
-                {isExpanded && (
-                  <motion.div
-                    initial={{ height: 0 }}
-                    animate={{ height: 'auto' }}
-                    exit={{ height: 0 }}
-                    className="overflow-hidden divide-y bg-black/5 divide-[color:var(--app-border)]"
-                  >
-                    {subgenresList.map(([genreCode, sub]) => (
-                      <button
-                        type="button"
-                        key={genreCode}
-                        onClick={() => onSelectSubgenre(genreItem.name, genreCode)}
-                        className={`w-full min-h-12 px-4 py-3 pl-8 flex items-center justify-between text-left text-xs ${theme.rowPress} ${theme.focusRing}`}
-                      >
-                        <div>
-                          <span className={textStyles.bodyBold}>{sub.name}</span>
-                          <span className={`${textStyles.micro} ${theme.textMuted} ml-1.5`}>({sub.count} кн.)</span>
-                        </div>
-                        <ChevronRight className={`w-3.5 h-3.5 shrink-0 ${theme.textMuted}/40`} aria-hidden />
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              <div className={`inpx-collapse ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div
+                  inert={isExpanded ? undefined : true}
+                  className="min-h-0 overflow-hidden divide-y bg-black/5 divide-[color:var(--app-border)]"
+                >
+                  {subgenresList.map(([genreCode, sub]) => (
+                    <button
+                      type="button"
+                      key={genreCode}
+                      onClick={() => onSelectSubgenre(genreItem.name, genreCode)}
+                      className={`w-full min-h-12 px-4 py-3 pl-8 flex items-center justify-between text-left text-xs ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+                    >
+                      <div>
+                        <span className={textStyles.bodyBold}>{sub.name}</span>
+                        <span className={`${textStyles.micro} ${theme.textMuted} ml-1.5`}>({sub.count} кн.)</span>
+                      </div>
+                      <ChevronRight className={`w-3.5 h-3.5 shrink-0 ${theme.textMuted}/40`} aria-hidden />
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           );
         })

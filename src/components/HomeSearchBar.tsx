@@ -5,10 +5,15 @@ import { theme } from '../lib/appTheme';
 import { textStyles, touchMin, radii, motion } from '../ui/tokens';
 import type { ServerConfig } from '../types';
 import { useSearchHistory } from '../hooks/useSearchHistory';
+import { useBackHandler } from '../hooks/useBackHandler';
+import { displayBookTitle } from '../lib/seriesLabel';
 
 interface HomeSearchBarProps {
   serverConfig: ServerConfig;
   isOnline: boolean;
+  inputId?: string;
+  autoFocus?: boolean;
+  onDismiss?: () => void;
   onSubmitSearch: (query: string) => void;
   onPickAuthor: (name: string) => void;
   onPickSeries: (name: string) => void;
@@ -18,6 +23,9 @@ interface HomeSearchBarProps {
 export default function HomeSearchBar({
   serverConfig,
   isOnline,
+  inputId = 'home-search',
+  autoFocus = false,
+  onDismiss,
   onSubmitSearch,
   onPickAuthor,
   onPickSeries,
@@ -41,6 +49,11 @@ export default function HomeSearchBar({
       if (blurTimerRef.current != null) window.clearTimeout(blurTimerRef.current);
     };
   }, []);
+
+  React.useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+    else inputRef.current?.blur();
+  }, [autoFocus]);
 
   React.useEffect(() => {
     if (!isOnline || !focused) {
@@ -77,10 +90,15 @@ export default function HomeSearchBar({
     query.trim().length >= 2 &&
     (suggestions.authors.length > 0 || suggestions.series.length > 0 || suggestions.books.length > 0);
 
-  const close = () => {
+  const close = React.useCallback(() => {
     setFocused(false);
     inputRef.current?.blur();
-  };
+  }, []);
+
+  useBackHandler(() => {
+    close();
+    return true;
+  }, focused);
 
   const submit = (raw?: string) => {
     const next = (raw ?? query).trim();
@@ -89,21 +107,22 @@ export default function HomeSearchBar({
     setQuery('');
     close();
     onSubmitSearch(next);
+    onDismiss?.();
   };
 
   return (
     <div className="relative">
       <form
-        className="relative"
+        className="relative min-w-0 overflow-hidden"
         role="search"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
-        <label htmlFor="home-search" className="sr-only">Поиск книг, авторов и серий</label>
+        <label htmlFor={inputId} className="sr-only">Поиск книг, авторов и серий</label>
         <input
-          id="home-search"
+          id={inputId}
           ref={inputRef}
           type="search"
           enterKeyHint="search"
@@ -129,11 +148,12 @@ export default function HomeSearchBar({
           }}
           placeholder={isOnline ? 'Книга, автор или серия' : 'Поиск недоступен офлайн'}
           disabled={!isOnline}
+          autoFocus={autoFocus}
           autoComplete="off"
-          className={`w-full ${radii.button} pl-12 pr-14 py-3.5 text-sm ${theme.inputFocus} transition-[colors,box-shadow] duration-200 ease-out ${theme.input} disabled:opacity-60`}
+          className={`w-full min-w-0 min-h-12 ${radii.button} pl-12 pr-14 py-3.5 ${textStyles.body} ${theme.inputFocus} ${theme.input} disabled:opacity-60`}
         />
         <Search
-          className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textMuted} pointer-events-none`}
+            className={`inpx-search-glyph absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${theme.textMuted} pointer-events-none`}
           aria-hidden
         />
         {query.length > 0 && (
@@ -144,7 +164,7 @@ export default function HomeSearchBar({
               setQuery('');
               inputRef.current?.focus();
             }}
-            className={`absolute right-2 top-1/2 -translate-y-1/2 ${touchMin} inline-flex items-center justify-center rounded-full ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
+            className={`absolute right-2 inset-y-0 my-auto h-12 w-12 ${touchMin} inline-flex items-center justify-center rounded-full ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
           >
             <X className="w-4 h-4" aria-hidden />
           </button>
@@ -154,10 +174,10 @@ export default function HomeSearchBar({
       {showHistory ? (
         <div
           ref={panelRef}
-          className={`absolute left-0 right-0 top-full mt-2 z-30 border overflow-hidden ${radii.lg} ${theme.dropdown} shadow-lg`}
+          className={`absolute left-0 right-0 top-full mt-2 z-30 border overflow-hidden ${radii.md} ${theme.dropdown}`}
         >
           <div className={`px-4 py-2.5 flex items-center justify-between ${textStyles.caption} ${theme.textMuted}`}>
-            <span>Недавние запросы</span>
+            <span>Недавние поиски</span>
             <button
               type="button"
               onClick={clearHistory}
@@ -192,7 +212,7 @@ export default function HomeSearchBar({
       {showSuggest ? (
         <div
           ref={panelRef}
-          className={`absolute left-0 right-0 top-full mt-2 z-30 border max-h-80 overflow-y-auto ${radii.lg} ${theme.dropdown} shadow-lg`}
+          className={`absolute left-0 right-0 top-full mt-2 z-30 border max-h-80 overflow-y-auto ${radii.md} ${theme.dropdown}`}
         >
           {suggestions.authors.length > 0 ? (
             <>
@@ -207,6 +227,7 @@ export default function HomeSearchBar({
                     setQuery('');
                     close();
                     onPickAuthor(row.name);
+                    onDismiss?.();
                   }}
                   className={`flex w-full items-baseline justify-between gap-2 text-left px-4 min-h-12 ${theme.dropdownItem} ${theme.focusRing}`}
                 >
@@ -231,6 +252,7 @@ export default function HomeSearchBar({
                     setQuery('');
                     close();
                     onPickSeries(row.name);
+                    onDismiss?.();
                   }}
                   className={`flex w-full items-baseline justify-between gap-2 text-left px-4 min-h-12 ${theme.dropdownItem} ${theme.focusRing}`}
                 >
@@ -254,10 +276,11 @@ export default function HomeSearchBar({
                     setQuery('');
                     close();
                     onPickBook(book);
+                    onDismiss?.();
                   }}
                   className={`flex w-full flex-col justify-center text-left px-4 min-h-12 py-2 ${theme.dropdownItem} ${theme.focusRing}`}
                 >
-                  <span className="truncate text-sm">{book.title}</span>
+                  <span className="truncate text-sm">{displayBookTitle(book)}</span>
                   {book.authorsDisplay || book.authors ? (
                     <span className={`truncate ${textStyles.caption} ${theme.textMuted}`}>
                       {book.authorsDisplay || book.authors}

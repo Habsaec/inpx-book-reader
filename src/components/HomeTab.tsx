@@ -1,25 +1,58 @@
 import React from 'react';
-import { BookOpen, Play, WifiOff, AlertCircle, RefreshCw, Star } from 'lucide-react';
+import { BookOpen, AlertCircle, MoreVertical, Play, Loader2 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { InpxProfile, mapServerBook, starsFromLibRate, fetchLibraryView, isAuthError, isUnreachableServerError } from '../lib/inpxClient';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { mergeRecentReadingLists, type LocalRecentReadingItem } from '../lib/localReadingProgress';
+import { isBookDownloadInFlight, isBookFinished, resolveBookPrimaryAction, type BookPrimaryKind } from '../lib/bookOpenPolicy';
+import ReadMark from './ReadMark';
 import BookCover from './BookCover';
 import ReadProgressBar from './ReadProgressBar';
 import HorizontalBookShelf from './HorizontalBookShelf';
 import CatalogBookList from './catalog/CatalogBookList';
 import LibrarySectionPanel, { type LibrarySectionView } from './LibrarySectionPanel';
-import PullToRefresh from './PullToRefresh';
 import Skeleton, { BookListSkeleton, BookShelfSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
-import DownloadQueueWidget from './DownloadQueueWidget';
-import HomeSearchBar from './HomeSearchBar';
+import IconButton from '../ui/IconButton';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
-import { textStyles, motion, semantic, radii, elevation } from '../ui/tokens';
+import { useDownloadQueue } from '../hooks/useDownloadQueue';
+import { textStyles, motion, radii, spacing } from '../ui/tokens';
+import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, seriesVolumeLabel } from '../lib/seriesLabel';
+import { getHomeRecentMode } from '../lib/appSettings';
 import type { CatalogViewMode } from '../lib/catalogViewMode';
 
 const HERO_LONG_PRESS_MS = 420;
+
+function HomeSectionHeader({
+  title,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <h3 className={`${textStyles.labelBold} tracking-wide ${theme.textMuted}`}>{title}</h3>
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className={`${textStyles.body} min-h-12 px-1 ${theme.accentText} ${theme.focusRing} ${motion.press} shrink-0`}
+        >
+          {actionLabel}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function HeroActionIcon({ kind }: { kind: BookPrimaryKind }) {
+  if (kind === 'downloading') return <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />;
+  return <Play className="w-4 h-4 fill-current shrink-0" aria-hidden />;
+}
 
 function useHeroPressHandlers(onTap: () => void, onLongPress?: () => void) {
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,6 +113,7 @@ function HomeBookPreview({
   storageDirectory,
   readingProgressByBookId,
   downloadedBookIds,
+  readIds,
   loading = false,
   onBookClick,
   onBookLongPress,
@@ -91,6 +125,7 @@ function HomeBookPreview({
   storageDirectory?: StorageDirectory | null;
   readingProgressByBookId?: Record<string, number>;
   downloadedBookIds: string[];
+  readIds?: Set<string>;
   loading?: boolean;
   onBookClick: (book: Book) => void;
   onBookLongPress?: (book: Book) => void;
@@ -112,6 +147,7 @@ function HomeBookPreview({
         storageDirectory={storageDirectory}
         downloadedBookIds={downloadedBookIds}
         readingProgressByBookId={readingProgressByBookId}
+        readIds={readIds}
         virtualizeList={false}
         onBookClick={onBookClick}
         onBookLongPress={onBookLongPress}
@@ -126,6 +162,7 @@ function HomeBookPreview({
       storageDirectory={storageDirectory}
       readingProgressByBookId={readingProgressByBookId}
       downloadedBookIds={downloadedBookIds}
+      readIds={readIds}
       loading={loading}
       onBookClick={onBookClick}
       onBookLongPress={onBookLongPress}
@@ -140,29 +177,32 @@ interface HomeTabProps {
   serverConfig: ServerConfig;
   isAppDark: boolean;
   isOnline: boolean;
-  isVerifyingConnection?: boolean;
   downloadedBookIds: string[];
   localRecentReading: LocalRecentReadingItem[];
   readingProgressByBookId: Record<string, number>;
   storageDirectory?: StorageDirectory | null;
-  onContinueBook: (book: Book) => void;
   onOpenBook: (book: Book) => void;
-  /** Short tap on a shelf/card → details sheet. Hero long-press also opens details. */
-  onOpenDetails?: (book: Book) => void;
+  downloadingId?: string | null;
+  queuedBookIds?: Set<string>;
   fetchSectionBooks?: (section: 'recent' | 'recommended', page?: number) => Promise<import('../lib/inpxClient').InpxBookItem[]>;
   onRefresh?: () => void | Promise<void>;
   onGoCatalog?: () => void;
+  onGoProfile?: () => void;
   onSearchSubmit?: (query: string) => void;
   onSearchAuthor?: (name: string) => void;
   onSearchSeries?: (name: string) => void;
   onSearchBook?: (book: { id: string; title: string; authors?: string; authorsDisplay?: string }) => void;
   onBookLongPress?: (book: Book) => void;
+  /** Shelf tap → storefront card (same as catalog). */
+  onOpenDetails?: (book: Book) => void;
   isTabActive?: boolean;
   /** Bumped when Home tab is selected again — close «Показать всё» lists. */
   homeRootEpoch?: number;
   readIds?: Set<string>;
   onAuthExpired?: () => void;
   onConnectionLost?: () => void;
+  /** Library name from the server, shown in the home header. */
+  siteName: string;
 }
 
 export default function HomeTab({
@@ -171,22 +211,18 @@ export default function HomeTab({
   serverConfig,
   isAppDark,
   isOnline,
-  isVerifyingConnection,
   downloadedBookIds,
   localRecentReading,
   readingProgressByBookId,
   storageDirectory,
-  onContinueBook,
   onOpenBook,
-  onOpenDetails,
+  downloadingId = null,
+  queuedBookIds,
   fetchSectionBooks,
-  onRefresh,
   onGoCatalog,
-  onSearchSubmit,
-  onSearchAuthor,
-  onSearchSeries,
-  onSearchBook,
+  onGoProfile,
   onBookLongPress,
+  onOpenDetails,
   isTabActive = true,
   homeRootEpoch = 0,
   readIds,
@@ -202,6 +238,13 @@ export default function HomeTab({
   const [sectionKey, setSectionKey] = React.useState(0);
   const [sectionView, setSectionView] = React.useState<LibrarySectionView | null>(null);
   const { viewMode } = useCatalogViewMode('home');
+  const [recentMode, setRecentMode] = React.useState(getHomeRecentMode);
+  React.useEffect(() => {
+    const onChange = () => setRecentMode(getHomeRecentMode());
+    window.addEventListener('inpx-settings', onChange);
+    return () => window.removeEventListener('inpx-settings', onChange);
+  }, []);
+  const downloadJobs = useDownloadQueue();
   const homeRootEpochSeen = React.useRef(homeRootEpoch);
 
   React.useEffect(() => {
@@ -240,21 +283,61 @@ export default function HomeTab({
     return mergeRecentReadingLists(fromProfile, localRecentReading);
   }, [profile, localRecentReading]);
 
+  const readAuthorKeys = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const item of mergedRecent) {
+      for (const part of (item.authorsDisplay || '').split(/[,:]/)) {
+        const name = part.trim().toLowerCase();
+        if (name) set.add(name);
+      }
+    }
+    return set;
+  }, [mergedRecent]);
+  const visibleRecent = recentMode === 'fav'
+    ? recentServer.filter((book) => {
+        const author = (book.author || '').toLowerCase();
+        if (!author || readAuthorKeys.size === 0) return false;
+        for (const name of readAuthorKeys) {
+          if (author.includes(name)) return true;
+        }
+        return false;
+      })
+    : recentServer;
+
   const hero = mergedRecent[0];
-  const others = mergedRecent.slice(1, 8).map((item) => localRecentToBook(item, serverConfig));
   const heroProgress = hero ? (readingProgressByBookId[hero.id] ?? hero.readProgress ?? 0) : 0;
-  const heroRating = hero?.rating && hero.rating > 0 ? hero.rating : 0;
+  const heroFinished = hero ? isBookFinished(heroProgress, readIds?.has(hero.id)) : false;
   const heroBook = React.useMemo(
     () => (hero ? localRecentToBook(hero, serverConfig) : null),
     [hero, serverConfig],
   );
+  const heroDownloading = Boolean(
+    hero && isBookDownloadInFlight(hero.id, downloadingId, queuedBookIds),
+  );
+  const heroHasFile = Boolean(hero && downloadedBookIds.includes(hero.id));
+  const heroAction = hero
+    ? resolveBookPrimaryAction({
+        hasFile: heroHasFile,
+        isDownloading: heroDownloading,
+        progress: heroProgress,
+        isRead: readIds?.has(hero.id),
+      })
+    : null;
+  const heroDownloadJob = hero
+    ? downloadJobs.find(
+        (job) =>
+          job.id === hero.id &&
+          (job.status === 'queued' || job.status === 'downloading' || job.status === 'saving'),
+      )
+    : undefined;
   const handleHeroTap = React.useCallback(() => {
-    if (heroBook) onContinueBook(heroBook);
-  }, [heroBook, onContinueBook]);
+    if (!heroBook || heroAction?.disabled) return;
+    onOpenBook(heroBook);
+  }, [heroBook, heroAction?.disabled, onOpenBook]);
   const handleHeroLongPress = React.useCallback(() => {
-    if (heroBook) onOpenDetails?.(heroBook);
-  }, [heroBook, onOpenDetails]);
-  const heroPress = useHeroPressHandlers(handleHeroTap, onOpenDetails ? handleHeroLongPress : undefined);
+    if (heroBook) onBookLongPress?.(heroBook);
+  }, [heroBook, onBookLongPress]);
+  const heroPress = useHeroPressHandlers(handleHeroTap, onBookLongPress ? handleHeroLongPress : undefined);
 
   React.useEffect(() => {
     if (!fetchSectionBooks || !isOnline) return;
@@ -303,7 +386,7 @@ export default function HomeTab({
   }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, onAuthExpired, onConnectionLost]);
 
   React.useEffect(() => {
-    if (!fetchSectionBooks || !isOnline) return;
+    if (!fetchSectionBooks || !isOnline || recentMode === 'off') return;
     let cancelled = false;
     setRecentLoading(true);
     setRecentError(false);
@@ -323,27 +406,9 @@ export default function HomeTab({
     return () => {
       cancelled = true;
     };
-  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey]);
-
-  const handleRefresh = React.useCallback(async () => {
-    setSectionKey((k) => k + 1);
-    await onRefresh?.();
-  }, [onRefresh]);
+  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, recentMode]);
 
   const closeSectionView = React.useCallback(() => setSectionView(null), []);
-
-  const searchBar = onSearchSubmit && onSearchAuthor && onSearchSeries && onSearchBook ? (
-    <div className={`px-5 pt-4 pb-2 shrink-0 relative z-20 ${theme.bg}`}>
-      <HomeSearchBar
-        serverConfig={serverConfig}
-        isOnline={isOnline}
-        onSubmitSearch={onSearchSubmit}
-        onPickAuthor={onSearchAuthor}
-        onPickSeries={onSearchSeries}
-        onPickBook={onSearchBook}
-      />
-    </div>
-  ) : null;
 
   if (sectionView) {
     return (
@@ -371,13 +436,8 @@ export default function HomeTab({
   if (loading && mergedRecent.length === 0) {
     return (
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        {searchBar}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6" aria-busy aria-label="Загрузка главной">
-          {viewMode === 'list' ? (
-            <Skeleton className="w-full h-28 rounded-xl" />
-          ) : (
-            <Skeleton className="w-full aspect-[16/9] min-h-[11rem] max-h-60" />
-          )}
+        <div data-large-title="" className="flex-1 overflow-y-auto inpx-page-scroll px-5 py-5 space-y-8" aria-busy aria-label="Загрузка главной">
+          <Skeleton className="w-[7.5rem] aspect-[2/3]" />
           <div className="space-y-3">
             <Skeleton variant="block" blockSize="lg" className="max-w-[30%]" />
             {viewMode === 'list' ? <BookListSkeleton count={4} /> : <BookShelfSkeleton count={4} />}
@@ -391,160 +451,129 @@ export default function HomeTab({
     );
   }
 
+  const heroSeriesName = hero ? seriesLabel(hero) : '';
+  const heroVolume = hero ? seriesVolumeLabel(hero) : '';
+
   const scrollInner = (
     <>
-      {hero ? (
-        viewMode === 'list' ? (
+      {hero && heroBook && heroAction ? (
+        <section className="relative flex w-full min-w-0 max-w-full flex-col items-center text-center gap-3" aria-label={`Продолжить чтение: ${displayBookTitle(hero)}`}>
+          {onBookLongPress ? (
+            <IconButton
+              label="Ещё действия"
+              className="absolute top-0 right-0 shrink-0"
+              onClick={() => onBookLongPress(heroBook)}
+            >
+              <MoreVertical className="w-5 h-5" aria-hidden />
+            </IconButton>
+          ) : null}
           <button
             type="button"
-            className={`w-full text-left select-none touch-manipulation ${radii.lg} ${theme.card} ${elevation.card} px-5 py-4 space-y-3 ${motion.press} ${theme.focusRing}`}
+            className={`w-40 select-none touch-manipulation ${theme.focusRing} ${motion.press} disabled:opacity-70`}
+            disabled={heroAction.disabled}
+            aria-label={`${heroAction.kind === 'downloading' ? heroAction.label : 'Продолжить'}: ${displayBookTitle(hero)}`}
             {...heroPress}
-            aria-label={`Продолжить: ${hero.title}`}
           >
-            <div className="flex items-center justify-between gap-2">
-              <p className={`${textStyles.captionBold} ${theme.accentText}`}>Продолжить чтение</p>
-              {heroRating > 0 ? (
-                <span className={`shrink-0 text-xs tracking-tight ${semantic.warning}`} aria-label={`Рейтинг ${heroRating}`}>
-                  {'★'.repeat(heroRating)}
-                </span>
-              ) : null}
-            </div>
-            <h3 className={`${textStyles.bookTitle} ${theme.text} line-clamp-2`}>{hero.title}</h3>
-            {hero.authorsDisplay ? (
-              <p className={`${textStyles.caption} ${theme.textMuted} truncate`}>{hero.authorsDisplay}</p>
-            ) : null}
-            <div className="flex items-center gap-3 pt-0.5">
-              {heroProgress > 0 ? (
-                <div className="flex-1 min-w-0">
-                  <ReadProgressBar value={heroProgress} showLabel />
-                </div>
-              ) : (
-                <span className="flex-1" />
-              )}
-              <span className={`shrink-0 inline-flex items-center gap-1 ${textStyles.captionBold} ${theme.accentText}`}>
-                <Play className="w-3.5 h-3.5 fill-current" aria-hidden />
-                Продолжить
+            <span className="book-cover w-full">
+              <span className="book-cover-inner">
+                <BookCover
+                  bookId={hero.id}
+                  serverConfig={serverConfig}
+                  storageDirectory={storageDirectory}
+                  variant="full"
+                  title={hero.title}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+                {heroFinished ? <ReadMark /> : null}
+              </span>
+            </span>
+          </button>
+          <h3 className={`${textStyles.bookTitleHero} ${theme.text} line-clamp-2`}>{bookTitleWithoutVolume(hero)}</h3>
+          <ReadProgressBar value={heroProgress} showLabel className="w-full" />
+          {hero.authorsDisplay ? (
+            <p className={`text-base font-medium ${theme.accentText}`}>{hero.authorsDisplay}</p>
+          ) : null}
+          {heroSeriesName ? (
+            <p className={`${textStyles.caption} ${theme.textMuted}`}>
+              {heroSeriesName}{heroVolume ? ` · том ${heroVolume}` : ''}
+            </p>
+          ) : null}
+          {heroAction.kind === 'downloading' ? (
+            <div className="flex w-full items-center gap-3">
+              <div
+                className="flex-1 min-w-0 h-1 rounded-full bg-[var(--app-progress-track,var(--app-border))] overflow-hidden"
+                role="progressbar"
+                aria-valuenow={Math.round(heroDownloadJob?.progress ?? 0)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Прогресс скачивания"
+              >
+                <div
+                  className={`h-full ${theme.progress}`}
+                  style={{ width: `${Math.max(4, heroDownloadJob?.progress ?? 0)}%` }}
+                />
+              </div>
+              <span className={`shrink-0 ${textStyles.caption} tabular-nums ${theme.textMuted}`}>
+                {Math.round(heroDownloadJob?.progress ?? 0)}%
               </span>
             </div>
-          </button>
-        ) : (
+          ) : null}
           <button
             type="button"
-            className={`relative overflow-hidden select-none touch-manipulation ${radii.lg} text-left w-full ${elevation.hero} ${motion.press} ${theme.focusRing}`}
-            {...heroPress}
-            aria-label={`Продолжить: ${hero.title}`}
+            disabled={heroAction.disabled}
+            onClick={handleHeroTap}
+            className={`min-h-12 px-5 ${radii.button} ${textStyles.bodyBold} inline-flex items-center gap-1.5 ${theme.accentBg} disabled:opacity-60 ${motion.press} ${theme.focusRing}`}
           >
-            <div className="relative w-full aspect-[16/9] min-h-[11rem] max-h-60 bg-[var(--app-surface)]">
-              <BookCover
-                bookId={hero.id}
-                serverConfig={serverConfig}
-                storageDirectory={storageDirectory}
-                variant="full"
-                title={hero.title}
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              <div className={`absolute inset-0 bg-gradient-to-t ${isAppDark ? 'from-[var(--app-bg)] via-[var(--app-bg)]/55 to-transparent' : 'from-black/85 via-black/45 to-transparent'}`} />
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/15 to-transparent inpx-hero-shine"
-              />
-              <div className="absolute bottom-0 left-0 right-0 p-5 z-10 text-white">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className={`${textStyles.caption} opacity-80`}>Продолжить чтение</p>
-                  {heroRating > 0 && (
-                    <span
-                      className="inline-flex items-center gap-0.5 rounded-md bg-black/55 px-1.5 py-0.5"
-                      aria-label={`Рейтинг ${heroRating} из 5`}
-                    >
-                      <Star className={`w-3 h-3 fill-current ${semantic.warning}`} aria-hidden />
-                      <span className={`${textStyles.microBold} tabular-nums leading-none`}>{heroRating}</span>
-                    </span>
-                  )}
-                </div>
-                <h3 className={`${textStyles.bookTitleHero} text-white line-clamp-2`}>{hero.title}</h3>
-                <p className={`${textStyles.caption} opacity-90 mt-0.5 truncate`}>{hero.authorsDisplay}</p>
-                <div className="flex items-center gap-3 mt-3">
-                  {heroProgress > 0 && (
-                    <div className="flex-1 min-w-0">
-                      <ReadProgressBar
-                        value={heroProgress}
-                        showLabel={false}
-                        className="[&>div:first-child]:bg-white/25"
-                      />
-                    </div>
-                  )}
-                  <span className={`shrink-0 px-4 py-2.5 ${radii.button} ${textStyles.caption} font-semibold inline-flex items-center gap-1.5 ${theme.accentBg}`}>
-                    <Play className="w-4 h-4 fill-current" aria-hidden /> Продолжить
-                  </span>
-                </div>
-              </div>
-            </div>
+            <HeroActionIcon kind={heroAction.kind} />
+            {heroAction.kind === 'downloading' ? heroAction.label : 'Продолжить'}
           </button>
-        )
+        </section>
       ) : (
         <EmptyState
           icon={BookOpen}
           title="Начните читать"
-          description="Найдите книгу в поиске или откройте скачанную из библиотеки"
-          actionLabel={onGoCatalog ? 'Открыть поиск' : undefined}
-          onAction={onGoCatalog}
+          description={
+            isOnline
+              ? 'Откройте каталог и выберите книгу'
+              : 'Подключите сервер, чтобы искать и скачивать книги'
+          }
+          actionLabel={
+            isOnline
+              ? onGoCatalog
+                ? 'Открыть каталог'
+                : undefined
+              : onGoProfile
+                ? 'Подключить сервер'
+                : undefined
+          }
+          onAction={isOnline ? onGoCatalog : onGoProfile}
           actionVariant="primary"
         />
       )}
 
-      <DownloadQueueWidget compact />
-
-      {others.length > 0 && (
+      {isOnline && recentMode !== 'off' && (
         <section className="space-y-4">
-          <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>Недавно</h3>
-          <HomeBookPreview
-            books={others}
-            viewMode={viewMode}
-            serverConfig={serverConfig}
-            storageDirectory={storageDirectory}
-            readingProgressByBookId={readingProgressByBookId}
-            downloadedBookIds={downloadedBookIds}
-            onBookClick={handleCatalogBookTap}
-            onBookLongPress={onBookLongPress}
-          />
-        </section>
-      )}
-
-      {isOnline && (
-        <section className="space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>Новинки</h3>
-            <button
-              type="button"
-              onClick={() => setSectionView('recent')}
-              className={`${textStyles.captionBold} min-h-12 px-4 ${theme.accentText} ${theme.accentMuted} ${radii.button} ${theme.focusRing} ${motion.press} shrink-0`}
-            >
-              Показать всё
-            </button>
-          </div>
+          <HomeSectionHeader title="Новинки" actionLabel="Все" onAction={() => setSectionView('recent')} />
           {recentError && !recentLoading ? (
-            <div className={`flex items-center justify-between gap-2 py-2 ${textStyles.caption} ${semantic.error}`}>
-              <span className="inline-flex items-center gap-1.5 min-w-0">
-                <AlertCircle className="w-4 h-4 shrink-0" aria-hidden />
-                Не удалось загрузить новинки
-              </span>
-              <button
-                type="button"
-                onClick={() => setSectionKey((k) => k + 1)}
-                className={`shrink-0 inline-flex items-center gap-1 font-bold underline ${theme.focusRing}`}
-              >
-                <RefreshCw className="w-3.5 h-3.5" aria-hidden />
-                Повторить
-              </button>
-            </div>
+            <EmptyState
+              compact
+              tone="error"
+              icon={AlertCircle}
+              title="Не удалось загрузить новинки"
+              description="Проверьте соединение с сервером."
+              actionLabel="Повторить"
+              actionVariant="secondary"
+              onAction={() => setSectionKey((k) => k + 1)}
+            />
           ) : (
             <HomeBookPreview
-              books={recentServer}
+              books={visibleRecent}
               viewMode={viewMode}
               serverConfig={serverConfig}
               storageDirectory={storageDirectory}
               readingProgressByBookId={readingProgressByBookId}
               downloadedBookIds={downloadedBookIds}
+              readIds={readIds}
               loading={recentLoading}
               onBookClick={handleCatalogBookTap}
               onBookLongPress={onBookLongPress}
@@ -556,31 +585,18 @@ export default function HomeTab({
 
       {isOnline && (
         <section className="space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>Рекомендации</h3>
-            <button
-              type="button"
-              onClick={() => setSectionView('recommended')}
-              className={`${textStyles.captionBold} min-h-12 px-4 ${theme.accentText} ${theme.accentMuted} ${radii.button} ${theme.focusRing} ${motion.press} shrink-0`}
-            >
-              Показать всё
-            </button>
-          </div>
+          <HomeSectionHeader title="Рекомендации" actionLabel="Все" onAction={() => setSectionView('recommended')} />
           {recError && !recLoading ? (
-            <div className={`flex items-center justify-between gap-2 py-2 ${textStyles.caption} ${semantic.error}`}>
-              <span className="inline-flex items-center gap-1.5 min-w-0">
-                <AlertCircle className="w-4 h-4 shrink-0" aria-hidden />
-                Не удалось загрузить рекомендации
-              </span>
-              <button
-                type="button"
-                onClick={() => setSectionKey((k) => k + 1)}
-                className={`shrink-0 inline-flex items-center gap-1 font-bold underline ${theme.focusRing}`}
-              >
-                <RefreshCw className="w-3.5 h-3.5" aria-hidden />
-                Повторить
-              </button>
-            </div>
+            <EmptyState
+              compact
+              tone="error"
+              icon={AlertCircle}
+              title="Не удалось загрузить рекомендации"
+              description="Проверьте соединение с сервером."
+              actionLabel="Повторить"
+              actionVariant="secondary"
+              onAction={() => setSectionKey((k) => k + 1)}
+            />
           ) : (
             <HomeBookPreview
               books={recommended}
@@ -589,6 +605,7 @@ export default function HomeTab({
               storageDirectory={storageDirectory}
               readingProgressByBookId={readingProgressByBookId}
               downloadedBookIds={downloadedBookIds}
+              readIds={readIds}
               loading={recLoading}
               onBookClick={handleCatalogBookTap}
               onBookLongPress={onBookLongPress}
@@ -597,26 +614,12 @@ export default function HomeTab({
           )}
         </section>
       )}
-
-      {!isOnline && !isVerifyingConnection && (
-        <p className={`${textStyles.caption} ${semantic.offline} flex items-center gap-2`}>
-          <WifiOff className="w-4 h-4 shrink-0" aria-hidden />
-          Офлайн — доступны скачанные книги
-        </p>
-      )}
     </>
   );
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      {searchBar}
-      {onRefresh ? (
-        <PullToRefresh onRefresh={handleRefresh} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-6">
-          {scrollInner}
-        </PullToRefresh>
-      ) : (
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">{scrollInner}</div>
-      )}
+      <div className={`flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-5 ${spacing.shelfY}`}>{scrollInner}</div>
     </div>
   );
 }

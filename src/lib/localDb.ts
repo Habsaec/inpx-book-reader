@@ -766,10 +766,11 @@ export async function persistLibrarySnapshot(data: {
       ]);
 
     for (const b of existingBooks) {
-      if (!keepBooks.has(b.id)) await deleteBook(b.id);
+      // local:* пишется отдельно (папка/ZIP) и может не успеть попасть в React-снимок.
+      if (!keepBooks.has(b.id) && !String(b.id).startsWith('local:')) await deleteBook(b.id);
     }
     for (const p of existingProgress) {
-      if (!keepProgress.has(p.bookId)) await deleteProgress(p.bookId);
+      if (!keepProgress.has(p.bookId) && !String(p.bookId).startsWith('local:')) await deleteProgress(p.bookId);
     }
     for (const bm of existingBookmarks) {
       if (!keepBookmarks.has(bm.id)) await deleteBookmark(bm.id);

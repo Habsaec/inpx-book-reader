@@ -14,7 +14,7 @@ import {
   probeServerHealth,
   normalizeBaseUrl,
 } from '../lib/inpxClient';
-import { candidateServerUrls } from '../lib/serverUrlSwitch';
+import { candidateServerUrls, firstReachableUrl } from '../lib/serverUrlSwitch';
 import { getNetworkStatus, subscribeNetworkChanges } from '../lib/networkInfo';
 import type { ServerConfig } from '../types';
 
@@ -24,6 +24,7 @@ export function useServerConnection() {
   const [connectionError, setConnectionError] = React.useState<string | null>(null);
   const connectionVerifyIdRef = React.useRef(0);
   const urlSwitchGenRef = React.useRef(0);
+  const reconnectAttemptRef = React.useRef(0);
   const serverConfigRef = React.useRef(serverConfig);
   serverConfigRef.current = serverConfig;
 
@@ -38,9 +39,14 @@ export function useServerConnection() {
 
   const pickReachableUrl = React.useCallback(async (config: ServerConfig, ssid?: string | null) => {
     const urls = candidateServerUrls(config, ssid);
-    for (const url of urls) {
-      const ok = await probeServerHealth({ ...config, url });
-      if (ok) return url;
+    const probe = (url: string) => probeServerHealth({ ...config, url }, CONNECTION_TIMEOUT_MS);
+    const picked = await firstReachableUrl(urls, probe);
+    if (picked) return picked;
+    // A sleeping host often drops the first SYN and answers the next one.
+    const preferred = urls[0];
+    if (preferred) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      if (await probe(preferred)) return preferred;
     }
     return normalizeBaseUrl(config.url);
   }, []);
@@ -119,12 +125,11 @@ export function useServerConnection() {
     };
 
     const verifyId = ++connectionVerifyIdRef.current;
-    // testConnection can run health + profile (2× CONNECTION_TIMEOUT) then exchangeDeviceToken.
-    // Auto-switch may probe a few extra /health URLs first.
+    // Health probes run in parallel, then one wake retry, then testConnection (health + profile).
     const safetyTimer = window.setTimeout(() => {
       if (connectionVerifyIdRef.current !== verifyId) return;
       markServerDisconnected();
-    }, 3 * CONNECTION_TIMEOUT_MS + 12_000);
+    }, 4 * CONNECTION_TIMEOUT_MS + 20_000);
 
     void (async () => {
       try {
@@ -162,6 +167,7 @@ export function useServerConnection() {
             /* keep basic auth */
           }
         }
+        if (result.ok) reconnectAttemptRef.current = 0;
         setServerConfig((prev) => ({
           ...prev,
           connectionStatus: result.ok ? 'connected' : 'disconnected',
@@ -317,7 +323,12 @@ export function useServerConnection() {
     if (!serverConfigReady || !isNativeApp()) return;
     if (serverConfig.connectionStatus !== 'disconnected') return;
     if (!shouldAutoReconnect(serverConfig)) return;
-    const timer = window.setTimeout(() => tryAutoReconnect(), 30_000);
+    const attempt = reconnectAttemptRef.current;
+    const delay = [2_000, 5_000, 15_000, 30_000][Math.min(attempt, 3)];
+    const timer = window.setTimeout(() => {
+      reconnectAttemptRef.current = attempt + 1;
+      tryAutoReconnect();
+    }, delay);
     return () => window.clearTimeout(timer);
   }, [serverConfigReady, serverConfig, tryAutoReconnect]);
 

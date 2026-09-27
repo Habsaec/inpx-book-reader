@@ -36,7 +36,7 @@ export default function Button({
         textStyles.bodyBold,
         touchMin,
         radii.button,
-        'inline-flex items-center justify-center gap-2 px-5 py-3 border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100',
+        'inline-flex items-center justify-center gap-2 px-4 py-3 border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100',
         motion.colors,
         motion.press,
         theme.focusRing,

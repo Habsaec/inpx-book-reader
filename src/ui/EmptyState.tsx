@@ -1,7 +1,7 @@
 import React from 'react';
 import { LucideIcon } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { textStyles, semantic, radii, elevation } from './tokens';
+import { textStyles, semantic } from './tokens';
 import Button from './Button';
 
 interface EmptyStateProps {
@@ -12,6 +12,8 @@ interface EmptyStateProps {
   onAction?: () => void;
   actionVariant?: 'primary' | 'secondary';
   tone?: 'default' | 'error' | 'offline';
+  /** Section-level (home/catalog), not a full-screen placeholder. */
+  compact?: boolean;
 }
 
 export default function EmptyState({
@@ -22,28 +24,29 @@ export default function EmptyState({
   onAction,
   actionVariant = 'secondary',
   tone = 'default',
+  compact = false,
 }: EmptyStateProps) {
   const iconTone =
-    tone === 'error' ? semantic.error : tone === 'offline' ? semantic.offline : theme.accentText;
+    tone === 'error' ? semantic.error : tone === 'offline' ? semantic.offline : theme.textMuted;
   const titleTone =
     tone === 'error' ? semantic.error : tone === 'offline' ? semantic.offline : theme.text;
 
   return (
     <div
-      className={`my-6 flex flex-col items-center justify-center px-6 py-10 text-center gap-3 ${radii.lg} ${theme.card} ${elevation.card} mx-1`}
-      role={tone === 'error' ? 'alert' : undefined}
+      className={compact ? 'my-2 flex flex-col py-2 gap-1.5' : 'my-6 flex flex-col px-5 py-8 gap-2'}
+      role={tone === 'error' || tone === 'offline' ? 'status' : undefined}
     >
-      <span className={`inline-flex items-center justify-center w-14 h-14 ${radii.full} ${theme.accentMuted}`}>
-        <Icon className={`w-7 h-7 ${iconTone}`} aria-hidden strokeWidth={1.75} />
-      </span>
+      <Icon className={`w-5 h-5 ${iconTone}`} aria-hidden strokeWidth={1.75} />
       <p className={`${textStyles.sectionLabel} ${titleTone}`}>{title}</p>
       {description && (
-        <p className={`${textStyles.body} ${theme.textMuted} max-w-xs leading-relaxed`}>{description}</p>
+        <p className={`${textStyles.body} ${theme.textMuted} max-w-sm`}>{description}</p>
       )}
       {actionLabel && onAction && (
-        <Button variant={actionVariant} onClick={onAction} className="mt-2">
-          {actionLabel}
-        </Button>
+        <div className="mt-2">
+          <Button variant={actionVariant} onClick={onAction}>
+            {actionLabel}
+          </Button>
+        </div>
       )}
     </div>
   );

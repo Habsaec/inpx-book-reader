@@ -1,10 +1,20 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
 @import "tailwindcss";
 
+/* Touch WebView keeps :hover after a tap. Hover styles only for a real pointer. */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Lora", ui-serif, Georgia, Cambria, serif;
   --font-mono: ui-monospace, "SF Mono", Consolas, monospace;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 /* Full-height app shell (Android WebView needs explicit height chain) */
@@ -18,7 +28,6 @@ body,
 }
 
 body {
-  -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
 }
 
@@ -36,40 +45,24 @@ body {
   scrollbar-width: none;
 }
 
-/* Transform-only enter (never opacity:0) — disabled on e-ink / prefers-reduced-motion */
-@keyframes inpx-enter-y {
-  from {
-    transform: translateY(6px);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-.inpx-enter-y {
-  animation: inpx-enter-y 0.2s ease-out both;
-}
-
-/** Tab / screen enter — slide-up + лёгкий fade (opacity не падает до 0, безопасно для WebView). */
-@keyframes inpx-screen-enter {
-  from {
-    opacity: 0.88;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.inpx-screen-enter {
-  animation: inpx-screen-enter 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-/** Нажатие на карточку книги в каталоге — scale 0.98 с возвратом. */
+/** Нажатие: масштаб 100 мс, цвет 150 мс. Одинаковый transition, чтобы два класса не затирали друг друга. */
+.inpx-ui-transition,
+.inpx-press,
 .inpx-book-press {
-  transition: transform 0.15s ease-out;
+  transition:
+    transform 100ms var(--ease-out),
+    background-color 150ms var(--ease-out),
+    border-color 150ms var(--ease-out),
+    color 150ms var(--ease-out),
+    box-shadow 150ms var(--ease-out);
 }
+.inpx-press:active,
 .inpx-book-press:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
+}
+
+.inpx-collapse {
+  display: grid;
 }
 
 /** Мягкая пульсация скелетонов (закруглённые блоки вместо «строк текста»). */
@@ -86,93 +79,102 @@ body {
   animation: inpx-skeleton-pulse 1.75s ease-in-out infinite;
 }
 
-@utility animate-fade-in {
-  animation: inpx-screen-enter 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+/* Built-in app palette. Names stay --app-* so serverTheme overlays still map. */
+:root {
+  --app-space-1: 0.25rem;
+  --app-space-2: 0.5rem;
+  --app-space-3: 0.75rem;
+  --app-space-4: 1rem;
+  --app-space-5: 1.25rem;
+  --app-space-6: 1.5rem;
+  --app-space-7: 2rem;
+  --app-space-8: 2.5rem;
+  --app-space-9: 3rem;
+  --app-tab-bar-height: calc(4.5rem + max(0.5rem, env(safe-area-inset-bottom)));
 }
 
-@keyframes inpx-hero-shine {
-  from {
-    transform: translateX(-120%) skewX(-12deg);
-  }
-  to {
-    transform: translateX(220%) skewX(-12deg);
-  }
-}
-.inpx-hero-shine {
-  animation: inpx-hero-shine 1.1s ease-out 0.35s 1 both;
-}
-
-/* INPX Library Server — main UI default palette (public/styles.css) */
 :root,
 html[data-theme="dark"] {
-  --app-bg: #1e1a16;
+  --app-bg: #111110;
   --app-shell-bg: var(--app-bg);
-  --app-surface: #1a1612;
-  --app-surface-hover: #231f1a;
-  --app-shell: #1c1814;
-  --app-text: #e8e0d4;
-  --app-muted: #9a8e7e;
-  --app-accent: #9a8e7e;
-  --app-accent-hover: #a1671b;
-  --app-link: #d4ac5c;
-  --app-link-hover: #efc06f;
-  --app-border: rgba(145, 109, 43, 0.14);
-  --app-field-bg: rgba(180, 145, 80, 0.04);
-  --app-card-bg: rgba(180, 145, 80, 0.025);
-  --app-card-bg-hover: rgba(180, 145, 80, 0.055);
-  --app-panel-soft: rgba(180, 145, 80, 0.09);
-  --app-topbar-bg: rgba(24, 20, 16, 0.92);
-  --app-topbar-border: rgba(180, 145, 80, 0.12);
-  --app-placeholder: #7a6f62;
-  --app-cover-border: rgba(180, 145, 80, 0.1);
-  --app-cover-bg: linear-gradient(145deg, #1e1a15 0%, #12100d 100%);
-  --app-cover-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.45),
-    0 8px 20px -6px rgba(0, 0, 0, 0.55),
-    0 22px 40px -12px rgba(0, 0, 0, 0.45);
-  --app-danger: #c61700;
-  --app-frame-border: #3d3428;
-  --app-success: #2d8a4e;
-  --app-warning: #b45309;
-  --app-offline: #b45309;
-  --app-tab-bar-height: calc(4.25rem + max(0.625rem, env(safe-area-inset-bottom)));
-  --app-radius-sm: 0.5rem;
-  --app-radius-md: 0.75rem;
-  --app-radius-lg: 1rem;
-  --app-radius-button: 1rem;
-  --app-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.08);
-  --app-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --app-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.12), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --app-surface: #1a1a18;
+  --app-surface-elevated: #222220;
+  --app-surface-hover: #242422;
+  --app-shell: #111110;
+  --app-text: #f2f0ea;
+  --app-muted: #a5a39d;
+  --app-text-secondary: var(--app-muted);
+  --app-accent: #c46a63;
+  --app-accent-hover: #b55a54;
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 16%, var(--app-bg));
+  --app-link: #c46a63;
+  --app-link-hover: #d17a74;
+  --app-border: #2c2b28;
+  --app-field-bg: #1a1a18;
+  --app-card-bg: #1a1a18;
+  --app-card-bg-hover: #242422;
+  --app-panel-soft: #222220;
+  --app-topbar-bg: #111110;
+  --app-topbar-border: #2c2b28;
+  --app-placeholder: #8a8882;
+  --app-cover-border: #2c2b28;
+  --app-cover-bg: #222220;
+  --app-cover-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  --app-progress-track: var(--app-border);
+  --app-danger: #d16b6b;
+  --app-frame-border: #2c2b28;
+  --app-success: #6f9e78;
+  --app-warning: #c4a06a;
+  --app-offline: #c4a06a;
+  --app-radius-sm: 4px;
+  --app-radius-md: 8px;
+  --app-radius-lg: 12px;
+  --app-radius-button: 8px;
+  --app-shadow-sm: none;
+  --app-shadow-md: 0 4px 16px rgb(0 0 0 / 0.28);
+  --app-shadow-lg: 0 8px 24px rgb(0 0 0 / 0.32);
 }
 
 html[data-theme="light"] {
-  --app-bg: #f5f1e8;
-  --app-surface: #fffdf8;
-  --app-surface-hover: #f4ecdf;
-  --app-shell: #efe7da;
-  --app-text: #2e2418;
-  --app-muted: #7a6a58;
-  --app-accent: #7a6a58;
-  --app-accent-hover: #a1671b;
-  --app-link: #8b5a12;
-  --app-link-hover: #a86a0a;
-  --app-border: rgba(97, 78, 55, 0.14);
-  --app-field-bg: rgba(255, 255, 255, 0.92);
-  --app-card-bg: rgba(255, 255, 255, 0.5);
-  --app-card-bg-hover: rgba(255, 255, 255, 0.75);
-  --app-panel-soft: rgba(255, 255, 255, 0.62);
-  --app-topbar-bg: rgba(250, 246, 239, 0.88);
-  --app-topbar-border: rgba(97, 78, 55, 0.12);
-  --app-placeholder: #989284;
-  --app-cover-border: rgba(97, 78, 55, 0.12);
-  --app-cover-bg: linear-gradient(145deg, #e8dcc7 0%, #d4c4ab 100%);
-  --app-cover-shadow:
-    0 1px 2px rgba(32, 24, 14, 0.12),
-    0 10px 24px -10px rgba(32, 24, 14, 0.22),
-    0 24px 40px -18px rgba(32, 24, 14, 0.16);
-  --app-danger: #c84d68;
-  --app-frame-border: #c4beb1;
-  --app-frame-notch: #c4beb1;
+  --app-bg: #f7f6f2;
+  --app-shell-bg: var(--app-bg);
+  --app-surface: #ffffff;
+  --app-surface-elevated: #ffffff;
+  --app-surface-hover: #f1efe9;
+  --app-shell: #f7f6f2;
+  --app-text: #181817;
+  --app-muted: #777570;
+  --app-text-secondary: var(--app-muted);
+  --app-accent: #8b3a3a;
+  --app-accent-hover: #732f2f;
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 14%, var(--app-bg));
+  --app-link: #8b3a3a;
+  --app-link-hover: #9a4848;
+  --app-border: #e6e3dc;
+  --app-field-bg: #ffffff;
+  --app-card-bg: #ffffff;
+  --app-card-bg-hover: #f1efe9;
+  --app-panel-soft: #efede8;
+  --app-topbar-bg: #f7f6f2;
+  --app-topbar-border: #e6e3dc;
+  --app-placeholder: #a19f99;
+  --app-cover-border: #e6e3dc;
+  --app-cover-bg: #efede8;
+  --app-cover-shadow: 0 1px 3px rgb(24 24 23 / 0.1);
+  --app-progress-track: var(--app-border);
+  --app-danger: #a33b3b;
+  --app-frame-border: #e6e3dc;
+  --app-frame-notch: #e6e3dc;
+  --app-success: #3f7a4c;
+  --app-warning: #9a7040;
+  --app-offline: #9a7040;
+  --app-radius-sm: 4px;
+  --app-radius-md: 8px;
+  --app-radius-lg: 12px;
+  --app-radius-button: 8px;
+  --app-shadow-sm: none;
+  --app-shadow-md: 0 4px 16px rgb(24 24 23 / 0.1);
+  --app-shadow-lg: 0 8px 24px rgb(24 24 23 / 0.12);
 }
 
 /* Book cover shape — matches INPX Library Server `.cover` (spine radius + shadow) */
@@ -393,9 +395,130 @@ html[data-eink='1'] .cover-rating-wrapper {
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+    transition-property: opacity, color, background-color, border-color !important;
+    transition-duration: 150ms !important;
   }
+
+  .inpx-press:active,
+  .inpx-book-press:active {
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .inpx-chrome,
+  .inpx-book-chrome,
+  .app-glass,
+  #dashboard-navbar,
+  #mobile-tab-navigation {
+    background: var(--app-surface) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .inpx-chrome,
+  .inpx-book-chrome,
+  .app-glass,
+  #dashboard-navbar,
+  #mobile-tab-navigation {
+    background: var(--app-surface) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-color: var(--app-text) !important;
+  }
+
+  #mobile-tab-navigation {
+    border-top: 1px solid var(--app-text) !important;
+  }
+}
+
+/* One bar for the navbar, the book page, and the tab bar: the page color, not a white card. */
+.inpx-chrome,
+.inpx-book-chrome {
+  background: color-mix(in srgb, var(--app-bg) 94%, transparent);
+  /* blur на Android 11 e-ink WebView замораживает табы — в настройки не нажать. */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.inpx-shell-body {
+  padding-top: 0;
+}
+.inpx-shell-notice {
+  margin-top: var(--app-header-offset, 4rem);
+}
+.inpx-shell-notice + .inpx-shell-notice {
+  margin-top: 0;
+}
+/* Clip the growing field sideways; suggestions hang below the bar. */
+.inpx-search-clip {
+  clip-path: inset(-12px 0 -70vh 0);
+}
+#dashboard-navbar {
+  min-height: 4rem;
+}
+#mobile-tab-navigation button {
+  min-height: 3.5rem;
+}
+#mobile-tab-navigation .tab-label {
+  max-height: 1.125rem;
+  overflow: hidden;
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  #dashboard-navbar {
+    min-height: 3rem;
+  }
+}
+
+.inpx-chrome-top::after,
+.inpx-chrome-bottom::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 8px;
+  pointer-events: none;
+}
+
+.inpx-chrome-top::after {
+  bottom: -8px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--app-bg) 18%, transparent), transparent);
+}
+
+.inpx-book-chrome {
+  position: sticky;
+}
+.inpx-book-chrome::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 8px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--app-bg) 18%, transparent), transparent);
+}
+
+#mobile-tab-navigation.inpx-chrome-bottom {
+  border-top: 0;
+}
+
+.inpx-chrome-bottom::before {
+  top: -8px;
+  background: linear-gradient(to top, color-mix(in srgb, var(--app-bg) 18%, transparent), transparent);
+}
+
+.inpx-page-scroll {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+#main-dashboard-tabs .inpx-page-scroll {
+  padding-top: calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px) + var(--inpx-tool, 0px));
+  padding-bottom: calc(var(--app-tab-measured, var(--app-tab-bar-height)) + 0.75rem);
 }
 
 /* Parchment texture for reader sepia/ivory themes */
@@ -409,13 +532,17 @@ html[data-eink='1'] .cover-rating-wrapper {
 /* E-Ink mode — high contrast, no motion/shadows (does not affect phones when data-eink unset) */
 html[data-eink="1"] {
   --app-bg: #ffffff;
+  --app-shell-bg: #ffffff;
   --app-surface: #ffffff;
+  --app-surface-elevated: #ffffff;
   --app-surface-hover: #efeee9;
   --app-shell: #ffffff;
   --app-text: #000000;
   --app-muted: #1a1a1a;
+  --app-text-secondary: #1a1a1a;
   --app-accent: #000000;
   --app-accent-hover: #000000;
+  --app-accent-soft: #efeee9;
   --app-link: #000000;
   --app-link-hover: #000000;
   --app-border: #8a8a8a;
@@ -427,6 +554,9 @@ html[data-eink="1"] {
   --app-topbar-border: #000000;
   --app-placeholder: #3a3a3a;
   --app-cover-border: #000000;
+  --app-cover-bg: #ffffff;
+  --app-cover-shadow: none;
+  --app-progress-track: #8a8a8a;
   --app-danger: #000000;
   --app-frame-border: #000000;
   --app-success: #000000;
@@ -464,6 +594,39 @@ html[data-eink="1"] input,
 html[data-eink="1"] select,
 html[data-eink="1"] textarea {
   min-height: 2.75rem;
+}
+
+/* Pill switch: keep its own size. Generic button rules stretch it and wipe the track. */
+html[data-eink="1"] button.inpx-switch {
+  min-height: 1.75rem !important;
+  height: 1.75rem !important;
+  width: 3rem !important;
+  padding: 0 !important;
+  border: 2px solid #000 !important;
+  border-radius: 999px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+html[data-eink="1"] button.inpx-switch[aria-checked="true"],
+html[data-eink="1"] button.inpx-switch[aria-checked="true"]:active {
+  background: #000 !important;
+}
+html[data-eink="1"] button.inpx-switch:active {
+  background: #fff !important;
+  color: #000 !important;
+}
+html[data-eink="1"] button.inpx-switch span {
+  top: 1px !important;
+  width: 1.25rem !important;
+  height: 1.25rem !important;
+  border: 2px solid #000 !important;
+  background: #000 !important;
+  box-shadow: none !important;
+}
+html[data-eink="1"] button.inpx-switch[aria-checked="true"] span {
+  left: 1.35rem !important;
+  background: #fff !important;
+  border-color: #000 !important;
 }
 
 html[data-eink="1"] #mobile-tab-navigation {
@@ -551,12 +714,17 @@ html[data-ui-glass="1"] {
   --app-field-bg: color-mix(in srgb, var(--app-surface) calc(var(--app-surface-opacity, 88) * 1%), transparent);
 }
 
-html[data-ui-glass="1"] .app-glass,
-html[data-ui-glass="1"] #dashboard-navbar,
-html[data-ui-glass="1"] #mobile-tab-navigation {
+html[data-ui-glass="1"] .app-glass {
   background-color: color-mix(in srgb, var(--app-surface) calc(var(--app-surface-opacity, 88) * 1%), transparent);
   backdrop-filter: blur(var(--app-surface-blur, 0px));
   -webkit-backdrop-filter: blur(var(--app-surface-blur, 0px));
+}
+
+/* Modal bottom sheets sit on top of the list: never frosted, or the tiles ghost through the text. */
+html[data-ui-glass="1"] .app-sheet-solid {
+  background-color: var(--app-surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 #app-server-bg,
@@ -599,5 +767,39 @@ html[data-eink="1"] #dashboard-navbar,
 html[data-eink="1"] #mobile-tab-navigation {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+html[data-eink="1"] .inpx-book-chrome {
+  background: var(--app-surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Sonner fades through opacity 0. WebView can drop that frame and leave a blank toast. */
+[data-sonner-toaster] [data-sonner-toast] {
+  opacity: 1 !important;
+  transition-property: transform !important;
+}
+[data-sonner-toaster] [data-sonner-toast][data-visible='false'] {
+  opacity: 0 !important;
+}
+
+/* Snackbar: white field, black type, thick outline. A solid black bar floods an e-paper page. */
+html[data-eink="1"] .inpx-snackbar {
+  background: #fff !important;
+  color: #000 !important;
+  border: 2px solid #000 !important;
+}
+html[data-eink="1"] .inpx-snackbar p,
+html[data-eink="1"] .inpx-snackbar svg {
+  color: #000 !important;
+}
+html[data-eink="1"] .inpx-snackbar p {
+  font-weight: 700;
+}
+html[data-eink="1"] .inpx-snackbar button {
+  background: #fff !important;
+  color: #000 !important;
+  border: 2px solid #000 !important;
 }
 

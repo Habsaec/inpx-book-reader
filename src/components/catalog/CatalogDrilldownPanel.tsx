@@ -1,6 +1,5 @@
 import React from 'react';
-import { motion } from 'motion/react';
-import { ArrowLeft, Download, Heart, Layers3, PenLine, Star, Tag } from 'lucide-react';
+import { ArrowLeft, Download, Heart, Layers3, PenLine, Star } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { Book, ServerConfig } from '../../types';
 import { displayAuthorName } from '../../lib/inpxClient';
@@ -26,8 +25,7 @@ interface CatalogDrilldownPanelProps {
   favoriteAuthors: string[];
   favoriteSeries: string[];
   onDrillDownBack: () => void;
-  /** When set, root drill-down Back leaves Catalog (e.g. «В библиотеку»). */
-  drillDownBackLabel?: string | null;
+  showBackBar?: boolean;
   onToggleFavoriteAuthor: (authorName: string) => void;
   onToggleFavoriteSeries: (seriesName: string) => void;
   onDownloadSeries?: () => void;
@@ -75,9 +73,13 @@ export function CatalogAuthorSeriesShelf({
 /** Flibusta-style author list: series headers with books underneath (as on server). */
 export function CatalogAuthorGroupedList({
   authorGrouped,
+  serverConfig,
+  storageDirectory,
   downloadedBookIds,
   downloadingId = null,
   queuedBookIds,
+  readingProgressByBookId,
+  readIds,
   onBookClick,
   onBookLongPress,
   onOpenSeries,
@@ -111,12 +113,12 @@ export function CatalogAuthorGroupedList({
         const books = s.books ?? [];
         if (!books.length) return null;
         return (
-          <section key={s.name} className={`min-w-0 ${radii.lg} ${theme.card} ${elevation.card} px-3 py-3`}>
-            <div className="mb-1 flex w-full items-center gap-1 min-h-10 px-0.5">
+          <section key={s.name} className="min-w-0 py-1">
+            <div className="mb-1 flex w-full items-center gap-1 min-h-12 px-0.5">
               <button
                 type="button"
                 onClick={() => onOpenSeries(s.name)}
-                className={`flex min-w-0 flex-1 items-baseline justify-between gap-2 text-left ${theme.focusRing}`}
+                className={`flex min-h-12 min-w-0 flex-1 items-baseline justify-between gap-2 text-left ${theme.rowPress} ${theme.focusRing} ${motionTokens.press}`}
               >
                 <h3 className={`${textStyles.bookTitle} truncate`}>{s.displayName || s.name}</h3>
                 <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
@@ -129,21 +131,23 @@ export function CatalogAuthorGroupedList({
                   aria-label={`Скачать серию ${s.displayName || s.name}`}
                   disabled={seriesDownloadBusy}
                   onClick={() => onDownloadSeries(s.name)}
-                  className={`shrink-0 min-h-12 min-w-12 inline-flex items-center justify-center ${theme.focusRing} ${theme.accentText} disabled:opacity-50`}
+                  className={`shrink-0 min-h-12 min-w-12 inline-flex items-center justify-center ${theme.focusRing} ${theme.accentText} ${motionTokens.press} disabled:opacity-50`}
                 >
                   <Download className="w-4 h-4" aria-hidden />
                 </button>
               ) : null}
             </div>
             <div>
-              {books.map((book, index) => (
+              {books.map((book) => (
                 <FlibustaBookRow
                   key={book.id}
                   book={book}
-                  index={index}
-                  showVolume
+                  serverConfig={serverConfig}
+                  storageDirectory={storageDirectory}
                   isDownloaded={downloadedBookIds.includes(book.id)}
                   isDownloading={isDownloadingBook(book.id)}
+                  readProgress={readingProgressByBookId?.[book.id] ?? book.readProgress ?? 0}
+                  isRead={readIds?.has(book.id)}
                   onClick={() => onBookClick(book)}
                   onLongPress={onBookLongPress ? () => onBookLongPress(book) : undefined}
                 />
@@ -153,7 +157,7 @@ export function CatalogAuthorGroupedList({
         );
       })}
       {authorGrouped.standaloneBooks.length > 0 && (
-        <section className={`min-w-0 ${radii.lg} ${theme.card} ${elevation.card} px-3 py-3`}>
+        <section className="min-w-0 py-1">
           <div className="mb-1 flex items-baseline justify-between gap-2 min-h-10 px-0.5">
             <h3 className={textStyles.bookTitle}>Вне серий</h3>
             <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
@@ -161,13 +165,16 @@ export function CatalogAuthorGroupedList({
             </span>
           </div>
           <div>
-            {authorGrouped.standaloneBooks.map((book, index) => (
+            {authorGrouped.standaloneBooks.map((book) => (
               <FlibustaBookRow
                 key={book.id}
                 book={book}
-                index={index}
+                serverConfig={serverConfig}
+                storageDirectory={storageDirectory}
                 isDownloaded={downloadedBookIds.includes(book.id)}
                 isDownloading={isDownloadingBook(book.id)}
+                readProgress={readingProgressByBookId?.[book.id] ?? book.readProgress ?? 0}
+                isRead={readIds?.has(book.id)}
                 onClick={() => onBookClick(book)}
                 onLongPress={onBookLongPress ? () => onBookLongPress(book) : undefined}
               />
@@ -193,7 +200,7 @@ export default function CatalogDrilldownPanel({
   favoriteAuthors,
   favoriteSeries,
   onDrillDownBack,
-  drillDownBackLabel = null,
+  showBackBar = true,
   onToggleFavoriteAuthor,
   onToggleFavoriteSeries,
   onDownloadSeries,
@@ -206,8 +213,6 @@ export default function CatalogDrilldownPanel({
   const bookCount = authorOutsideSeries
     ? (authorGrouped?.standaloneBooks.length ?? currentBooksCount)
     : (authorGrouped?.total ?? currentBooksCount);
-  const canStepUpWithinAuthor = Boolean(selectedSeries && selectedAuthor) || authorOutsideSeries;
-  const backLabel = canStepUpWithinAuthor ? 'Назад' : (drillDownBackLabel || 'Назад');
 
   const authorHub = Boolean(selectedAuthor && !selectedSeries && !authorOutsideSeries);
   const seriesHub = Boolean(selectedSeries);
@@ -216,27 +221,24 @@ export default function CatalogDrilldownPanel({
 
   return (
     <>
+      {showBackBar ? (
       <div className={`mb-4 flex items-center gap-2 p-3 ${radii.lg} ${theme.panel}`}>
         <button
           type="button"
           onClick={onDrillDownBack}
-          className={`flex items-center gap-1.5 min-h-11 px-3 ${radii.button} ${textStyles.captionBold} ${theme.accentText} ${theme.accentMuted} ${theme.focusRing} ${motionTokens.press}`}
+          className={`flex items-center gap-1.5 min-h-12 px-3 ${radii.button} ${textStyles.captionBold} ${theme.accentText} ${theme.accentMuted} ${theme.focusRing} ${motionTokens.press}`}
         >
-          <ArrowLeft className="w-3.5 h-3.5" aria-hidden /> {backLabel}
+          <ArrowLeft className="w-5 h-5" aria-hidden /> Назад
         </button>
         <span className="flex-1 min-w-0" />
         <p className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
           {bookCount} кн.
         </p>
       </div>
+      ) : null}
 
       {authorHub && (
-        <motion.div
-          initial={{ y: 6 }}
-          animate={{ y: 0 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          className="mb-3.5 landscape:max-[500px]:mb-2"
-        >
+        <div className="mb-3.5 landscape:max-[500px]:mb-2">
           <div className="flex justify-between items-start gap-3">
             <div className="flex gap-3 items-start min-w-0">
               {isServerBrowse ? (
@@ -271,7 +273,7 @@ export default function CatalogDrilldownPanel({
               type="button"
               onClick={() => onToggleFavoriteAuthor(selectedAuthor!)}
               aria-label={favoriteAuthors.includes(selectedAuthor!) ? 'Убрать из избранного' : 'В избранное'}
-              className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${
+              className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${motionTokens.press} ${
                 favoriteAuthors.includes(selectedAuthor!)
                   ? 'text-[var(--app-danger)]'
                   : theme.textMuted
@@ -291,16 +293,11 @@ export default function CatalogDrilldownPanel({
               Биография автора не найдена в библиотеке.
             </p>
           ) : null}
-        </motion.div>
+        </div>
       )}
 
       {seriesHub && selectedSeries && (
-        <motion.div
-          initial={{ y: 6 }}
-          animate={{ y: 0 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          className="mb-3.5 landscape:max-[500px]:mb-2"
-        >
+        <div className="mb-3.5 landscape:max-[500px]:mb-2">
             <div className="flex justify-between items-start gap-3">
             <div className="flex gap-3 items-start min-w-0">
               <div className={`w-16 h-16 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center border shrink-0 ${theme.avatarBg}`}>
@@ -322,7 +319,7 @@ export default function CatalogDrilldownPanel({
                 type="button"
                 onClick={() => onToggleFavoriteSeries(selectedSeries)}
                 aria-label={favoriteSeries.includes(selectedSeries) ? 'Убрать серию из избранного' : 'В избранное'}
-                className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${
+                className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${motionTokens.press} ${
                   favoriteSeries.includes(selectedSeries)
                     ? 'text-[var(--app-warning)]'
                     : theme.textMuted
@@ -342,16 +339,11 @@ export default function CatalogDrilldownPanel({
                 {seriesDownloadBusy ? 'Добавляем в очередь…' : 'Скачать серию'}
               </button>
             ) : null}
-        </motion.div>
+        </div>
       )}
 
       {outsideHub && (
-        <motion.div
-          initial={{ y: 6 }}
-          animate={{ y: 0 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          className="mb-3.5 landscape:max-[500px]:mb-2"
-        >
+        <div className="mb-3.5 landscape:max-[500px]:mb-2">
           <div className="flex gap-3 items-start min-w-0">
             <div className={`w-16 h-16 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center border shrink-0 ${theme.avatarBg}`}>
               <Layers3 className={`w-7 h-7 landscape:max-[500px]:w-5 landscape:max-[500px]:h-5 ${theme.accentText}`} aria-hidden />
@@ -364,31 +356,16 @@ export default function CatalogDrilldownPanel({
               <p className={`${textStyles.caption} mt-1 ${theme.textMuted}`}>{bookCount} книг</p>
             </div>
           </div>
-        </motion.div>
+        </div>
       )}
 
       {genreHub && selectedSubgenre && (
-        <motion.div
-          initial={{ y: 6 }}
-          animate={{ y: 0 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          className="mb-3.5 landscape:max-[500px]:mb-2"
-        >
-          <div className="flex gap-3 items-start min-w-0">
-            <div className={`w-16 h-16 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center border shrink-0 ${theme.avatarBg}`}>
-              <Tag className={`w-7 h-7 landscape:max-[500px]:w-5 landscape:max-[500px]:h-5 ${theme.accentText}`} aria-hidden />
-            </div>
-            <div className="min-w-0 pt-0.5">
-              <p className={`${textStyles.caption} ${theme.textMuted}`}>
-                {selectedSubgenre.parent || 'Жанр'}
-              </p>
-              <h2 className={`${textStyles.bookTitle} text-base landscape:max-[500px]:text-sm leading-snug mt-0.5`}>
-                {selectedSubgenre.name}
-              </h2>
-              <p className={`${textStyles.caption} mt-1 ${theme.textMuted}`}>{bookCount} книг</p>
-            </div>
-          </div>
-        </motion.div>
+        <p className={`mb-3 ${textStyles.caption} ${theme.textMuted}`}>
+          {[
+            selectedSubgenre.parent,
+            bookCount ? `${Number(bookCount).toLocaleString('ru-RU')} книг` : null,
+          ].filter(Boolean).join(' · ')}
+        </p>
       )}
     </>
   );

@@ -1,6 +1,6 @@
 import React from 'react';
 import { theme } from '../lib/appTheme';
-import { touchMin, radii } from './tokens';
+import { touchMin, radii, motion } from './tokens';
 
 interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   label: string;
@@ -21,11 +21,12 @@ export default function IconButton({
       aria-label={label}
       className={[
         sizeClass,
-        radii.button,
-        'inline-flex items-center justify-center transition-[colors,transform] duration-200 ease-out cursor-pointer',
+        radii.md,
+        'inline-flex items-center justify-center cursor-pointer',
         'disabled:opacity-50 disabled:pointer-events-none',
         theme.focusRing,
-        'hover:bg-[var(--app-surface-hover)] active:scale-95',
+        motion.press,
+        'hover:bg-[var(--app-surface-hover)]',
         className,
       ].join(' ')}
       {...rest}

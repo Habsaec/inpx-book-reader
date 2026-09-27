@@ -1,5 +1,7 @@
 package ru.inpx.bookreader;
 
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
@@ -27,7 +29,12 @@ import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import android.os.ParcelFileDescriptor;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
 public final class BookStorageAccess {
@@ -124,6 +131,15 @@ public final class BookStorageAccess {
             return permissionRevokedError();
         }
         return e;
+    }
+
+    /** Список папки не должен открывать DocumentFile: на большой папке exists/canRead сами по себе долгие. */
+    private static void requireStorageGrant(Context context, String storageUri) throws Exception {
+        if (storageUri == null || storageUri.trim().isEmpty()) return;
+        if (isDownloadsUri(storageUri) || isFileUri(storageUri)) return;
+        if (storageUri.startsWith("content://") && !hasPersistedTreePermission(context, Uri.parse(storageUri))) {
+            throw permissionRevokedError();
+        }
     }
 
     /** Fail fast when Android revoked a persisted SAF tree grant. */
@@ -949,6 +965,9 @@ public final class BookStorageAccess {
                 binTwin.delete();
             }
         }
+        File libraryRoot = new File(android.os.Environment.getExternalStoragePublicDirectory(
+            android.os.Environment.DIRECTORY_DOWNLOADS), baseFolder);
+        pruneEmptyFileParents(libraryRoot, disk.getParentFile());
     }
 
     private static File resolveLegacyFile(String storageUri, String relativePath, boolean createParents)
@@ -1006,6 +1025,8 @@ public final class BookStorageAccess {
                 //noinspection ResultOfMethodCallIgnored
                 file.delete();
             }
+            File root = new File(storageUri.substring("file://".length()));
+            pruneEmptyFileParents(root, file.getParentFile());
         } catch (Exception ignored) {
             /* invalid path — nothing to delete */
         }
@@ -1130,6 +1151,804 @@ public final class BookStorageAccess {
         DocumentFile file = resolveSafPath(root, path, false);
         if (file != null && file.exists()) {
             file.delete();
+        }
+        pruneEmptySafParents(root, path);
+    }
+
+    /** Drop author/series folders once the last book file is gone. Never deletes the library root. */
+    private static void pruneEmptyFileParents(File root, File start) {
+        if (root == null || start == null) return;
+        try {
+            String rootPath = root.getCanonicalPath();
+            File dir = start;
+            while (dir != null) {
+                String dirPath = dir.getCanonicalPath();
+                if (dirPath.equals(rootPath)) return;
+                if (!dirPath.startsWith(rootPath + File.separator)) return;
+                File[] kids = dir.listFiles();
+                if (kids != null && kids.length > 0) return;
+                File parent = dir.getParentFile();
+                //noinspection ResultOfMethodCallIgnored
+                dir.delete();
+                dir = parent;
+            }
+        } catch (Exception ignored) {
+            /* best-effort */
+        }
+    }
+
+    private static void pruneEmptySafParents(DocumentFile root, String relativePath) {
+        if (root == null || relativePath == null) return;
+        final String safe;
+        try {
+            safe = normalizeRelativePath(relativePath);
+        } catch (Exception invalid) {
+            return;
+        }
+        int slash = safe.lastIndexOf('/');
+        while (slash > 0) {
+            String dirPath = safe.substring(0, slash);
+            DocumentFile dir = resolveSafPath(root, dirPath, false);
+            if (dir == null || !dir.isDirectory()) return;
+            DocumentFile[] kids = dir.listFiles();
+            if (kids != null && kids.length > 0) return;
+            if (!dir.delete()) return;
+            slash = dirPath.lastIndexOf('/');
+        }
+    }
+
+    private static final int COVER_FILE_CAP = 32 * 1024 * 1024;
+    private static final Pattern FB2_COVER_HREF = Pattern.compile(
+        "(?is)<coverpage[^>]*>.*?(?:l:href|xlink:href|href)\\s*=\\s*['\"]#([^'\"]+)");
+    private static final Pattern FB2_BINARY = Pattern.compile(
+        "(?is)<binary\\b([^>]*)>([A-Za-z0-9+/=\\s]+)</binary>");
+
+    /** JPEG/PNG из fb2, fbz или epub. null, если обложки в файле нет. */
+    public static byte[] extractBookCover(Context context, String treeUri, String path) throws Exception {
+        requireStorageAccess(context, treeUri);
+        String lower = path == null ? "" : path.toLowerCase(Locale.US);
+        File file = materializeBookFile(context, treeUri, path);
+        if (file == null || !file.isFile()) return null;
+        boolean temp = file.getName().startsWith("inpx-cover-");
+        try {
+            byte[] raw = null;
+            if (lower.endsWith(".epub")) raw = epubCover(file);
+            else if (lower.endsWith(".zip") || lower.endsWith(".fbz")) {
+                raw = fbzCover(file);
+                if (raw == null && lower.endsWith(".zip") && !lower.endsWith(".fb2.zip")) raw = epubCover(file);
+            }
+            else if (lower.endsWith(".fb2")) raw = fb2Cover(readCapped(new FileInputStream(file)));
+            return coverThumb(raw);
+        } finally {
+            if (temp) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            }
+        }
+    }
+
+    public static final class BookFileMeta {
+        public final String title;
+        public final String author;
+        public final String series;
+        public final String seriesNo;
+        public final String lang;
+        public final String genre;
+
+        public BookFileMeta(String title, String author, String series, String seriesNo, String lang, String genre) {
+            this.title = title == null ? "" : title;
+            this.author = author == null ? "" : author;
+            this.series = series == null ? "" : series;
+            this.seriesNo = seriesNo == null ? "" : seriesNo;
+            this.lang = lang == null ? "" : lang;
+            this.genre = genre == null ? "" : genre;
+        }
+    }
+
+    /** Название, автор и серия из fb2/fbz/epub. Пустые поля, если в файле их нет. */
+    public static BookFileMeta extractBookMeta(Context context, String treeUri, String path) throws Exception {
+        requireStorageAccess(context, treeUri);
+        String lower = path == null ? "" : path.toLowerCase(Locale.US);
+        File file = materializeBookFile(context, treeUri, path);
+        if (file == null || !file.isFile()) return new BookFileMeta("", "", "", "", "", "");
+        boolean temp = file.getName().startsWith("inpx-cover-");
+        try {
+            if (lower.endsWith(".epub")) return epubMeta(file);
+            if (lower.endsWith(".zip") || lower.endsWith(".fbz")) {
+                BookFileMeta fb2 = fbzMeta(file);
+                if (!fb2.title.isEmpty() || !fb2.author.isEmpty()) return fb2;
+                if (lower.endsWith(".zip") && !lower.endsWith(".fb2.zip")) return epubMeta(file);
+                return fb2;
+            }
+            if (lower.endsWith(".fb2")) return fb2Meta(readCapped(new FileInputStream(file)));
+            return new BookFileMeta("", "", "", "", "", "");
+        } finally {
+            if (temp) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            }
+        }
+    }
+
+    private static File materializeBookFile(Context context, String treeUri, String path) throws Exception {
+        String downloadsFolder = effectiveDownloadsFolder(treeUri);
+        if (downloadsFolder != null) {
+            File disk = resolveDownloadsDiskFile(downloadsFolder, path);
+            if (disk.isFile()) return disk;
+        }
+        if (isFileUri(treeUri)) {
+            File file = resolveLegacyFile(treeUri, path, false);
+            if (file.isFile()) return file;
+        }
+        File tmp = File.createTempFile("inpx-cover-", ".bin", context.getCacheDir());
+        try (InputStream in = openStorageInputStream(context, treeUri, path);
+             OutputStream out = new FileOutputStream(tmp)) {
+            if (in == null) {
+                //noinspection ResultOfMethodCallIgnored
+                tmp.delete();
+                return null;
+            }
+            byte[] buf = new byte[8192];
+            long total = 0;
+            int n;
+            while ((n = in.read(buf)) >= 0) {
+                total += n;
+                if (total > COVER_FILE_CAP) break;
+                out.write(buf, 0, n);
+            }
+        }
+        return tmp;
+    }
+
+    private static byte[] readCapped(InputStream in) throws Exception {
+        try (InputStream src = in; java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            long total = 0;
+            int n;
+            while ((n = src.read(buf)) >= 0) {
+                total += n;
+                if (total > COVER_FILE_CAP) break;
+                out.write(buf, 0, n);
+            }
+            return out.toByteArray();
+        }
+    }
+
+    /** Миниатюра для списка: полный PNG через мост Capacitor вешает папку на десятки секунд. */
+    private static byte[] coverThumb(byte[] image) {
+        if (image == null || image.length < 32) return null;
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(image, 0, image.length, bounds);
+        int width = bounds.outWidth;
+        int height = bounds.outHeight;
+        if (width <= 0 || height <= 0) return image;
+        int sample = 1;
+        while (width / sample > 360 || height / sample > 540) sample *= 2;
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inSampleSize = sample;
+        Bitmap bitmap = BitmapFactory.decodeByteArray(image, 0, image.length, opts);
+        if (bitmap == null) return image;
+        try {
+            java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 80, jpeg)) return image;
+            byte[] out = jpeg.toByteArray();
+            return out.length >= 32 ? out : image;
+        } finally {
+            bitmap.recycle();
+        }
+    }
+
+    private static byte[] fb2Cover(byte[] xmlBytes) {
+        if (xmlBytes == null || xmlBytes.length < 64) return null;
+        String xml = new String(xmlBytes, StandardCharsets.ISO_8859_1);
+        Matcher href = FB2_COVER_HREF.matcher(xml);
+        if (!href.find()) return null;
+        String id = href.group(1);
+        Matcher binary = FB2_BINARY.matcher(xml);
+        while (binary.find()) {
+            String attrs = binary.group(1);
+            Matcher idAttr = Pattern.compile("(?i)\\bid\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(attrs);
+            if (!idAttr.find() || !id.equals(idAttr.group(1))) continue;
+            try {
+                byte[] image = android.util.Base64.decode(
+                    binary.group(2).replaceAll("\\s+", ""),
+                    android.util.Base64.DEFAULT
+                );
+                if (image.length >= 32) return image;
+            } catch (IllegalArgumentException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static BookFileMeta fb2Meta(byte[] xmlBytes) {
+        if (xmlBytes == null || xmlBytes.length < 32) return new BookFileMeta("", "", "", "", "", "");
+        Charset charset = fb2Charset(xmlBytes);
+        int n = Math.min(xmlBytes.length, 400_000);
+        String xml = new String(xmlBytes, 0, n, charset);
+        int end = indexOfIgnoreCase(xml, "</title-info>");
+        String info = end > 0 ? xml.substring(0, end) : xml.substring(0, Math.min(xml.length(), 80_000));
+        String seriesNo = attrInTag(info, "sequence", "number");
+        return new BookFileMeta(
+            clipMeta(tagText(info, "book-title")),
+            clipMeta(fb2Authors(info)),
+            clipMeta(attrInTag(info, "sequence", "name")),
+            seriesNo == null ? "" : seriesNo.trim(),
+            clipMeta(tagText(info, "lang")),
+            clipMeta(tagText(info, "genre"))
+        );
+    }
+
+    private static BookFileMeta fbzMeta(File file) throws Exception {
+        try (ZipFile zip = new ZipFile(file)) {
+            ZipEntry fb2 = null;
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (entry.getName().toLowerCase(Locale.US).endsWith(".fb2")) {
+                    fb2 = entry;
+                    break;
+                }
+            }
+            if (fb2 == null) return new BookFileMeta("", "", "", "", "", "");
+            return fb2Meta(readCapped(zip.getInputStream(fb2)));
+        }
+    }
+
+    private static BookFileMeta epubMeta(File file) throws Exception {
+        try (ZipFile zip = new ZipFile(file)) {
+            String opfPath = epubOpfPath(zip);
+            if (opfPath == null) return new BookFileMeta("", "", "", "", "", "");
+            ZipEntry opfEntry = zip.getEntry(opfPath);
+            if (opfEntry == null) return new BookFileMeta("", "", "", "", "", "");
+            String opf = new String(readCapped(zip.getInputStream(opfEntry)), StandardCharsets.UTF_8);
+            return new BookFileMeta(
+                clipMeta(tagText(opf, "dc:title")),
+                clipMeta(epubCreators(opf)),
+                clipMeta(metaContent(opf, "calibre:series")),
+                textOrEmpty(metaContent(opf, "calibre:series_index")),
+                clipMeta(tagText(opf, "dc:language")),
+                ""
+            );
+        } catch (Exception ignored) {
+            return new BookFileMeta("", "", "", "", "", "");
+        }
+    }
+
+    private static Charset fb2Charset(byte[] xml) {
+        int n = Math.min(xml.length, 240);
+        String head = new String(xml, 0, n, StandardCharsets.US_ASCII);
+        Matcher m = Pattern.compile("(?i)encoding\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(head);
+        if (!m.find()) return StandardCharsets.UTF_8;
+        String name = m.group(1).trim();
+        if (name.equalsIgnoreCase("utf-8") || name.equalsIgnoreCase("utf8")) return StandardCharsets.UTF_8;
+        try {
+            return Charset.forName(name);
+        } catch (Exception ignored) {
+            return StandardCharsets.UTF_8;
+        }
+    }
+
+    private static String tagText(String xml, String tag) {
+        Matcher m = Pattern.compile("(?is)<" + Pattern.quote(tag) + "\\b[^>]*>(.*?)</" + Pattern.quote(tag) + ">").matcher(xml);
+        if (!m.find()) return "";
+        return xmlText(m.group(1));
+    }
+
+    private static String fb2Authors(String info) {
+        Matcher m = Pattern.compile("(?is)<author\\b[^>]*>(.*?)</author>").matcher(info);
+        ArrayList<String> names = new ArrayList<>();
+        while (m.find() && names.size() < 6) {
+            String block = m.group(1);
+            String name = joinMeta(tagText(block, "last-name"), tagText(block, "first-name"), tagText(block, "middle-name"));
+            if (name.isEmpty()) name = tagText(block, "nickname");
+            if (!name.isEmpty()) names.add(name);
+        }
+        return String.join(", ", names);
+    }
+
+    private static String epubCreators(String opf) {
+        Matcher m = Pattern.compile("(?is)<dc:creator\\b[^>]*>(.*?)</dc:creator>").matcher(opf);
+        ArrayList<String> names = new ArrayList<>();
+        while (m.find() && names.size() < 6) {
+            String name = xmlText(m.group(1));
+            if (!name.isEmpty()) names.add(name);
+        }
+        return String.join(", ", names);
+    }
+
+    private static String attrInTag(String xml, String tag, String attr) {
+        Matcher m = Pattern.compile("(?is)<" + tag + "\\b([^>]*)/?>").matcher(xml);
+        if (!m.find()) return "";
+        String value = attr(m.group(1), attr);
+        return value == null ? "" : xmlText(value);
+    }
+
+    private static String xmlText(String raw) {
+        if (raw == null) return "";
+        String text = raw.replaceAll("<[^>]+>", " ");
+        text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+            .replace("&apos;", "'").replace("&#39;", "'").replace("&amp;", "&");
+        return text.replaceAll("\\s+", " ").trim();
+    }
+
+    private static String joinMeta(String... parts) {
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (part == null || part.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(part);
+        }
+        return sb.toString();
+    }
+
+    private static String clipMeta(String value) {
+        String text = value == null ? "" : value.trim();
+        return text.length() > 300 ? text.substring(0, 300).trim() : text;
+    }
+
+    private static String textOrEmpty(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static int indexOfIgnoreCase(String hay, String needle) {
+        return hay.toLowerCase(Locale.US).indexOf(needle.toLowerCase(Locale.US));
+    }
+
+    private static byte[] fbzCover(File file) throws Exception {
+        try (ZipFile zip = new ZipFile(file)) {
+            ZipEntry fb2 = null;
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (entry.getName().toLowerCase(Locale.US).endsWith(".fb2")) {
+                    fb2 = entry;
+                    break;
+                }
+            }
+            if (fb2 == null) return null;
+            return fb2Cover(readCapped(zip.getInputStream(fb2)));
+        }
+    }
+
+    private static byte[] epubCover(File file) throws Exception {
+        try (ZipFile zip = new ZipFile(file)) {
+            String opfPath = epubOpfPath(zip);
+            if (opfPath == null) return null;
+            ZipEntry opfEntry = zip.getEntry(opfPath);
+            if (opfEntry == null) return null;
+            String opf = new String(readCapped(zip.getInputStream(opfEntry)), StandardCharsets.UTF_8);
+            String coverId = metaContent(opf, "cover");
+            String href = coverId == null ? null : itemHrefById(opf, coverId);
+            if (href == null) href = itemHrefByProperties(opf, "cover-image");
+            if (href == null) return null;
+            String full = zipResolve(opfPath, href);
+            ZipEntry image = zip.getEntry(full);
+            if (image == null && full.startsWith("/")) image = zip.getEntry(full.substring(1));
+            if (image == null) return null;
+            byte[] bytes = readCapped(zip.getInputStream(image));
+            return bytes.length >= 32 ? bytes : null;
+        }
+    }
+
+    private static String epubOpfPath(ZipFile zip) throws Exception {
+        ZipEntry container = zip.getEntry("META-INF/container.xml");
+        if (container == null) return null;
+        String xml = new String(readCapped(zip.getInputStream(container)), StandardCharsets.UTF_8);
+        Matcher m = Pattern.compile("full-path\\s*=\\s*['\"]([^'\"]+)['\"]").matcher(xml);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static String metaContent(String opf, String name) {
+        Matcher m = Pattern.compile("(?is)<meta\\b([^>]*)>").matcher(opf);
+        while (m.find()) {
+            String attrs = m.group(1);
+            String metaName = attr(attrs, "name");
+            if (name.equalsIgnoreCase(metaName)) return attr(attrs, "content");
+        }
+        return null;
+    }
+
+    private static String itemHrefById(String opf, String id) {
+        Matcher m = Pattern.compile("(?is)<item\\b([^>]*)/?>").matcher(opf);
+        while (m.find()) {
+            String attrs = m.group(1);
+            if (id.equals(attr(attrs, "id"))) return attr(attrs, "href");
+        }
+        return null;
+    }
+
+    private static String itemHrefByProperties(String opf, String prop) {
+        Matcher m = Pattern.compile("(?is)<item\\b([^>]*)/?>").matcher(opf);
+        while (m.find()) {
+            String attrs = m.group(1);
+            String properties = attr(attrs, "properties");
+            if (properties != null && properties.contains(prop)) return attr(attrs, "href");
+        }
+        return null;
+    }
+
+    private static String attr(String attrs, String name) {
+        Matcher m = Pattern.compile("(?i)\\b" + name + "\\s*=\\s*['\"]([^'\"]*)['\"]").matcher(attrs);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static String zipResolve(String opfPath, String href) {
+        String decoded = Uri.decode(href);
+        int slash = opfPath.lastIndexOf('/');
+        String dir = slash >= 0 ? opfPath.substring(0, slash + 1) : "";
+        String[] parts = (dir + decoded).split("/");
+        ArrayList<String> stack = new ArrayList<>();
+        for (String part : parts) {
+            if (part.isEmpty() || ".".equals(part)) continue;
+            if ("..".equals(part)) {
+                if (!stack.isEmpty()) stack.remove(stack.size() - 1);
+            } else {
+                stack.add(part);
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < stack.size(); i++) {
+            if (i > 0) sb.append('/');
+            sb.append(stack.get(i));
+        }
+        return sb.toString();
+    }
+
+    private static int naturalNameCompare(String a, String b) {
+        int i = 0;
+        int j = 0;
+        while (i < a.length() && j < b.length()) {
+            char ca = a.charAt(i);
+            char cb = b.charAt(j);
+            if (Character.isDigit(ca) && Character.isDigit(cb)) {
+                int i0 = i;
+                int j0 = j;
+                while (i < a.length() && Character.isDigit(a.charAt(i))) i++;
+                while (j < b.length() && Character.isDigit(b.charAt(j))) j++;
+                String na = stripLeadingZeros(a.substring(i0, i));
+                String nb = stripLeadingZeros(b.substring(j0, j));
+                int cmp = Integer.compare(na.length(), nb.length());
+                if (cmp == 0) cmp = na.compareTo(nb);
+                if (cmp != 0) return cmp;
+            } else {
+                int cmp = Character.compare(Character.toLowerCase(ca), Character.toLowerCase(cb));
+                if (cmp != 0) return cmp;
+                i++;
+                j++;
+            }
+        }
+        return Integer.compare(a.length(), b.length());
+    }
+
+    private static String stripLeadingZeros(String digits) {
+        int k = 0;
+        while (k < digits.length() - 1 && digits.charAt(k) == '0') k++;
+        return digits.substring(k);
+    }
+
+    private static boolean isBookFileName(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase(Locale.US);
+        return lower.endsWith(".fb2")
+            || lower.endsWith(".fb2.zip")
+            || lower.endsWith(".epub")
+            || lower.endsWith(".fbz")
+            || lower.endsWith(".zip")
+            || lower.endsWith(".pdf")
+            || lower.endsWith(".txt");
+    }
+
+    private static boolean isDirectoryMime(String mime) {
+        if (mime == null || mime.isEmpty()) return false;
+        return DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)
+            || "inode/directory".equalsIgnoreCase(mime)
+            || mime.endsWith("/directory");
+    }
+
+    /** Корень папки на диске. null — это не обычный каталог primary-хранилища. */
+    private static File filesystemRoot(String treeUri) {
+        if (treeUri == null) return null;
+        if (isDownloadsUri(treeUri)) {
+            String name = Uri.decode(treeUri.substring(DOWNLOADS_SCHEME.length()));
+            if (name.isEmpty()) return null;
+            return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), name);
+        }
+        if (isFileUri(treeUri)) {
+            String path = Uri.parse(treeUri).getPath();
+            return path == null || path.isEmpty() ? null : new File(path);
+        }
+        if (!treeUri.startsWith("content://")) return null;
+        try {
+            String treeId = DocumentsContract.getTreeDocumentId(Uri.parse(treeUri));
+            if (!treeId.startsWith("primary:")) return null;
+            String sub = treeId.substring("primary:".length());
+            if (sub.isEmpty()) return Environment.getExternalStorageDirectory();
+            return new File(Environment.getExternalStorageDirectory(), sub);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * Имена через File.list(), без stat на каждый fb2. listFiles()+isDirectory()
+     * на большой папке и есть пауза «Открываем папку».
+     * null — каталог с диска не прочитать, нужен SAF.
+     */
+    private static org.json.JSONArray listFastDirectory(File dir, String rel) {
+        if (dir == null || !dir.isDirectory()) return null;
+        String[] names = dir.list();
+        if (names == null) return null;
+        try {
+            ArrayList<org.json.JSONObject> rows = new ArrayList<>();
+            for (String name : names) {
+                if (name == null || name.equals(".") || name.equals("..") || name.startsWith(".")) continue;
+                boolean book = isBookFileName(name);
+                boolean isDir = false;
+                if (!book) {
+                    File child = new File(dir, name);
+                    // На Android 11+ isDirectory() для чужой папки часто false, хотя list() имя вернул.
+                    // Такой каталог проводник показывает, а проверка «это файл» — нет.
+                    if (child.isDirectory() || !child.isFile()) isDir = true;
+                    else continue;
+                }
+                org.json.JSONObject item = new org.json.JSONObject();
+                item.put("name", name);
+                item.put("path", rel.isEmpty() ? name : rel + "/" + name);
+                item.put("directory", isDir);
+                rows.add(item);
+            }
+            Collections.sort(rows, (a, b) -> {
+                boolean ad = a.optBoolean("directory");
+                boolean bd = b.optBoolean("directory");
+                if (ad != bd) return ad ? -1 : 1;
+                return naturalNameCompare(a.optString("name"), b.optString("name"));
+            });
+            org.json.JSONArray out = new org.json.JSONArray();
+            for (org.json.JSONObject item : rows) out.put(item);
+            return out;
+        } catch (Exception failed) {
+            return null;
+        }
+    }
+
+    /**
+     * Один запрос к DocumentsContract. DocumentFile.listFiles() после этого
+     * ещё раз спрашивает имя и тип каждого файла — на большой папке это секунды.
+     */
+    private static org.json.JSONArray listSafChildren(Context context, String treeUri, String rel) {
+        try {
+            Uri tree = Uri.parse(treeUri);
+            String parentId = DocumentsContract.getTreeDocumentId(tree);
+            if (!rel.isEmpty()) {
+                StringBuilder docId = new StringBuilder(parentId);
+                for (String part : splitPath(normalizeRelativePath(rel))) {
+                    docId.append('/').append(part);
+                }
+                parentId = docId.toString();
+            }
+            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
+            ArrayList<org.json.JSONObject> rows = new ArrayList<>();
+            try (Cursor cursor = context.getContentResolver().query(
+                children,
+                new String[] {
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                },
+                null,
+                null,
+                null
+            )) {
+                if (cursor == null) return null;
+                int nameCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
+                int mimeCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE);
+                while (cursor.moveToNext()) {
+                    String name = nameCol >= 0 ? cursor.getString(nameCol) : null;
+                    if (name == null || name.isEmpty() || name.startsWith(".")) continue;
+                    String mime = mimeCol >= 0 ? cursor.getString(mimeCol) : null;
+                    boolean book = isBookFileName(name);
+                    boolean isDir = !book && (isDirectoryMime(mime)
+                        || (name.indexOf('.') < 0 && (mime == null || mime.isEmpty()
+                            || "application/octet-stream".equalsIgnoreCase(mime))));
+                    if (!isDir && !book) continue;
+                    org.json.JSONObject item = new org.json.JSONObject();
+                    item.put("name", name);
+                    item.put("path", rel.isEmpty() ? name : rel + "/" + name);
+                    item.put("directory", isDir);
+                    rows.add(item);
+                }
+            }
+            Collections.sort(rows, (a, b) -> {
+                boolean ad = a.optBoolean("directory");
+                boolean bd = b.optBoolean("directory");
+                if (ad != bd) return ad ? -1 : 1;
+                return naturalNameCompare(a.optString("name"), b.optString("name"));
+            });
+            org.json.JSONArray out = new org.json.JSONArray();
+            for (org.json.JSONObject item : rows) out.put(item);
+            return out;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /** null — каталог с диска не прочитан. Пустой массив — каталог есть, детей нет. */
+    private static org.json.JSONArray listDiskChildren(String treeUri, String rel) {
+        File root = filesystemRoot(treeUri);
+        if (root == null) return null;
+        File dir = rel.isEmpty() ? root : new File(root, rel.replace('/', File.separatorChar));
+        try {
+            String rootPath = root.getCanonicalPath();
+            String dirPath = dir.getCanonicalPath();
+            if (!dirPath.equals(rootPath) && !dirPath.startsWith(rootPath + File.separator)) {
+                return null;
+            }
+        } catch (java.io.IOException ignored) {
+            return null;
+        }
+        return listFastDirectory(dir, rel);
+    }
+
+    public static boolean canListFast(String treeUri) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()) return true;
+        org.json.JSONArray disk = listDiskChildren(treeUri, "");
+        return disk != null && disk.length() > 0;
+    }
+
+    public static org.json.JSONArray readDirListCache(Context context, String treeUri, String rel) {
+        File file = dirListCacheFile(context, treeUri, rel);
+        if (file == null || !file.isFile() || file.length() < 2 || file.length() > 2_000_000) return null;
+        try {
+            byte[] buf = new byte[(int) file.length()];
+            try (FileInputStream in = new FileInputStream(file)) {
+                int off = 0;
+                while (off < buf.length) {
+                    int n = in.read(buf, off, buf.length - off);
+                    if (n < 0) break;
+                    off += n;
+                }
+            }
+            return new org.json.JSONArray(new String(buf, StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    public static void writeDirListCache(Context context, String treeUri, String rel, org.json.JSONArray rows) {
+        File file = dirListCacheFile(context, treeUri, rel);
+        if (file == null || rows == null) return;
+        try {
+            File parent = file.getParentFile();
+            if (parent != null && !parent.isDirectory()) parent.mkdirs();
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                out.write(rows.toString().getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Exception ignored) {
+            /* кэш необязателен */
+        }
+    }
+
+    private static File dirListCacheFile(Context context, String treeUri, String rel) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(("v2\n" + treeUri + "\n" + (rel == null ? "" : rel)).getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (int i = 0; i < 8; i++) hex.append(String.format(Locale.US, "%02x", hash[i]));
+            return new File(new File(context.getCacheDir(), "dir-list"), hex + ".json");
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * Имена с диска, если каталог уже виден. null — списка нет или он пустой:
+     * пустой File.list() без «всех файлов» не значит, что папка пуста.
+     */
+    public static org.json.JSONArray peekDiskListing(String treeUri, String rel) {
+        org.json.JSONArray disk = listDiskChildren(treeUri, rel == null ? "" : rel);
+        if (disk == null || disk.length() == 0) return null;
+        return disk;
+    }
+
+    /** Один уровень папки: подпапки и книги. path пустой — корень выбранного дерева. */
+    public static org.json.JSONArray listDirectory(Context context, String treeUri, String relativePath) throws Exception {
+        requireStorageGrant(context, treeUri);
+        String rel = relativePath == null ? "" : relativePath.trim();
+        boolean manager = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager();
+        org.json.JSONArray disk = listDiskChildren(treeUri, rel);
+        // С доступом ко всем файлам File.list() совпадает с проводником.
+        // Без него непустой список с диска всё равно неполный: чужие файлы и часть папок пропадают.
+        if (manager && disk != null) return disk;
+        org.json.JSONArray granted = null;
+        if (treeUri != null && treeUri.startsWith("content://")) {
+            granted = listSafChildren(context, treeUri, rel);
+        } else if (isDownloadsUri(treeUri)) {
+            granted = listGrantedDownloads(context, treeUri, rel);
+        }
+        if (granted != null && (granted.length() > 0 || disk == null || disk.length() == 0)) return granted;
+        if (disk != null) return disk;
+        if (isDownloadsUri(treeUri) || isFileUri(treeUri)) {
+            return new org.json.JSONArray();
+        }
+        DocumentFile docRoot = DocumentFile.fromTreeUri(context, Uri.parse(treeUri));
+        DocumentFile docDir = rel.isEmpty() ? docRoot : resolveSafPath(docRoot, rel, false);
+        org.json.JSONArray out = new org.json.JSONArray();
+        if (docDir == null || !docDir.isDirectory()) return out;
+        DocumentFile[] kids = docDir.listFiles();
+        if (kids == null) return out;
+        java.util.Arrays.sort(kids, (a, b) -> {
+            String an = a.getName() == null ? "" : a.getName();
+            String bn = b.getName() == null ? "" : b.getName();
+            return naturalNameCompare(an, bn);
+        });
+        for (DocumentFile child : kids) {
+            String name = child.getName();
+            if (name == null || name.startsWith(".")) continue;
+            boolean book = isBookFileName(name);
+            boolean isDir = !book && child.isDirectory();
+            if (!isDir && !book) continue;
+            org.json.JSONObject item = new org.json.JSONObject();
+            item.put("name", name);
+            item.put("path", rel.isEmpty() ? name : rel + "/" + name);
+            item.put("directory", isDir);
+            out.put(item);
+        }
+        return out;
+    }
+
+    /** downloads:// на телефоне читается через уже выданное SAF-дерево, не через File.list(). */
+    private static org.json.JSONArray listGrantedDownloads(Context context, String treeUri, String rel) {
+        String folderName = Uri.decode(treeUri.substring(DOWNLOADS_SCHEME.length()));
+        if (folderName.isEmpty()) return null;
+        String persisted = findPersistedDownloadsTree(context, folderName);
+        if (persisted == null) return null;
+        String safRel = safRelativePathForDownloadsTree(persisted, folderName, rel);
+        while (safRel.endsWith("/")) safRel = safRel.substring(0, safRel.length() - 1);
+        return listSafChildren(context, persisted, safRel);
+    }
+
+    /** fb2/epub/fbz already in the library folder (other readers, old downloads). Depth and count are capped. */
+    public static ArrayList<String> listBookRelPaths(Context context, String treeUri) throws Exception {
+        requireStorageAccess(context, treeUri);
+        ArrayList<String> out = new ArrayList<>();
+        String downloadsFolder = effectiveDownloadsFolder(treeUri);
+        if (downloadsFolder != null) {
+            File root = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), downloadsFolder);
+            walkBookFiles(root, "", out, 0);
+            return out;
+        }
+        DocumentFile root = DocumentFile.fromTreeUri(context, Uri.parse(treeUri));
+        walkBookDocs(root, "", out, 0);
+        return out;
+    }
+
+    private static void walkBookFiles(File dir, String prefix, ArrayList<String> out, int depth) {
+        if (dir == null || !dir.isDirectory() || depth > 4 || out.size() >= 1500) return;
+        File[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (File child : kids) {
+            if (out.size() >= 1500) return;
+            String name = child.getName();
+            if (name.startsWith(".")) continue;
+            String rel = prefix.isEmpty() ? name : prefix + "/" + name;
+            if (child.isDirectory()) walkBookFiles(child, rel, out, depth + 1);
+            else if (isBookFileName(name)) out.add(rel);
+        }
+    }
+
+    private static void walkBookDocs(DocumentFile dir, String prefix, ArrayList<String> out, int depth) {
+        if (dir == null || !dir.isDirectory() || depth > 4 || out.size() >= 1500) return;
+        DocumentFile[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (DocumentFile child : kids) {
+            if (out.size() >= 1500) return;
+            String name = child.getName();
+            if (name == null || name.startsWith(".")) continue;
+            String rel = prefix.isEmpty() ? name : prefix + "/" + name;
+            if (child.isDirectory()) walkBookDocs(child, rel, out, depth + 1);
+            else if (isBookFileName(name)) out.add(rel);
         }
     }
 

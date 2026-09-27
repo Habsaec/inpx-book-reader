@@ -15,7 +15,7 @@ export default function ReadProgressBar({ value, showLabel = true, className = '
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <div
-        className="flex-1 h-1 rounded-full bg-[var(--app-surface-container-highest)] overflow-hidden"
+        className="flex-1 h-1 rounded-full bg-[var(--app-progress-track,var(--app-border))] overflow-hidden"
         role="progressbar"
         aria-valuenow={pct}
         aria-valuemin={0}
@@ -23,8 +23,8 @@ export default function ReadProgressBar({ value, showLabel = true, className = '
         aria-label={`Прогресс чтения ${pct}%`}
       >
         <div
-          className={`h-full transition-all duration-300 ${pct >= 100 ? 'bg-[var(--app-success)]' : theme.progress}`}
-          style={{ width: `${pct}%` }}
+          className={`h-full w-full origin-left transition-transform duration-200 ease-linear ${pct >= 100 ? 'bg-[var(--app-success)]' : theme.progress}`}
+          style={{ transform: `scaleX(${pct / 100})` }}
         />
       </div>
       {showLabel && (
