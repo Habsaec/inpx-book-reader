@@ -7,6 +7,10 @@
 Мобильная читалка **только для Android**. Каталог и sync — с [INPX Library Server](https://github.com/Habsaec/inpx-library-server); текст книги — только из скачанного файла на устройстве.
 
 <p align="center">
+  <a href="https://boosty.to/habsaec/donate">Поддержать проект</a>
+</p>
+
+<p align="center">
   <img src="./assets/readme/workflow.svg" width="100%" alt="Подключить сервер → каталог → скачать → читать офлайн со sync">
 </p>
 
