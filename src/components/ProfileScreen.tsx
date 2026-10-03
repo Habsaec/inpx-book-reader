@@ -84,7 +84,7 @@ export default function ProfileScreen({
   localInProgressCount = 0,
   connectionFocusEpoch = 0,
 }: ProfileScreenProps) {
-  const username = profile?.user.username?.trim() || serverConfig.username?.trim() || '';
+  const username = profile?.user?.username?.trim() || serverConfig.username?.trim() || '';
   const initial = username ? username.charAt(0).toUpperCase() : '';
   const stats = profile?.userStats;
   const since = memberSince(stats?.createdAt);
@@ -125,7 +125,7 @@ export default function ProfileScreen({
           {username ? (
             <p className={`${textStyles.bodyBold} ${theme.text} truncate`}>{username}</p>
           ) : null}
-          {profile?.user.role === 'admin' ? (
+          {profile?.user?.role === 'admin' ? (
             <p className={`${textStyles.caption} ${theme.textMuted}`}>Администратор</p>
           ) : null}
           {statusNote ? (

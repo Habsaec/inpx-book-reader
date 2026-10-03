@@ -102,7 +102,7 @@ export default function DownloadQueueSheet({ open, onClose, onOpenSaved }: Downl
                     {(job.status === 'downloading' || job.status === 'saving') && (
                       <div className="mt-2 h-1 rounded-full bg-[var(--app-panel-soft)] overflow-hidden">
                         <div
-                          className="h-full bg-[var(--app-link)] rounded-full"
+                          className="h-full bg-[var(--app-accent)] rounded-full"
                           style={{ width: `${Math.max(4, job.progress)}%` }}
                         />
                       </div>

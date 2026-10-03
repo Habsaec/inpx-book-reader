@@ -1,5 +1,11 @@
-import { BarcodeFormat, BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
+import { registerPlugin } from '@capacitor/core';
 import { isAndroid } from './platform';
+
+interface QrScanNative {
+  scan(): Promise<{ value?: string }>;
+}
+
+const QrScan = registerPlugin<QrScanNative>('QrScan');
 
 /** User dismissed Google Code Scanner without scanning — not a real failure. */
 export class QrScanCanceledError extends Error {
@@ -16,7 +22,7 @@ export function isQrScanCanceled(err: unknown): boolean {
 }
 
 /**
- * Scan a single QR with the Google Code Scanner UI (Android).
+ * Scan a single QR with the Google Code Scanner UI (Android, Play Services).
  * Returns the raw QR string.
  * Throws {@link QrScanCanceledError} if the user dismisses the scanner.
  */
@@ -25,27 +31,21 @@ export async function scanAppPairingQr(): Promise<string> {
     throw new Error('Сканирование QR доступно только в Android-приложении');
   }
 
-  const supported = await BarcodeScanner.isSupported();
-  if (!supported.supported) {
-    throw new Error('Сканер QR недоступен на этом устройстве');
-  }
-
-  const module = await BarcodeScanner.isGoogleBarcodeScannerModuleAvailable();
-  if (!module.available) {
-    await BarcodeScanner.installGoogleBarcodeScannerModule();
-    throw new Error('Устанавливается модуль сканера Google. Повторите сканирование через несколько секунд.');
-  }
-
-  let barcodes;
+  let value: string | undefined;
   try {
-    ({ barcodes } = await BarcodeScanner.scan({
-      formats: [BarcodeFormat.QrCode],
-    }));
+    ({ value } = await QrScan.scan());
   } catch (err) {
-    if (isQrScanCanceled(err)) throw new QrScanCanceledError();
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'CANCELED' || isQrScanCanceled(err)) throw new QrScanCanceledError();
+    if (code === 'MODULE_INSTALLING') {
+      throw new Error('Устанавливается модуль сканера Google. Повторите сканирование через несколько секунд.');
+    }
+    if (code === 'UNSUPPORTED') {
+      throw new Error('Сканер QR недоступен на этом устройстве');
+    }
     throw err;
   }
-  const raw = barcodes[0]?.rawValue?.trim();
+  const raw = value?.trim();
   if (!raw) {
     throw new Error('QR-код не распознан');
   }

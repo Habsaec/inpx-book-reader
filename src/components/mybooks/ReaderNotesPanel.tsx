@@ -124,7 +124,7 @@ export default function ReaderNotesPanel({
                 title={ANNOTATION_COLOR_LABELS[c]}
                 aria-label={`${ANNOTATION_COLOR_LABELS[c]} (${count})`}
                 className={`min-h-9 min-w-9 inline-flex items-center justify-center rounded-full ${theme.focusRing} ${
-                  colorFilter === c ? 'ring-2 ring-[var(--app-link)]/50' : ''
+                  colorFilter === c ? 'ring-2 ring-[var(--app-accent)]/50' : ''
                 }`}
               >
                 <span className={`w-2.5 h-2.5 rounded-full ${ANNOTATION_COLOR_SWATCH[c]}`} aria-hidden />
@@ -181,7 +181,7 @@ export default function ReaderNotesPanel({
                               aria-pressed={editColor === c}
                               onClick={() => setEditColor(c)}
                               className={`min-h-11 min-w-11 inline-flex items-center justify-center rounded-full ${theme.focusRing} ${motion.press} ${
-                                editColor === c ? 'ring-2 ring-[var(--app-link)]' : ''
+                                editColor === c ? 'ring-2 ring-[var(--app-accent)]' : ''
                               }`}
                             >
                               <span className={`w-3 h-3 rounded-full ${ANNOTATION_COLOR_SWATCH[c]}`} aria-hidden />

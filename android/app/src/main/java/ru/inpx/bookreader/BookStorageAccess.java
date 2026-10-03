@@ -2244,7 +2244,10 @@ public final class BookStorageAccess {
         } catch (Exception ignored) {
             /* copy anyway */
         }
-        if (dest.isFile() && sourceSize > 0 && dest.length() == sourceSize) {
+        long sourceModified = getStorageFileModified(context, storageUri, relativePath);
+        File stamp = new File(dest.getAbsolutePath() + ".mtime");
+        if (dest.isFile() && sourceSize > 0 && dest.length() == sourceSize
+                && sourceModified > 0 && stampMatches(stamp, sourceModified)) {
             //noinspection ResultOfMethodCallIgnored
             dest.setLastModified(System.currentTimeMillis());
             return dest.getAbsolutePath();
@@ -2275,8 +2278,71 @@ public final class BookStorageAccess {
             tmp.delete();
             throw new Exception("Could not finalize cached book");
         }
+        if (sourceModified > 0) writeStamp(stamp, sourceModified);
         trimBookCache(context);
         return dest.getAbsolutePath();
+    }
+
+    private static boolean stampMatches(File stamp, long modified) {
+        if (!stamp.isFile()) return false;
+        try (FileInputStream in = new FileInputStream(stamp)) {
+            byte[] buf = new byte[32];
+            int n = in.read(buf);
+            if (n <= 0) return false;
+            String text = new String(buf, 0, n, StandardCharsets.UTF_8).trim();
+            return text.equals(Long.toString(modified));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static void writeStamp(File stamp, long modified) {
+        try (FileOutputStream out = new FileOutputStream(stamp)) {
+            out.write(Long.toString(modified).getBytes(StandardCharsets.UTF_8));
+            out.getFD().sync();
+        } catch (Exception ignored) {
+            /* next open recopies */
+        }
+    }
+
+    /** 0 when the provider has no mtime — caller must not reuse the cache. */
+    public static long getStorageFileModified(Context context, String storageUri, String path) {
+        try {
+            requireStorageAccess(context, storageUri);
+            String downloadsFolder = effectiveDownloadsFolder(storageUri);
+            if (downloadsFolder != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    Uri uri = resolveDownloadsUri(context, downloadsFolder, path);
+                    if (uri != null) {
+                        try (android.database.Cursor cursor = context.getContentResolver().query(
+                                uri,
+                                new String[]{android.provider.MediaStore.MediaColumns.DATE_MODIFIED},
+                                null,
+                                null,
+                                null
+                        )) {
+                            if (cursor != null && cursor.moveToFirst()) {
+                                long seconds = cursor.getLong(0);
+                                if (seconds > 0) return seconds * 1000L;
+                            }
+                        }
+                    }
+                }
+                File disk = resolveDownloadsDiskFile(downloadsFolder, path);
+                if (disk.isFile()) return disk.lastModified();
+                return 0;
+            }
+            if (isFileUri(storageUri)) {
+                File file = resolveLegacyFile(storageUri, path, false);
+                return file.isFile() ? file.lastModified() : 0;
+            }
+            DocumentFile root = DocumentFile.fromTreeUri(context, Uri.parse(storageUri));
+            DocumentFile file = resolveSafPath(root, path, false);
+            if (file == null || !file.exists()) return 0;
+            return file.lastModified();
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     public static long getStorageFileSize(Context context, String storageUri, String path) throws Exception {

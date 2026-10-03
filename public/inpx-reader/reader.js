@@ -3393,7 +3393,11 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
   function addBookmark() {
     if (!view?.lastLocation) return;
     const loc = view.lastLocation;
-    const pos = loc.cfi || '';
+    const saved = readerPositionFromLocation(loc);
+    const pos = isFb2Active()
+      ? (saved.fb2Href || loc.cfi || saved.position || '')
+      : (loc.cfi || saved.position || '');
+    if (!pos) return;
     const title = loc.tocItem?.label || rtp('readerJs.positionPct', { n: Math.round((loc.fraction ?? 0) * 100) });
     api('POST', '/bookmarks', { position: pos, title }).then(r => {
       if (r.ok) {
@@ -3645,12 +3649,12 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const cfi = view.getCFI(activeSel.index, activeSel.range);
     const text = activeSel.text;
     if (!cfi) { hideSelMenu(); return; }
-    drawAnnotation({ cfi, color });
     hideSelMenu();
     try { view.deselect?.(); } catch { /* */ }
     try {
       const r = await api('POST', '/annotations', { cfi, text, color, note: '' });
       annotationsData.push({ id: r.id, cfi, text, color, note: '', createdAt: new Date().toISOString() });
+      drawAnnotation({ cfi, color });
       toast(rt('readerJs.highlightAdded'));
       if (activePanelTab === 'notes') renderNotesTab();
     } catch (e) { console.error(e); }
@@ -3707,11 +3711,19 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     hideSelMenu();
     activeSel = null;
     if (!a) return;
-    try { view.deleteAnnotation?.({ value: a.cfi }); } catch { /* */ }
-    annotationsData = annotationsData.filter(x => x.id !== a.id);
+    const removed = a;
+    try { view.deleteAnnotation?.({ value: removed.cfi }); } catch { /* */ }
+    annotationsData = annotationsData.filter(x => x.id !== removed.id);
     if (activePanelTab === 'notes') renderNotesTab();
-    try { await api('DELETE', '/annotations/' + a.id); } catch (e) { console.error(e); }
-    toast(rt('readerJs.annotationRemoved'));
+    try {
+      await api('DELETE', '/annotations/' + removed.id);
+      toast(rt('readerJs.annotationRemoved'));
+    } catch (e) {
+      console.error(e);
+      annotationsData = [...annotationsData, removed].sort((x, y) => (x.id || 0) - (y.id || 0));
+      drawAnnotation(removed);
+      if (activePanelTab === 'notes') renderNotesTab();
+    }
   }
 
   function openNoteEditor() {
@@ -3810,7 +3822,14 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     try { view.deleteAnnotation?.({ value: a.cfi }); } catch { /* */ }
     annotationsData = annotationsData.filter(x => x.id !== id);
     renderNotesTab();
-    try { await api('DELETE', '/annotations/' + id); } catch (e) { console.error(e); }
+    try {
+      await api('DELETE', '/annotations/' + id);
+    } catch (e) {
+      console.error(e);
+      annotationsData = [...annotationsData, a].sort((x, y) => (x.id || 0) - (y.id || 0));
+      drawAnnotation(a);
+      renderNotesTab();
+    }
   }
 
   function initAnnotations() {
@@ -6301,6 +6320,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
         toast(rt('readerJs.notesImportFail'));
         return;
       }
+      let importFailed = 0;
       for (const bm of parsed.bookmarks || []) {
         if (!bm.position) continue;
         const exists = bookmarksData.some(b => b.position === bm.position);
@@ -6308,7 +6328,8 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
           try {
             const r = await api('POST', '/bookmarks', { position: bm.position, title: bm.title || '' });
             if (r?.id) bookmarksData.push({ ...bm, id: r.id });
-          } catch { /* */ }
+            else importFailed += 1;
+          } catch { importFailed += 1; }
         }
       }
       for (const ann of parsed.annotations || []) {
@@ -6325,8 +6346,8 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
             if (r?.id) {
               annotationsData.push({ ...ann, id: r.id });
               drawAnnotation(ann);
-            }
-          } catch { /* */ }
+            } else importFailed += 1;
+          } catch { importFailed += 1; }
         }
       }
       if (savedFraction(parsed) > 0 || parsed.position) {
@@ -6357,7 +6378,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       renderBmTab();
       renderNotesTab();
       applyAllAnnotations();
-      toast(rt('readerJs.notesImported'));
+      toast(rt(importFailed > 0 ? 'readerJs.notesImportFail' : 'readerJs.notesImported'));
     } catch {
       toast(rt('readerJs.notesImportFail'));
     }

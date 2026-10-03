@@ -38,7 +38,7 @@ import {
   isAuthError,
 } from '../lib/inpxClient';
 import { applyServerActivitySyncMeta } from '../lib/readerActivitySync';
-import { dropQueuedToggleReadOps } from '../lib/syncQueueProcessor';
+import { dropQueuedToggleReadOps, processSyncQueue } from '../lib/syncQueueProcessor';
 
 export function isServerOnline(config: ServerConfig): boolean {
   return config.connectionStatus === 'connected' && Boolean(config.url);
@@ -100,6 +100,8 @@ export function useInpxServer(
   const [profile, setProfile] = React.useState<InpxProfile | null>(null);
   const [bookmarkIds, setBookmarkIds] = React.useState<Set<string>>(() => new Set());
   const [readIds, setReadIds] = React.useState<Set<string>>(() => new Set());
+  /** True only after a successful bookmark/read id load. Empty sets before that must not filter lists. */
+  const [collectionsReady, setCollectionsReady] = React.useState(false);
   const [readingProgress, setReadingProgress] = React.useState<Map<string, number>>(() => new Map());
   const [favoriteAuthors, setFavoriteAuthors] = React.useState<string[]>([]);
   const [favoriteSeries, setFavoriteSeries] = React.useState<string[]>([]);
@@ -128,6 +130,8 @@ export function useInpxServer(
     /** Fast path: unlock Home/UI — profile + favs + shelves (no paginated ID dumps). */
     let prof: InpxProfile;
     try {
+      await processSyncQueue(config);
+      if (!isCurrent()) return;
       const [profileRes, favs, shelfList, activityMeta] = await Promise.all([
         fetchProfile(config),
         fetchFavorites(config),
@@ -180,6 +184,7 @@ export function useInpxServer(
       if (collectionsEpoch === collectionsMutationEpoch.current) {
         setBookmarkIds(bmIds);
         setReadIds(rdIds);
+        setCollectionsReady(true);
         const mergedProgress = new Map(progressMap);
         prof.recentBooks.forEach((book) => {
           const progress = Math.round(Number(book.readProgress) || 0);
@@ -205,18 +210,29 @@ export function useInpxServer(
     }
   }, [config, online]);
 
+  // URL switches between LAN and external addresses of the same library. Only a new login clears ids.
+  const accountKey = `${config.username}\0${config.deviceToken}`;
+  const accountKeyRef = React.useRef(accountKey);
+  React.useEffect(() => {
+    if (accountKeyRef.current === accountKey) return;
+    accountKeyRef.current = accountKey;
+    setBookmarkIds(new Set());
+    setReadIds(new Set());
+    setCollectionsReady(false);
+    setLastSynced(null);
+  }, [accountKey]);
+
   React.useEffect(() => {
     if (online) void refresh();
     else {
       setProfile(null);
-      setBookmarkIds(new Set());
-      setReadIds(new Set());
       setReadingProgress(new Map());
       setFavoriteAuthors([]);
       setFavoriteSeries([]);
       setFavoriteAuthorItems([]);
       setFavoriteSeriesItems([]);
       setShelves([]);
+      setLastSynced(null);
     }
     return () => {
       refreshRequestId.current += 1;
@@ -239,7 +255,7 @@ export function useInpxServer(
             ...p,
             userStats: {
               ...p.userStats,
-              bookmarkCount: p.userStats.bookmarkCount + (bookmarked ? 1 : -1),
+              bookmarkCount: Math.max(0, p.userStats.bookmarkCount + (bookmarked ? 1 : -1)),
             },
           }
         : p
@@ -556,6 +572,7 @@ export function useInpxServer(
     profile,
     bookmarkIds,
     readIds,
+    collectionsReady,
     readingProgress,
     favoriteAuthors,
     favoriteSeries,

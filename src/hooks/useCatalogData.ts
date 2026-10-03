@@ -481,6 +481,9 @@ export function useCatalogData({
           if (selectedSeries) facet = 'series';
           else if (selectedSubgenre) facet = 'genres';
           // Book sorts from header (rating/title/…); series default is set by openSeriesPage → 'series'
+          const genreList = (Array.isArray(genreFilter) ? genreFilter : String(genreFilter || '').split(','))
+            .map((g) => g.trim())
+            .filter(Boolean);
           const data = await fetchFacetBooks(serverConfig, facet, value, facetPage, {
             author: selectedSeries && selectedAuthor ? selectedAuthor : undefined,
             sort: catalogSort,
@@ -489,6 +492,7 @@ export function useCatalogData({
             minRate: minRating >= 1 ? Math.floor(minRating) : undefined,
             hasSeries:
               hasSeriesFilter === 'yes' ? 1 : hasSeriesFilter === 'no' ? 0 : undefined,
+            genre: genreList.length ? genreList : undefined,
           });
           if (cancelled) return;
           const mapped = data.items.map((item) =>
@@ -526,6 +530,7 @@ export function useCatalogData({
     facetPage,
     minRating,
     formatFilter,
+    genreFilter,
     yearFilter,
     hasSeriesFilter,
     handleFetchError,

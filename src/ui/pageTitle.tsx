@@ -35,7 +35,8 @@ export function PageTitleProvider({ children }: { children: React.ReactNode }) {
         notify();
       },
       get top() {
-        return stack.current.at(-1)?.entry ?? null;
+        const items = stack.current;
+        return items.length ? items[items.length - 1].entry : null;
       },
       subscribe(listener) {
         listeners.current.add(listener);

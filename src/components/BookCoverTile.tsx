@@ -161,7 +161,7 @@ export default function BookCoverTile({
     >
       <span
         className={`book-cover shrink-0 ${isShelf ? '' : 'w-full'} ${
-          selected ? 'ring-2 ring-[var(--app-link)] ring-offset-2 ring-offset-[var(--app-bg)]' : ''
+          selected ? 'ring-2 ring-[var(--app-accent)] ring-offset-2 ring-offset-[var(--app-bg)]' : ''
         }`}
         style={isShelf ? { width: shelfW, height: shelfH } : undefined}
       >
@@ -205,7 +205,7 @@ export default function BookCoverTile({
           )}
           {selected && (
             <span
-              className="absolute top-1.5 right-1.5 z-[7] w-6 h-6 rounded-full bg-[var(--app-link)] text-white flex items-center justify-center"
+              className="absolute top-1.5 right-1.5 z-[7] w-6 h-6 rounded-full bg-[var(--app-accent)] text-white flex items-center justify-center"
               aria-hidden
             >
               <Check className="w-3.5 h-3.5" strokeWidth={3} />

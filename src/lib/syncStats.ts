@@ -1,5 +1,6 @@
 import { getPendingSyncOps, getFailedSyncOps } from './localDb';
 import { readOfflineReaderData } from './offlineReaderStore';
+import { parseSyncTs } from './readerActivitySync';
 
 export interface SyncPendingBreakdown {
   queueTotal: number;
@@ -49,7 +50,7 @@ function hasPendingBookmarks(bookId: string): boolean {
   ) {
     return false;
   }
-  return data.bookmarksChangedAt > data.serverBookmarksRev;
+  return parseSyncTs(data.bookmarksChangedAt) > parseSyncTs(data.serverBookmarksRev);
 }
 
 function hasPendingAnnotations(bookId: string): boolean {
@@ -67,7 +68,7 @@ function hasPendingAnnotations(bookId: string): boolean {
   ) {
     return false;
   }
-  return data.annotationsChangedAt > data.serverAnnotationsRev;
+  return parseSyncTs(data.annotationsChangedAt) > parseSyncTs(data.serverAnnotationsRev);
 }
 
 export function summarizeReaderSyncPending(bookIds: string[]): Pick<

@@ -412,7 +412,7 @@ export default function CatalogTab({
     setSearchPhase('idle');
     // Match openAuthorPage / openSeriesPage sort defaults for deep-links.
     if (selectedSeries) setCatalogSort('series');
-    else if (selectedAuthor) setCatalogSort('rating');
+    else if (selectedAuthor) setCatalogSort('title');
   }, [
     catalogNavEpoch,
     pendingSearchQuery,
@@ -440,13 +440,17 @@ export default function CatalogTab({
     // Outside-series is only meaningful on the author hub (no series open).
     if (authorOutsideSeries && !selectedSeries) {
       setAuthorOutsideSeries(false);
+      setCatalogSort('title');
       return;
     }
     // Серия внутри страницы автора — один шаг вверх по drill-down.
     if (selectedSeries && selectedAuthor) {
       setSelectedSeries(null);
       setAuthorOutsideSeries(false);
-      restoreDrillSort('rating');
+      // Страница автора знает только «Название» / «Количество».
+      const prev = drillSortReturnRef.current;
+      drillSortReturnRef.current = null;
+      setCatalogSort(prev === 'count' ? 'count' : 'title');
       return;
     }
     // Пришли из избранного/другой вкладки — не оставлять на списке «Авторы»/«Серии».
@@ -693,7 +697,7 @@ export default function CatalogTab({
     setAuthorOutsideSeries(false);
     clearBookFilters();
     drillSortReturnRef.current = catalogSort;
-    setCatalogSort('rating');
+    setCatalogSort('title');
     setSelectedAuthor(authorName);
     scrollCatalogToTop('auto');
     pushRecentBrowse({ kind: 'author', name: authorName });
@@ -1053,6 +1057,7 @@ export default function CatalogTab({
                 (searchMode && subTab === 'books' && !catalogDrillDown) ||
                 Boolean(selectedSeries) ||
                 Boolean(selectedSubgenre && !selectedAuthor && !selectedSeries) ||
+                Boolean(selectedAuthor && !selectedSubgenre) ||
                 authorOutsideSeries
               }
               bookSort={catalogSort}

@@ -14,7 +14,7 @@ import {
   probeServerHealth,
   normalizeBaseUrl,
 } from '../lib/inpxClient';
-import { candidateServerUrls, firstReachableUrl } from '../lib/serverUrlSwitch';
+import { candidateServerUrls, firstReachableUrl, normalizeSsid } from '../lib/serverUrlSwitch';
 import { getNetworkStatus, subscribeNetworkChanges } from '../lib/networkInfo';
 import type { ServerConfig } from '../types';
 
@@ -37,8 +37,12 @@ export function useServerConnection() {
     });
   }, []);
 
-  const pickReachableUrl = React.useCallback(async (config: ServerConfig, ssid?: string | null) => {
-    const urls = candidateServerUrls(config, ssid);
+  const pickReachableUrl = React.useCallback(async (
+    config: ServerConfig,
+    ssid?: string | null,
+    transport?: string | null,
+  ) => {
+    const urls = candidateServerUrls(config, ssid, transport);
     const probe = (url: string) => probeServerHealth({ ...config, url }, CONNECTION_TIMEOUT_MS);
     const picked = await firstReachableUrl(urls, probe);
     if (picked) return picked;
@@ -137,7 +141,7 @@ export function useServerConnection() {
         if (configSnapshot.autoSwitch && isNativeApp()) {
           const net = await getNetworkStatus();
           if (connectionVerifyIdRef.current !== verifyId) return;
-          const picked = await pickReachableUrl(configSnapshot, net.ssid);
+          const picked = await pickReachableUrl(configSnapshot, net.ssid, net.transport);
           if (connectionVerifyIdRef.current !== verifyId) return;
           if (picked) {
             working = { ...configSnapshot, url: picked };
@@ -193,8 +197,9 @@ export function useServerConnection() {
     serverConfig.connectionStatus,
     serverConfig.deviceToken,
     serverConfig.password,
-    serverConfig.url,
     serverConfig.username,
+    // url намеренно не в зависимостях: applyActiveUrl меняет его в середине пробы,
+    // и повторный запуск эффекта отменял уже выбранный адрес.
     serverConfigReady,
   ]);
 
@@ -247,21 +252,33 @@ export function useServerConnection() {
     );
   }, []);
 
-  const maybeSwitchServerUrl = React.useCallback(async (ssid?: string | null) => {
+  const maybeSwitchServerUrl = React.useCallback(async (net?: { ssid?: string | null; transport?: string | null }) => {
     const prev = serverConfigRef.current;
     if (!prev.autoSwitch || !isNativeApp()) return;
     if (prev.connectionStatus === 'testing') return;
     if (prev.connectionStatus !== 'connected' && !shouldAutoReconnect(prev)) return;
+    const ssid = net?.ssid;
+    const transport = net?.transport;
     const gen = ++urlSwitchGenRef.current;
     const current = normalizeBaseUrl(prev.url);
-    const urls = candidateServerUrls(prev, ssid);
+    const urls = candidateServerUrls(prev, ssid, transport);
     const preferred = urls[0] || current;
-    if (preferred === current && prev.connectionStatus === 'connected') return;
-    const picked = await pickReachableUrl(prev, ssid);
+    const leftHome = transport === 'cellular' || transport === 'none'
+      || (normalizeSsid(prev.localSsid) && normalizeSsid(ssid || '') && normalizeSsid(prev.localSsid) !== normalizeSsid(ssid || ''));
+    // On the home Wi-Fi the LAN URL is already active — don't probe on every signal change.
+    // Leaving Wi-Fi often keeps status "connected" and an empty SSID, which used to look
+    // like "already on the right URL" and skipped the external address until the next launch.
+    if (!leftHome && preferred === current && prev.connectionStatus === 'connected') return;
+    const picked = await pickReachableUrl(prev, ssid, transport);
     if (urlSwitchGenRef.current !== gen) return;
-    if (picked && picked !== current) applyActiveUrl(picked);
-    if (prev.connectionStatus !== 'connected') tryAutoReconnect();
-  }, [applyActiveUrl, pickReachableUrl, tryAutoReconnect]);
+    if (!picked || (picked === current && prev.connectionStatus === 'connected')) return;
+    setConnectionError(null);
+    setServerConfig((cur) => ({
+      ...cur,
+      url: picked,
+      connectionStatus: 'testing',
+    }));
+  }, [pickReachableUrl]);
 
   // Foreground resume: server may have come back after a failed boot probe.
   React.useEffect(() => {
@@ -270,7 +287,7 @@ export function useServerConnection() {
       if (!isActive) return;
       const prev = serverConfigRef.current;
       if (prev.autoSwitch) {
-        void getNetworkStatus().then((net) => void maybeSwitchServerUrl(net.ssid));
+        void getNetworkStatus().then((net) => void maybeSwitchServerUrl(net));
         return;
       }
       tryAutoReconnect();
@@ -288,7 +305,7 @@ export function useServerConnection() {
     const onOnline = () => {
       const prev = serverConfigRef.current;
       if (prev.autoSwitch) {
-        void getNetworkStatus().then((net) => void maybeSwitchServerUrl(net.ssid));
+        void getNetworkStatus().then((net) => void maybeSwitchServerUrl(net));
         return;
       }
       tryAutoReconnect();
@@ -308,7 +325,7 @@ export function useServerConnection() {
     const unsub = subscribeNetworkChanges((status) => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        void maybeSwitchServerUrl(status.ssid);
+        void maybeSwitchServerUrl(status);
       }, 400);
     });
     return () => {

@@ -123,6 +123,20 @@ describe('probeServerHealth', () => {
     vi.unstubAllGlobals();
   });
 
+  it('returns false when fetch never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const { probeServerHealth } = await import('../inpxClient');
+      vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+      const pending = probeServerHealth(baseConfig, 500);
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(pending).resolves.toBe(false);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('returns false when the host is unreachable', async () => {
     const { probeServerHealth } = await import('../inpxClient');
     vi.stubGlobal('fetch', vi.fn(async () => {

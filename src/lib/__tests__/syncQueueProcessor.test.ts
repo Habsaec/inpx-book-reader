@@ -23,8 +23,24 @@ vi.mock('../inpxClient', () => ({
   deleteReadingHistoryApi: vi.fn().mockResolvedValue(undefined),
   toggleBookRead: vi.fn().mockResolvedValue(true),
   ensureBookReadState: vi.fn().mockResolvedValue(undefined),
+  createServerShelf: vi.fn().mockResolvedValue(1),
+  deleteServerShelf: vi.fn().mockResolvedValue(undefined),
+  fetchShelves: vi.fn().mockResolvedValue([]),
+  fetchFavorites: vi.fn().mockResolvedValue({ authors: [], series: [] }),
+  addBookToServerShelf: vi.fn().mockResolvedValue(undefined),
+  removeBookFromServerShelf: vi.fn().mockResolvedValue(undefined),
+  toggleFavoriteAuthorApi: vi.fn().mockResolvedValue(true),
+  toggleFavoriteSeriesApi: vi.fn().mockResolvedValue(true),
   isAuthError: () => false,
   isUnreachableServerError: vi.fn().mockReturnValue(false),
+  ApiError: class ApiError extends Error {
+    status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.name = 'ApiError';
+      this.status = status;
+    }
+  },
 }));
 
 function mockLocalStorage() {
@@ -122,6 +138,39 @@ describe('syncQueueProcessor', () => {
     expect(n).toBe(0);
     const pending = await getPendingSyncOps();
     expect(pending).toHaveLength(0);
+  });
+
+  it('binds a shelf that the server already created under the same name', async () => {
+    const { enqueueSyncOp, getPendingSyncOps, initLocalDb } = await import('../localDb');
+    const inpxClient = await import('../inpxClient');
+    await initLocalDb();
+    await enqueueSyncOp('shelf_create', 'shelf_1', { name: 'Полка' });
+    vi.mocked(inpxClient.createServerShelf).mockRejectedValue(
+      new inpxClient.ApiError('Полка с таким названием уже существует', 400),
+    );
+    vi.mocked(inpxClient.fetchShelves).mockResolvedValue([{ id: 42, name: 'Полка' }]);
+    const { processSyncQueue, readPersistedShelfIdMap } = await import('../syncQueueProcessor');
+    const n = await processSyncQueue({ url: 'http://x', connectionStatus: 'connected' });
+    expect(n).toBe(1);
+    expect(readPersistedShelfIdMap().get('shelf_1')).toBe(42);
+    expect(await getPendingSyncOps()).toHaveLength(0);
+  });
+
+  it('does not burn shelf_add attempts while shelf_create is still queued', async () => {
+    const { enqueueSyncOp, getPendingSyncOps, initLocalDb } = await import('../localDb');
+    const inpxClient = await import('../inpxClient');
+    await initLocalDb();
+    await enqueueSyncOp('shelf_add', 'shelf_9', { bookId: 'book-1', name: 'Полка' });
+    await enqueueSyncOp('shelf_create', 'shelf_9', { name: 'Полка' });
+    vi.mocked(inpxClient.createServerShelf).mockResolvedValue(7);
+    const { processSyncQueue } = await import('../syncQueueProcessor');
+    const n = await processSyncQueue({ url: 'http://x', connectionStatus: 'connected' });
+    expect(n).toBe(1);
+    expect(inpxClient.addBookToServerShelf).not.toHaveBeenCalled();
+    const pending = await getPendingSyncOps();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.attempts).toBe(0);
+    expect(pending[0]?.bookId).toBe('7');
   });
 
   it('stops processing when server is unreachable', async () => {

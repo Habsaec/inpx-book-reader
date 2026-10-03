@@ -285,7 +285,7 @@ function ShellFrame({
         {indicatorReady ? (
           <motion.span
             aria-hidden
-            className="absolute top-0 left-0 h-0.5 w-8 rounded-full bg-[var(--app-link)]"
+            className="absolute top-0 left-0 h-0.5 w-8 rounded-full bg-[var(--app-accent)]"
             style={{ transform: indicatorTransform }}
           />
         ) : null}

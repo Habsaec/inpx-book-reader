@@ -7,8 +7,8 @@ android {
         applicationId "ru.inpx.bookreader"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 15
-        versionName "1.5.0"
+        versionCode 16
+        versionName "1.6.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -45,6 +45,8 @@ dependencies {
     implementation "androidx.media:media:1.7.0"
     // BOOX Go7 / Android 13+: DeviceController.setLightValue в blacklist без bypass
     implementation "org.lsposed.hiddenapibypass:hiddenapibypass:6.1"
+    // QR: Google Code Scanner (декодер и UI в Play Services, не в APK)
+    implementation "com.google.android.gms:play-services-code-scanner:16.1.0"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

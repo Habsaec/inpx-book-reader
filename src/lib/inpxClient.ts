@@ -17,6 +17,8 @@ import {
   apiBookmarkPath,
   apiReadPath,
   apiReadingHistoryPath,
+  bookIdNeedsSafeUrl,
+  encodeBookRef,
 } from './bookRef';
 
 export interface InpxProfile {
@@ -214,16 +216,21 @@ async function withTimeoutSignal<T>(
   work: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onCallerAbort = () => controller.abort();
   callerSignal?.addEventListener('abort', onCallerAbort);
+  let timer = 0;
+  // CapacitorHttp ignores AbortSignal, so a dead LAN host never rejects fetch.
+  // Race a real timer or auto URL switch waits forever on the first candidate.
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Timeout: сервер не ответил за ${Math.round(timeoutMs / 1000)} с`));
+    }, timeoutMs);
+  });
+  const task = work(controller.signal);
+  task.catch(() => {});
   try {
-    return await work(controller.signal);
-  } catch (e: unknown) {
-    if (controller.signal.aborted && !callerSignal?.aborted) {
-      throw new Error(`Timeout: сервер не ответил за ${Math.round(timeoutMs / 1000)} с`);
-    }
-    throw e;
+    return await Promise.race([task, timeout]);
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener('abort', onCallerAbort);
@@ -530,13 +537,7 @@ export async function ensureBookReadState(
     await apiPostJson(config, '/api/read/batch', { ids: [bookId] });
     return;
   }
-  // Unmark: one toggle if currently read; if we accidentally marked, toggle again.
-  let isRead = await toggleBookRead(config, bookId);
-  if (!isRead) return;
-  isRead = await toggleBookRead(config, bookId);
-  if (isRead) {
-    throw new Error('Не удалось снять отметку «прочитано»');
-  }
+  await apiDelete(config, apiReadPath(bookId));
 }
 
 export async function toggleFavoriteAuthorApi(config: ServerConfig, name: string): Promise<boolean> {
@@ -594,7 +595,10 @@ export async function addBookToServerShelf(config: ServerConfig, shelfId: number
 }
 
 export async function removeBookFromServerShelf(config: ServerConfig, shelfId: number, bookId: string): Promise<void> {
-  await apiDelete(config, `/api/shelves/${shelfId}/books/${encodeURIComponent(bookId)}`);
+  const path = bookIdNeedsSafeUrl(bookId)
+    ? `/api/shelves/${shelfId}/books/b64/${encodeBookRef(bookId)}`
+    : `/api/shelves/${shelfId}/books/${encodeURIComponent(bookId)}`;
+  await apiDelete(config, path);
 }
 
 export interface ServerReadingPosition {
@@ -1004,7 +1008,8 @@ export async function fetchBookReviewHtml(config: ServerConfig, bookId: string):
 }
 
 export type CatalogField = 'books' | 'authors' | 'series';
-export type CatalogBookSort = 'recent' | 'title' | 'author' | 'series' | 'rating';
+/** `count` — только страница автора (порядок серий по числу книг, `/api/browse/authors/:value/grouped`). */
+export type CatalogBookSort = 'recent' | 'title' | 'author' | 'series' | 'rating' | 'count';
 export type CatalogEntitySort = 'name' | 'count';
 
 export interface CatalogSearchHints {
@@ -1224,6 +1229,8 @@ export async function fetchFacetBooks(
     minRate?: number;
     hasSeries?: 0 | 1 | boolean;
     lang?: string;
+    /** Single code, CSV, or list — OR (at least one genre). */
+    genre?: string | string[];
   },
 ): Promise<Paginated<InpxBookItem>> {
   const params = new URLSearchParams({ facet, value, page: String(page), pageSize: '24' });
@@ -1235,6 +1242,13 @@ export async function fetchFacetBooks(
   if (opts?.minRate != null && opts.minRate >= 1) params.set('minRate', String(Math.floor(opts.minRate)));
   if (opts?.hasSeries === true || opts?.hasSeries === 1) params.set('hasSeries', '1');
   else if (opts?.hasSeries === false || opts?.hasSeries === 0) params.set('hasSeries', '0');
+  if (opts?.genre != null) {
+    const genres = Array.isArray(opts.genre) ? opts.genre : [opts.genre];
+    for (const g of genres) {
+      const code = String(g || '').trim();
+      if (code) params.append('genre', code);
+    }
+  }
   return apiJson(config, `/api/facet-books?${params}`);
 }
 
@@ -1667,6 +1681,10 @@ export function mapServerBook(
     genre: genreParts[0] || 'Другое',
     subgenre: genreParts[1] || 'Разное',
     genresDisplay: genreParts.length ? genreParts : undefined,
+    genreCodes: String(item.genres || '')
+      .split(/[:,]/)
+      .map((code) => code.trim().toLowerCase())
+      .filter(Boolean),
     series,
     seriesDisplay,
     seriesNo,

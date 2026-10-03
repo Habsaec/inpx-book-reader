@@ -38,6 +38,12 @@ describe('candidateServerUrls', () => {
   it('tries LAN first when the current SSID is unknown', () => {
     expect(candidateServerUrls(base, '')[0]).toBe('http://192.168.10.69:8096');
   });
+
+  it('tries the external URL first after Wi-Fi is turned off', () => {
+    const urls = candidateServerUrls(base, '', 'cellular');
+    expect(urls[0]).toBe('https://immich.tailscale.ts.net');
+    expect(urls).toContain('http://192.168.10.69:8096');
+  });
 });
 
 describe('firstReachableUrl', () => {

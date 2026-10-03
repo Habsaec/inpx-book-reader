@@ -115,6 +115,38 @@ describe('syncStats', () => {
     expect(bookHasPendingSync('book-1')).toBe(true);
   });
 
+  it('compares bookmark revisions by time, not ISO vs SQLite spelling', () => {
+    writeOfflineReaderData('book-1', {
+      positionVersion: 4,
+      position: null,
+      positionDirty: false,
+      baseRevision: 1,
+      serverRevision: 1,
+      progress: 40,
+      bookmarks: [{ id: 1, position: 'cfi-1', title: 'A', createdAt: '2026-07-12T11:00:00.000Z' }],
+      annotations: [],
+      bookmarksChangedAt: '2026-07-12 13:00:00',
+      serverBookmarksRev: '2026-07-12T12:00:00.000Z',
+      serverBookmarkCount: 2,
+    });
+    expect(bookHasPendingSync('book-1')).toBe(true);
+
+    writeOfflineReaderData('book-1', {
+      positionVersion: 4,
+      position: null,
+      positionDirty: false,
+      baseRevision: 1,
+      serverRevision: 1,
+      progress: 40,
+      bookmarks: [{ id: 1, position: 'cfi-1', title: 'A', createdAt: '2026-07-12T11:00:00.000Z' }],
+      annotations: [],
+      bookmarksChangedAt: '2026-07-12T11:00:00.000Z',
+      serverBookmarksRev: '2026-07-12 12:00:00',
+      serverBookmarkCount: 2,
+    });
+    expect(bookHasPendingSync('book-1')).toBe(false);
+  });
+
   it('countCrossDeviceConflicts only counts pendingCrossDevicePrompt', () => {
     writeOfflineReaderData('book-1', {
       positionVersion: 4,

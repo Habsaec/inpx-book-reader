@@ -18,6 +18,8 @@ export interface Book {
   description?: string;
   date?: string;
   genresDisplay?: string[];
+  /** INPX genre codes (`genres` field), used to filter «Вне серий» locally. */
+  genreCodes?: string[];
   coverUrl?: string;
   content?: string; // Parsed chapters JSON (in-app storage only)
   localFileName?: string; // Relative path in picked folder, e.g. "Author/Series/1-Title.fb2"

@@ -68,12 +68,17 @@ function SnackbarCard({
   );
 }
 
-function showSnackbar(message: string, action?: SnackbarAction, variant: SnackbarVariant = 'default') {
+function showSnackbar(
+  message: string,
+  action?: SnackbarAction,
+  variant: SnackbarVariant = 'default',
+  durationMs?: number,
+) {
   toast.custom(
     (id) => <SnackbarCard id={id} message={message} action={action} variant={variant} />,
     {
       id: message,
-      duration: action ? AUTO_HIDE_ACTION_MS : AUTO_HIDE_MS,
+      duration: durationMs ?? (action ? AUTO_HIDE_ACTION_MS : AUTO_HIDE_MS),
       unstyled: true,
     },
   );

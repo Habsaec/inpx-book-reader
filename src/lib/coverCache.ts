@@ -368,7 +368,7 @@ function urlFromFile(memKey: string, fileUrl: string): string | null {
   return url || null;
 }
 
-/** Prefer a distinct object URL under the full mem key so thumb eviction does not revoke it. */
+/** Thumb pixels under the full-cover key, so replacing the thumb cannot revoke this URL. */
 async function fallbackFullCoverToThumb(
   bookId: string,
   memKey: string,
@@ -380,11 +380,10 @@ async function fallbackFullCoverToThumb(
     thumb = await loadPersistedBlob(coverIdbKey(bookId, 'thumb'), appCoverPath(bookId, 'thumb'));
   }
   if (thumb) return urlFromBlob(memKey, thumb);
-  const thumbMem = memoryCache.get(coverMemKey(bookId, 'thumb'));
-  if (!thumbMem) return null;
-  // Never alias another key's object URL — thumb eviction would revoke full.
+  const cachedThumb = memoryCache.get(coverMemKey(bookId, 'thumb'));
+  if (!cachedThumb) return null;
   try {
-    const res = await fetch(thumbMem);
+    const res = await fetch(cachedThumb);
     const blob = await res.blob();
     if (blob.size >= 32) return urlFromBlob(memKey, blob);
   } catch {

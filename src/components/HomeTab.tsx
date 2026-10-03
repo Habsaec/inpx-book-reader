@@ -1,7 +1,7 @@
 import React from 'react';
 import { BookOpen, AlertCircle, MoreVertical, Play, Loader2 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { InpxProfile, mapServerBook, starsFromLibRate, fetchLibraryView, isAuthError, isUnreachableServerError } from '../lib/inpxClient';
+import { InpxProfile, mapServerBook, starsFromLibRate, fetchLibraryView, isAuthError, isUnreachableServerError, bookContentUrl, displayCoverUrl } from '../lib/inpxClient';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { mergeRecentReadingLists, type LocalRecentReadingItem } from '../lib/localReadingProgress';
@@ -99,8 +99,8 @@ function localRecentToBook(item: LocalRecentReadingItem, config: ServerConfig): 
     ext: item.ext,
     series: item.series,
     seriesNo: item.seriesNo,
-    contentUrl: `${config.url}/api/books/${item.id}/content`,
-    coverUrl: `${config.url}/api/books/${item.id}/cover-thumb`,
+    contentUrl: bookContentUrl(config, item.id),
+    coverUrl: displayCoverUrl(config, item.id, 'thumb'),
     readProgress: item.readProgress,
     ...(item.rating && item.rating > 0 ? { rating: item.rating } : {}),
   };
@@ -395,10 +395,12 @@ export default function HomeTab({
         if (cancelled) return;
         setRecentServer(items.slice(0, 8).map((b) => mapServerBook(b, serverConfig)));
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         if (cancelled) return;
         setRecentServer([]);
         setRecentError(true);
+        if (isAuthError(e)) onAuthExpired?.();
+        else if (isUnreachableServerError(e)) onConnectionLost?.();
       })
       .finally(() => {
         if (!cancelled) setRecentLoading(false);
@@ -406,7 +408,7 @@ export default function HomeTab({
     return () => {
       cancelled = true;
     };
-  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, recentMode]);
+  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, recentMode, onAuthExpired, onConnectionLost]);
 
   const closeSectionView = React.useCallback(() => setSectionView(null), []);
 
@@ -577,7 +579,11 @@ export default function HomeTab({
               loading={recentLoading}
               onBookClick={handleCatalogBookTap}
               onBookLongPress={onBookLongPress}
-              emptyLabel="Пока нет новинок"
+              emptyLabel={
+                recentMode === 'fav' && recentServer.length > 0
+                  ? 'Нет новинок от авторов, которых вы уже читали'
+                  : 'Пока нет новинок'
+              }
             />
           )}
         </section>

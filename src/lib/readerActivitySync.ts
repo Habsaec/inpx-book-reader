@@ -62,13 +62,14 @@ export function applyServerActivitySyncMeta(meta: {
 
 export function parseSyncTs(iso: string | null | undefined): number {
   if (!iso) return 0;
-  let t = Date.parse(iso);
-  if (!Number.isFinite(t)) {
-    const sqlite = String(iso).trim();
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(sqlite)) {
-      t = Date.parse(`${sqlite.replace(' ', 'T')}Z`);
-    }
+  const raw = String(iso).trim();
+  // SQLite datetimes have no timezone. Date.parse treats the space form as local
+  // time, which disagrees with ISO `Z` stamps from the same server clock.
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) {
+    const t = Date.parse(`${raw.replace(' ', 'T')}Z`);
+    return Number.isFinite(t) ? t : 0;
   }
+  const t = Date.parse(raw);
   return Number.isFinite(t) ? t : 0;
 }
 

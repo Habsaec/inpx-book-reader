@@ -69,6 +69,32 @@ export function buildSeriesTrack(
 }
 
 /**
+ * Series names collide across authors. Try the hint, then each listed author,
+ * and only then the unscoped series — stop at the first list that contains this book.
+ */
+async function seriesBooksContainingBook(
+  config: ServerConfig,
+  series: string,
+  bookId: string,
+  authorHint: string | undefined,
+  authors: string[] | undefined,
+): Promise<InpxBookItem[] | null> {
+  const candidates: string[] = [];
+  const hint = authorHint?.trim() || '';
+  if (hint) candidates.push(hint);
+  for (const name of authors || []) {
+    const trimmed = name.trim();
+    if (trimmed && !candidates.includes(trimmed)) candidates.push(trimmed);
+  }
+  candidates.push('');
+  for (const author of candidates) {
+    const items = await fetchAllSeriesBooks(config, series, author || undefined);
+    if (items.some((item) => item.id === bookId)) return items;
+  }
+  return null;
+}
+
+/**
  * Resolve the next unread volume in the same series after `bookId`.
  * Uses GET /api/books/:id/meta + GET /api/facet-books?facet=series&sort=series.
  */
@@ -90,8 +116,8 @@ export async function resolveNextInSeries(
     meta.series?.trim() ||
     series;
 
-  const items = await fetchAllSeriesBooks(config, series, opts?.author);
-  if (items.length === 0) return null;
+  const items = await seriesBooksContainingBook(config, series, bookId, opts?.author, meta.authorsList);
+  if (!items || items.length === 0) return null;
 
   const track = buildSeriesTrack(items, config);
   const idx = items.findIndex((b) => b.id === bookId);

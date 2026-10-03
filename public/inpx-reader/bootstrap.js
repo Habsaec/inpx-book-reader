@@ -143,17 +143,26 @@ function debugLog(hypothesisId, location, message, data) {
     } else if (fraction < prevFrac - 0.02) {
       store.fb2Href = null;
     }
-    if (Number.isFinite(Number(payload?.sectionIndex))) store.sectionIndex = Number(payload.sectionIndex);
-    store.textOffset = payload?.textOffset != null
-      && Number.isInteger(Number(payload.textOffset)) && Number(payload.textOffset) >= 0
-      ? Number(payload.textOffset)
-      : null;
-    store.textQuote = typeof payload?.textQuote === 'string' ? payload.textQuote.slice(0, 256) : null;
-    store.textSectionLength =
-      payload?.textSectionLength != null
-        && Number.isInteger(Number(payload.textSectionLength)) && Number(payload.textSectionLength) >= 0
-        ? Number(payload.textSectionLength)
-        : null;
+    const nextSection = Number(payload?.sectionIndex);
+    const sectionChanged = Number.isFinite(nextSection) && nextSection !== store.sectionIndex;
+    // Точный якорь важнее fraction. Держим его, только если страница не сдвинулась:
+    // иначе следующее открытие вернётся на старый offset.
+    const fractionMoved = Math.abs(fraction - prevFrac) > 0.002;
+    if (Number.isFinite(nextSection)) store.sectionIndex = nextSection;
+    if (payload?.textOffset != null
+      && Number.isInteger(Number(payload.textOffset)) && Number(payload.textOffset) >= 0) {
+      store.textOffset = Number(payload.textOffset);
+    } else if (sectionChanged || fractionMoved) {
+      store.textOffset = null;
+    }
+    if (typeof payload?.textQuote === 'string') store.textQuote = payload.textQuote.slice(0, 256);
+    else if (sectionChanged || fractionMoved) store.textQuote = null;
+    if (payload?.textSectionLength != null
+      && Number.isInteger(Number(payload.textSectionLength)) && Number(payload.textSectionLength) >= 0) {
+      store.textSectionLength = Number(payload.textSectionLength);
+    } else if (sectionChanged || fractionMoved) {
+      store.textSectionLength = null;
+    }
     if (Number.isFinite(Number(payload?.sectionPageFraction))) {
       store.sectionPageFraction = Number(payload.sectionPageFraction);
     }
@@ -229,23 +238,33 @@ function debugLog(hypothesisId, location, message, data) {
     return `inpx_offline_reader_${bookId}`;
   }
 
+  let memoryReaderStore = null;
+
+  function emptyReaderStore() {
+    return { positionVersion: 4, position: null, progress: 0, fraction: 0, bookmarks: [], annotations: [] };
+  }
+
   function readReaderData() {
     try {
       const raw = localStorage.getItem(readerDataKey());
-      return raw
-        ? JSON.parse(raw)
-        : { positionVersion: 4, position: null, progress: 0, fraction: 0, bookmarks: [], annotations: [] };
+      if (raw) {
+        memoryReaderStore = JSON.parse(raw);
+        return memoryReaderStore;
+      }
     } catch {
-      return { positionVersion: 4, position: null, progress: 0, fraction: 0, bookmarks: [], annotations: [] };
+      /* quota or corrupt JSON — keep the in-memory copy */
     }
+    return memoryReaderStore || emptyReaderStore();
   }
 
   function writeReaderData(data, opts) {
     const current = { ...data, positionVersion: 4, updatedAt: new Date().toISOString() };
+    memoryReaderStore = current;
     try {
       localStorage.setItem(readerDataKey(), JSON.stringify(current));
     } catch (err) {
       // QuotaExceededError и т.п. не должны ронять flush позиции/закрытие читалки.
+      // Сессия остаётся в памяти, родитель всё равно получает snapshot.
       debugLog('H2', 'bootstrap:writeReaderData', 'localStorage write failed', { error: String(err) });
     }
     if (!opts?.skipParentNotify) notifyParentReaderSync(current);
@@ -407,13 +426,24 @@ function debugLog(hypothesisId, location, message, data) {
     seedRestoreEnabled = false;
   };
 
+  function parseReaderSyncTs(iso) {
+    if (!iso) return 0;
+    const raw = String(iso).trim();
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) {
+      const sqlite = Date.parse(`${raw.replace(' ', 'T')}Z`);
+      return Number.isFinite(sqlite) ? sqlite : 0;
+    }
+    const t = Date.parse(raw);
+    return Number.isFinite(t) ? t : 0;
+  }
+
   function mergeReaderStores(local, incoming) {
     if (!incoming || typeof incoming !== 'object') return local;
     const localFrac = normalizeStoredFraction(local.fraction ?? (Number(local.progress) || 0) / 100);
     const incomingFrac = normalizeStoredFraction(incoming.fraction ?? (Number(incoming.progress) || 0) / 100);
     const spuriousReset = incomingFrac < 0.02 && localFrac > 0.05;
-    const localTs = Date.parse(local.positionChangedAt || local.updatedAt || '') || 0;
-    const incomingTs = Date.parse(incoming.positionChangedAt || incoming.updatedAt || '') || 0;
+    const localTs = parseReaderSyncTs(local.positionChangedAt || local.updatedAt);
+    const incomingTs = parseReaderSyncTs(incoming.positionChangedAt || incoming.updatedAt);
     const incomingRev = Number(incoming.baseRevision);
     const localRev = Number(local.baseRevision) || 0;
     const incomingIsAcceptedServerPull =
@@ -485,11 +515,11 @@ function debugLog(hypothesisId, location, message, data) {
           : local.dismissedServerRevision,
       // Prefer newer local collections so open-sync re-seed cannot wipe in-session edits.
       ...(() => {
-        const localBmTs = Date.parse(local.bookmarksChangedAt || '') || 0;
-        const incomingBmTs = Date.parse(incoming.bookmarksChangedAt || '') || 0;
+        const localBmTs = parseReaderSyncTs(local.bookmarksChangedAt);
+        const incomingBmTs = parseReaderSyncTs(incoming.bookmarksChangedAt);
         const preferLocalBm = Array.isArray(incoming.bookmarks) && localBmTs > incomingBmTs;
-        const localAnnTs = Date.parse(local.annotationsChangedAt || '') || 0;
-        const incomingAnnTs = Date.parse(incoming.annotationsChangedAt || '') || 0;
+        const localAnnTs = parseReaderSyncTs(local.annotationsChangedAt);
+        const incomingAnnTs = parseReaderSyncTs(incoming.annotationsChangedAt);
         const preferLocalAnn = Array.isArray(incoming.annotations) && localAnnTs > incomingAnnTs;
         return {
           bookmarks: !Array.isArray(incoming.bookmarks)
@@ -863,6 +893,8 @@ function debugLog(hypothesisId, location, message, data) {
       } else {
         accepted = await showBootstrapCrossDeviceConfirm(lines);
       }
+      // pagehide and the 120s timeout are not a choice. Recording them as
+      // «stay here» drops the other device's position and lets this one overwrite it.
       if (accepted === null) return;
       const fresh = readReaderData();
       if (accepted) {
@@ -1092,6 +1124,11 @@ function debugLog(hypothesisId, location, message, data) {
 
   function setupLocalReaderApi() {
     const LOCAL_BASE = `inpx-local://${encodeURIComponent(bookId)}`;
+    let localReaderItemSeq = 0;
+    function nextLocalReaderItemId() {
+      localReaderItemSeq = (localReaderItemSeq + 1) % 1000;
+      return Date.now() * 1000 + localReaderItemSeq;
+    }
 
     globalThis.apiBookPath = function apiBookPath(id, suffix) {
       const clean = String(suffix || '').replace(/^\//, '');
@@ -1150,7 +1187,7 @@ function debugLog(hypothesisId, location, message, data) {
               const body = init?.body ? JSON.parse(String(init.body)) : {};
               clearBookmarkTombstone(store, body.position);
               const item = normalizeBookmark({
-                id: Date.now(),
+                id: nextLocalReaderItemId(),
                 position: body.position,
                 title: body.title || '',
                 created_at: new Date().toISOString(),
@@ -1192,7 +1229,7 @@ function debugLog(hypothesisId, location, message, data) {
               const body = init?.body ? JSON.parse(String(init.body)) : {};
               clearAnnotationTombstone(store, body.cfi);
               const item = normalizeAnnotation({
-                id: Date.now(),
+                id: nextLocalReaderItemId(),
                 cfi: body.cfi,
                 text: body.text || '',
                 note: body.note || '',

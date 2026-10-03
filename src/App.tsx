@@ -31,6 +31,7 @@ import { useLocalLibrary } from './hooks/useLocalLibrary';
 import { useDownloadPipeline } from './hooks/useDownloadPipeline';
 import { useAppSync } from './hooks/useAppSync';
 import { useBookActions } from './hooks/useBookActions';
+import { readPersistedShelfIdMap, setShelfRemapHandler } from './lib/syncQueueProcessor';
 import { useLocalBookFileVerification } from './hooks/useLocalBookFileVerification';
 import {
   ensureStorageDirectory,
@@ -70,11 +71,51 @@ import { useSnackbar } from './ui/Snackbar';
 import { authHeader, bookContentUrl, coverUrl, displayCoverUrl, fetchServerLogoBlob } from './lib/inpxClient';
 import { warmCoverCache } from './lib/coverCache';
 import { isBookDownloadInFlight, resolveBookPrimaryAction } from './lib/bookOpenPolicy';
-import type { Book } from './types';
+import type { Book, Shelf } from './types';
 
 import FoliateReader from './components/FoliateReader';
 
 const CatalogTab = React.lazy(() => import('./components/CatalogTab'));
+
+function sameNames(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((name, i) => name === b[i]);
+}
+
+function mergeLocalShelves(
+  local: Shelf[],
+  server: Array<{ id: number; name: string; previewBookIds?: string[] }>,
+): Shelf[] {
+  const used = new Set<string>();
+  const next: Shelf[] = [];
+  for (const shelf of server) {
+    const id = String(shelf.id);
+    const existing = local.find((item) => item.id === id);
+    if (existing) {
+      used.add(existing.id);
+      next.push({
+        id,
+        name: shelf.name,
+        bookIds: existing.bookIds,
+      });
+      continue;
+    }
+    next.push({ id, name: shelf.name, bookIds: [...(shelf.previewBookIds || [])] });
+  }
+  for (const item of local) {
+    if (!used.has(item.id) && item.id.startsWith('shelf_')) next.push(item);
+  }
+  return next;
+}
+
+function shelvesEqual(a: Shelf[], b: Shelf[]): boolean {
+  return a.length === b.length && a.every((shelf, i) => {
+    const other = b[i];
+    return other
+      && shelf.id === other.id
+      && shelf.name === other.name
+      && shelf.bookIds.join('\0') === other.bookIds.join('\0');
+  });
+}
 
 export default function App() {
   const snackbar = useSnackbar();
@@ -107,6 +148,8 @@ export default function App() {
     setFavoriteAuthors,
     favoriteSeries,
     setFavoriteSeries,
+    bootError,
+    retryBoot,
   } = library;
 
   const [catalogSubTab, setCatalogSubTab] = React.useState<'books' | 'authors' | 'series' | 'genres'>(CATALOG_BROWSE_ROOT);
@@ -126,7 +169,7 @@ export default function App() {
   const [connectionFocusEpoch, setConnectionFocusEpoch] = React.useState(0);
   const readerOriginTabRef = React.useRef<AppTab>('home');
 
-  const { resetExitPrompt } = useAppBackButton(() => snackbar.show('Ещё раз для выхода'));
+  const { resetExitPrompt } = useAppBackButton(() => snackbar.show('Ещё раз для выхода', undefined, 'default', 4000));
   // Смена вкладки между двумя Back отменяет окно «ещё раз для выхода».
   React.useEffect(() => {
     resetExitPrompt();
@@ -258,6 +301,63 @@ export default function App() {
   const inpxServer = useInpxServer(serverConfig, markServerDisconnected, markAuthExpired);
   const isOnline = inpxServer.online;
   const canReadOnline = isOnline;
+
+  React.useEffect(() => {
+    setShelfRemapHandler((localId, serverId) => {
+      setShelves((prev) => prev.map((shelf) => (
+        shelf.id === localId ? { ...shelf, id: serverId } : shelf
+      )));
+    });
+    return () => setShelfRemapHandler(null);
+  }, [setShelves]);
+
+  React.useEffect(() => {
+    if (!libraryReady) return;
+    const map = readPersistedShelfIdMap();
+    if (map.size === 0) return;
+    setShelves((prev) => {
+      let changed = false;
+      const next = prev.map((shelf) => {
+        const serverId = map.get(shelf.id);
+        if (serverId == null) return shelf;
+        changed = true;
+        return { ...shelf, id: String(serverId) };
+      });
+      return changed ? next : prev;
+    });
+  }, [libraryReady, setShelves]);
+
+  React.useEffect(() => {
+    if (!bootError) return;
+    snackbar.show(
+      'Не удалось открыть локальную библиотеку',
+      { label: 'Повторить', onClick: retryBoot },
+      'error',
+    );
+  }, [bootError, retryBoot, snackbar]);
+
+  React.useEffect(() => {
+    if (!isOnline || !inpxServer.lastSynced) return;
+    setFavoriteAuthors((prev) => (
+      sameNames(prev, inpxServer.favoriteAuthors) ? prev : inpxServer.favoriteAuthors
+    ));
+    setFavoriteSeries((prev) => (
+      sameNames(prev, inpxServer.favoriteSeries) ? prev : inpxServer.favoriteSeries
+    ));
+    setShelves((prev) => {
+      const next = mergeLocalShelves(prev, inpxServer.shelves);
+      return shelvesEqual(prev, next) ? prev : next;
+    });
+  }, [
+    isOnline,
+    inpxServer.lastSynced,
+    inpxServer.favoriteAuthors,
+    inpxServer.favoriteSeries,
+    inpxServer.shelves,
+    setFavoriteAuthors,
+    setFavoriteSeries,
+    setShelves,
+  ]);
   const { siteName, logoSrc } = useServerBranding(serverConfig);
 
   const appBootReady = serverConfigReady && libraryReady && storageDirectoryReady;
@@ -456,7 +556,8 @@ export default function App() {
     if (colorSource === 'server') {
       applyServerThemeVars(serverUiTheme, isAppDark);
       applyServerChromeVars(serverUiTheme, isAppDark, serverBgBlobUrl, useServerBackground);
-      void syncAndroidStatusBar(isAppDark, { eink: false });
+      const palette = isAppDark ? serverUiTheme?.paletteDark : serverUiTheme?.paletteLight;
+      void syncAndroidStatusBar(isAppDark, { eink: false, bg: palette?.bg });
     } else {
       // «Система»: без серверных цветов, скруглений, теней и фона.
       // Material You (Android 12+) — динамическая палитра ОС; иначе встроенная из index.css.
@@ -644,23 +745,42 @@ export default function App() {
     });
   }, [handleBookPrimaryAction, serverConfig]);
 
-  const uiShelves = React.useMemo(
-    () =>
-      isOnline
-        ? inpxServer.shelves
-        : localShelves.map((s) => ({
-            id: s.id,
-            name: s.name,
-            bookCount: s.bookIds.length,
-            previewBookIds: s.bookIds.slice(0, 4),
-          })),
-    [isOnline, inpxServer.shelves, localShelves],
-  );
+  const bookMarkedRead = (bookId: string) => {
+    const pct = readingProgressByBookId[bookId] ?? 0;
+    if (isOnline) return Boolean(inpxServer.readIds?.has(bookId));
+    if (pct >= 99) return true;
+    if (pct > 0) return false;
+    return Boolean(inpxServer.readIds?.has(bookId));
+  };
+
+  const uiShelves = React.useMemo(() => {
+    const localPending = localShelves
+      .filter((shelf) => shelf.id.startsWith('shelf_'))
+      .map((shelf) => ({
+        id: shelf.id,
+        name: shelf.name,
+        bookCount: shelf.bookIds.length,
+        previewBookIds: shelf.bookIds.slice(0, 4),
+      }));
+    if (!isOnline) {
+      return localShelves.map((shelf) => ({
+        id: shelf.id,
+        name: shelf.name,
+        bookCount: shelf.bookIds.length,
+        previewBookIds: shelf.bookIds.slice(0, 4),
+      }));
+    }
+    const serverIds = new Set(inpxServer.shelves.map((shelf) => String(shelf.id)));
+    return [
+      ...inpxServer.shelves,
+      ...localPending.filter((shelf) => !serverIds.has(String(shelf.id))),
+    ];
+  }, [isOnline, inpxServer.shelves, localShelves]);
 
   const handleAddBookToShelfFromUi = React.useCallback(
     async (bookId: string, shelfId: number | string) => {
-      await handleAddBookToShelf(bookId, String(shelfId));
-      snackbar.show('Добавлено на полку', undefined, 'success');
+      const added = await handleAddBookToShelf(bookId, String(shelfId));
+      if (added) snackbar.show('Добавлено на полку', undefined, 'success');
     },
     [handleAddBookToShelf, snackbar],
   );
@@ -1080,24 +1200,33 @@ export default function App() {
               storageDirectoryReady={storageDirectoryReady}
               downloadingId={downloadingId}
               readingProgressByBookId={readingProgressByBookId}
-              readIds={isOnline ? inpxServer.readIds : undefined}
-              bookmarkIds={isOnline ? inpxServer.bookmarkIds : undefined}
+              readIds={inpxServer.collectionsReady ? inpxServer.readIds : undefined}
+              bookmarkIds={inpxServer.collectionsReady ? inpxServer.bookmarkIds : undefined}
+              onAuthExpired={markAuthExpired}
               shelves={uiShelves}
               favoriteAuthors={activeFavoriteAuthors}
               favoriteSeries={activeFavoriteSeries}
               favoriteAuthorItems={isOnline ? inpxServer.favoriteAuthorItems : undefined}
               favoriteSeriesItems={isOnline ? inpxServer.favoriteSeriesItems : undefined}
               fetchSectionBooks={isOnline ? inpxServer.fetchSectionBooks : undefined}
-              loadShelfBooks={
-                isOnline
-                  ? (shelfId) => inpxServer.loadShelfBooks(Number(shelfId))
-                  : async (shelfId) => {
-                      const shelf = localShelves.find((s) => String(s.id) === String(shelfId));
-                      if (!shelf) return [];
-                      const ids = new Set(shelf.bookIds);
-                      return downloadedBooksWithFile.filter((b) => ids.has(b.id));
-                    }
-              }
+              loadShelfBooks={async (shelfId) => {
+                const localBooks = () => {
+                  const shelf = localShelves.find((s) => String(s.id) === String(shelfId));
+                  if (!shelf) return [];
+                  const ids = new Set(shelf.bookIds);
+                  return downloadedBooksWithFile.filter((b) => ids.has(b.id));
+                };
+                if (!isOnline || !/^\d+$/.test(String(shelfId))) return localBooks();
+                try {
+                  const remote = await inpxServer.loadShelfBooks(Number(shelfId));
+                  const seen = new Set(remote.map((book) => book.id));
+                  return [...remote, ...localBooks().filter((book) => !seen.has(book.id))];
+                } catch (err) {
+                  const local = localBooks();
+                  if (local.length > 0) return local;
+                  throw err;
+                }
+              }}
               onOpenBook={handleBookPrimaryAction}
               onContinueBook={handleContinueBook}
               onRegisterBook={registerDownloadedBook}
@@ -1134,7 +1263,12 @@ export default function App() {
               onChangeServerConfig={handleServerConfigChange}
               onTestConnection={handleTestConnection}
               onPairingLogin={applyPairingLogin}
-              onForgetServer={() => setConnectionError(null)}
+              onForgetServer={() => {
+                setConnectionError(null);
+                setFavoriteAuthors([]);
+                setFavoriteSeries([]);
+                setShelves([]);
+              }}
               connectionError={connectionError}
               storageDirectory={storageDirectory}
               onChangeStorageDirectory={setStorageDirectory}
@@ -1282,8 +1416,10 @@ export default function App() {
         isDownloaded={
           actionsTarget ? downloadedBookIdsWithFile.includes(actionsTarget.book.id) : false
         }
-        isRead={actionsTarget ? inpxServer.readIds?.has(actionsTarget.book.id) : false}
-        isBookmarked={actionsTarget ? inpxServer.bookmarkIds?.has(actionsTarget.book.id) : false}
+        isRead={actionsTarget ? bookMarkedRead(actionsTarget.book.id) : false}
+        isBookmarked={actionsTarget ? (
+          Boolean(inpxServer.bookmarkIds?.has(actionsTarget.book.id) || actionsTarget.book.isFavorite)
+        ) : false}
         isOnline={isOnline}
         onClose={() => setActionsTarget(null)}
         onOpenDetails={openBookDetailsExclusive}

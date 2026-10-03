@@ -642,6 +642,15 @@ export async function removeSyncOp(id: number): Promise<void> {
   }
 }
 
+export async function rekeySyncOpBookId(id: number, bookId: string): Promise<void> {
+  if (sqliteConn) {
+    await execSql('UPDATE sync_queue SET book_id = ? WHERE id = ?', [bookId, id]);
+    return;
+  }
+  const item = await idbGet<SyncQueueItem>('sync_queue', String(id));
+  if (item) await idbSet('sync_queue', String(id), { ...item, bookId });
+}
+
 export async function incrementSyncOpAttempts(id: number): Promise<void> {
   if (sqliteConn) {
     await execSql('UPDATE sync_queue SET attempts = attempts + 1 WHERE id = ?', [id]);

@@ -79,6 +79,8 @@ class DownloadQueueManager {
   private lastPersistAt = 0;
   /** True между pauseDownloadsForOffline и resume — abort'ы из-за потери сети. */
   private offlinePaused = false;
+  /** url + user + token. Смена библиотеки не должна докачивать чужие id. */
+  private serverKey = '';
 
   async hydrate(): Promise<void> {
     if (this.hydrated) return;
@@ -174,12 +176,16 @@ class DownloadQueueManager {
     onError?: (book: Book, error: string) => void;
   }): void {
     const prevCanDownload = this.canDownload;
+    const nextKey = `${opts.serverConfig.url}\0${opts.serverConfig.username}\0${opts.serverConfig.deviceToken || ''}`;
+    const serverChanged = this.serverKey !== '' && this.serverKey !== nextKey;
+    this.serverKey = nextKey;
     this.serverConfig = opts.serverConfig;
     this.storageDirectory = opts.storageDirectory;
     this.canDownload = opts.canDownload;
     this.onComplete = opts.onComplete;
     this.onSaved = opts.onSaved ?? null;
     this.onError = opts.onError ?? null;
+    if (serverChanged) this.dropPendingForServerChange();
     if (prevCanDownload && !opts.canDownload) {
       this.pauseDownloadsForOffline();
     } else if (!prevCanDownload && opts.canDownload && opts.storageDirectory?.uri) {
@@ -202,6 +208,16 @@ class DownloadQueueManager {
         job.finishedAt = Date.now();
       }
     }
+    this.persist();
+  }
+
+  /** Очередь хранит id книг конкретной библиотеки. После смены сервера их нельзя качать заново. */
+  private dropPendingForServerChange(): void {
+    for (const controller of this.abortControllers.values()) controller.abort();
+    this.abortControllers.clear();
+    this.activeCount = 0;
+    this.offlinePaused = false;
+    this.jobs = this.jobs.filter((job) => job.status === 'saved');
     this.persist();
   }
 
@@ -527,7 +543,12 @@ class DownloadQueueManager {
       .reduce((sum, j) => {
         const full = j.book.size ?? 512 * 1024;
         // У активной загрузки часть байт уже на диске — не требуем их повторно.
-        const remaining = j.status === 'downloading' ? Math.max(0, full - j.bytesLoaded) : full;
+        // saving: файл уже на диске, место под него занято.
+        const remaining = j.status === 'downloading'
+          ? Math.max(0, full - j.bytesLoaded)
+          : j.status === 'saving'
+            ? 0
+            : full;
         return sum + remaining;
       }, 0);
   }

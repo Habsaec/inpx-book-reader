@@ -51,6 +51,11 @@ export function applyServerPositionToLocal(
     serverTextOffset: serverPos.textOffset ?? null,
     serverTextQuote: serverPos.textQuote ?? null,
     serverTextSectionLength: serverPos.textSectionLength ?? null,
+    serverSectionPageFraction: serverPos.sectionPageFraction ?? null,
+    serverPaginatorPage: serverPos.paginatorPage ?? null,
+    serverPaginatorPages: serverPos.paginatorPages ?? null,
+    serverLayoutMode: serverPos.layoutMode ?? null,
+    serverSessionId: serverPos.sessionId ? String(serverPos.sessionId) : '',
     dismissedServerPositionUpdatedAt: null,
   };
 }

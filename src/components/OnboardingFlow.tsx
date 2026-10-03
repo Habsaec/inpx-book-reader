@@ -131,7 +131,7 @@ export default function OnboardingFlow({
             <span
               key={n}
               className={`h-1 flex-1 rounded-full ${
-                n <= step ? 'bg-[var(--app-link)]' : 'bg-[var(--app-panel-soft)]'
+                n <= step ? 'bg-[var(--app-accent)]' : 'bg-[var(--app-panel-soft)]'
               }`}
             />
           ))}

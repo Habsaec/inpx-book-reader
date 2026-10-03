@@ -43,7 +43,7 @@ interface BookActionsSheetProps {
   onRemove?: (bookId: string) => void;
   onOpenDetails?: (book: Book) => void;
   shelves?: UiShelf[];
-  onAddToShelf?: (bookId: string, shelfId: number | string) => void | Promise<void>;
+  onAddToShelf?: (bookId: string, shelfId: number | string) => void | boolean | Promise<void | boolean>;
   onCreateShelf?: (name: string) => Promise<number | string | null>;
 }
 
@@ -198,9 +198,10 @@ export default function BookActionsSheet({
                   onPick={(id) => {
                     if (!onAddToShelf) return;
                     setShelfBusy(true);
-                    void Promise.resolve(onAddToShelf(book.id, id)).finally(() => {
+                    void Promise.resolve(onAddToShelf(book.id, id)).then((added) => {
+                      if (added !== false) onClose();
+                    }).finally(() => {
                       setShelfBusy(false);
-                      onClose();
                     });
                   }}
                   onCreate={
@@ -209,8 +210,12 @@ export default function BookActionsSheet({
                           setShelfBusy(true);
                           try {
                             const id = await onCreateShelf(name);
-                            if (id != null && onAddToShelf) await onAddToShelf(book.id, id);
-                            onClose();
+                            if (id != null && onAddToShelf) {
+                              const added = await onAddToShelf(book.id, id);
+                              if (added !== false) onClose();
+                            } else if (id != null) {
+                              onClose();
+                            }
                           } finally {
                             setShelfBusy(false);
                           }

@@ -24,6 +24,22 @@ export interface CatalogBookPoolContext {
   authorOutsideSeries: boolean;
 }
 
+/** Exact genre-code match. `sf` does not include `sf_history`. */
+export function bookMatchesGenreCodes(
+  book: { genre?: string; subgenre?: string; genresDisplay?: string[]; genreCodes?: string[] },
+  codes: string[],
+): boolean {
+  if (!codes.length) return true;
+  const ownCodes = (book.genreCodes || [])
+    .map((code) => code.trim().toLowerCase())
+    .filter(Boolean);
+  if (ownCodes.length) return codes.some((code) => ownCodes.includes(code));
+  const display = [book.genre, book.subgenre, ...(book.genresDisplay || [])]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+  return codes.some((code) => display.includes(code));
+}
+
 export function getActiveBookPool(ctx: CatalogBookPoolContext): Book[] {
   const {
     isServerBrowse,
@@ -74,6 +90,7 @@ export function filterAndSortBooks(books: Book[], ctx: CatalogBookPoolContext): 
     yearFilter = 0,
     hasSeriesFilter = 'any',
     sortBy,
+    authorOutsideSeries,
   } = ctx;
 
   if (!isServerBrowse && searchInput && !selectedAuthor && !selectedSeries && !selectedSubgenre) {
@@ -91,7 +108,8 @@ export function filterAndSortBooks(books: Book[], ctx: CatalogBookPoolContext): 
 
   // Server `/api/catalog` already applies these dims — re-filtering empties the list
   // (genre codes vs display names, etc.). Local/demo pool still filters client-side.
-  if (!isServerBrowse) {
+  // «Вне серий» is a full local list from the author page, so filters apply here.
+  if (!isServerBrowse || authorOutsideSeries) {
     if (minRating > 0) {
       result = result.filter((b) => (b.rating || 0) >= minRating);
     }
@@ -104,18 +122,7 @@ export function filterAndSortBooks(books: Book[], ctx: CatalogBookPoolContext): 
       .map((g) => g.trim().toLowerCase())
       .filter(Boolean);
     if (genreCodes.length) {
-      result = result.filter((b) => {
-        const hay = [
-          b.genre,
-          b.subgenre,
-          ...(b.genresDisplay || []),
-        ]
-          .map((x) => String(x || '').toLowerCase())
-          .filter(Boolean);
-        return genreCodes.some((code) =>
-          hay.some((h) => h === code || h.includes(code)),
-        );
-      });
+      result = result.filter((b) => bookMatchesGenreCodes(b, genreCodes));
     }
 
     if (yearFilter >= 1800 && yearFilter <= 2100) {

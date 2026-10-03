@@ -182,7 +182,7 @@ export default function LiteBookRow({
             e.stopPropagation();
             onDownload();
           }}
-          className={`shrink-0 ${theme.touchTarget} ${radii.button} flex items-center justify-center ${theme.accentBg} text-white disabled:opacity-50 disabled:cursor-not-allowed ${motion.press} ${theme.focusRing}`}
+          className={`shrink-0 ${theme.touchTarget} ${radii.button} flex items-center justify-center ${theme.accentBg} disabled:opacity-50 disabled:cursor-not-allowed ${motion.press} ${theme.focusRing}`}
           title="Скачать"
           aria-label="Скачать"
         >

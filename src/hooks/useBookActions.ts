@@ -2,7 +2,7 @@ import React from 'react';
 import { Book, Bookmark, Highlight, ReadingProgress, ServerConfig, Shelf } from '../types';
 import { debugSessionLog } from '../lib/debugSessionLog';
 import { extFromStoragePath, removeBookFromDirectory } from '../lib/bookStorage';
-import { resolveLocalBookFile, clearLocalFileMeta } from '../lib/localBookAccess';
+import { resolveLocalBookFileDetailed, clearLocalFileMeta } from '../lib/localBookAccess';
 import { writeStoredStorageDirectory } from '../lib/storageDirectory';
 import { removeCoverFromDirectory } from '../lib/coverCache';
 import {
@@ -46,6 +46,7 @@ import {
 import { fetchReaderActivitySyncMeta, isAuthError, isUnreachableServerError, recordReadingHistory, ensureBookReadState } from '../lib/inpxClient';
 import { downloadQueue } from '../lib/downloadQueue';
 import { enqueueSyncOp } from '../lib/localDb';
+import { dropQueuedFavoriteOps, dropQueuedShelfOps, readPersistedShelfIdMap } from '../lib/syncQueueProcessor';
 import { dropQueuedRemoveHistoryOps, dropQueuedToggleReadOps } from '../lib/syncQueueProcessor';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { isStoragePermissionError, STORAGE_PERMISSION_REVOKED_MSG } from '../lib/storageDirectory';
@@ -258,7 +259,12 @@ export function useBookActions(opts: {
       }
       let loc;
       try {
-        loc = await resolveLocalBookFile(resolved, storageDirectory);
+        const detailed = await resolveLocalBookFileDetailed(resolved, storageDirectory);
+        if (detailed.status === 'unknown') {
+          snackbar.show('Не удалось проверить файл. Откройте книгу ещё раз.', undefined, 'error');
+          return;
+        }
+        loc = detailed.status === 'found' ? detailed.resolved : null;
       } catch (err) {
         if (isStoragePermissionError(err)) {
           snackbar.show(STORAGE_PERMISSION_REVOKED_MSG, undefined, 'error');
@@ -530,36 +536,54 @@ export function useBookActions(opts: {
     async (authorName: string) => {
       if (isOnline) {
         try {
-          await inpxServer.toggleFavoriteAuthor(authorName);
+          const favorite = await inpxServer.toggleFavoriteAuthor(authorName);
+          await dropQueuedFavoriteOps('favorite_author', authorName);
+          setFavoriteAuthors((prev) => (
+            favorite
+              ? (prev.includes(authorName) ? prev : [...prev, authorName])
+              : prev.filter((a) => a !== authorName)
+          ));
         } catch (e) {
-          if (isAuthError(e)) return;
-          throw e;
+          if (!isAuthError(e)) snackbar.show('Не удалось обновить избранное', undefined, 'error');
+          return;
         }
         return;
       }
-      setFavoriteAuthors((prev) =>
-        prev.includes(authorName) ? prev.filter((a) => a !== authorName) : [...prev, authorName],
-      );
+      let desired = false;
+      setFavoriteAuthors((prev) => {
+        desired = !prev.includes(authorName);
+        return desired ? [...prev, authorName] : prev.filter((a) => a !== authorName);
+      });
+      void enqueueSyncOp('favorite_author', authorName, { favorite: desired });
     },
-    [inpxServer, isOnline, setFavoriteAuthors],
+    [inpxServer, isOnline, setFavoriteAuthors, snackbar],
   );
 
   const handleToggleFavoriteSeries = React.useCallback(
     async (seriesName: string) => {
       if (isOnline) {
         try {
-          await inpxServer.toggleFavoriteSeries(seriesName);
+          const favorite = await inpxServer.toggleFavoriteSeries(seriesName);
+          await dropQueuedFavoriteOps('favorite_series', seriesName);
+          setFavoriteSeries((prev) => (
+            favorite
+              ? (prev.includes(seriesName) ? prev : [...prev, seriesName])
+              : prev.filter((s) => s !== seriesName)
+          ));
         } catch (e) {
-          if (isAuthError(e)) return;
-          throw e;
+          if (!isAuthError(e)) snackbar.show('Не удалось обновить избранное', undefined, 'error');
+          return;
         }
         return;
       }
-      setFavoriteSeries((prev) =>
-        prev.includes(seriesName) ? prev.filter((s) => s !== seriesName) : [...prev, seriesName],
-      );
+      let desired = false;
+      setFavoriteSeries((prev) => {
+        desired = !prev.includes(seriesName);
+        return desired ? [...prev, seriesName] : prev.filter((s) => s !== seriesName);
+      });
+      void enqueueSyncOp('favorite_series', seriesName, { favorite: desired });
     },
-    [inpxServer, isOnline, setFavoriteSeries],
+    [inpxServer, isOnline, setFavoriteSeries, snackbar],
   );
 
   const handleToggleBookBookmark = React.useCallback(
@@ -568,12 +592,13 @@ export function useBookActions(opts: {
         try {
           await inpxServer.toggleBookmark(bookId);
         } catch (e) {
-          if (isAuthError(e)) return;
-          throw e;
+          if (!isAuthError(e)) {
+            snackbar.show('Не удалось обновить избранное', undefined, 'error');
+          }
         }
       }
     },
-    [inpxServer, isOnline],
+    [inpxServer, isOnline, snackbar],
   );
 
   const handleSetUserRating = React.useCallback(
@@ -601,6 +626,8 @@ export function useBookActions(opts: {
           }
           await enqueueSyncOp('toggle_read', bookId, { markRead: desiredRead });
           touchReadBooksLocalRev();
+          snackbar.show('Отметка сохранится, когда связь с сервером появится', undefined, 'error');
+          return;
         }
         snackbar.show(wasRead ? 'Снята отметка «прочитано»' : 'Отмечено как прочитано', {
           label: 'Отмена',
@@ -628,10 +655,14 @@ export function useBookActions(opts: {
         });
         return;
       }
-      const targetBook = downloadedBooks.find((b) => b.id === bookId);
-      if (!targetBook) return;
-
       await enqueueSyncOp('toggle_read', bookId, { markRead: desiredRead });
+      const targetBook = downloadedBooks.find((b) => b.id === bookId);
+      if (!targetBook) {
+        touchReadBooksLocalRev();
+        snackbar.show('Отметка сохранится, когда связь с сервером появится');
+        return;
+      }
+
       touchReadBooksLocalRev();
       let clearedReadSnapshot: ReturnType<typeof readOfflineReaderData> | null = null;
       const hadProgressRow = progressList.some((p) => p.bookId === bookId);
@@ -1065,6 +1096,14 @@ export function useBookActions(opts: {
       if (isOnline) {
         try {
           const id = await inpxServer.addShelf(trimmed);
+          if (id != null) {
+            const localId = String(id);
+            setShelves((prev) => (
+              prev.some((s) => s.id === localId)
+                ? prev
+                : [...prev, { id: localId, name: trimmed, bookIds: [] }]
+            ));
+          }
           return id ?? null;
         } catch (e) {
           if (isAuthError(e)) {
@@ -1076,33 +1115,50 @@ export function useBookActions(opts: {
       }
       const id = `shelf_${Date.now()}`;
       setShelves((prev) => [...prev, { id, name: trimmed, bookIds: [] }]);
+      void enqueueSyncOp('shelf_create', id, { name: trimmed });
       return id;
     },
     [inpxServer, isOnline, setShelves],
   );
 
   const handleAddBookToShelf = React.useCallback(
-    async (bookId: string, shelfId: string) => {
-      if (isOnline) {
+    async (bookId: string, shelfId: string): Promise<boolean> => {
+      const addLocal = () => {
+        setShelves((prev) =>
+          prev.map((s) => {
+            if (s.id === shelfId && !s.bookIds.includes(bookId)) {
+              return { ...s, bookIds: [...s.bookIds, bookId] };
+            }
+            return s;
+          }),
+        );
+      };
+      const serverShelfId = /^\d+$/.test(shelfId) ? Number(shelfId) : null;
+      if (isOnline && serverShelfId != null) {
         try {
-          await inpxServer.addToShelf(Number(shelfId), bookId);
+          await inpxServer.addToShelf(serverShelfId, bookId);
+          addLocal();
         } catch (e) {
           if (isAuthError(e)) {
             onAuthExpiredRef.current?.();
-            return;
+            return false;
           }
           throw e;
         }
-        return;
+        return true;
       }
-      setShelves((prev) =>
-        prev.map((s) => {
+      let shelfName = '';
+      setShelves((prev) => {
+        shelfName = prev.find((s) => s.id === shelfId)?.name || '';
+        return prev.map((s) => {
           if (s.id === shelfId && !s.bookIds.includes(bookId)) {
             return { ...s, bookIds: [...s.bookIds, bookId] };
           }
           return s;
-        }),
-      );
+        });
+      });
+      void enqueueSyncOp('shelf_add', shelfId, { bookId, name: shelfName });
+      return true;
     },
     [inpxServer, isOnline, setShelves],
   );
@@ -1119,9 +1175,21 @@ export function useBookActions(opts: {
 
   const handleRemoveBookFromShelf = React.useCallback(
     async (bookId: string, shelfId: string) => {
-      if (isOnline) {
+      const dropLocal = () => {
+        setShelves((prev) =>
+          prev.map((s) => {
+            if (s.id === shelfId) {
+              return { ...s, bookIds: s.bookIds.filter((id) => id !== bookId) };
+            }
+            return s;
+          }),
+        );
+      };
+      const serverShelfId = /^\d+$/.test(shelfId) ? Number(shelfId) : null;
+      if (isOnline && serverShelfId != null) {
         try {
-          await inpxServer.removeFromShelf(Number(shelfId), bookId);
+          await inpxServer.removeFromShelf(serverShelfId, bookId);
+          dropLocal();
         } catch (e) {
           if (isAuthError(e)) {
             onAuthExpiredRef.current?.();
@@ -1131,14 +1199,17 @@ export function useBookActions(opts: {
         }
         return;
       }
-      setShelves((prev) =>
-        prev.map((s) => {
+      let shelfName = '';
+      setShelves((prev) => {
+        shelfName = prev.find((s) => s.id === shelfId)?.name || '';
+        return prev.map((s) => {
           if (s.id === shelfId) {
             return { ...s, bookIds: s.bookIds.filter((id) => id !== bookId) };
           }
           return s;
-        }),
-      );
+        });
+      });
+      void enqueueSyncOp('shelf_remove', shelfId, { bookId, name: shelfName });
     },
     [inpxServer, isOnline, setShelves],
   );
@@ -1152,9 +1223,10 @@ export function useBookActions(opts: {
         destructive: true,
       });
       if (!ok) return;
-      if (isOnline) {
+      if (isOnline && /^\d+$/.test(shelfId)) {
         try {
           await inpxServer.removeShelf(Number(shelfId));
+          setShelves((prev) => prev.filter((s) => s.id !== shelfId));
         } catch (e) {
           if (isAuthError(e)) {
             onAuthExpiredRef.current?.();
@@ -1164,7 +1236,19 @@ export function useBookActions(opts: {
         }
         return;
       }
-      setShelves((prev) => prev.filter((s) => s.id !== shelfId));
+      let shelfName = '';
+      setShelves((prev) => {
+        shelfName = prev.find((s) => s.id === shelfId)?.name || '';
+        return prev.filter((s) => s.id !== shelfId);
+      });
+      if (shelfId.startsWith('shelf_')) {
+        const mapped = readPersistedShelfIdMap().get(shelfId);
+        void dropQueuedShelfOps(shelfId).then(() => {
+          if (mapped != null) void enqueueSyncOp('shelf_delete', String(mapped), { name: shelfName });
+        });
+      } else {
+        void enqueueSyncOp('shelf_delete', shelfId, { name: shelfName });
+      }
     },
     [dialog, inpxServer, isOnline, setShelves],
   );

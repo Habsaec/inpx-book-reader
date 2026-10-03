@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { parseServerUiTheme, resolveIsDark, androidRadiusFromServer, parseAppAppearance, parseAppColorSource, applyServerChromeVars } from '../serverTheme';
+import { parseServerUiTheme, resolveIsDark, androidRadiusFromServer, parseAppAppearance, parseAppColorSource, applyServerChromeVars, effectiveGlassFillOpacity, contrastingInk } from '../serverTheme';
 
 describe('parseServerUiTheme', () => {
   it('maps appPalette from server API', () => {
@@ -91,6 +91,20 @@ describe('parseServerUiTheme', () => {
     );
     expect(theme.paletteDark?.surface).toBe('#1e1a16');
     expect(theme.paletteLight?.surface).toBe('#f5f1e8');
+  });
+});
+
+describe('contrastingInk', () => {
+  it('picks ink from the fill luminance, not from the theme mode', () => {
+    expect(contrastingInk('#f5f1e8', true)).toBe('#1a1612');
+    expect(contrastingInk('#1e1a16', false)).toBe('#fffdf8');
+  });
+});
+
+describe('effectiveGlassFillOpacity', () => {
+  it('lowers the mix on light surfaces the same way the server does', () => {
+    expect(effectiveGlassFillOpacity('#f5f1e8', 70)).toBe(56);
+    expect(effectiveGlassFillOpacity('#1e1a16', 70)).toBe(70);
   });
 });
 

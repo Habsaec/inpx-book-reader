@@ -13,6 +13,7 @@ import type { StorageDirectory } from '../lib/storageDirectory';
 import type { UiShelf } from '../lib/inpxClient';
 import Button from '../ui/Button';
 import { readOfflineReaderData } from '../lib/offlineReaderStore';
+import { parseSyncTs } from '../lib/readerActivitySync';
 import { seriesVolumeSortKey } from '../lib/seriesVolumeSort';
 import { usePageTitle } from '../ui/pageTitle';
 import { useBarHeight } from '../ui/useBarHeight';
@@ -97,8 +98,8 @@ export default function DeviceLibraryTab({
       list.sort((a, b) => {
         const da = readOfflineReaderData(a.id);
         const db = readOfflineReaderData(b.id);
-        const ra = Date.parse(da.positionChangedAt || da.updatedAt || '') || 0;
-        const rb = Date.parse(db.positionChangedAt || db.updatedAt || '') || 0;
+        const ra = parseSyncTs(da.positionChangedAt || da.updatedAt);
+        const rb = parseSyncTs(db.positionChangedAt || db.updatedAt);
         if (ra !== rb) return rb - ra;
         const pa = readingProgressByBookId[a.id] ?? a.readProgress ?? 0;
         const pb = readingProgressByBookId[b.id] ?? b.readProgress ?? 0;

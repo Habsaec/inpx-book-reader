@@ -21,7 +21,7 @@ export const theme = {
   rowPress:
     'hover:bg-[color-mix(in_srgb,var(--app-text)_5%,transparent)] active:bg-[color-mix(in_srgb,var(--app-text)_9%,transparent)]',
   chipButton: 'hover:bg-[var(--app-surface-hover)] inpx-press',
-  accentBg: 'bg-[var(--app-accent)] hover:bg-[var(--app-accent-hover)] text-white border-transparent',
+  accentBg: 'bg-[var(--app-button-bg,var(--app-accent))] hover:bg-[var(--app-button-bg-hover,var(--app-accent-hover))] text-[var(--app-button-fg,white)] border-transparent',
   accentText: 'text-[var(--app-accent)]',
   accentBorder: 'border-[var(--app-accent)] text-[var(--app-accent)]',
   accentActive: 'bg-[var(--app-accent)] text-white border-transparent',

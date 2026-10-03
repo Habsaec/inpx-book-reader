@@ -11,7 +11,7 @@ import { App as CapApp } from '@capacitor/app';
 import { consumeAppBack } from './useBackHandler';
 import { isNativeApp } from '../lib/platform';
 
-const EXIT_WINDOW_MS = 2000;
+const EXIT_WINDOW_MS = 4000;
 
 /**
  * Системная кнопка / жест «Назад» (Capacitor) и клавиша Escape в браузере.
@@ -39,7 +39,10 @@ export function useAppBackButton(onExitPrompt?: () => void) {
       const now = Date.now();
       if (now - lastBackAt.current < EXIT_WINDOW_MS) {
         lastBackAt.current = 0;
-        void CapApp.exitApp();
+        // finish() внутри обработчика Back на Android 13+ часто игнорируется.
+        window.setTimeout(() => {
+          void CapApp.exitApp();
+        }, 0);
         return;
       }
       lastBackAt.current = now;
@@ -51,8 +54,6 @@ export function useAppBackButton(onExitPrompt?: () => void) {
     };
   }, []);
 
-  return { resetExitPrompt };
-
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -63,4 +64,6 @@ export function useAppBackButton(onExitPrompt?: () => void) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  return { resetExitPrompt };
 }

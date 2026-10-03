@@ -95,7 +95,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/browse/authors/:value/grouped` — серии автора + `standaloneBooks` + `books[]` в каждой серии (режим списка как на веб); `lean=1` — только сводки серий без книг
 - `GET /api/browse/series` — список серий
 - `GET /api/browse/genres` — список жанров
-- `GET /api/facet-books` — книги по фасету (автор/серия/жанр); additive filters: `format`, `year`, `minRate`, `hasSeries` (1/0), `lang`; страница серии — «Скачать серию» ставит в очередь все недостающие книги (не ZIP), потолок ~500
+- `GET /api/facet-books` — книги по фасету (автор/серия/жанр); additive filters: `genre` (CSV/repeated, OR), `format`, `year`, `minRate`, `hasSeries` (1/0), `lang`; страница серии — «Скачать серию» ставит в очередь все недостающие книги (не ZIP), потолок ~500
 
 #### Книги и контент
 - `GET /api/books/:id/meta` — метаданные из INPX-индекса (`seriesList`, автор, жанры) — **источник правды для скачивания и путей на диске**
@@ -110,7 +110,9 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 #### Закладки и прогресс
 - `GET /api/bookmarks` — список закладок
 - `POST /api/bookmarks/:id` — добавить/удалить закладку
-- `POST /api/read/:id` — отметить книгу как прочитанную
+- `POST /api/read/:id` — переключить отметку «прочитано»
+- `POST /api/read/batch` — идемпотентно поставить «прочитано» (`ids`)
+- `DELETE /api/read/:id` — идемпотентно снять «прочитано» (нет отметки — тоже `{ read: false }`)
 - `GET /api/books/:id/position` — позиция чтения (`position`, `progress`, `fraction`, `fb2Href`, `sectionIndex`, `textOffset`, `textQuote`, `textSectionLength`, `sectionPageFraction`, `paginatorPage`, `paginatorPages`, `layoutMode`, `updatedAt`, `positionVersion`, `revision`, `sessionId`, `lastUserActivityAt`, `sessionStatus`)
 - `GET /api/books/:id/reader-sync-meta` — ревизии закладок/заметок и метка позиции для sync (`positionRevision`, `positionUpdatedAt`, counts)
 - `GET /api/reader-sync-index?ids=` — bulk dirty-check для тихой фоновой синхронизации: `{ activity, books[] }` (до ~200 id)
@@ -153,7 +155,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `DELETE /api/shelves/:id` — удалить полку
 - `GET /api/shelves/:id/books` — книги на полке
 - `POST /api/shelves/:id/books` — добавить книгу на полку
-- `DELETE /api/shelves/:id/books/:bookId` — удалить книгу с полки
+- `DELETE /api/shelves/:id/books/:bookId` — удалить книгу с полки; id с NUL/control-символами — `DELETE /api/shelves/:id/books/b64/:ref`
 
 #### Настройки сервера
 - `GET /api/settings/ui` — UI настройки библиотеки: название, логотип, палитра, **скругление** (`radius` / `radiusPreset`), **тени** (`shadows` / `shadowPreset`), **фон** (`backgroundUrl`, `bgBlur`, `bgOverlayStrength`, `bgSize`, `bgPosition`), **панели** (`surfaceOpacity` 0–100, `surfaceBlur` 0–24px)

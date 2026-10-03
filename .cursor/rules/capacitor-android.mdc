@@ -18,6 +18,7 @@ alwaysApply: false
 | `SecureCredentialsPlugin` | Хранение credentials |
 | `DownloadNotificationPlugin` | Foreground download |
 | `LaunchIntentPlugin` | Deep links |
+| `QrScanPlugin` | Сканер QR (Google Code Scanner из Play Services, без декодера в APK и без CAMERA) |
 
 Путь: `android/app/src/main/java/ru/inpx/bookreader/`
 

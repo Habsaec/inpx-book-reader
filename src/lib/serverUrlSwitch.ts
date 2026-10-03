@@ -53,7 +53,11 @@ export function uniqueNormalizedUrls(urls: Array<string | undefined | null>): st
 }
 
 /** Ordered URLs to try when auto-switch is on. Matching home SSID puts the LAN URL first. */
-export function candidateServerUrls(config: ServerConfig, ssid?: string | null): string[] {
+export function candidateServerUrls(
+  config: ServerConfig,
+  ssid?: string | null,
+  transport?: string | null,
+): string[] {
   const current = normalizeBaseUrl(config.url);
   if (!config.autoSwitch) return current ? [current] : [];
 
@@ -62,11 +66,14 @@ export function candidateServerUrls(config: ServerConfig, ssid?: string | null):
   const homeSsid = normalizeSsid(config.localSsid);
   const currentSsid = normalizeSsid(ssid || '');
   const onHomeWifi = Boolean(homeSsid && currentSsid && homeSsid === currentSsid);
+  // Cellular has no SSID. Treating that as "unknown Wi-Fi" kept the dead LAN address first
+  // and the connected-state shortcut never probed the external URL.
+  const leftWifi = transport === 'cellular' || transport === 'none';
 
-  if (onHomeWifi && local) {
+  if (!leftWifi && onHomeWifi && local) {
     return uniqueNormalizedUrls([local, current, ...alts]);
   }
-  if (homeSsid && currentSsid && !onHomeWifi) {
+  if (leftWifi || (homeSsid && currentSsid && !onHomeWifi)) {
     return uniqueNormalizedUrls([...alts, current, local]);
   }
   return uniqueNormalizedUrls([local, ...alts, current]);

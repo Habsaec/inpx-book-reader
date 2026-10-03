@@ -12,6 +12,7 @@ import {
   isUnreachableServerError,
   ApiError,
   patchReaderAnnotationApi,
+  patchReaderBookmarkApi,
   ReadingPositionConflictError,
 } from './inpxClient';
 import { ServerConfig } from '../types';
@@ -448,7 +449,23 @@ async function pushLocalBookmarks(
   }
 
   for (const bm of next) {
-    if (!bm.position || serverPositions.has(bm.position) || deletedPositions.has(bm.position)) continue;
+    if (!bm.position || deletedPositions.has(bm.position)) continue;
+    if (serverPositions.has(bm.position)) {
+      const serverBm = serverBookmarks.find((b) => b.position === bm.position);
+      if (serverBm) {
+        bm.id = serverBm.id;
+        const title = bm.title || '';
+        if (title !== (serverBm.title || '')) {
+          try {
+            await patchReaderBookmarkApi(config, bookId, serverBm.id, title);
+          } catch (e) {
+            if (isAuthError(e)) throw e;
+            hadFailures = true;
+          }
+        }
+      }
+      continue;
+    }
     try {
       const serverId = await addReaderBookmarkApi(config, bookId, bm.position, bm.title || '');
       bm.id = serverId;
@@ -586,8 +603,7 @@ export async function syncOfflineReaderForBook(
   } catch (e) {
     if (isAuthError(e)) throw e;
     // Network/timeout: do not invent revision 0 (false conflict prompts).
-    // With skipPosition, still sync bookmarks/annotations using default serverPos.
-    if (!options?.skipPosition) return;
+    // Bookmarks and annotations still sync; position is left untouched.
   }
 
   try {
@@ -643,13 +659,31 @@ export async function syncOfflineReaderForBook(
   progress = fractionToProgress(fraction);
 
   if (serverBookmarksNewer) {
-    bookmarks = serverBookmarks.map((bm) => ({
-      id: bm.id,
-      position: bm.position,
-      title: bm.title,
-      createdAt: bm.createdAt,
-    }));
-    deletedBookmarkPositions = [];
+    const serverPositions = new Set(serverBookmarks.map((bm) => bm.position));
+    const localOnly = bookmarks.filter((bm) => bm.position && !serverPositions.has(bm.position));
+    const pushed = await pushLocalBookmarks(
+      config,
+      bookId,
+      localOnly,
+      deletedBmPositions,
+      serverBookmarks,
+    );
+    const kept = serverBookmarks
+      .filter((bm) => !deletedBmPositions.has(bm.position))
+      .map((bm) => ({
+        id: bm.id,
+        position: bm.position,
+        title: bm.title,
+        createdAt: bm.createdAt,
+      }));
+    const extras = pushed.bookmarks.filter((bm) => (
+      bm.position
+      && !deletedBmPositions.has(bm.position)
+      && !kept.some((item) => item.position === bm.position)
+    ));
+    bookmarks = [...kept, ...extras];
+    deletedBookmarkPositions = pushed.deletedPositions;
+    bookmarksPushFailed = pushed.hadFailures;
   } else {
     const pushed = await pushLocalBookmarks(
       config,
@@ -664,15 +698,33 @@ export async function syncOfflineReaderForBook(
   }
 
   if (serverAnnotationsNewer) {
-    annotations = serverAnnotations.map((ann) => ({
-      id: ann.id,
-      cfi: ann.cfi,
-      text: ann.text,
-      note: ann.note,
-      color: ann.color,
-      createdAt: ann.createdAt,
-    }));
-    deletedAnnotationCfis = [];
+    const serverCfis = new Set(serverAnnotations.map((ann) => ann.cfi));
+    const localOnly = annotations.filter((ann) => ann.cfi && !serverCfis.has(ann.cfi));
+    const pushed = await pushLocalAnnotations(
+      config,
+      bookId,
+      localOnly,
+      deletedAnnCfis,
+      serverAnnotations,
+    );
+    const kept = serverAnnotations
+      .filter((ann) => !deletedAnnCfis.has(ann.cfi))
+      .map((ann) => ({
+        id: ann.id,
+        cfi: ann.cfi,
+        text: ann.text,
+        note: ann.note,
+        color: ann.color,
+        createdAt: ann.createdAt,
+      }));
+    const extras = pushed.annotations.filter((ann) => (
+      ann.cfi
+      && !deletedAnnCfis.has(ann.cfi)
+      && !kept.some((item) => item.cfi === ann.cfi)
+    ));
+    annotations = [...kept, ...extras];
+    deletedAnnotationCfis = pushed.deletedCfis;
+    annotationsPushFailed = pushed.hadFailures;
   } else {
     const pushed = await pushLocalAnnotations(
       config,
@@ -690,8 +742,12 @@ export async function syncOfflineReaderForBook(
   // Иначе badges считают localChangedAt > serverRev вечно.
   let bookmarksRevStored = syncMeta.bookmarksRev;
   let annotationsRevStored = syncMeta.annotationsRev;
-  let bookmarkCountStored = serverBookmarksNewer ? syncMeta.bookmarkCount : bookmarks.length;
-  let annotationCountStored = serverAnnotationsNewer ? syncMeta.annotationCount : annotations.length;
+  let bookmarkCountStored = serverBookmarksNewer
+    ? Math.max(syncMeta.bookmarkCount, bookmarks.length)
+    : bookmarks.length;
+  let annotationCountStored = serverAnnotationsNewer
+    ? Math.max(syncMeta.annotationCount, annotations.length)
+    : annotations.length;
   if ((!serverBookmarksNewer && !bookmarksPushFailed) || (!serverAnnotationsNewer && !annotationsPushFailed)) {
     const refreshed = await fetchReaderBookSyncMeta(config, bookId).catch((e) => {
       if (isAuthError(e)) throw e;
@@ -715,13 +771,10 @@ export async function syncOfflineReaderForBook(
       }
     }
   }
-  // Failed pushes: keep local changedAt so the next sync retries.
-  if (!serverBookmarksNewer && bookmarksPushFailed) {
-    bookmarksRevStored = localBookmarksRev(local);
-  }
-  if (!serverAnnotationsNewer && annotationsPushFailed) {
-    annotationsRevStored = localAnnotationsRev(local);
-  }
+  // Failed pushes: keep local changedAt so the next sync retries,
+  // including when the server collection was newer and a local-only push failed.
+  if (bookmarksPushFailed) bookmarksRevStored = localBookmarksRev(local);
+  if (annotationsPushFailed) annotationsRevStored = localAnnotationsRev(local);
 
   const serverProgress = serverPos.progress || 0;
   const serverPosUpdatedAt = serverPos.updatedAt || syncMeta.positionUpdatedAt || null;
@@ -729,7 +782,7 @@ export async function syncOfflineReaderForBook(
     ? normalizeReadingFraction(Number(serverPos.fraction))
     : progressToFraction(serverProgress);
 
-  if (options?.skipPosition) {
+  if (options?.skipPosition || !positionFetchOk) {
     const fresh = readOfflineReaderData(bookId);
     const baseBmAt = parseSyncTs(local.bookmarksChangedAt);
     const baseAnnAt = parseSyncTs(local.annotationsChangedAt);

@@ -222,12 +222,12 @@ export default function FoliateReader({
         confirmLabel: CROSS_DEVICE_POSITION_ACCEPT,
         cancelLabel: CROSS_DEVICE_POSITION_DECLINE,
       });
-      if (positionPromptGenRef.current !== promptGen) return;
       source.postMessage({
         type: 'inpx-reader-position-prompt-response',
         requestId,
         accepted,
       }, '*');
+      if (positionPromptGenRef.current !== promptGen) return;
     } finally {
       if (positionPromptGenRef.current !== promptGen) {
         positionPromptBusyRef.current = false;
@@ -775,7 +775,9 @@ export default function FoliateReader({
           if (livePushTimerRef.current != null) window.clearTimeout(livePushTimerRef.current);
           livePushTimerRef.current = window.setTimeout(() => {
             livePushTimerRef.current = null;
-            void syncOpenBookPosition(serverConfig, bookId, positionSessionIdRef.current)
+            const liveConfig = serverConfigRef.current;
+            if (!liveConfig || liveConfig.connectionStatus !== 'connected') return;
+            void syncOpenBookPosition(liveConfig, bookId, positionSessionIdRef.current)
               .then((result) => {
                 if (result === 'prompt') {
                   postReaderSeed(iframeRef.current?.contentWindow ?? null);

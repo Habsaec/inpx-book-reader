@@ -72,7 +72,7 @@ function RatingStars({ value }: { value: number }) {
       {Array.from({ length: 5 }, (_, index) => (
         <Star
           key={index}
-          className={`w-4 h-4 ${index < value ? 'fill-[var(--app-link)] text-[var(--app-link)]' : 'text-[var(--app-muted)]'}`}
+          className={`w-4 h-4 ${index < value ? 'fill-[var(--app-accent)] text-[var(--app-accent)]' : 'text-[var(--app-muted)]'}`}
           strokeWidth={index < value ? 0 : 1.5}
         />
       ))}
@@ -207,7 +207,7 @@ export interface BookDetailsSheetProps {
   onOpenSeries: (name: string) => void;
   onAuthExpired?: () => void;
   shelves?: UiShelf[];
-  onAddToShelf?: (bookId: string, shelfId: number | string) => void | Promise<void>;
+  onAddToShelf?: (bookId: string, shelfId: number | string) => void | boolean | Promise<void | boolean>;
   onCreateShelf?: (name: string) => Promise<number | string | null>;
   isBookmarked?: boolean;
   onToggleBookmark?: (bookId: string) => void;
@@ -742,9 +742,10 @@ export default function BookDetailsSheet({
                   onPick={(id) => {
                     if (!onAddToShelf) return;
                     setShelfBusy(true);
-                    void Promise.resolve(onAddToShelf(book.id, id)).finally(() => {
+                    void Promise.resolve(onAddToShelf(book.id, id)).then((added) => {
+                      if (added !== false) setShelfPickerOpen(false);
+                    }).finally(() => {
                       setShelfBusy(false);
-                      setShelfPickerOpen(false);
                     });
                   }}
                   onCreate={
@@ -753,8 +754,12 @@ export default function BookDetailsSheet({
                           setShelfBusy(true);
                           try {
                             const id = await onCreateShelf(name);
-                            if (id != null && onAddToShelf) await onAddToShelf(book.id, id);
-                            setShelfPickerOpen(false);
+                            if (id != null && onAddToShelf) {
+                              const added = await onAddToShelf(book.id, id);
+                              if (added !== false) setShelfPickerOpen(false);
+                            } else if (id != null) {
+                              setShelfPickerOpen(false);
+                            }
                           } finally {
                             setShelfBusy(false);
                           }

@@ -74,8 +74,11 @@ const APP_CSS_KEYS = [
   '--app-bg',
   '--app-surface',
   '--app-surface-hover',
+  '--app-surface-elevated',
+  '--app-shell',
   '--app-text',
   '--app-muted',
+  '--app-placeholder',
   '--app-accent',
   '--app-link',
   '--app-link-hover',
@@ -88,6 +91,10 @@ const APP_CSS_KEYS = [
   '--app-topbar-bg',
   '--app-topbar-border',
   '--app-cover-border',
+  '--app-cover-bg',
+  '--app-button-bg',
+  '--app-button-bg-hover',
+  '--app-button-fg',
   '--font-sans',
 ] as const;
 
@@ -365,6 +372,10 @@ export function applyPaletteVars(palette: AppThemePalette, fontStack?: string): 
   root.style.setProperty('--app-topbar-bg', palette.topbarBg);
   root.style.setProperty('--app-topbar-border', palette.topbarBorder);
   root.style.setProperty('--app-cover-border', palette.coverBorder);
+  root.style.setProperty('--app-shell', palette.bg);
+  root.style.setProperty('--app-surface-elevated', palette.surfaceHover || palette.surface);
+  root.style.setProperty('--app-cover-bg', palette.panelSoft || palette.surface);
+  root.style.setProperty('--app-placeholder', palette.muted);
   if (fontStack) root.style.setProperty('--font-sans', fontStack);
 }
 
@@ -381,6 +392,12 @@ export function applyServerThemeVars(theme: ServerUiTheme | null, isDark: boolea
   const palette = isDark ? theme.paletteDark : theme.paletteLight;
   if (!palette) return;
   applyPaletteVars(palette, theme.fontFamilyStack);
+  const root = document.documentElement;
+  // Library home primary buttons are filled with --link, not --accent.
+  const buttonBg = palette.link || palette.accent;
+  root.style.setProperty('--app-button-bg', buttonBg);
+  root.style.setProperty('--app-button-bg-hover', palette.linkHover || palette.accentHover);
+  root.style.setProperty('--app-button-fg', contrastingInk(buttonBg, isDark));
 }
 
 export function clearServerChromeVars(): void {
@@ -398,6 +415,36 @@ function backgroundLayout(size: string, position: string): { size: string; repea
     return { size: 'auto', repeat: 'repeat', position: pos };
   }
   return { size: 'cover', repeat: 'no-repeat', position: pos };
+}
+
+function relativeLuminance(hex: string): number | null {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!match) return null;
+  const n = Number.parseInt(match[1], 16);
+  const lin = (channel: number) => {
+    const s = channel / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const r = lin((n >> 16) & 255);
+  const g = lin((n >> 8) & 255);
+  const b = lin(n & 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Dark ink on a light fill, light ink on a dark fill. */
+export function contrastingInk(fill: string, isDark: boolean): string {
+  const lum = relativeLuminance(fill);
+  if (lum == null) return isDark ? '#1a1612' : '#fffdf8';
+  return lum >= 0.45 ? '#1a1612' : '#fffdf8';
+}
+
+/** Same rule as the server: light surfaces read as stronger glass, so the mix is 14% lower. */
+export function effectiveGlassFillOpacity(surface: string, surfaceOpacity: number): number {
+  const opacity = Math.min(100, Math.max(0, Math.round(Number(surfaceOpacity))));
+  if (!Number.isFinite(opacity)) return 88;
+  const lum = relativeLuminance(surface);
+  if (lum != null && lum >= 0.45) return Math.max(0, opacity - 14);
+  return opacity;
 }
 
 function parseRadiusPx(value: string): number {
@@ -482,10 +529,12 @@ export function applyServerChromeVars(
   // looks like half the screen is covered). Only frost panels on the library bg.
   const useGlass = showBackground;
   if (useGlass) {
+    const surface = (isDark ? theme.paletteDark?.surface : theme.paletteLight?.surface) || '';
+    const fillOpacity = effectiveGlassFillOpacity(surface, theme.surfaceOpacity);
     root.dataset.uiGlass = '1';
-    const fill = `color-mix(in srgb, var(--app-surface) ${theme.surfaceOpacity}%, transparent)`;
-    const fillHover = `color-mix(in srgb, var(--app-surface-hover) ${theme.surfaceOpacity}%, transparent)`;
-    root.style.setProperty('--app-surface-opacity', String(theme.surfaceOpacity));
+    const fill = `color-mix(in srgb, var(--app-surface) ${fillOpacity}%, transparent)`;
+    const fillHover = `color-mix(in srgb, var(--app-surface-hover) ${fillOpacity}%, transparent)`;
+    root.style.setProperty('--app-surface-opacity', String(fillOpacity));
     root.style.setProperty('--app-surface-blur', `${theme.surfaceBlur}px`);
     root.style.setProperty('--app-topbar-bg', fill);
     root.style.setProperty('--app-card-bg', fill);

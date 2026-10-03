@@ -79,7 +79,10 @@ export default function CatalogSearchHeader({
   usePageTitle(drillTitle, onBack, active && mode !== 'landing');
   const slot = React.useContext(CatalogToolSlot);
 
-  const showSort = mode === 'browse' && isServerConnected && (subTab === 'authors' || subTab === 'series');
+  const showSort =
+    (mode === 'browse' || mode === 'search') &&
+    isServerConnected &&
+    (subTab === 'authors' || subTab === 'series');
   if (mode !== 'search' && !showSort) return null;
 
   const bar = (

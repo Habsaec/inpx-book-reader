@@ -74,6 +74,34 @@ describe('catalogBookPool', () => {
     expect(pool.every((b) => b.author === 'Author A')).toBe(true);
   });
 
+  it('filters «Вне серий» on the client while server browse skips hub re-filter', () => {
+    const standalone: Book[] = [
+      { ...sampleBooks[2], genreCodes: ['sf'] },
+      { ...sampleBooks[0], id: '4', series: undefined, ext: 'epub', genreCodes: ['det'] },
+      { ...sampleBooks[2], id: '5', series: undefined, genreCodes: ['sf_history'] },
+    ];
+    const ctx = {
+      isServerBrowse: true,
+      isSearchActive: false,
+      subTab: 'authors' as const,
+      searchInput: '',
+      selectedAuthor: 'Author A',
+      selectedSeries: null,
+      selectedSubgenre: null,
+      minRating: 0,
+      formatFilter: 'fb2' as const,
+      genreFilter: ['sf'],
+      sortBy: 'title' as const,
+      booksList: sampleBooks,
+      facetBooks: [],
+      authorGrouped: { standaloneBooks: standalone },
+      authorOutsideSeries: true,
+    };
+    const pool = getActiveBookPool(ctx);
+    const filtered = filterAndSortBooks(pool, ctx);
+    expect(filtered.map((b) => b.id)).toEqual(['3']);
+  });
+
   it('server drill-down with empty facet does not fall back to hub list', () => {
     const ctx = {
       isServerBrowse: true,

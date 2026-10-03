@@ -1,5 +1,6 @@
 import { Book, ReadingProgress } from '../types';
 import { readOfflineReaderData } from './offlineReaderStore';
+import { parseSyncTs } from './readerActivitySync';
 
 export function localReaderProgressByBookId(bookIds: string[]): Record<string, number> {
   const out: Record<string, number> = {};
@@ -20,8 +21,8 @@ export function upsertProgressFromLocalReader(
 
   // Date.parse(...) || Date.now() превращал NaN в «сейчас» — битая метка времени
   // выбрасывала книгу наверх «Продолжить чтение».
-  const parsed = Date.parse(data.positionChangedAt || data.updatedAt || '');
-  if (!Number.isFinite(parsed)) return progressList;
+  const parsed = parseSyncTs(data.positionChangedAt || data.updatedAt);
+  if (!parsed) return progressList;
   const lastRead = parsed;
 
   const finished = pct >= 95;
@@ -94,7 +95,7 @@ export function buildLocalRecentReading(books: Book[]): LocalRecentReadingItem[]
       return item;
     })
     .filter((item): item is LocalRecentReadingItem => item != null)
-    .sort((a, b) => Date.parse(b.lastOpenedAt) - Date.parse(a.lastOpenedAt));
+    .sort((a, b) => parseSyncTs(b.lastOpenedAt) - parseSyncTs(a.lastOpenedAt));
 }
 
 export function mergeRecentReadingLists(
@@ -113,9 +114,9 @@ export function mergeRecentReadingLists(
       byId.set(local.id, local);
       continue;
     }
-    const localTs = Date.parse(local.lastOpenedAt);
-    const serverTs = Date.parse(existing.lastOpenedAt);
-    const useLocal = Number.isFinite(localTs) && (!Number.isFinite(serverTs) || localTs >= serverTs);
+    const localTs = parseSyncTs(local.lastOpenedAt);
+    const serverTs = parseSyncTs(existing.lastOpenedAt);
+    const useLocal = localTs > 0 && (serverTs === 0 || localTs >= serverTs);
     const merged: LocalRecentReadingItem = {
       ...existing,
       ...(useLocal ? local : {}),
@@ -127,5 +128,5 @@ export function mergeRecentReadingLists(
     byId.set(local.id, merged);
   }
 
-  return [...byId.values()].sort((a, b) => Date.parse(b.lastOpenedAt) - Date.parse(a.lastOpenedAt));
+  return [...byId.values()].sort((a, b) => parseSyncTs(b.lastOpenedAt) - parseSyncTs(a.lastOpenedAt));
 }

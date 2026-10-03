@@ -17,6 +17,7 @@ import BookSortBar from './BookSortBar';
 import { CatalogToolSlot } from './CatalogSearchHeader';
 import { CatalogAuthorGroupedList, CatalogAuthorSeriesShelf } from './CatalogDrilldownPanel';
 import type { CatalogBookSort } from '../../lib/inpxClient';
+import { bookMatchesGenreCodes } from '../../lib/catalogBookPool';
 import { useCatalogViewMode } from '../../hooks/useCatalogViewMode';
 import type { CatalogFormatFilter, CatalogHasSeriesFilter, DemoBookSort } from './catalogTypes';
 
@@ -181,25 +182,43 @@ export default function CatalogBooksView({
         authorGrouped &&
         !authorOutsideSeries,
     );
+  /** Author page with series list: only series order (name / book count) makes sense. */
+  const authorHub = Boolean(
+    selectedAuthor && !selectedSeries && !selectedSubgenre && !authorOutsideSeries,
+  );
   const filteredAuthorGrouped = React.useMemo(() => {
     if (!authorGrouped) return null;
+    const genreCodes = genreFilters.map((code) => code.trim().toLowerCase()).filter(Boolean);
+    const yearActive = yearFilter >= 1800 && yearFilter <= 2100;
+    const filtersActive = minRating > 0
+      || formatFilter !== 'all'
+      || genreCodes.length > 0
+      || yearActive
+      || hasSeriesFilter !== 'any';
     const match = (book: Book) => {
       if (minRating > 0 && (book.rating ?? 0) < minRating) return false;
       if (formatFilter !== 'all' && (book.ext || '').toLowerCase().replace(/^\./, '') !== formatFilter) {
         return false;
       }
+      if (yearActive && (book.year || 0) !== yearFilter) return false;
+      if (hasSeriesFilter === 'yes' && !book.series?.trim()) return false;
+      if (hasSeriesFilter === 'no' && book.series?.trim()) return false;
+      if (genreCodes.length && !bookMatchesGenreCodes(book, genreCodes)) return false;
       return true;
     };
-    if (minRating <= 0 && formatFilter === 'all') return authorGrouped;
+    if (!filtersActive) return authorGrouped;
     const series = authorGrouped.series
       .map((s) => {
-        const books = (s.books || []).filter(match);
-        return books.length ? { ...s, books, bookCount: books.length } : null;
+        if (!s.books) return null;
+        const books = s.books.filter(match);
+        if (!books.length) return null;
+        const payloadComplete = s.books.length >= (s.bookCount || 0);
+        return { ...s, books, bookCount: payloadComplete ? books.length : s.bookCount };
       })
       .filter(Boolean) as typeof authorGrouped.series;
     const standaloneBooks = authorGrouped.standaloneBooks.filter(match);
     return { ...authorGrouped, series, standaloneBooks };
-  }, [authorGrouped, minRating, formatFilter]);
+  }, [authorGrouped, minRating, formatFilter, genreFilters, yearFilter, hasSeriesFilter]);
 
   const hasAuthorListBooks =
     Boolean(filteredAuthorGrouped?.series.some((s) => (s.books?.length ?? 0) > 0)) ||
@@ -233,13 +252,20 @@ export default function CatalogBooksView({
         {showBookSortBar && onBookSortChange ? (
           <BookSortBar
             value={bookSort}
-            options={[
-              { id: 'recent', label: 'Новые' },
-              { id: 'title', label: 'Название' },
-              { id: 'author', label: 'Автор' },
-              { id: 'series', label: selectedSeries ? 'Тома' : 'Серия' },
-              { id: 'rating', label: 'Рейтинг' },
-            ]}
+            options={
+              authorHub
+                ? [
+                    { id: 'title', label: 'Название' },
+                    { id: 'count', label: 'Количество' },
+                  ]
+                : [
+                    { id: 'recent', label: 'Новые' },
+                    { id: 'title', label: 'Название' },
+                    { id: 'author', label: 'Автор' },
+                    { id: 'series', label: selectedSeries ? 'Тома' : 'Серия' },
+                    { id: 'rating', label: 'Рейтинг' },
+                  ]
+            }
             onChange={(id) => onBookSortChange(id as CatalogBookSort)}
           />
         ) : null}
@@ -294,9 +320,9 @@ export default function CatalogBooksView({
           onDownloadSeries={onDownloadSeries}
           seriesDownloadBusy={seriesDownloadBusy}
         />
-      ) : authorShelfOnly && authorGrouped && selectedAuthor ? (
+      ) : authorShelfOnly && filteredAuthorGrouped && selectedAuthor ? (
         <CatalogAuthorSeriesShelf
-          authorGrouped={authorGrouped}
+          authorGrouped={filteredAuthorGrouped}
           selectedAuthor={selectedAuthor}
           isAppDark={isAppDark}
           onOpenSeries={(name) => onOpenSeries(name, selectedAuthor)}

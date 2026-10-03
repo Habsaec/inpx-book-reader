@@ -17,6 +17,7 @@ import type { StorageDirectory } from '../lib/storageDirectory';
 import { importExternalBookFromUri, findImportedBookByUri } from '../lib/importExternalBook';
 import type { AppTab } from '../components/AppShell';
 import { useSnackbar } from '../ui/Snackbar';
+import { bookContentUrl, displayCoverUrl } from '../lib/inpxClient';
 
 function localRecentToBook(item: LocalRecentReadingItem, config: ServerConfig): Book {
   return {
@@ -26,8 +27,8 @@ function localRecentToBook(item: LocalRecentReadingItem, config: ServerConfig): 
     ext: item.ext,
     series: item.series,
     seriesNo: item.seriesNo,
-    contentUrl: `${config.url}/api/books/${item.id}/content`,
-    coverUrl: `${config.url}/api/books/${item.id}/cover-thumb`,
+    contentUrl: bookContentUrl(config, item.id),
+    coverUrl: displayCoverUrl(config, item.id, 'thumb'),
     readProgress: item.readProgress,
     ...(item.rating && item.rating > 0 ? { rating: item.rating } : {}),
   };

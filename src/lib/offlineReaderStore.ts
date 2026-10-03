@@ -7,6 +7,7 @@ import {
 } from './localDb';
 import { positionsDiffer } from '../../public/inpx-reader/reader-shared/position-revision.js';
 import { isUserPositionSaveReason } from '../../public/inpx-reader/position-sync.js';
+import { parseSyncTs } from './readerActivitySync';
 
 export interface OfflineReaderBookmark {
   id: number;
@@ -244,10 +245,7 @@ function emptyReaderData(): OfflineReaderData {
 }
 
 function readerDataTimestamp(data: OfflineReaderData): number {
-  const iso = data.positionChangedAt || data.updatedAt;
-  if (!iso) return 0;
-  const ts = Date.parse(iso);
-  return Number.isFinite(ts) ? ts : 0;
+  return parseSyncTs(data.positionChangedAt || data.updatedAt);
 }
 
 function readerDataFraction(data: OfflineReaderData): number {
@@ -577,8 +575,8 @@ export function applyNewerLocalPositionIfNeeded(
   const fresh = readOfflineReaderData(bookId);
   // Compare position clocks only — `updatedAt` bumps on any store write and must not undo pulls.
   if (!fresh.positionChangedAt) return draft;
-  const freshTs = Date.parse(fresh.positionChangedAt);
-  const draftTs = Date.parse(draft.positionChangedAt || '') || 0;
+  const freshTs = parseSyncTs(fresh.positionChangedAt);
+  const draftTs = parseSyncTs(draft.positionChangedAt);
   if (
     Number.isFinite(freshTs)
     && freshTs > draftTs
@@ -711,8 +709,8 @@ export function readOfflineReaderData(bookId: string): OfflineReaderData {
         return merged;
       }
       // Both have progress — prefer the newer position clock (iframe LS vs parent cache).
-      const legacyTs = Date.parse(legacy.positionChangedAt || '') || 0;
-      const cachedTs = Date.parse(cached.positionChangedAt || '') || 0;
+      const legacyTs = parseSyncTs(legacy.positionChangedAt);
+      const cachedTs = parseSyncTs(cached.positionChangedAt);
       if (legacyTs > cachedTs) {
         const merged = normalizeOfflineReaderData({
           ...cached,

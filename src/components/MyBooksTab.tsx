@@ -1,10 +1,10 @@
 import React from 'react';
-import { Heart, Folder, FolderPlus, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { Heart, Folder, FolderPlus, CheckCircle2, ArrowLeft, AlertCircle } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { FavoriteAuthorItem, FavoriteSeriesItem, UiShelf } from '../lib/inpxClient';
-import { mapServerBook, fetchAllReaderBookmarkList, fetchAllReaderAnnotationList } from '../lib/inpxClient';
+import { mapServerBook, fetchAllReaderBookmarkList, fetchAllReaderAnnotationList, fetchBookmarkedBooks, fetchLibraryView, isAuthError, type InpxBookItem } from '../lib/inpxClient';
 import DeviceLibraryTab from './DeviceLibraryTab';
 import CatalogBookList from './catalog/CatalogBookList';
 import EntityPreviewRow from './EntityPreviewRow';
@@ -91,6 +91,7 @@ interface MyBooksTabProps {
   isTabActive?: boolean;
   /** Bumped when Library tab is re-selected — return to «Загрузки». */
   libraryRootEpoch?: number;
+  onAuthExpired?: () => void;
 }
 
 export default function MyBooksTab({
@@ -135,6 +136,7 @@ export default function MyBooksTab({
   onOpenQueue,
   isTabActive = true,
   libraryRootEpoch = 0,
+  onAuthExpired,
 }: MyBooksTabProps) {
   const queueJobs = useDownloadQueue();
   const queueChipCount = queueJobs.filter(
@@ -167,7 +169,10 @@ export default function MyBooksTab({
     read: [],
   });
   const [sectionLoading, setSectionLoading] = React.useState(false);
-  const [, setSectionError] = React.useState(false);
+  const [sectionError, setSectionError] = React.useState(false);
+  const [sectionRetry, setSectionRetry] = React.useState(0);
+  const [readerListsError, setReaderListsError] = React.useState(false);
+  const [readerListsRetry, setReaderListsRetry] = React.useState(0);
   const [activeShelfId, setActiveShelfId] = React.useState<number | string | null>(null);
   const [newShelfOpen, setNewShelfOpen] = React.useState(false);
   const [newShelfName, setNewShelfName] = React.useState('');
@@ -223,14 +228,27 @@ export default function MyBooksTab({
     let cancelled = false;
     setSectionLoading(true);
     setSectionError(false);
-    const request = key === 'favorites' ? fetchSectionBooks('bookmarks', 1) : fetchSectionBooks('read', 1);
+    const request = (async () => {
+      const pageSize = 48;
+      const items: InpxBookItem[] = [];
+      for (let page = 1; page <= 40; page += 1) {
+        const res = key === 'favorites'
+          ? await fetchBookmarkedBooks(serverConfig, page, pageSize)
+          : await fetchLibraryView(serverConfig, 'read', page, pageSize);
+        items.push(...res.items);
+        if (!res.items.length || items.length >= (res.total || items.length) || res.items.length < pageSize) break;
+      }
+      return items;
+    })();
     request
       .then((items) => {
         if (cancelled) return;
         setSectionBySeg((prev) => ({ ...prev, [key]: items.map((b) => mapServerBook(b, serverConfig)) }));
       })
-      .catch(() => {
-        if (!cancelled) setSectionError(true);
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setSectionError(true);
+        if (isAuthError(e)) onAuthExpired?.();
       })
       .finally(() => {
         if (!cancelled) setSectionLoading(false);
@@ -238,12 +256,13 @@ export default function MyBooksTab({
     return () => {
       cancelled = true;
     };
-  }, [seg, fetchSectionBooks, serverConfig, isOnline]);
+  }, [seg, fetchSectionBooks, serverConfig, isOnline, onAuthExpired, sectionRetry]);
 
   React.useEffect(() => {
     if ((seg !== 'bookmarks' && seg !== 'notes') || !isOnline) return;
     let cancelled = false;
     setReaderListsLoading(true);
+    setReaderListsError(false);
     const load =
       seg === 'bookmarks'
         ? fetchAllReaderBookmarkList(serverConfig).then((rows) => {
@@ -253,14 +272,18 @@ export default function MyBooksTab({
             if (!cancelled) setServerAnnotations(rows.map(readerAnnotationFromApi));
           });
     load
-      .catch(() => {})
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setReaderListsError(true);
+        if (isAuthError(e)) onAuthExpired?.();
+      })
       .finally(() => {
         if (!cancelled) setReaderListsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [seg, isOnline, serverConfig]);
+  }, [seg, isOnline, serverConfig, onAuthExpired, readerListsRetry]);
 
   const displayBookmarks = React.useMemo(
     () => mergeReaderBookmarkLists(serverBookmarks ?? [], localReaderBookmarks),
@@ -285,17 +308,33 @@ export default function MyBooksTab({
 
   const visibleSectionBooks = React.useMemo(() => {
     if (seg === 'favorites') {
-      const books = sectionBySeg.favorites;
-      return bookmarkIds ? books.filter((b) => bookmarkIds.has(b.id)) : books;
+      const serverBooks = bookmarkIds
+        ? sectionBySeg.favorites.filter((b) => bookmarkIds.has(b.id))
+        : sectionBySeg.favorites;
+      if (isOnline) return serverBooks;
+      const byId = new Map<string, Book>();
+      for (const book of localOfflineBooks) {
+        if (book.isFavorite || bookmarkIds?.has(book.id)) byId.set(book.id, book);
+      }
+      for (const book of serverBooks) byId.set(book.id, book);
+      return [...byId.values()];
     }
     if (seg === 'read') {
-      const books = sectionBySeg.read;
-      if (readIds) return books.filter((b) => readIds.has(b.id));
-      if (books.length > 0) return books;
-      return localReadBooks;
+      const serverBooks = readIds
+        ? sectionBySeg.read.filter((b) => readIds.has(b.id))
+        : sectionBySeg.read;
+      if (isOnline) {
+        if (readIds) return serverBooks;
+        if (serverBooks.length > 0) return serverBooks;
+        return localReadBooks;
+      }
+      const byId = new Map<string, Book>();
+      for (const book of localReadBooks) byId.set(book.id, book);
+      for (const book of serverBooks) byId.set(book.id, book);
+      return [...byId.values()];
     }
     return [];
-  }, [seg, sectionBySeg, bookmarkIds, readIds, localReadBooks]);
+  }, [seg, sectionBySeg, bookmarkIds, readIds, localReadBooks, localOfflineBooks, isOnline]);
 
   const shelfLoadGen = React.useRef(0);
   const lastShelfIdLoaded = React.useRef<number | string | null>(null);
@@ -317,10 +356,11 @@ export default function MyBooksTab({
         setShelfBooks(books);
         setSectionError(false);
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         if (shelfLoadGen.current !== gen) return;
         setShelfBooks([]);
         setSectionError(true);
+        if (isAuthError(e)) onAuthExpired?.();
       })
       .finally(() => {
         if (shelfLoadGen.current === gen) setSectionLoading(false);
@@ -328,12 +368,30 @@ export default function MyBooksTab({
     return () => {
       shelfLoadGen.current += 1;
     };
-  }, [seg, activeShelfId, loadShelfBooks, shelfRevision]);
+  }, [seg, activeShelfId, loadShelfBooks, shelfRevision, onAuthExpired, sectionRetry]);
 
   useOverlayBackHandler(isTabActive && inShelfDrilldown, () => setActiveShelfId(null));
 
+  const listError = (
+    <EmptyState
+      icon={AlertCircle}
+      tone="error"
+      title="Не удалось загрузить"
+      description="Проверьте соединение и повторите."
+      actionLabel="Повторить"
+      onAction={() => {
+        setSectionError(false);
+        setReaderListsError(false);
+        setSectionRetry((n) => n + 1);
+        setReaderListsRetry((n) => n + 1);
+      }}
+    />
+  );
+
   const bookmarksPanel =
-    readerListsLoading && displayBookmarks.length === 0 ? (
+    readerListsError && displayBookmarks.length === 0 ? (
+      listError
+    ) : readerListsLoading && displayBookmarks.length === 0 ? (
       <div className="px-5 py-4">
         <BookListSkeleton count={5} />
       </div>
@@ -369,7 +427,9 @@ export default function MyBooksTab({
     );
 
   const notesPanel =
-    readerListsLoading && displayAnnotations.length === 0 ? (
+    readerListsError && displayAnnotations.length === 0 ? (
+      listError
+    ) : readerListsLoading && displayAnnotations.length === 0 ? (
       <div className="px-5 py-4">
         <BookListSkeleton count={5} />
       </div>
@@ -569,7 +629,9 @@ export default function MyBooksTab({
                       <p className={`${textStyles.title} truncate flex-1 min-w-0`}>{activeShelfName ?? '…'}</p>
                       <ViewModeToggle value={viewMode} onChange={setViewMode} />
                     </div>
-                    {shelfBooks.length === 0 ? (
+                    {sectionError && shelfBooks.length === 0 ? (
+                      listError
+                    ) : shelfBooks.length === 0 ? (
                       <EmptyState
                         icon={Folder}
                         title="Полка пуста"
@@ -605,7 +667,9 @@ export default function MyBooksTab({
               )}
 
               {(seg === 'favorites' || seg === 'read') && (
-                sectionLoading && visibleSectionBooks.length === 0 && (seg !== 'favorites' || (authorRows.length === 0 && seriesRows.length === 0)) ? (
+                sectionError && !sectionLoading && (seg === 'read' || (authorRows.length === 0 && seriesRows.length === 0 && visibleSectionBooks.length === 0)) ? (
+                  listError
+                ) : sectionLoading && visibleSectionBooks.length === 0 && (seg !== 'favorites' || (authorRows.length === 0 && seriesRows.length === 0)) ? (
                   <BookGridSkeleton count={6} />
                 ) : seg === 'favorites' && authorRows.length === 0 && seriesRows.length === 0 && visibleSectionBooks.length === 0 ? (
                   <EmptyState

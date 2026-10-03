@@ -13,6 +13,7 @@ export interface LocalLibraryState {
   shelves: Shelf[];
   favoriteAuthors: string[];
   favoriteSeries: string[];
+  bootError: boolean;
 }
 
 export function useLocalLibrary(): LocalLibraryState & {
@@ -23,6 +24,7 @@ export function useLocalLibrary(): LocalLibraryState & {
   setShelves: React.Dispatch<React.SetStateAction<Shelf[]>>;
   setFavoriteAuthors: React.Dispatch<React.SetStateAction<string[]>>;
   setFavoriteSeries: React.Dispatch<React.SetStateAction<string[]>>;
+  retryBoot: () => void;
 } {
   const [ready, setReady] = React.useState(false);
   const [books, setBooks] = React.useState<Book[]>([]);
@@ -32,38 +34,57 @@ export function useLocalLibrary(): LocalLibraryState & {
   const [shelves, setShelves] = React.useState<Shelf[]>([]);
   const [favoriteAuthors, setFavoriteAuthors] = React.useState<string[]>([]);
   const [favoriteSeries, setFavoriteSeries] = React.useState<string[]>([]);
+  const [bootError, setBootError] = React.useState(false);
+  const [bootAttempt, setBootAttempt] = React.useState(0);
 
   // Persist включается только после УСПЕШНОЙ загрузки снапшота — иначе transient-ошибка
   // boot (IDB/SQLite hiccup) затирает сохранённую библиотеку пустым состоянием.
   const bootOkRef = React.useRef(false);
 
+  const retryBoot = React.useCallback(() => {
+    bootOkRef.current = false;
+    setReady(false);
+    setBootError(false);
+    setBootAttempt((n) => n + 1);
+  }, []);
+
   React.useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        await initLocalDb();
-        await hydrateAppSettings();
-        await hydrateOfflineReaderStore();
-        const snap = await loadLibrarySnapshot();
-        if (cancelled) return;
-        setBooks(snap.books);
-        setProgressList(snap.progress);
-        setBookmarks(snap.bookmarks);
-        setHighlights(snap.highlights);
-        setShelves(snap.shelves);
-        setFavoriteAuthors(snap.favoriteAuthors);
-        setFavoriteSeries(snap.favoriteSeries);
-        bootOkRef.current = true;
-      } catch (err) {
-        console.warn('[useLocalLibrary] boot failed:', err);
-      } finally {
-        if (!cancelled) setReady(true);
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+        try {
+          await initLocalDb();
+          await hydrateAppSettings();
+          await hydrateOfflineReaderStore();
+          const snap = await loadLibrarySnapshot();
+          if (cancelled) return;
+          setBooks(snap.books);
+          setProgressList(snap.progress);
+          setBookmarks(snap.bookmarks);
+          setHighlights(snap.highlights);
+          setShelves(snap.shelves);
+          setFavoriteAuthors(snap.favoriteAuthors);
+          setFavoriteSeries(snap.favoriteSeries);
+          bootOkRef.current = true;
+          setBootError(false);
+          if (!cancelled) setReady(true);
+          return;
+        } catch (err) {
+          console.warn('[useLocalLibrary] boot failed:', err);
+          if (attempt < 2) {
+            await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)));
+          }
+        }
+      }
+      if (!cancelled) {
+        setBootError(true);
+        setReady(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bootAttempt]);
 
   const persistTimer = React.useRef<number | null>(null);
   React.useEffect(() => {
@@ -98,6 +119,8 @@ export function useLocalLibrary(): LocalLibraryState & {
     shelves,
     favoriteAuthors,
     favoriteSeries,
+    bootError,
+    retryBoot,
     setBooks,
     setProgressList,
     setBookmarks,
