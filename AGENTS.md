@@ -72,7 +72,8 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 Приложение использует следующие endpoint'ы INPX Library Server:
 
 #### Аутентификация и профиль
-- `GET /api/profile` — данные профиля пользователя
+- `GET /api/profile` — данные профиля пользователя (`user.email` — email аккаунта, additive)
+- `GET /api/account-email` / `POST /api/account-email` (`{ email }`, пусто = очистить) — email аккаунта `users.email`; 400 `PROFILE_INVALID_EMAIL`, 409 `PROFILE_EMAIL_TAKEN`. Отдельно от `GET/POST /api/ereader-email`
 - `POST /api/auth/device` — выдать device token (Android, после Basic Auth)
 - `DELETE /api/auth/device/:tokenId` — отозвать device token
 - `POST /api/auth/pairing` — создать одноразовый QR pairing-код (на сайте; пароль не включается)
@@ -158,7 +159,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `DELETE /api/shelves/:id/books/:bookId` — удалить книгу с полки; id с NUL/control-символами — `DELETE /api/shelves/:id/books/b64/:ref`
 
 #### Настройки сервера
-- `GET /api/settings/ui` — UI настройки библиотеки: название, логотип, палитра, **скругление** (`radius` / `radiusPreset`), **тени** (`shadows` / `shadowPreset`), **фон** (`backgroundUrl`, `bgBlur`, `bgOverlayStrength`, `bgSize`, `bgPosition`), **панели** (`surfaceOpacity` 0–100, `surfaceBlur` 0–24px)
+- `GET /api/settings/ui` — UI настройки библиотеки: название, логотип, палитра, **скругление** (`radius` / `radiusPreset`), **тени** (`shadows` / `shadowPreset`), **фон** (`backgroundUrl`, `bgBlur`, `bgOverlayStrength`, `bgSize`, `bgPosition`), **шапка** (`headerUrl`, `hasHeader`, `headerHeight`, `headerPosition`, `headerSize`), **панели** (`surfaceOpacity` 0–100, `surfaceBlur` 0–24px)
 - `GET /health` — проверка доступности сервера (Настройки → Сеть: домашняя Wi‑Fi + LAN, запасные адреса сверху вниз; смена URL не сбрасывает device token)
 
 ### Android UI (независимый от сервера)

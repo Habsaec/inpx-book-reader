@@ -22,7 +22,7 @@ import {
 } from './bookRef';
 
 export interface InpxProfile {
-  user: { username: string; role: string };
+  user: { username: string; role: string; email?: string };
   userStats: {
     readingCount: number;
     bookmarkCount: number;
@@ -421,6 +421,18 @@ async function apiDelete(config: ServerConfig, path: string): Promise<void> {
 
 export async function fetchProfile(config: ServerConfig): Promise<InpxProfile> {
   return apiJson(config, '/api/profile');
+}
+
+/** Email аккаунта (`users.email`); не путать с e-reader email для отправки книг. */
+export async function fetchAccountEmail(config: ServerConfig): Promise<string> {
+  const data = await apiJson<{ email?: string }>(config, '/api/account-email');
+  return data.email ?? '';
+}
+
+/** Пустая строка очищает адрес; сервер отвечает 400 (PROFILE_INVALID_EMAIL) или 409 (PROFILE_EMAIL_TAKEN). */
+export async function saveAccountEmail(config: ServerConfig, email: string): Promise<string> {
+  const data = await apiPostJson<{ ok: boolean; email?: string }>(config, '/api/account-email', { email });
+  return data.email ?? '';
 }
 
 export interface FavoriteAuthorItem {
