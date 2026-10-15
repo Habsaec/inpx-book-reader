@@ -42,3 +42,5 @@ android/app/debug/
 android/deps.txt
 scripts/shots/
 src/shots/
+scripts/emu-*.mjs
+scripts/emulator-*.ps1
