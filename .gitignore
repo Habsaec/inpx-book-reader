@@ -28,3 +28,7 @@ release/
 skills-lock.json
 scripts/cdp-eval.cjs
 scripts/cdp-eval.js
+
+# Local editor / agent config
+.cursor/
+.vscode/
