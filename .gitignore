@@ -32,3 +32,13 @@ scripts/cdp-eval.js
 # Local editor / agent config
 .cursor/
 .vscode/
+
+# Local scratch / emulator output
+.tmp-emu/
+.tmp-ui-dump.xml
+.cursor-review-diff.txt
+artifacts/
+android/app/debug/
+android/deps.txt
+scripts/shots/
+src/shots/
