@@ -218,7 +218,7 @@ async function withTimeoutSignal<T>(
   const controller = new AbortController();
   const onCallerAbort = () => controller.abort();
   callerSignal?.addEventListener('abort', onCallerAbort);
-  let timer = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   // CapacitorHttp ignores AbortSignal, so a dead LAN host never rejects fetch.
   // Race a real timer or auto URL switch waits forever on the first candidate.
   const timeout = new Promise<never>((_, reject) => {
