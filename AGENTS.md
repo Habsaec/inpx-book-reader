@@ -154,6 +154,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/shelves` — список полок
 - `POST /api/shelves` — создать полку
 - `DELETE /api/shelves/:id` — удалить полку
+- Умные полки (сохранённый фильтр каталога): `GET/POST /api/smart-shelves`, `PUT/DELETE /api/smart-shelves/:id`, `GET /api/smart-shelves/:id/books?page=` → `{items,total,page,pageSize}`; полка `{id,name,query,catalogUrl,createdAt}`. Сервер готов, в `inpxClient.ts` пока не используется
 - `GET /api/shelves/:id/books` — книги на полке
 - `POST /api/shelves/:id/books` — добавить книгу на полку
 - `DELETE /api/shelves/:id/books/:bookId` — удалить книгу с полки; id с NUL/control-символами — `DELETE /api/shelves/:id/books/b64/:ref`
