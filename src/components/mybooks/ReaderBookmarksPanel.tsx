@@ -1,5 +1,6 @@
 import React from 'react';
-import { Trash2 } from 'lucide-react';
+import { Bookmark, Trash2 } from 'lucide-react';
+import EmptyState from '../../ui/EmptyState';
 import { theme } from '../../lib/appTheme';
 import type { LocalReaderBookmarkItem } from '../../lib/offlineReaderStore';
 import type { Book, ServerConfig } from '../../types';
@@ -56,7 +57,7 @@ export default function ReaderBookmarksPanel({
   if (!bookmarks.length) {
     return (
       <div className="flex-1 overflow-y-auto inpx-page-scroll px-5">
-        <p className={`${textStyles.body} ${theme.textMuted}`}>Нет закладок. Отмечайте места в тексте во время чтения.</p>
+        <EmptyState icon={Bookmark} title="Закладок пока нет" description="Отмечайте места в тексте во время чтения." />
       </div>
     );
   }

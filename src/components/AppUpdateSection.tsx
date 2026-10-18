@@ -124,7 +124,7 @@ export default function AppUpdateSection({ serverConfig }: { serverConfig?: Serv
 
   return (
     <section className="space-y-3">
-      <h3 className={`${textStyles.labelBold} tracking-wide ${theme.textMuted}`}>О приложении</h3>
+      <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>О приложении</h3>
       <div className="flex items-center justify-between gap-3 min-h-12">
         <p className={`${textStyles.body} ${theme.text}`}>Версия</p>
         <p className={`${textStyles.body} tabular-nums ${theme.textMuted}`}>v{currentVersion}</p>

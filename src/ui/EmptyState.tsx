@@ -33,16 +33,26 @@ export default function EmptyState({
 
   return (
     <div
-      className={compact ? 'my-2 flex flex-col py-2 gap-1.5' : 'my-6 flex flex-col px-5 py-8 gap-2'}
+      className={
+        compact
+          ? 'my-2 flex flex-col py-2 gap-1.5'
+          : 'my-6 flex flex-col items-center text-center px-5 py-10 gap-2'
+      }
       role={tone === 'error' || tone === 'offline' ? 'status' : undefined}
     >
-      <Icon className={`w-5 h-5 ${iconTone}`} aria-hidden strokeWidth={1.75} />
+      {compact ? (
+        <Icon className={`w-5 h-5 ${iconTone}`} aria-hidden strokeWidth={1.75} />
+      ) : (
+        <span className={`mb-2 w-16 h-16 rounded-full flex items-center justify-center ${theme.panel}`}>
+          <Icon className={`w-7 h-7 ${iconTone}`} aria-hidden strokeWidth={1.75} />
+        </span>
+      )}
       <p className={`${textStyles.sectionLabel} ${titleTone}`}>{title}</p>
       {description && (
         <p className={`${textStyles.body} ${theme.textMuted} max-w-sm`}>{description}</p>
       )}
       {actionLabel && onAction && (
-        <div className="mt-2">
+        <div className="mt-3">
           <Button variant={actionVariant} onClick={onAction}>
             {actionLabel}
           </Button>

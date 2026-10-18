@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import BookDetailsSheet from '../BookDetailsSheet';
 import type { Book, ServerConfig } from '../../../types';
 import { fetchBookReviewHtml } from '../../../lib/inpxClient';
@@ -93,16 +93,18 @@ describe('BookDetailsSheet', () => {
     expect(screen.getByRole('button', { name: 'Автор: Стив Кавана' })).toBeTruthy();
     expect(screen.getByText('О книге')).toBeTruthy();
     expect(screen.getByText('Короткое описание.')).toBeTruthy();
-    expect(screen.getByText('2019')).toBeTruthy();
-    expect(screen.getByText('из 5')).toBeTruthy();
-    expect(screen.getByText('Триллер, Детектив · Русский · FB2')).toBeTruthy();
+    expect(screen.getByText(/^2019 · FB2 · .+ · Русский$/)).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Рейтинг 4 из 5' })).toBeTruthy();
+    expect(screen.getByText('Триллер')).toBeTruthy();
+    expect(screen.getByText('Детектив')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Скачать' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'На полку' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'В избранное' })).toBeTruthy();
-    expect(await screen.findByRole('heading', { name: 'Далее в серии' })).toBeTruthy();
-    expect(screen.getAllByText('Следующий том').length).toBeGreaterThan(0);
-    expect(screen.getByRole('heading', { name: 'Другие книги автора' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Другие книги автора' })).toBeTruthy();
     expect(screen.getAllByText('Другая книга').length).toBeGreaterThan(0);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Серия' }));
+    expect(await screen.findByText('Далее в серии')).toBeTruthy();
+    expect(screen.getAllByText('Следующий том').length).toBeGreaterThan(0);
     expect(screen.queryByText(/4 из 5/)).toBeNull();
   });
 

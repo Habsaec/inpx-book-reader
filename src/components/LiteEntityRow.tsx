@@ -37,19 +37,19 @@ export default function LiteEntityRow({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full flex items-center gap-3 min-h-12 py-3 border-b last:border-b-0 text-left ${theme.divider} ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
+      className={`w-full flex items-center gap-3 min-h-14 py-2.5 text-left ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
     >
       {authorKey && serverConfig ? (
         <AuthorPortrait
           authorName={authorKey}
           serverConfig={serverConfig}
           storageDirectory={storageDirectory}
-          size={36}
+          size={44}
         />
       ) : null}
-      <span className={`flex-1 min-w-0 ${textStyles.bodyBold} landscape:max-[500px]:text-xs truncate ${theme.text}`}>{name}</span>
-      <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted}`}>
-        {bookCountLabel(count)}
+      <span className="flex-1 min-w-0">
+        <span className={`block ${textStyles.bodyBold} landscape:max-[500px]:text-xs truncate ${theme.text}`}>{name}</span>
+        <span className={`block ${textStyles.caption} ${theme.textMuted}`}>{bookCountLabel(count)}</span>
       </span>
       <ChevronRight className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
     </button>

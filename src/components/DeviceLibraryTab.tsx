@@ -14,11 +14,20 @@ import type { UiShelf } from '../lib/inpxClient';
 import Button from '../ui/Button';
 import { readOfflineReaderData } from '../lib/offlineReaderStore';
 import { parseSyncTs } from '../lib/readerActivitySync';
-import { seriesVolumeSortKey } from '../lib/seriesVolumeSort';
+import { sortBooksLocal } from '../lib/localBookSort';
 import { usePageTitle } from '../ui/pageTitle';
 import { useBarHeight } from '../ui/useBarHeight';
+import BookSortBar from './catalog/BookSortBar';
 
-type DeviceSort = 'recent' | 'title' | 'author' | 'volume';
+type DeviceSort = 'recent' | 'title' | 'author' | 'volume' | 'rating';
+
+const DEVICE_SORT_OPTIONS: Array<{ id: DeviceSort; label: string }> = [
+  { id: 'recent', label: 'Недавно читал' },
+  { id: 'title', label: 'Название' },
+  { id: 'author', label: 'Автор' },
+  { id: 'volume', label: 'Номер тома' },
+  { id: 'rating', label: 'Рейтинг' },
+];
 
 interface DeviceLibraryTabProps {
   books: Book[];
@@ -74,40 +83,18 @@ export default function DeviceLibraryTab({
   const resetEpochSeen = React.useRef(resetEpoch);
 
   const sorted = React.useMemo(() => {
-    const list = [...books];
-    if (sort === 'title') {
-      list.sort((a, b) => a.title.localeCompare(b.title, 'ru'));
-    } else if (sort === 'author') {
-      list.sort((a, b) => {
-        const byAuthor = (a.author || '').localeCompare(b.author || '', 'ru');
-        return byAuthor !== 0 ? byAuthor : a.title.localeCompare(b.title, 'ru');
-      });
-    } else if (sort === 'volume') {
-      list.sort((a, b) => {
-        const sa = (a.series || '').trim();
-        const sb = (b.series || '').trim();
-        if (!sa !== !sb) return sa ? -1 : 1;
-        const bySeries = sa.localeCompare(sb, 'ru');
-        if (bySeries !== 0) return bySeries;
-        const ka = seriesVolumeSortKey(a);
-        const kb = seriesVolumeSortKey(b);
-        if (ka !== kb) return ka - kb;
-        return a.title.localeCompare(b.title, 'ru');
-      });
-    } else {
-      list.sort((a, b) => {
-        const da = readOfflineReaderData(a.id);
-        const db = readOfflineReaderData(b.id);
-        const ra = parseSyncTs(da.positionChangedAt || da.updatedAt);
-        const rb = parseSyncTs(db.positionChangedAt || db.updatedAt);
-        if (ra !== rb) return rb - ra;
-        const pa = readingProgressByBookId[a.id] ?? a.readProgress ?? 0;
-        const pb = readingProgressByBookId[b.id] ?? b.readProgress ?? 0;
-        if (pa !== pb) return pb - pa;
-        return a.title.localeCompare(b.title, 'ru');
-      });
-    }
-    return list;
+    if (sort !== 'recent') return sortBooksLocal(books, sort);
+    return [...books].sort((a, b) => {
+      const da = readOfflineReaderData(a.id);
+      const db = readOfflineReaderData(b.id);
+      const ra = parseSyncTs(da.positionChangedAt || da.updatedAt);
+      const rb = parseSyncTs(db.positionChangedAt || db.updatedAt);
+      if (ra !== rb) return rb - ra;
+      const pa = readingProgressByBookId[a.id] ?? a.readProgress ?? 0;
+      const pb = readingProgressByBookId[b.id] ?? b.readProgress ?? 0;
+      if (pa !== pb) return pb - pa;
+      return a.title.localeCompare(b.title, 'ru');
+    });
   }, [books, readingProgressByBookId, sort]);
 
   const exitSelect = React.useCallback(() => {
@@ -238,20 +225,11 @@ export default function DeviceLibraryTab({
         style={{ top: 'calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px))' }}
       >
         <div className="flex items-center justify-between gap-3">
-          <label className={`min-w-0 ${textStyles.caption} ${theme.textMuted}`}>
-            <span className="sr-only">Сортировка</span>
-            <select
-              className={`max-w-full bg-transparent pr-1 py-2 min-h-11 ${textStyles.body} ${theme.text} ${theme.focusRing}`}
-              value={sort}
-              onChange={(e) => setSort(e.target.value as DeviceSort)}
-              aria-label="Сортировка"
-            >
-              <option value="recent">Недавно читал</option>
-              <option value="title">Название</option>
-              <option value="author">Автор</option>
-              <option value="volume">Номер тома</option>
-            </select>
-          </label>
+          <BookSortBar
+            value={sort}
+            options={DEVICE_SORT_OPTIONS}
+            onChange={(id) => setSort(id as DeviceSort)}
+          />
           <div className="flex items-center shrink-0">
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
             <button

@@ -31,9 +31,6 @@ interface ProfileScreenProps {
   onChangeAppearance: (mode: AppAppearance) => void;
   colorSource: AppColorSource;
   onChangeColorSource: (source: AppColorSource) => void;
-  useServerBackground: boolean;
-  onChangeUseServerBackground: (on: boolean) => void;
-  hasServerBackground: boolean;
   isAppDark: boolean;
   einkMode: EinkModePref;
   onChangeEinkMode: (mode: EinkModePref) => void;
@@ -73,9 +70,6 @@ export default function ProfileScreen({
   onChangeAppearance,
   colorSource,
   onChangeColorSource,
-  useServerBackground,
-  onChangeUseServerBackground,
-  hasServerBackground,
   isAppDark,
   einkMode,
   onChangeEinkMode,
@@ -95,27 +89,27 @@ export default function ProfileScreen({
       ? 'Офлайн — локальные настройки доступны'
       : '';
   const [statsOpen, setStatsOpen] = React.useState(false);
-  const statRows = [
+  const statTiles = [
     { label: 'На устройстве', value: localBookCount },
     { label: 'Читаете', value: readingCount },
-    ...(stats
-      ? [
-          { label: 'Прочитано', value: stats.readBooksCount },
-          { label: 'Закладки', value: stats.readerBookmarksCount },
-          { label: 'Заметки', value: stats.readerAnnotationsCount },
-          { label: 'Полки', value: stats.shelvesCount },
-          { label: 'Авторы', value: stats.favoriteAuthorsCount },
-          { label: 'Серии', value: stats.favoriteSeriesCount },
-        ]
-      : []),
+    ...(stats ? [{ label: 'Прочитано', value: stats.readBooksCount }] : []),
   ];
+  const statRows = stats
+    ? [
+        { label: 'Закладки', value: stats.readerBookmarksCount },
+        { label: 'Заметки', value: stats.readerAnnotationsCount },
+        { label: 'Полки', value: stats.shelvesCount },
+        { label: 'Авторы', value: stats.favoriteAuthorsCount },
+        { label: 'Серии', value: stats.favoriteSeriesCount },
+      ]
+    : [];
 
   const profileHeader = (
     <div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         {initial ? (
           <span
-            className={`w-10 h-10 shrink-0 rounded-full inline-flex items-center justify-center ${theme.avatarBg} ${textStyles.bodyBold} ${theme.text}`}
+            className={`w-16 h-16 shrink-0 rounded-full inline-flex items-center justify-center text-2xl font-extrabold ${theme.accentMuted}`}
             aria-hidden
           >
             {initial}
@@ -123,57 +117,67 @@ export default function ProfileScreen({
         ) : null}
         <div className="min-w-0">
           {username ? (
-            <p className={`${textStyles.bodyBold} ${theme.text} truncate`}>{username}</p>
+            <p className={`text-xl leading-7 font-extrabold tracking-[-0.02em] ${theme.text} truncate`}>{username}</p>
           ) : null}
           {profile?.user?.role === 'admin' ? (
             <p className={`${textStyles.caption} ${theme.textMuted}`}>Администратор</p>
+          ) : null}
+          {since ? (
+            <p className={`${textStyles.caption} ${theme.textMuted}`}>{since}</p>
           ) : null}
           {statusNote ? (
             <p className={`${textStyles.caption} ${theme.textMuted}`}>{statusNote}</p>
           ) : null}
         </div>
       </div>
-      {since ? (
-        <p className={`${textStyles.caption} ${theme.textMuted} mt-2`}>{since}</p>
-      ) : null}
-      <div className={`mt-4 overflow-hidden border ${theme.divider} ${radii.md}`}>
-        <button
-          type="button"
-          className={`w-full px-4 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
-          aria-expanded={statsOpen}
-          onClick={() => setStatsOpen((open) => !open)}
-        >
-          <span className={`${textStyles.body} ${theme.text}`}>Статистика</span>
-          <ChevronRight
-            className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-out ${statsOpen ? 'rotate-90' : ''} ${theme.textMuted}`}
-            aria-hidden
-          />
-        </button>
-        <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${statsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-          <div className="min-h-0 overflow-hidden">
-            <table className="w-full border-separate border-spacing-0">
-              <caption className="sr-only">Статистика</caption>
-              <tbody>
-                {statRows.map((row) => (
-                  <tr key={row.label}>
-                    <th
-                      scope="row"
-                      className={`px-4 py-3 text-left font-normal border-t ${theme.divider} ${textStyles.body} ${theme.textMuted}`}
-                    >
-                      {row.label}
-                    </th>
-                    <td
-                      className={`px-4 py-3 text-right tabular-nums border-t ${theme.divider} ${textStyles.bodyBold} ${theme.text}`}
-                    >
-                      {row.value}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <ul className="mt-5 grid grid-cols-3 gap-3">
+        {statTiles.map((tile) => (
+          <li key={tile.label} className={`p-3 ${radii.lg} ${theme.card}`}>
+            <p className={`${textStyles.statNumber} ${theme.text}`}>{tile.value}</p>
+            <p className={`${textStyles.caption} ${theme.textMuted} truncate`}>{tile.label}</p>
+          </li>
+        ))}
+      </ul>
+      {statRows.length ? (
+        <div className={`mt-3 overflow-hidden ${radii.lg} ${theme.card}`}>
+          <button
+            type="button"
+            className={`w-full min-h-12 px-4 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+            aria-expanded={statsOpen}
+            onClick={() => setStatsOpen((open) => !open)}
+          >
+            <span className={`${textStyles.bodyBold} ${theme.text}`}>Статистика</span>
+            <ChevronRight
+              className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-out ${statsOpen ? 'rotate-90' : ''} ${theme.textMuted}`}
+              aria-hidden
+            />
+          </button>
+          <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${statsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+            <div className="min-h-0 overflow-hidden">
+              <table className="w-full border-separate border-spacing-0">
+                <caption className="sr-only">Статистика</caption>
+                <tbody>
+                  {statRows.map((row) => (
+                    <tr key={row.label}>
+                      <th
+                        scope="row"
+                        className={`px-4 py-3 text-left font-normal border-t ${theme.divider} ${textStyles.body} ${theme.textMuted}`}
+                      >
+                        {row.label}
+                      </th>
+                      <td
+                        className={`px-4 py-3 text-right tabular-nums border-t ${theme.divider} ${textStyles.bodyBold} ${theme.text}`}
+                      >
+                        {row.value}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
       {error && isOnline && !loading ? (
         <p className={`mt-4 ${textStyles.caption} ${semantic.error}`} role="alert">
           {error}
@@ -193,9 +197,6 @@ export default function ProfileScreen({
         onChangeAppearance={onChangeAppearance}
         colorSource={colorSource}
         onChangeColorSource={onChangeColorSource}
-        useServerBackground={useServerBackground}
-        onChangeUseServerBackground={onChangeUseServerBackground}
-        hasServerBackground={hasServerBackground}
         isAppDark={isAppDark}
         einkMode={einkMode}
         onChangeEinkMode={onChangeEinkMode}

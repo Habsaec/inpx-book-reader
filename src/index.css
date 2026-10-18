@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
+@import "@fontsource-variable/inter/wght.css";
 @import "tailwindcss";
 
 /* Touch WebView keeps :hover after a tap. Hover styles only for a real pointer. */
@@ -11,8 +11,8 @@
 }
 
 @theme {
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Lora", ui-serif, Georgia, Cambria, serif;
+  --font-sans: "Inter Variable", "Inter", Roboto, system-ui, sans-serif;
+  --font-serif: Georgia, ui-serif, serif;
   --font-mono: ui-monospace, "SF Mono", Consolas, monospace;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
@@ -95,86 +95,88 @@ body {
 
 :root,
 html[data-theme="dark"] {
-  --app-bg: #111110;
+  --app-bg: #111113;
   --app-shell-bg: var(--app-bg);
-  --app-surface: #1a1a18;
-  --app-surface-elevated: #222220;
-  --app-surface-hover: #242422;
-  --app-shell: #111110;
-  --app-text: #f2f0ea;
-  --app-muted: #a5a39d;
+  --app-surface: #1a1a1d;
+  --app-surface-elevated: #232327;
+  --app-surface-hover: #26262b;
+  --app-shell: #111113;
+  --app-text: #f2f2f4;
+  --app-muted: #9a9aa3;
   --app-text-secondary: var(--app-muted);
-  --app-accent: #c46a63;
-  --app-accent-hover: #b55a54;
-  --app-accent-soft: color-mix(in srgb, var(--app-accent) 16%, var(--app-bg));
-  --app-link: #c46a63;
-  --app-link-hover: #d17a74;
-  --app-border: #2c2b28;
-  --app-field-bg: #1a1a18;
-  --app-card-bg: #1a1a18;
-  --app-card-bg-hover: #242422;
-  --app-panel-soft: #222220;
-  --app-topbar-bg: #111110;
-  --app-topbar-border: #2c2b28;
-  --app-placeholder: #8a8882;
-  --app-cover-border: #2c2b28;
-  --app-cover-bg: #222220;
-  --app-cover-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
-  --app-progress-track: var(--app-border);
-  --app-danger: #d16b6b;
-  --app-frame-border: #2c2b28;
-  --app-success: #6f9e78;
-  --app-warning: #c4a06a;
-  --app-offline: #c4a06a;
-  --app-radius-sm: 4px;
-  --app-radius-md: 8px;
-  --app-radius-lg: 12px;
-  --app-radius-button: 8px;
+  --app-accent: #ff6a45;
+  --app-accent-hover: #ff8160;
+  --app-accent-soft: #3a2119;
+  --app-link: #ff6a45;
+  --app-link-hover: #ff8160;
+  --app-border: #2a2a2f;
+  --app-field-bg: #1f1f23;
+  --app-card-bg: #1f1f23;
+  --app-card-bg-hover: #26262b;
+  --app-panel-soft: #1f1f23;
+  --app-topbar-bg: #111113;
+  --app-topbar-border: #2a2a2f;
+  --app-placeholder: #6f6f78;
+  --app-cover-border: #2a2a2f;
+  --app-cover-bg: #232327;
+  --app-cover-shadow: 0 6px 16px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.4);
+  --app-progress-track: #2e2e34;
+  --app-danger: #ff6b6b;
+  --app-frame-border: #2a2a2f;
+  --app-success: #4cc27a;
+  --app-warning: #f5b84b;
+  --app-offline: #f5b84b;
+  --app-star: #f5b84b;
+  --app-radius-sm: 10px;
+  --app-radius-md: 14px;
+  --app-radius-lg: 20px;
+  --app-radius-button: 999px;
   --app-shadow-sm: none;
-  --app-shadow-md: 0 4px 16px rgb(0 0 0 / 0.28);
-  --app-shadow-lg: 0 8px 24px rgb(0 0 0 / 0.32);
+  --app-shadow-md: 0 8px 28px rgb(0 0 0 / 0.45);
+  --app-shadow-lg: 0 12px 36px rgb(0 0 0 / 0.5);
 }
 
 html[data-theme="light"] {
-  --app-bg: #f7f6f2;
+  --app-bg: #ffffff;
   --app-shell-bg: var(--app-bg);
   --app-surface: #ffffff;
   --app-surface-elevated: #ffffff;
-  --app-surface-hover: #f1efe9;
-  --app-shell: #f7f6f2;
-  --app-text: #181817;
-  --app-muted: #777570;
+  --app-surface-hover: #f3f3f5;
+  --app-shell: #ffffff;
+  --app-text: #141416;
+  --app-muted: #6e6e76;
   --app-text-secondary: var(--app-muted);
-  --app-accent: #8b3a3a;
-  --app-accent-hover: #732f2f;
-  --app-accent-soft: color-mix(in srgb, var(--app-accent) 14%, var(--app-bg));
-  --app-link: #8b3a3a;
-  --app-link-hover: #9a4848;
-  --app-border: #e6e3dc;
-  --app-field-bg: #ffffff;
-  --app-card-bg: #ffffff;
-  --app-card-bg-hover: #f1efe9;
-  --app-panel-soft: #efede8;
-  --app-topbar-bg: #f7f6f2;
-  --app-topbar-border: #e6e3dc;
-  --app-placeholder: #a19f99;
-  --app-cover-border: #e6e3dc;
-  --app-cover-bg: #efede8;
-  --app-cover-shadow: 0 1px 3px rgb(24 24 23 / 0.1);
-  --app-progress-track: var(--app-border);
-  --app-danger: #a33b3b;
-  --app-frame-border: #e6e3dc;
-  --app-frame-notch: #e6e3dc;
-  --app-success: #3f7a4c;
-  --app-warning: #9a7040;
-  --app-offline: #9a7040;
-  --app-radius-sm: 4px;
-  --app-radius-md: 8px;
-  --app-radius-lg: 12px;
-  --app-radius-button: 8px;
+  --app-accent: #e5482a;
+  --app-accent-hover: #cc3b1f;
+  --app-accent-soft: #fde6df;
+  --app-link: #e5482a;
+  --app-link-hover: #cc3b1f;
+  --app-border: #ececf0;
+  --app-field-bg: #f3f3f5;
+  --app-card-bg: #f3f3f5;
+  --app-card-bg-hover: #ebebee;
+  --app-panel-soft: #f3f3f5;
+  --app-topbar-bg: #ffffff;
+  --app-topbar-border: #ececf0;
+  --app-placeholder: #9a9aa2;
+  --app-cover-border: #ececf0;
+  --app-cover-bg: #ececf0;
+  --app-cover-shadow: 0 6px 14px rgb(20 20 30 / 0.16), 0 1px 3px rgb(20 20 30 / 0.1);
+  --app-progress-track: #e4e4e8;
+  --app-danger: #d43b3b;
+  --app-frame-border: #ececf0;
+  --app-frame-notch: #ececf0;
+  --app-success: #24965a;
+  --app-warning: #c98a1b;
+  --app-offline: #c98a1b;
+  --app-star: #f2a000;
+  --app-radius-sm: 10px;
+  --app-radius-md: 14px;
+  --app-radius-lg: 20px;
+  --app-radius-button: 999px;
   --app-shadow-sm: none;
-  --app-shadow-md: 0 4px 16px rgb(24 24 23 / 0.1);
-  --app-shadow-lg: 0 8px 24px rgb(24 24 23 / 0.12);
+  --app-shadow-md: 0 8px 28px rgb(20 20 30 / 0.14);
+  --app-shadow-lg: 0 12px 36px rgb(20 20 30 / 0.18);
 }
 
 /* Book cover shape — matches INPX Library Server `.cover` (spine radius + shadow) */
@@ -184,7 +186,7 @@ html[data-theme="light"] {
   display: block;
   isolation: isolate;
   overflow: visible;
-  border-radius: 1px 4px 4px 1px;
+  border-radius: 3px 6px 6px 3px;
   background: var(--app-cover-bg);
   box-shadow: var(--app-cover-shadow);
   container-type: inline-size;
@@ -438,7 +440,7 @@ html[data-eink='1'] .cover-rating-wrapper {
 /* One bar for the navbar, the book page, and the tab bar: the page color, not a white card. */
 .inpx-chrome,
 .inpx-book-chrome {
-  background: color-mix(in srgb, var(--app-bg) 94%, transparent);
+  background: var(--app-bg);
   /* blur на Android 11 e-ink WebView замораживает табы — в настройки не нажать. */
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -503,12 +505,11 @@ html[data-eink='1'] .cover-rating-wrapper {
 }
 
 #mobile-tab-navigation.inpx-chrome-bottom {
-  border-top: 0;
+  border-top: 1px solid var(--app-border);
 }
 
 .inpx-chrome-bottom::before {
-  top: -8px;
-  background: linear-gradient(to top, color-mix(in srgb, var(--app-bg) 18%, transparent), transparent);
+  display: none;
 }
 
 .inpx-page-scroll {

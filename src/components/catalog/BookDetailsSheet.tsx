@@ -68,14 +68,17 @@ function mergeBookFacts(base: Book, extra: Book): Book {
 
 function RatingStars({ value }: { value: number }) {
   return (
-    <div className="mb-1 flex justify-center gap-0.5" aria-hidden>
-      {Array.from({ length: 5 }, (_, index) => (
-        <Star
-          key={index}
-          className={`w-4 h-4 ${index < value ? 'fill-[var(--app-accent)] text-[var(--app-accent)]' : 'text-[var(--app-muted)]'}`}
-          strokeWidth={index < value ? 0 : 1.5}
-        />
-      ))}
+    <div className="flex items-center gap-1.5" role="img" aria-label={`Рейтинг ${value} из 5`}>
+      <span className="flex gap-0.5" aria-hidden>
+        {Array.from({ length: 5 }, (_, index) => (
+          <Star
+            key={index}
+            className={`w-4 h-4 ${index < value ? 'fill-[var(--app-star)] text-[var(--app-star)]' : 'text-[var(--app-placeholder)]'}`}
+            strokeWidth={index < value ? 0 : 1.5}
+          />
+        ))}
+      </span>
+      <span className={`${textStyles.bodyBold} tabular-nums ${theme.text}`} aria-hidden>{value}</span>
     </div>
   );
 }
@@ -128,8 +131,8 @@ function BookSheetMetaLink({
       type="button"
       aria-label={ariaLabel}
       onClick={onClick}
-      className={`inline-flex items-center justify-center min-h-12 max-w-full px-2 text-center cursor-pointer ${radii.sm} ${theme.focusRing} ${motionTokens.press} ${
-        muted ? `${textStyles.caption} font-normal ${theme.textMuted}` : `text-base font-medium ${theme.accentText}`
+      className={`inline-flex items-center min-h-9 max-w-full text-left cursor-pointer ${radii.sm} ${theme.focusRing} ${motionTokens.press} ${
+        muted ? `${textStyles.caption} font-normal ${theme.textMuted}` : `${textStyles.bodyBold} ${theme.accentText}`
       }`}
     >
       <span className="min-w-0">{children}</span>
@@ -155,9 +158,9 @@ function SeriesVolumeCard({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-3 p-2.5 text-left cursor-pointer ${radii.md} ${theme.panel} ${theme.focusRing} ${motionTokens.press}`}
+      className={`flex w-full items-center gap-3 py-2.5 text-left cursor-pointer ${theme.rowPress} ${theme.focusRing} ${motionTokens.press}`}
     >
-      <div className="book-cover w-14 shrink-0">
+      <div className="book-cover w-12 shrink-0">
         <span className="book-cover-inner">
           <BookCover
             bookId={book.id}
@@ -285,6 +288,7 @@ export default function BookDetailsSheet({
   const [shelfPickerOpen, setShelfPickerOpen] = React.useState(false);
   const [shelfBusy, setShelfBusy] = React.useState(false);
   const [descOpen, setDescOpen] = React.useState(false);
+  const [tab, setTab] = React.useState<'about' | 'series'>('about');
 
   React.useEffect(() => {
     if (!liveBook) {
@@ -299,6 +303,7 @@ export default function BookDetailsSheet({
     setEnriched(null);
     setShelfPickerOpen(false);
     setDescOpen(false);
+    setTab('about');
     if (!isServerConnected) {
       setAuthorLoading(false);
       setSeriesLoading(false);
@@ -406,23 +411,20 @@ export default function BookDetailsSheet({
   const finished = book ? isBookFinished(progress, readIds?.has(book.id)) : false;
   const sizeLabel = formatBookSize(detail.size);
   const descLong = (description || '').replace(/<[^>]+>/g, '').length > 220;
-  const facts: { key: string; value: string; label: string; stars?: boolean }[] = [];
-  if (coverRating > 0) facts.push({ key: 'rating', value: String(coverRating), label: 'из 5', stars: true });
-  if (detail.year) facts.push({ key: 'year', value: String(detail.year), label: 'год' });
-  if (sizeLabel) facts.push({ key: 'size', value: sizeLabel, label: 'размер' });
-  const genreLine = detail.genresDisplay?.length
-    ? detail.genresDisplay.join(', ')
-    : (detail.genre && detail.genre !== 'Другое' ? detail.genre : '');
-  const metaBits = [
-    genreLine || null,
-    formatLang(detail.lang),
+  const factLine = [
+    detail.year ? String(detail.year) : null,
     detail.ext ? detail.ext.toUpperCase() : null,
-  ].filter((part): part is string => Boolean(part));
+    sizeLabel,
+    formatLang(detail.lang),
+  ].filter((part): part is string => Boolean(part)).join(' · ');
+  const genres = detail.genresDisplay?.length
+    ? detail.genresDisplay
+    : (detail.genre && detail.genre !== 'Другое' ? [detail.genre] : []);
   const showShelf = Boolean(onAddToShelf || onCreateShelf);
   const volume = seriesVolumeLabel(detail);
   const showSeriesBlock = Boolean(detail.series) && (seriesLoading || Boolean(seriesFollow?.books.length));
   const showAuthorBlock = authorNames.length > 0 && (authorLoading || moreByAuthor.length > 0);
-  const sectionKicker = `${textStyles.labelBold} tracking-wide ${theme.textMuted}`;
+  const sectionKicker = `${textStyles.sectionLabel} ${theme.text}`;
 
   return createPortal(
     <div
@@ -443,6 +445,16 @@ export default function BookDetailsSheet({
                 <ChevronLeft className="w-6 h-6" aria-hidden />
               </button>
               <div className="flex-1" />
+              {onToggleBookmark ? (
+                <IconButton
+                  label={isBookmarked ? 'Убрать из избранного' : 'В избранное'}
+                  aria-pressed={isBookmarked}
+                  onClick={() => onToggleBookmark(book.id)}
+                  className={`shrink-0 ${isBookmarked ? theme.accentText : theme.text}`}
+                >
+                  <Heart className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} aria-hidden />
+                </IconButton>
+              ) : null}
               {onOpenActions ? (
                 <IconButton
                   label="Ещё"
@@ -456,9 +468,9 @@ export default function BookDetailsSheet({
               )}
             </header>
 
-            <div className="px-5 pb-6 flex min-w-0 max-w-full flex-col gap-8">
-              <div className="flex w-full min-w-0 flex-col items-center text-center gap-4">
-                <div className="book-cover w-40">
+            <div className="px-5 pb-8 flex min-w-0 max-w-full flex-col">
+              <div className="flex w-full min-w-0 items-start gap-4">
+                <div className="book-cover w-[7.5rem] shrink-0">
                   <span className="book-cover-inner">
                     <BookCover
                       bookId={book.id}
@@ -467,19 +479,19 @@ export default function BookDetailsSheet({
                       variant="full"
                       title={book.title}
                       author={book.author}
-                      width={160}
-                      height={240}
+                      width={120}
+                      height={180}
                       className="absolute inset-0 w-full h-full !rounded-none !border-0"
                     />
                     {finished ? <ReadMark /> : null}
                   </span>
                 </div>
-                <div className="w-full min-w-0">
-                  <h3 id="catalog-book-sheet-title" className={`${textStyles.title} font-serif ${theme.text} text-center max-w-full min-w-0 [overflow-wrap:anywhere]`}>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <h3 id="catalog-book-sheet-title" className={`text-[1.375rem] leading-7 font-extrabold tracking-[-0.02em] ${theme.text} max-w-full min-w-0 [overflow-wrap:anywhere]`}>
                     {bookTitleWithoutVolume(detail)}
                   </h3>
                   {authorNames.length ? (
-                    <div className="flex flex-wrap items-center justify-center">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-1">
                       {authorNames.map((name, index) => (
                         <React.Fragment key={name}>
                           {index > 0 ? <span className={`${textStyles.body} ${theme.textMuted}`}>,</span> : null}
@@ -494,76 +506,137 @@ export default function BookDetailsSheet({
                     </div>
                   ) : null}
                   {detail.series ? (
-                    <div className="flex justify-center">
-                      <BookSheetMetaLink
-                        ariaLabel={`Серия: ${seriesLabel(detail)}`}
-                        muted
-                        onClick={() => onOpenSeries(detail.series!)}
-                      >
-                        {seriesLabel(detail)}{volume ? ` · том ${volume}` : ''}
-                      </BookSheetMetaLink>
-                    </div>
+                    <BookSheetMetaLink
+                      ariaLabel={`Серия: ${seriesLabel(detail)}`}
+                      muted
+                      onClick={() => onOpenSeries(detail.series!)}
+                    >
+                      {seriesLabel(detail)}{volume ? ` · том ${volume}` : ''}
+                    </BookSheetMetaLink>
+                  ) : null}
+                  <div className="mt-3 space-y-1">
+                    {coverRating > 0 ? <RatingStars value={coverRating} /> : null}
+                    {factLine ? <p className={`${textStyles.caption} ${themeTextMuted}`}>{factLine}</p> : null}
+                  </div>
+                </div>
+              </div>
+              {progress > 0 && !finished ? <ReadProgressBar value={progress} showLabel className="w-full mt-4" /> : null}
+
+              <div className="mt-5 space-y-2">
+                {downloadError && (
+                  <p className={`${textStyles.caption} ${semantic.error}`} role="alert">{downloadError}</p>
+                )}
+                {primaryAction?.kind === 'download' && !isServerConnected ? (
+                  <p className={`${textStyles.caption} ${themeTextMuted}`}>Нужен интернет для скачивания</p>
+                ) : null}
+                <div className="flex items-stretch gap-3">
+                  {primaryAction ? (
+                    <Button
+                      className="flex-1 min-w-0"
+                      loading={primaryAction.kind === 'downloading'}
+                      disabled={
+                        primaryAction.disabled ||
+                        (primaryAction.kind === 'download' && !isServerConnected)
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (primaryAction.kind === 'downloading') return;
+                        if (primaryAction.kind === 'download') {
+                          if (!isServerConnected) return;
+                          onDownload(book);
+                          return;
+                        }
+                        onOpenBook(book);
+                        onClose();
+                      }}
+                    >
+                      {primaryAction.kind === 'download' ? <Download className="w-4 h-4 shrink-0" aria-hidden /> : null}
+                      {primaryAction.kind === 'read' || primaryAction.kind === 'continue' || primaryAction.kind === 'reread'
+                        ? <BookOpen className="w-4 h-4 shrink-0" aria-hidden />
+                        : null}
+                      {primaryAction.label}
+                    </Button>
+                  ) : null}
+                  {showShelf ? (
+                    <Button
+                      variant="secondary"
+                      className="flex-1 min-w-0"
+                      aria-expanded={shelfPickerOpen}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShelfPickerOpen((open) => !open);
+                      }}
+                    >
+                      <FolderPlus className="w-4 h-4 shrink-0" aria-hidden />
+                      На полку
+                    </Button>
                   ) : null}
                 </div>
-                {facts.length > 0 ? (
-                  <div className="flex w-full items-stretch">
-                    {facts.map((fact, index) => (
-                      <div
-                        key={fact.key}
-                        className={`flex flex-1 min-w-0 flex-col items-center justify-center px-1 py-1 text-center ${
-                          index > 0 ? 'border-l border-[color:var(--app-border)]' : ''
-                        }`}
-                      >
-                        {fact.stars ? <RatingStars value={coverRating} /> : null}
-                        <div className={`${textStyles.sectionLabel} tabular-nums ${theme.text}`}>{fact.value}</div>
-                        <div className={`${textStyles.caption} ${themeTextMuted}`}>{fact.label}</div>
-                      </div>
-                    ))}
-                  </div>
+                {shelfPickerOpen ? (
+                  <ShelfPicker
+                    shelves={shelves}
+                    busy={shelfBusy}
+                    onPick={(id) => {
+                      if (!onAddToShelf) return;
+                      setShelfBusy(true);
+                      void Promise.resolve(onAddToShelf(book.id, id)).then((added) => {
+                        if (added !== false) setShelfPickerOpen(false);
+                      }).finally(() => {
+                        setShelfBusy(false);
+                      });
+                    }}
+                    onCreate={
+                      onCreateShelf
+                        ? async (name) => {
+                            setShelfBusy(true);
+                            try {
+                              const id = await onCreateShelf(name);
+                              if (id != null && onAddToShelf) {
+                                const added = await onAddToShelf(book.id, id);
+                                if (added !== false) setShelfPickerOpen(false);
+                              } else if (id != null) {
+                                setShelfPickerOpen(false);
+                              }
+                            } finally {
+                              setShelfBusy(false);
+                            }
+                          }
+                        : undefined
+                    }
+                  />
                 ) : null}
-                {progress > 0 && !finished ? <ReadProgressBar value={progress} showLabel className="w-full" /> : null}
               </div>
 
-              <section className="space-y-2">
-                <h4 className={sectionKicker}>О книге</h4>
-                {descriptionIsHtml && description ? (
-                  <div
-                    className={`${textStyles.body} ${theme.text} leading-relaxed select-text prose prose-sm ${isAppDark ? 'prose-invert' : ''} ${descOpen || !descLong ? '' : 'line-clamp-4 overflow-hidden'}`}
-                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
-                  />
-                ) : (
-                  <p className={`${textStyles.body} ${theme.text} leading-relaxed select-text ${descOpen || !descLong ? '' : 'line-clamp-4'}`}>
-                    {description || 'Аннотация отсутствует.'}
-                  </p>
-                )}
-                {descLong && description ? (
-                  <button
-                    type="button"
-                    onClick={() => setDescOpen((v) => !v)}
-                    className={`${textStyles.body} min-h-12 ${theme.accentText} ${theme.focusRing} ${motionTokens.press}`}
-                  >
-                    {descOpen ? 'Свернуть' : 'Показать полностью'}
-                  </button>
-                ) : null}
-                {metaBits.length ? (
-                  <p className={`${textStyles.caption} ${themeTextMuted}`}>{metaBits.join(' · ')}</p>
-                ) : null}
-              </section>
-
               {showSeriesBlock ? (
-                <section className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className={sectionKicker}>
-                      {seriesFollow && !seriesFollow.later ? 'В этой серии' : 'Далее в серии'}
-                    </h4>
+                <div role="tablist" aria-label="Разделы книги" className="mt-6 -mx-5 px-5 flex gap-6 border-b border-[color:var(--app-border)]">
+                  {([
+                    { id: 'about' as const, label: 'О книге' },
+                    { id: 'series' as const, label: 'Серия' },
+                  ]).map((item) => (
                     <button
+                      key={item.id}
                       type="button"
-                      onClick={() => onOpenSeries(detail.series!)}
-                      className={`${textStyles.body} min-h-12 px-1 ${themeAccentText} ${theme.focusRing} ${motionTokens.press}`}
+                      role="tab"
+                      aria-selected={tab === item.id}
+                      onClick={() => setTab(item.id)}
+                      className={`relative min-h-12 ${textStyles.bodyBold} ${tab === item.id ? theme.text : theme.textMuted} ${theme.focusRing}`}
                     >
-                      Все
+                      {item.label}
+                      {tab === item.id ? (
+                        <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-[var(--app-accent)]" aria-hidden />
+                      ) : null}
                     </button>
-                  </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-6 -mx-5 h-2 bg-[var(--app-card-bg)]" aria-hidden />
+              )}
+
+              {tab === 'series' && showSeriesBlock ? (
+                <section className="pt-2" role="tabpanel">
+                  <p className={`py-2 ${textStyles.caption} ${themeTextMuted}`}>
+                    {seriesFollow?.later ? 'Далее в серии' : 'Тома серии'}
+                  </p>
                   {seriesLoading && !seriesFollow?.books.length ? (
                     <div className="flex flex-col gap-2" aria-hidden>
                       <BookCardSkeleton />
@@ -571,8 +644,8 @@ export default function BookDetailsSheet({
                       <BookCardSkeleton />
                     </div>
                   ) : (
-                    <div className="flex flex-col gap-2" role="list">
-                      {seriesFollow?.books.slice(0, 5).map((item) => (
+                    <div className="flex flex-col" role="list">
+                      {seriesFollow?.books.slice(0, 10).map((item) => (
                         <div key={item.id} role="listitem">
                           <SeriesVolumeCard
                             book={item}
@@ -585,189 +658,133 @@ export default function BookDetailsSheet({
                       ))}
                     </div>
                   )}
+                  <Button variant="secondary" fullWidth className="mt-4" onClick={() => onOpenSeries(detail.series!)}>
+                    Вся серия
+                  </Button>
                 </section>
-              ) : null}
-
-              {showAuthorBlock ? (
-                <section className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className={sectionKicker}>Другие книги автора</h4>
-                    <button
-                      type="button"
-                      onClick={() => onOpenAuthor(authorNames[0] || detail.author)}
-                      className={`${textStyles.body} min-h-12 px-1 ${themeAccentText} ${theme.focusRing} ${motionTokens.press}`}
-                    >
-                      Все
-                    </button>
-                  </div>
-                  {authorLoading && moreByAuthor.length === 0 ? (
-                    <BookShelfSkeleton count={4} />
-                  ) : (
-                    <HorizontalBookShelf
-                      books={moreByAuthor}
-                      serverConfig={serverConfig}
-                      storageDirectory={storageDirectory}
-                      downloadedBookIds={downloadedBookIds}
-                      readIds={readIds}
-                      onBookClick={openBookPage}
-                    />
-                  )}
-                </section>
-              ) : null}
-
-              {(bookReviewLoading || bookReviewHtml) && (
-                <section className="space-y-3">
-                  <h4 className={`flex items-baseline gap-2 ${sectionKicker}`}>
-                    Отзывы
-                    {bookReviews.length > 0 ? (
-                      <span className={`font-medium tabular-nums ${theme.textMuted}`}>{bookReviews.length}</span>
+              ) : (
+                <div className="pt-5 flex flex-col" role={showSeriesBlock ? 'tabpanel' : undefined}>
+                  <section className="space-y-3">
+                    {showSeriesBlock ? null : <h4 className={sectionKicker}>О книге</h4>}
+                    {descriptionIsHtml && description ? (
+                      <div
+                        className={`${textStyles.body} ${theme.text} leading-relaxed select-text prose prose-sm ${isAppDark ? 'prose-invert' : ''} ${descOpen || !descLong ? '' : 'line-clamp-4 overflow-hidden'}`}
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
+                      />
+                    ) : (
+                      <p className={`${textStyles.body} ${theme.text} leading-relaxed select-text ${descOpen || !descLong ? '' : 'line-clamp-4'}`}>
+                        {description || 'Аннотация отсутствует.'}
+                      </p>
+                    )}
+                    {descLong && description ? (
+                      <button
+                        type="button"
+                        onClick={() => setDescOpen((v) => !v)}
+                        className={`${textStyles.bodyBold} min-h-10 ${theme.accentText} ${theme.focusRing} ${motionTokens.press}`}
+                      >
+                        {descOpen ? 'Свернуть' : 'Читать полностью'}
+                      </button>
                     ) : null}
-                  </h4>
-                  {bookReviewLoading ? (
-                    <TextBlockSkeleton lines={4} />
-                  ) : bookReviews.length > 0 ? (
-                    <div className="flex flex-col gap-3">
-                      {bookReviews.map((review, index) => {
-                        const initials = reviewInitials(review.name);
-                        const hue = reviewAvatarHue(review.name || String(index));
-                        return (
-                          <article
-                            key={`${review.name}-${index}`}
-                            className={`rounded-2xl border border-[color:var(--app-border)] bg-[var(--app-surface)] px-4 py-4 ${theme.text}`}
-                          >
-                            {review.name ? (
-                              <div className="flex items-center gap-3">
-                                <div
-                                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-                                  style={{ backgroundColor: `hsl(${hue} 42% 42%)` }}
-                                  aria-hidden
-                                >
-                                  {initials}
-                                </div>
-                                <div className="min-w-0">
-                                  <div className={`${textStyles.bodyBold} truncate`}>{review.name}</div>
-                                  {review.timeLabel ? (
-                                    <div className={`${textStyles.caption} ${theme.textMuted}`}>{review.timeLabel}</div>
-                                  ) : null}
-                                </div>
-                              </div>
-                            ) : null}
-                            {review.html ? (
-                              <div
-                                className={`${textStyles.body} leading-relaxed select-text prose prose-sm max-w-none [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 ${review.name ? 'mt-3' : ''} ${isAppDark ? 'prose-invert' : ''}`}
-                                dangerouslySetInnerHTML={{ __html: sanitizeHtml(review.html) }}
-                              />
-                            ) : null}
-                          </article>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div
-                      className={`${textStyles.body} leading-relaxed select-text prose prose-sm ${isAppDark ? 'prose-invert' : ''}`}
-                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(bookReviewHtml) }}
-                    />
-                  )}
-                </section>
-              )}
-            </div>
-            </div>
+                    {genres.length ? (
+                      <ul className="flex flex-wrap gap-2 pt-1" aria-label="Жанры">
+                        {genres.map((genre) => (
+                          <li key={genre} className={`px-3 py-1.5 ${radii.full} ${textStyles.captionBold} ${theme.chip}`}>{genre}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </section>
 
-            <div className="inpx-chrome inpx-chrome-bottom relative shrink-0 px-5 pt-3 pb-2 z-20 space-y-2">
-              {downloadError && (
-                <p className={`${textStyles.caption} text-center ${semantic.error}`} role="alert">{downloadError}</p>
+                  {showAuthorBlock ? (
+                    <>
+                      <div className="my-6 -mx-5 h-2 bg-[var(--app-card-bg)]" aria-hidden />
+                      <section className="space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className={sectionKicker}>Другие книги автора</h4>
+                          <button
+                            type="button"
+                            onClick={() => onOpenAuthor(authorNames[0] || detail.author)}
+                            className={`${textStyles.bodyBold} min-h-10 px-1 ${themeAccentText} ${theme.focusRing} ${motionTokens.press}`}
+                          >
+                            Все
+                          </button>
+                        </div>
+                        {authorLoading && moreByAuthor.length === 0 ? (
+                          <BookShelfSkeleton count={4} />
+                        ) : (
+                          <HorizontalBookShelf
+                            books={moreByAuthor}
+                            serverConfig={serverConfig}
+                            storageDirectory={storageDirectory}
+                            downloadedBookIds={downloadedBookIds}
+                            readIds={readIds}
+                            onBookClick={openBookPage}
+                          />
+                        )}
+                      </section>
+                    </>
+                  ) : null}
+
+                  {(bookReviewLoading || bookReviewHtml) && (
+                    <>
+                      <div className="my-6 -mx-5 h-2 bg-[var(--app-card-bg)]" aria-hidden />
+                      <section className="space-y-3">
+                        <h4 className={`flex items-baseline gap-2 ${sectionKicker}`}>
+                          Отзывы
+                          {bookReviews.length > 0 ? (
+                            <span className={`font-medium tabular-nums ${theme.textMuted}`}>{bookReviews.length}</span>
+                          ) : null}
+                        </h4>
+                        {bookReviewLoading ? (
+                          <TextBlockSkeleton lines={4} />
+                        ) : bookReviews.length > 0 ? (
+                          <div className="flex flex-col gap-3">
+                            {bookReviews.map((review, index) => {
+                              const initials = reviewInitials(review.name);
+                              const hue = reviewAvatarHue(review.name || String(index));
+                              return (
+                                <article
+                                  key={`${review.name}-${index}`}
+                                  className={`${radii.lg} ${theme.panel} px-4 py-4 ${theme.text}`}
+                                >
+                                  {review.name ? (
+                                    <div className="flex items-center gap-3">
+                                      <div
+                                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+                                        style={{ backgroundColor: `hsl(${hue} 42% 42%)` }}
+                                        aria-hidden
+                                      >
+                                        {initials}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className={`${textStyles.bodyBold} truncate`}>{review.name}</div>
+                                        {review.timeLabel ? (
+                                          <div className={`${textStyles.caption} ${theme.textMuted}`}>{review.timeLabel}</div>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {review.html ? (
+                                    <div
+                                      className={`${textStyles.body} leading-relaxed select-text prose prose-sm max-w-none [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 ${review.name ? 'mt-3' : ''} ${isAppDark ? 'prose-invert' : ''}`}
+                                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(review.html) }}
+                                    />
+                                  ) : null}
+                                </article>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div
+                            className={`${textStyles.body} leading-relaxed select-text prose prose-sm ${isAppDark ? 'prose-invert' : ''}`}
+                            dangerouslySetInnerHTML={{ __html: sanitizeHtml(bookReviewHtml) }}
+                          />
+                        )}
+                      </section>
+                    </>
+                  )}
+                </div>
               )}
-              {primaryAction?.kind === 'download' && !isServerConnected ? (
-                <p className={`${textStyles.caption} text-center ${themeTextMuted}`}>Нужен интернет для скачивания</p>
-              ) : null}
-              <div className="flex items-stretch gap-2">
-                {primaryAction ? (
-                  <Button
-                    className="flex-1 min-w-0"
-                    loading={primaryAction.kind === 'downloading'}
-                    disabled={
-                      primaryAction.disabled ||
-                      (primaryAction.kind === 'download' && !isServerConnected)
-                    }
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (primaryAction.kind === 'downloading') return;
-                      if (primaryAction.kind === 'download') {
-                        if (!isServerConnected) return;
-                        onDownload(book);
-                        return;
-                      }
-                      onOpenBook(book);
-                      onClose();
-                    }}
-                  >
-                    {primaryAction.kind === 'download' ? <Download className="w-4 h-4 shrink-0" aria-hidden /> : null}
-                    {primaryAction.kind === 'read' || primaryAction.kind === 'continue' || primaryAction.kind === 'reread'
-                      ? <BookOpen className="w-4 h-4 shrink-0" aria-hidden />
-                      : null}
-                    {primaryAction.label}
-                  </Button>
-                ) : null}
-                {showShelf && !shelfPickerOpen ? (
-                  <Button
-                    variant="secondary"
-                    className="flex-1 min-w-0"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShelfPickerOpen(true);
-                    }}
-                  >
-                    <FolderPlus className="w-4 h-4 shrink-0" aria-hidden />
-                    На полку
-                  </Button>
-                ) : null}
-                {onToggleBookmark ? (
-                  <IconButton
-                    label={isBookmarked ? 'Убрать из избранного' : 'В избранное'}
-                    aria-pressed={isBookmarked}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleBookmark(book.id);
-                    }}
-                    className={`shrink-0 ${isBookmarked ? theme.accentText : theme.textMuted}`}
-                  >
-                    <Heart className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} aria-hidden />
-                  </IconButton>
-                ) : null}
-              </div>
-              {shelfPickerOpen ? (
-                <ShelfPicker
-                  shelves={shelves}
-                  busy={shelfBusy}
-                  onPick={(id) => {
-                    if (!onAddToShelf) return;
-                    setShelfBusy(true);
-                    void Promise.resolve(onAddToShelf(book.id, id)).then((added) => {
-                      if (added !== false) setShelfPickerOpen(false);
-                    }).finally(() => {
-                      setShelfBusy(false);
-                    });
-                  }}
-                  onCreate={
-                    onCreateShelf
-                      ? async (name) => {
-                          setShelfBusy(true);
-                          try {
-                            const id = await onCreateShelf(name);
-                            if (id != null && onAddToShelf) {
-                              const added = await onAddToShelf(book.id, id);
-                              if (added !== false) setShelfPickerOpen(false);
-                            } else if (id != null) {
-                              setShelfPickerOpen(false);
-                            }
-                          } finally {
-                            setShelfBusy(false);
-                          }
-                        }
-                      : undefined
-                  }
-                />
-              ) : null}
+            </div>
             </div>
     </div>,
     document.body,

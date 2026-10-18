@@ -49,7 +49,6 @@ export default function HorizontalBookShelf({
       setTileWidthPx((prev) => (prev === next ? prev : next));
     };
 
-    apply(el.clientWidth);
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect?.width ?? el.clientWidth;
       apply(w);
@@ -58,22 +57,20 @@ export default function HorizontalBookShelf({
     return () => ro.disconnect();
   }, []);
 
-  if (loading) {
-    return <BookShelfSkeleton count={5} tileWidthPx={tileWidthPx} />;
-  }
-
-  if (books.length === 0) {
+  if (books.length === 0 && !loading) {
     if (!emptyLabel) return null;
     return <p className={`${textStyles.caption} ${theme.textMuted} py-2`}>{emptyLabel}</p>;
   }
 
+  // Bleeds into the page's px-5 so the next cover peeks at the screen edge.
   return (
     <div
       ref={scrollerRef}
       data-swipe-lock
-      className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-mandatory pb-2 -mx-1 px-1"
+      className="flex gap-3 overflow-x-auto scrollbar-none snap-x snap-mandatory scroll-px-5 pt-1 pb-3 -mx-5 px-5"
       role="list"
     >
+      {loading ? <BookShelfSkeleton count={5} tileWidthPx={tileWidthPx} /> : null}
       {books.map((book) => (
         <div
           key={book.id}

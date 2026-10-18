@@ -60,9 +60,6 @@ interface SyncSettingsTabProps {
   onChangeAppearance: (mode: AppAppearance) => void;
   colorSource: AppColorSource;
   onChangeColorSource: (source: AppColorSource) => void;
-  useServerBackground: boolean;
-  onChangeUseServerBackground: (on: boolean) => void;
-  hasServerBackground: boolean;
   isAppDark: boolean;
   einkMode: EinkModePref;
   onChangeEinkMode: (mode: EinkModePref) => void;
@@ -92,9 +89,6 @@ export default function SyncSettingsTab({
   onChangeAppearance,
   colorSource,
   onChangeColorSource,
-  useServerBackground,
-  onChangeUseServerBackground,
-  hasServerBackground,
   isAppDark,
   einkMode,
   onChangeEinkMode,
@@ -253,12 +247,13 @@ export default function SyncSettingsTab({
     { id: 'auto', label: 'Авто', icon: Tv },
   ];
   const colorOptions: Array<{ id: AppColorSource; label: string }> = [
-    { id: 'server', label: 'Сервер' },
+    { id: 'app', label: 'Приложение' },
+    { id: 'library', label: 'Сервер' },
     { id: 'system', label: 'Система' },
   ];
 
   const sectionClass = `space-y-3`;
-  const sectionTitle = `${textStyles.labelBold} tracking-wide ${theme.textMuted}`;
+  const sectionTitle = `${textStyles.sectionLabel} ${theme.text}`;
   const inputClass = `w-full px-4 py-3.5 ${textStyles.body} ${radii.md} ${theme.inputFocus} ${themeInput}`;
 
   return (
@@ -359,7 +354,7 @@ export default function SyncSettingsTab({
               {connecting ? 'Подключение…' : 'Подключить'}
             </Button>
 
-            <Button variant="danger" fullWidth onClick={() => void handleForgetServer()} loading={forgetting} disabled={forgetting || scanning || connecting}>
+            <Button variant="ghost" fullWidth className="!text-[var(--app-danger)]" onClick={() => void handleForgetServer()} loading={forgetting} disabled={forgetting || scanning || connecting}>
               <LogOut className="w-4 h-4 inline mr-1" aria-hidden />
               Забыть сервер
             </Button>
@@ -394,27 +389,6 @@ export default function SyncSettingsTab({
                 label: item.label,
                 selected: colorSource === item.id,
                 onSelect: () => onChangeColorSource(item.id),
-              }))}
-            />
-            <SettingsChoice
-              label="Фон"
-              hint={
-                colorSource !== 'server'
-                  ? 'Доступно при цвете «Сервер»'
-                  : hasServerBackground
-                    ? 'Обои библиотеки с сервера'
-                    : 'На сервере нет фонового изображения'
-              }
-              disabled={!(hasServerBackground && colorSource === 'server')}
-              options={([false, true] as const).map((on) => ({
-                id: on ? 'on' : 'off',
-                label: on ? 'Вкл' : 'Выкл',
-                selected: useServerBackground === on,
-                onSelect: () => {
-                  if (hasServerBackground && colorSource === 'server' && useServerBackground !== on) {
-                    onChangeUseServerBackground(on);
-                  }
-                },
               }))}
             />
             <SettingsChoice

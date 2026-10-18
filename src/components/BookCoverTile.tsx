@@ -3,7 +3,7 @@ import { Check, Smartphone, Star } from 'lucide-react';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { theme } from '../lib/appTheme';
-import { textStyles, motion, semantic } from '../ui/tokens';
+import { textStyles, motion } from '../ui/tokens';
 import { displayBookTitle, seriesLabel } from '../lib/seriesLabel';
 import { isBookFinished } from '../lib/bookOpenPolicy';
 import BookCover from './BookCover';
@@ -55,9 +55,12 @@ export function coverTileLayoutForContainer(containerWidth: number): {
   return { cols, tileWidth };
 }
 
-/** Home carousel: same tile size as the grid on this width (~3 visible on phone). */
+/** Carousel: the grid's column count minus a peek of the next cover (~2.7 visible on a phone). */
 export function shelfTileWidthForContainer(containerWidth: number): number {
-  return coverTileLayoutForContainer(containerWidth).tileWidth;
+  const w = Math.max(0, Number(containerWidth) || 0);
+  if (w <= 0) return BOOK_COVER_TILE_WIDTH_PX;
+  const visible = coverGridColumnsForWidth(w) - 0.3;
+  return Math.max(1, Math.floor((w - COVER_GAP_PX * Math.floor(visible)) / visible));
 }
 
 export interface BookCoverTileProps {
@@ -194,18 +197,9 @@ export default function BookCoverTile({
               <Smartphone className="w-3 h-3" strokeWidth={2.5} aria-hidden />
             </span>
           ) : null}
-          {rating > 0 && !isDownloading && (
-            <span
-              className="absolute z-[6] top-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-md bg-black/75 px-1.5 py-0.5 text-white"
-              aria-label={`Рейтинг ${rating} из 5`}
-            >
-              <Star className={`w-3 h-3 fill-current ${semantic.warning}`} aria-hidden />
-              <span className={`${textStyles.microBold} tabular-nums leading-none`}>{rating}</span>
-            </span>
-          )}
           {selected && (
             <span
-              className="absolute top-1.5 right-1.5 z-[7] w-6 h-6 rounded-full bg-[var(--app-accent)] text-white flex items-center justify-center"
+              className="absolute top-1.5 right-1.5 z-[7] w-6 h-6 rounded-full bg-[var(--app-accent)] text-[var(--app-button-fg,white)] flex items-center justify-center"
               aria-hidden
             >
               <Check className="w-3.5 h-3.5" strokeWidth={3} />
@@ -214,11 +208,17 @@ export default function BookCoverTile({
         </span>
       </span>
       {showMeta && (
-        <span className="flex flex-col min-w-0 gap-1 mt-3">
+        <span className="flex flex-col min-w-0 gap-0.5 mt-2.5">
           <p className={`${textStyles.bookTitle} line-clamp-2`}>{titleText}</p>
           {showAuthor ? (
             <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-1`}>
               {book.author || '\u00a0'}
+            </p>
+          ) : null}
+          {rating > 0 ? (
+            <p className={`${textStyles.microBold} ${theme.text} inline-flex items-center gap-1`} aria-label={`Рейтинг ${rating} из 5`}>
+              <Star className="w-3.5 h-3.5 fill-current text-[var(--app-star)]" aria-hidden />
+              <span className="tabular-nums">{rating}</span>
             </p>
           ) : null}
           {fileLine ? (

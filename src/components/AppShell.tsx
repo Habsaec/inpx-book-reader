@@ -64,9 +64,6 @@ function ShellFrame({
 }: AppShellProps) {
   const calm = useCalmMotion();
   const follow = useFollowSpring(calm);
-  const indicatorX = useMotionValue(0);
-  const indicatorTransform = useTransform(indicatorX, (value) => `translateX(${value}px)`);
-  const tabSeen = React.useRef<AppTab | null>(null);
   const headerRef = React.useRef<HTMLDivElement>(null);
   const tabRef = React.useRef<HTMLDivElement>(null);
   const [chrome, setChrome] = React.useState({ header: 64, tab: 72 });
@@ -89,6 +86,8 @@ function ShellFrame({
           : 'Профиль'
   );
   const onBack = pageTitle?.onBack ?? null;
+  const inlineSearch = activeTab === 'home' && !onBack;
+  const toggleSearch = showSearch && !inlineSearch;
 
   React.useLayoutEffect(() => {
     const measure = () => {
@@ -103,34 +102,6 @@ function ShellFrame({
     if (tabRef.current) ro?.observe(tabRef.current);
     return () => ro?.disconnect();
   }, [showOfflineBanner, searchOpen]);
-
-  const btnRefs = React.useRef<Partial<Record<AppTab, HTMLButtonElement | null>>>({});
-  const [indicatorReady, setIndicatorReady] = React.useState(false);
-
-  const measureIndicator = React.useCallback(() => {
-    const list = tabRef.current;
-    const btn = btnRefs.current[activeTab];
-    if (!list || !btn) {
-      setIndicatorReady(false);
-      tabSeen.current = null;
-      return;
-    }
-    const listRect = list.getBoundingClientRect();
-    const btnRect = btn.getBoundingClientRect();
-    const nextX = btnRect.left - listRect.left + (btnRect.width - 32) / 2;
-    setIndicatorReady(true);
-    if (tabSeen.current !== activeTab) {
-      if (tabSeen.current == null) indicatorX.set(nextX);
-      else follow(indicatorX, nextX);
-      tabSeen.current = activeTab;
-    } else {
-      indicatorX.set(nextX);
-    }
-  }, [activeTab, follow, indicatorX]);
-
-  React.useLayoutEffect(() => {
-    measureIndicator();
-  }, [measureIndicator, chrome.tab]);
 
   React.useLayoutEffect(() => {
     searchOpenRef.current = searchOpen;
@@ -204,8 +175,9 @@ function ShellFrame({
       <div
         ref={headerRef}
         id="dashboard-navbar"
-        className="inpx-chrome inpx-chrome-top absolute top-0 inset-x-0 z-30 min-h-16 landscape:max-[500px]:min-h-12 flex items-center px-1 select-none"
+        className="inpx-chrome inpx-chrome-top absolute top-0 inset-x-0 z-30 flex flex-col select-none"
       >
+      <div className={`${inlineSearch ? 'min-h-[4.5rem]' : 'min-h-16'} landscape:max-[500px]:min-h-12 flex items-center px-1`}>
         {onBack ? (
           <button
             type="button"
@@ -228,12 +200,18 @@ function ShellFrame({
           ) : null}
           <motion.h1
             aria-hidden={searchOpen}
-            className={`min-w-0 overflow-hidden truncate text-base font-semibold whitespace-nowrap ${theme.text}`}
+            className={`min-w-0 overflow-hidden truncate whitespace-nowrap ${
+              onBack
+                ? 'text-[1.0625rem] font-bold'
+                : inlineSearch
+                  ? 'text-[1.75rem] leading-9 font-extrabold tracking-[-0.025em]'
+                  : 'text-[1.375rem] font-extrabold tracking-[-0.02em]'
+            } ${theme.text}`}
             style={{ flexGrow: titleGrow, flexBasis: 0 }}
           >
             {title}
           </motion.h1>
-          {showSearch ? (
+          {toggleSearch ? (
             <motion.div
               ref={searchZoneRef}
               className="inpx-search-clip relative min-w-0"
@@ -255,7 +233,7 @@ function ShellFrame({
             </motion.div>
           ) : null}
         </div>
-        {showSearch ? (
+        {toggleSearch ? (
           <button
             ref={searchToggleRef}
             type="button"
@@ -275,6 +253,20 @@ function ShellFrame({
           <div className="w-3 shrink-0" aria-hidden />
         )}
       </div>
+      {inlineSearch ? (
+        <div className="relative px-5 pb-3">
+          <HomeSearchBar
+            serverConfig={serverConfig}
+            isOnline={isOnline}
+            inputId="home-search"
+            onSubmitSearch={onSearchSubmit}
+            onPickAuthor={onSearchAuthor}
+            onPickSeries={onSearchSeries}
+            onPickBook={onSearchBook}
+          />
+        </div>
+      ) : null}
+      </div>
 
       <div
         ref={tabRef}
@@ -282,22 +274,12 @@ function ShellFrame({
         className="inpx-chrome inpx-chrome-bottom absolute inset-x-0 bottom-0 z-30 px-2 pt-1.5 flex justify-around items-stretch select-none"
         style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
       >
-        {indicatorReady ? (
-          <motion.span
-            aria-hidden
-            className="absolute top-0 left-0 h-0.5 w-8 rounded-full bg-[var(--app-accent)]"
-            style={{ transform: indicatorTransform }}
-          />
-        ) : null}
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
-              ref={(el) => {
-                btnRefs.current[tab.id] = el;
-              }}
               type="button"
               onClick={() => onTabChange(tab.id)}
               aria-label={tab.label}
@@ -306,10 +288,14 @@ function ShellFrame({
                 isActive ? theme.tabActive : theme.tabInactive
               }`}
             >
-              <span className="inline-flex items-center justify-center w-12 h-8">
+              <span
+                className={`inline-flex items-center justify-center w-14 h-8 ${radii.full} ${motionTokens.colors} ${
+                  isActive ? 'bg-[var(--app-accent-soft)] text-[var(--app-accent)]' : ''
+                }`}
+              >
                 <Icon
                   className="w-6 h-6"
-                  strokeWidth={isActive ? 2.4 : 1.75}
+                  strokeWidth={isActive ? 2.2 : 1.75}
                   aria-hidden
                 />
               </span>

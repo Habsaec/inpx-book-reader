@@ -1,4 +1,4 @@
-/** Design tokens — four UI type levels; book titles stay serif. */
+/** Design tokens — four UI type levels, one sans family (Inter). */
 
 const typeSecondary = 'text-[0.8125rem] leading-[1.125rem]';
 const typeBody = 'text-[0.9375rem] leading-[1.375rem]';
@@ -17,15 +17,16 @@ export const textStyles = {
   /** Body — 15/22 */
   body: typeBody,
   bodyBold: `${typeBody} font-semibold`,
-  /** Screen title — 28/32, 600 */
-  title: 'text-[1.75rem] leading-8 font-semibold tracking-tight',
-  display: 'text-[1.75rem] leading-8 font-semibold tracking-tight',
-  /** Book titles — serif, same sizes as UI section/body */
-  bookTitle: 'font-serif text-base font-semibold leading-snug min-w-0 max-w-full [overflow-wrap:anywhere]',
-  bookTitleHero: 'font-serif text-xl font-semibold leading-6 tracking-tight min-w-0 max-w-full [overflow-wrap:anywhere]',
-  /** Section title — 20/24, 600 */
-  sectionLabel: 'text-xl leading-6 font-semibold tracking-tight',
-  statNumber: 'text-[1.75rem] leading-8 font-semibold tabular-nums',
+  /** Screen title — 28/34, 800 */
+  title: 'text-[1.75rem] leading-[2.125rem] font-extrabold tracking-[-0.025em]',
+  display: 'text-[1.75rem] leading-[2.125rem] font-extrabold tracking-[-0.025em]',
+  /** Book title in tiles and rows — 14/18, 600 */
+  bookTitle: 'text-sm leading-[1.125rem] font-semibold min-w-0 max-w-full [overflow-wrap:anywhere]',
+  /** Book title on the hero card and book page — 24/30, 800 */
+  bookTitleHero: 'text-2xl leading-[1.875rem] font-extrabold tracking-[-0.025em] min-w-0 max-w-full [overflow-wrap:anywhere]',
+  /** Section title — 20/26, 800 */
+  sectionLabel: 'text-xl leading-[1.625rem] font-extrabold tracking-[-0.02em]',
+  statNumber: 'text-[1.75rem] leading-8 font-extrabold tabular-nums',
 } as const;
 
 export const spacing = {

@@ -128,7 +128,7 @@ export default function ServerNetworkSettings({
   return (
     <section className="space-y-5">
       <div>
-        <h3 className={`${textStyles.labelBold} tracking-wide ${theme.textMuted}`}>Сеть</h3>
+        <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>Сеть</h3>
         <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>Текущий адрес сервера</p>
         <div className="mt-2 flex items-center gap-2 min-h-12">
           <Check className={`w-4 h-4 shrink-0 ${connected ? semantic.success : theme.textMuted}`} aria-hidden />

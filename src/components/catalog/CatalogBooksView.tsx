@@ -235,14 +235,14 @@ export default function CatalogBooksView({
         <button
           type="button"
           onClick={() => setFilterSheetOpen(true)}
-          className={`flex items-center gap-2 min-h-11 px-1 ${theme.focusRing} ${motion.press} ${textStyles.body} ${
-            hasActiveFilters ? theme.accentText : theme.textMuted
+          className={`flex items-center gap-2 min-h-10 px-4 rounded-full ${theme.focusRing} ${motion.press} ${textStyles.body} font-semibold ${
+            hasActiveFilters ? theme.accentMuted : `${theme.panel} ${theme.text}`
           }`}
         >
           <Filter className="w-4 h-4" aria-hidden />
           Фильтры
           {activeFilterCount > 0 ? (
-            <span className={`tabular-nums ${theme.accentText}`}>{activeFilterCount}</span>
+            <span className={`min-w-5 h-5 px-1 rounded-full inline-flex items-center justify-center text-xs tabular-nums ${theme.accentActive}`}>{activeFilterCount}</span>
           ) : null}
         </button>
       ) : (

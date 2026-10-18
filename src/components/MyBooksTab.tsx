@@ -10,6 +10,8 @@ import CatalogBookList from './catalog/CatalogBookList';
 import EntityPreviewRow from './EntityPreviewRow';
 import ShelfCard from './shelves/ShelfCard';
 import ViewModeToggle from '../ui/ViewModeToggle';
+import BookSortBar from './catalog/BookSortBar';
+import { LOCAL_BOOK_SORT_OPTIONS, sortBooksLocal, type LocalBookSort } from '../lib/localBookSort';
 import { BookGridSkeleton, BookListSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
 import { textStyles, touchMin, radii } from '../ui/tokens';
@@ -163,6 +165,7 @@ export default function MyBooksTab({
     [localOfflineBooks],
   );
   const { viewMode, setViewMode } = useCatalogViewMode('books');
+  const [bookSort, setBookSort] = React.useState<LocalBookSort>('recent');
   const segBtnRefs = React.useRef<Partial<Record<LibrarySeg, HTMLButtonElement | null>>>({});
   const [sectionBySeg, setSectionBySeg] = React.useState<{ favorites: Book[]; read: Book[] }>({
     favorites: [],
@@ -335,6 +338,21 @@ export default function MyBooksTab({
     }
     return [];
   }, [seg, sectionBySeg, bookmarkIds, readIds, localReadBooks, localOfflineBooks, isOnline]);
+  const sortedSectionBooks = React.useMemo(
+    () => sortBooksLocal(visibleSectionBooks, bookSort),
+    [visibleSectionBooks, bookSort],
+  );
+  const sortedShelfBooks = React.useMemo(() => sortBooksLocal(shelfBooks, bookSort), [shelfBooks, bookSort]);
+  const bookListTools = (
+    <div className="flex items-center justify-end gap-1 min-w-0">
+      <BookSortBar
+        value={bookSort}
+        options={LOCAL_BOOK_SORT_OPTIONS}
+        onChange={(id) => setBookSort(id as LocalBookSort)}
+      />
+      <ViewModeToggle value={viewMode} onChange={setViewMode} />
+    </div>
+  );
 
   const shelfLoadGen = React.useRef(0);
   const lastShelfIdLoaded = React.useRef<number | string | null>(null);
@@ -627,8 +645,8 @@ export default function MyBooksTab({
                         <ArrowLeft className="w-4 h-4" aria-hidden /> Назад
                       </button>
                       <p className={`${textStyles.title} truncate flex-1 min-w-0`}>{activeShelfName ?? '…'}</p>
-                      <ViewModeToggle value={viewMode} onChange={setViewMode} />
                     </div>
+                    {shelfBooks.length > 0 ? <div className="mb-3">{bookListTools}</div> : null}
                     {sectionError && shelfBooks.length === 0 ? (
                       listError
                     ) : shelfBooks.length === 0 ? (
@@ -642,7 +660,7 @@ export default function MyBooksTab({
                       />
                     ) : (
                       <CatalogBookList
-                        books={shelfBooks}
+                        books={sortedShelfBooks}
                         viewMode={viewMode}
                         serverConfig={serverConfig}
                         storageDirectory={storageDirectory}
@@ -693,7 +711,7 @@ export default function MyBooksTab({
                   <>
                     {seg === 'favorites' && authorRows.length > 0 && (
                       <div className="space-y-0">
-                        <h3 className={`${textStyles.sectionLabel} ${theme.textMuted} mb-1`}>Авторы</h3>
+                        <h3 className={`${textStyles.sectionLabel} ${theme.text} mb-1`}>Авторы</h3>
                         {authorRows.map((a) => (
                           <EntityPreviewRow
                             key={a.name}
@@ -710,7 +728,7 @@ export default function MyBooksTab({
                     )}
                     {seg === 'favorites' && seriesRows.length > 0 && (
                       <div className="space-y-0">
-                        <h3 className={`${textStyles.sectionLabel} ${theme.textMuted} mb-1`}>Серии</h3>
+                        <h3 className={`${textStyles.sectionLabel} ${theme.text} mb-1`}>Серии</h3>
                         {seriesRows.map((s) => (
                           <EntityPreviewRow
                             key={s.name}
@@ -726,11 +744,14 @@ export default function MyBooksTab({
                     )}
                     {visibleSectionBooks.length > 0 && (
                       <div>
-                        {seg === 'favorites' && (
-                          <h3 className={`${textStyles.sectionLabel} ${theme.textMuted} mb-2`}>Книги</h3>
-                        )}
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          {seg === 'favorites' ? (
+                            <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>Книги</h3>
+                          ) : <span />}
+                          {bookListTools}
+                        </div>
                         <CatalogBookList
-                          books={visibleSectionBooks}
+                          books={sortedSectionBooks}
                           viewMode={viewMode}
                           serverConfig={serverConfig}
                           storageDirectory={storageDirectory}
@@ -751,7 +772,7 @@ export default function MyBooksTab({
       </div>
       <div
         ref={tabsRef}
-        className="inpx-chrome inpx-chrome-top absolute inset-x-0 z-20 px-5 pt-1 pb-0.5"
+        className="inpx-chrome inpx-chrome-top absolute inset-x-0 z-20 px-5 pt-1 pb-3"
         style={{ top: 'var(--app-header-offset, 4rem)' }}
       >
         {queueChipCount > 0 && onOpenQueue ? (

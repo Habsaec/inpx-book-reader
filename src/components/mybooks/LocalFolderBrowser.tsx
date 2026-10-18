@@ -6,6 +6,15 @@ import type { StorageDirectory } from '../../lib/storageDirectory';
 import type { CatalogViewMode } from '../../lib/catalogViewMode';
 import CatalogBookList from '../catalog/CatalogBookList';
 import ViewModeToggle from '../../ui/ViewModeToggle';
+import BookSortBar from '../catalog/BookSortBar';
+import { sortBooksLocal, type LocalBookSort } from '../../lib/localBookSort';
+
+const FOLDER_SORT_OPTIONS: Array<{ id: LocalBookSort; label: string }> = [
+  { id: 'recent', label: 'Как в папке' },
+  { id: 'title', label: 'Название' },
+  { id: 'author', label: 'Автор' },
+  { id: 'volume', label: 'Номер тома' },
+];
 import EmptyState from '../../ui/EmptyState';
 import { textStyles, touchMin, radii } from '../../ui/tokens';
 import { BookStorage } from '../../lib/bookStoragePlugin';
@@ -338,6 +347,7 @@ export default function LocalFolderBrowser({
   const [knownReady, setKnownReady] = React.useState(false);
   const [fileMeta, setFileMeta] = React.useState<Record<string, LocalFileMeta>>({});
   const [pending, setPending] = React.useState(false);
+  const [bookSort, setBookSort] = React.useState<LocalBookSort>('recent');
   const path = trail.length ? trail[trail.length - 1].path : '';
   const inside = Boolean(folder);
   const savedBooks = React.useMemo(() => {
@@ -558,6 +568,7 @@ export default function LocalFolderBrowser({
       : undefined;
     return applyLocalFileMeta(base, meta, file.name);
   });
+  const sortedBooks = sortBooksLocal(books, bookSort);
 
   const openFile = async (book: Book) => {
     if (!folder?.uri || !book.localFileName) return;
@@ -643,6 +654,13 @@ export default function LocalFolderBrowser({
         <p className={`min-w-0 flex-1 truncate ${textStyles.bodyBold} ${theme.text}`}>
           {trail.length ? trail[trail.length - 1].name : folder.label}
         </p>
+        {books.length > 1 ? (
+          <BookSortBar
+            value={bookSort}
+            options={FOLDER_SORT_OPTIONS}
+            onChange={(id) => setBookSort(id as LocalBookSort)}
+          />
+        ) : null}
         <ViewModeToggle value={viewMode} onChange={onChangeViewMode} />
       </div>
       {error ? <p className={`${textStyles.caption} text-[var(--app-danger)]`}>{error}</p> : null}
@@ -664,7 +682,7 @@ export default function LocalFolderBrowser({
       ) : null}
       {books.length > 0 ? (
         <CatalogBookList
-          books={books}
+          books={sortedBooks}
           viewMode={viewMode}
           serverConfig={serverConfig}
           storageDirectory={folder}

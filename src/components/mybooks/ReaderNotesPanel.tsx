@@ -1,5 +1,5 @@
 import React from 'react';
-import { ClipboardCopy, Trash2 } from 'lucide-react';
+import { ClipboardCopy, Highlighter, Trash2 } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import type { LocalReaderAnnotationItem } from '../../lib/offlineReaderStore';
 import type { ServerConfig } from '../../types';
@@ -17,6 +17,7 @@ import {
 import { useBarHeight } from '../../ui/useBarHeight';
 import { textStyles, touchMin, semantic, radii, motion, elevation } from '../../ui/tokens';
 import { useSnackbar } from '../../ui/Snackbar';
+import EmptyState from '../../ui/EmptyState';
 
 interface ReaderNotesPanelProps {
   annotations: LocalReaderAnnotationItem[];
@@ -75,7 +76,7 @@ export default function ReaderNotesPanel({
   if (!annotations.length) {
     return (
       <div className="flex-1 overflow-y-auto inpx-page-scroll px-5">
-        <p className={`${textStyles.body} ${theme.textMuted}`}>Нет заметок. Выделяйте фрагменты в читалке — они появятся здесь.</p>
+        <EmptyState icon={Highlighter} title="Заметок пока нет" description="Выделяйте фрагменты в читалке — они появятся здесь." />
       </div>
     );
   }

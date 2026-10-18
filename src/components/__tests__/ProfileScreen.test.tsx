@@ -50,11 +50,8 @@ function renderSettings(overrides: Partial<React.ComponentProps<typeof ProfileSc
         onChangeStorageDirectory={vi.fn()}
         appearance="auto"
         onChangeAppearance={vi.fn()}
-        colorSource="server"
+        colorSource="app"
         onChangeColorSource={vi.fn()}
-        useServerBackground
-        onChangeUseServerBackground={vi.fn()}
-        hasServerBackground={false}
         isAppDark={false}
         einkMode="off"
         onChangeEinkMode={vi.fn()}

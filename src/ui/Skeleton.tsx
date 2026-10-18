@@ -69,7 +69,7 @@ export function BookShelfSkeleton({
   tileWidthPx?: number;
 }) {
   return (
-    <div className="flex gap-4 overflow-hidden" aria-hidden>
+    <div className="flex gap-3 overflow-hidden" aria-hidden>
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="shrink-0 space-y-2" style={{ width: tileWidthPx }}>
           <Skeleton className="w-full aspect-[2/3]" />

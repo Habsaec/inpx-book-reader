@@ -3,7 +3,7 @@ import { Check, MoreVertical, Star } from 'lucide-react';
 import { Book, ServerConfig } from '../../types';
 import type { StorageDirectory } from '../../lib/storageDirectory';
 import { theme } from '../../lib/appTheme';
-import { textStyles, motion, semantic } from '../../ui/tokens';
+import { textStyles, motion } from '../../ui/tokens';
 import BookCover from '../BookCover';
 import ReadProgressBar from '../ReadProgressBar';
 import DownloadStatusLabel from '../DownloadStatusLabel';
@@ -107,29 +107,29 @@ export default function FlibustaBookRow({
             />
           </span>
           {isSelected ? (
-            <span className="absolute top-1 right-1 z-[2] w-5 h-5 rounded-full bg-[var(--app-accent)] text-white flex items-center justify-center">
+            <span className="absolute top-1 right-1 z-[2] w-5 h-5 rounded-full bg-[var(--app-accent)] text-[var(--app-button-fg,white)] flex items-center justify-center">
               <Check className="w-3 h-3" strokeWidth={3} aria-hidden />
             </span>
           ) : finished ? (
             <ReadMark className="top-1 right-1" />
           ) : null}
-          {rating > 0 && !isDownloading ? (
-            <span
-              className="absolute z-[6] top-1 left-1 inline-flex items-center gap-0.5 rounded bg-black/75 px-1 py-px text-white"
-              aria-label={`Рейтинг ${rating} из 5`}
-            >
-              <Star className={`w-2.5 h-2.5 fill-current ${semantic.warning}`} aria-hidden />
-              <span className={`${textStyles.microBold} text-[10px] leading-none`}>{rating}</span>
-            </span>
-          ) : null}
         </span>
-        <span className="flex-1 min-w-0 flex flex-col justify-center gap-1 py-2">
-          <span className={`${textStyles.bookTitle} line-clamp-2 ${theme.text}`}>{titleText}</span>
+        <span className="flex-1 min-w-0 flex flex-col justify-center gap-0.5 py-2">
+          <span className={`${textStyles.bookTitle} text-[0.9375rem] leading-5 line-clamp-2 ${theme.text}`}>{titleText}</span>
           {book.author ? (
             <span className={`${textStyles.caption} ${theme.textMuted} truncate`}>{book.author}</span>
           ) : null}
-          {fileLine ? (
-            <span className={`${textStyles.micro} ${theme.textMuted} truncate`}>{fileLine}</span>
+          {rating > 0 || fileLine ? (
+            <span className={`${textStyles.micro} ${theme.textMuted} flex items-center gap-1 min-w-0`}>
+              {rating > 0 ? (
+                <span className={`inline-flex items-center gap-1 shrink-0 font-semibold ${theme.text}`} aria-label={`Рейтинг ${rating} из 5`}>
+                  <Star className="w-3.5 h-3.5 fill-current text-[var(--app-star)]" aria-hidden />
+                  <span className="tabular-nums">{rating}</span>
+                </span>
+              ) : null}
+              {rating > 0 && fileLine ? <span aria-hidden>·</span> : null}
+              {fileLine ? <span className="truncate">{fileLine}</span> : null}
+            </span>
           ) : null}
           {isDownloading ? (
             <span className="flex items-center gap-2">

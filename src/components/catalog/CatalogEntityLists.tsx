@@ -9,7 +9,7 @@ import BookSortBar from './BookSortBar';
 import type { LocalGenreAgg } from '../../lib/catalogAggregations';
 import type { AuthorSeriesSort } from '../../lib/catalogAggregations';
 import type { CatalogSubTab } from './catalogTypes';
-import { motion, textStyles } from '../../ui/tokens';
+import { motion, radii, textStyles } from '../../ui/tokens';
 import EmptyState from '../../ui/EmptyState';
 
 export interface CatalogEntityAuthor {
@@ -113,7 +113,6 @@ export default function CatalogEntityLists({
   onGoLanding,
   onEditQuery,
 }: CatalogEntityListsProps) {
-  const themeAccentText = theme.accentText;
 
   if (subTab === 'authors' && !selectedAuthor) {
     return (
@@ -151,11 +150,11 @@ export default function CatalogEntityLists({
                     type="button"
                     key={author.name}
                     onClick={() => onOpenAuthor(author.name)}
-                    className={`w-full min-h-12 border-b last:border-b-0 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.divider} ${theme.focusRing} ${motion.press}`}
+                    className={`w-full min-h-14 py-2.5 flex items-center justify-between gap-3 text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-9 h-9 rounded-full flex items-center justify-center border text-sm shrink-0 ${theme.iconBg}`}>
-                        <User className={`w-4 h-4 ${theme.accentText}`} aria-hidden />
+                      <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${theme.panel}`}>
+                        <User className={`w-5 h-5 ${theme.textMuted}`} aria-hidden />
                       </div>
                       <div className="min-w-0">
                         <h3 className={`${textStyles.bodyBold} truncate`}>{author.name}</h3>
@@ -220,11 +219,11 @@ export default function CatalogEntityLists({
                 type="button"
                 key={item.name}
                 onClick={() => onOpenSeries(item.name)}
-                className={`w-full min-h-12 border-b last:border-b-0 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.divider} ${theme.focusRing} ${motion.press}`}
+                className={`w-full min-h-14 py-2.5 flex items-center justify-between gap-3 text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center border shrink-0 ${theme.iconBg}`}>
-                    <Library className={`w-4 h-4 ${themeAccentText}`} aria-hidden />
+                  <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${theme.panel}`}>
+                    <Library className={`w-5 h-5 ${theme.textMuted}`} aria-hidden />
                   </div>
                   <div className="min-w-0">
                     <h3 className={`${textStyles.bodyBold} truncate`}>{item.name}</h3>
@@ -275,15 +274,17 @@ export default function CatalogEntityLists({
           const isExpanded = !!expandedGenres[genreItem.name];
           const subgenresList = Object.entries(genreItem.subgenres);
           return (
-            <div key={genreItem.name} className={`border-b last:border-b-0 ${theme.divider}`}>
+            <div key={genreItem.name}>
               <button
                 type="button"
                 onClick={() => onToggleGenreExpand(genreItem.name)}
                 aria-expanded={isExpanded}
-                className={`w-full py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+                className={`w-full min-h-14 py-2.5 flex items-center justify-between gap-3 text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Tag className={`w-4 h-4 ${themeAccentText}`} aria-hidden />
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${theme.accentMuted}`}>
+                    <Tag className="w-5 h-5" aria-hidden />
+                  </span>
                   <div>
                     <h3 className={`${textStyles.bodyBold}`}>{genreItem.name}</h3>
                     <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
@@ -299,20 +300,20 @@ export default function CatalogEntityLists({
               <div className={`inpx-collapse ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                 <div
                   inert={isExpanded ? undefined : true}
-                  className="min-h-0 overflow-hidden divide-y bg-black/5 divide-[color:var(--app-border)]"
+                  className={`min-h-0 overflow-hidden ${radii.md} ${theme.panel}`}
                 >
                   {subgenresList.map(([genreCode, sub]) => (
                     <button
                       type="button"
                       key={genreCode}
                       onClick={() => onSelectSubgenre(genreItem.name, genreCode)}
-                      className={`w-full min-h-12 px-4 py-3 pl-8 flex items-center justify-between text-left text-xs ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+                      className={`w-full min-h-12 px-4 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
                     >
                       <div>
                         <span className={textStyles.bodyBold}>{sub.name}</span>
                         <span className={`${textStyles.micro} ${theme.textMuted} ml-1.5`}>({sub.count} кн.)</span>
                       </div>
-                      <ChevronRight className={`w-3.5 h-3.5 shrink-0 ${theme.textMuted}/40`} aria-hidden />
+                      <ChevronRight className={`w-4 h-4 shrink-0 ${theme.textMuted}`} aria-hidden />
                     </button>
                   ))}
                 </div>

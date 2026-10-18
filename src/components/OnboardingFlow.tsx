@@ -1,5 +1,5 @@
 import React from 'react';
-import { QrCode, FolderOpen, CheckCircle2, ArrowRight } from 'lucide-react';
+import { QrCode, FolderOpen, CheckCircle2, ArrowRight, Library, type LucideIcon } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, semantic, radii, motion } from '../ui/tokens';
 import Button from '../ui/Button';
@@ -16,6 +16,14 @@ import { insecureHttpWarning } from '../lib/serverUrl';
 import { parsePairingQrPayload, redeemPairingCode } from '../lib/inpxClient';
 import { scanAppPairingQr, isQrScanCanceled } from '../lib/scanAppPairingQr';
 import { useBackHandler } from '../hooks/useBackHandler';
+
+function StepIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <span className={`mb-5 w-16 h-16 rounded-full inline-flex items-center justify-center ${theme.accentMuted}`}>
+      <Icon className="w-8 h-8" aria-hidden strokeWidth={1.75} />
+    </span>
+  );
+}
 
 interface OnboardingFlowProps {
   serverConfig: ServerConfig;
@@ -145,6 +153,7 @@ export default function OnboardingFlow({
         {step === 1 && (
           <>
             <div>
+              <StepIcon icon={Library} />
               <h1 className={textStyles.title}>Добро пожаловать</h1>
               <p className={`${textStyles.body} ${theme.textMuted} mt-2`}>
                 Ваша библиотека всегда с собой. Подключите INPX Library Server.
@@ -183,7 +192,7 @@ export default function OnboardingFlow({
             </button>
 
             {manualLoginOpen && (
-              <div className={`space-y-4 pt-2 border-t ${theme.divider}`}>
+              <div className="space-y-4 pt-2">
                 <label className={`block ${textStyles.caption} ${theme.textMuted}`}>
                   Адрес сервера
                   <input
@@ -228,13 +237,14 @@ export default function OnboardingFlow({
         {step === 2 && (
           <>
             <div>
+              <StepIcon icon={FolderOpen} />
               <h1 className={textStyles.title}>Где хранить книги?</h1>
               <p className={`${textStyles.body} ${theme.textMuted} mt-2`}>
                 Книги доступны офлайн после скачивания.
               </p>
             </div>
 
-            <div>
+            <div className={`p-4 ${radii.lg} ${theme.card}`}>
               <p className={`${textStyles.caption} ${theme.textMuted}`}>Папка хранения</p>
               <p className={`${textStyles.body} mt-1 break-all`}>{shortFolderName(storageDirectory)}</p>
             </div>
@@ -264,6 +274,7 @@ export default function OnboardingFlow({
         {step === 3 && (
           <>
             <div>
+              <StepIcon icon={CheckCircle2} />
               <h1 className={textStyles.title}>Всё готово</h1>
               <p className={`${textStyles.body} ${theme.textMuted} mt-2`}>
                 Ваша библиотека готова.

@@ -247,17 +247,17 @@ export default function CatalogDrilldownPanel({
                   serverConfig={serverConfig}
                   storageDirectory={storageDirectory}
                   hasPortrait={authorGrouped?.hasPortrait}
-                  size={64}
-                  className={`landscape:max-[500px]:!w-12 landscape:max-[500px]:!h-12 ${theme.coverBorder}`}
+                  size={80}
+                  className="landscape:max-[500px]:!w-12 landscape:max-[500px]:!h-12"
                 />
               ) : (
-                <div className={`w-16 h-16 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center border shrink-0 ${theme.avatarBg}`}>
+                <div className={`w-20 h-20 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center shrink-0 ${theme.accentMuted}`}>
                   <PenLine className={`w-7 h-7 landscape:max-[500px]:w-5 landscape:max-[500px]:h-5 ${theme.accentText}`} aria-hidden />
                 </div>
               )}
               <div className="min-w-0 pt-0.5">
                 <p className={`${textStyles.caption} ${theme.textMuted}`}>Автор</p>
-                <h2 className={`${textStyles.bookTitle} text-base landscape:max-[500px]:text-sm leading-snug mt-0.5`}>
+                <h2 className={`text-[1.375rem] leading-7 font-extrabold tracking-[-0.02em] landscape:max-[500px]:text-base landscape:max-[500px]:leading-snug mt-0.5 ${theme.text}`}>
                   {selectedAuthorLabel}
                 </h2>
                 {authorGrouped && (
@@ -285,11 +285,11 @@ export default function CatalogDrilldownPanel({
 
           {isServerBrowse && authorGrouped?.bioHtml ? (
             <div
-              className={`mt-3 text-xs leading-relaxed border-t pt-3 landscape:max-[500px]:mt-2 landscape:max-[500px]:pt-2 landscape:max-[500px]:max-h-28 landscape:max-[500px]:overflow-y-auto prose prose-sm max-w-none ${isAppDark ? 'prose-invert ' : ''}${theme.divider}`}
+              className={`mt-4 text-sm leading-relaxed landscape:max-[500px]:mt-2 landscape:max-[500px]:max-h-28 landscape:max-[500px]:overflow-y-auto prose prose-sm max-w-none ${isAppDark ? 'prose-invert ' : ''}${theme.divider}`}
               dangerouslySetInnerHTML={{ __html: sanitizeHtml(authorGrouped.bioHtml) }}
             />
           ) : isServerBrowse ? (
-            <p className={`mt-3 text-xs border-t pt-3 ${theme.textMuted} ${theme.divider}`}>
+            <p className={`mt-4 ${textStyles.caption} ${theme.textMuted}`}>
               Биография автора не найдена в библиотеке.
             </p>
           ) : null}
@@ -300,12 +300,12 @@ export default function CatalogDrilldownPanel({
         <div className="mb-3.5 landscape:max-[500px]:mb-2">
             <div className="flex justify-between items-start gap-3">
             <div className="flex gap-3 items-start min-w-0">
-              <div className={`w-16 h-16 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center border shrink-0 ${theme.avatarBg}`}>
+              <div className={`w-20 h-20 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center shrink-0 ${theme.accentMuted}`}>
                 <Layers3 className={`w-7 h-7 landscape:max-[500px]:w-5 landscape:max-[500px]:h-5 ${theme.accentText}`} aria-hidden />
               </div>
               <div className="min-w-0 pt-0.5">
                 <p className={`${textStyles.caption} ${theme.textMuted}`}>Серия</p>
-                <h2 className={`${textStyles.bookTitle} text-base landscape:max-[500px]:text-sm leading-snug mt-0.5`}>
+                <h2 className={`text-[1.375rem] leading-7 font-extrabold tracking-[-0.02em] landscape:max-[500px]:text-base landscape:max-[500px]:leading-snug mt-0.5 ${theme.text}`}>
                   {selectedSeries}
                 </h2>
                 <p className={`${textStyles.caption} mt-1 ${theme.textMuted}`}>
@@ -345,12 +345,12 @@ export default function CatalogDrilldownPanel({
       {outsideHub && (
         <div className="mb-3.5 landscape:max-[500px]:mb-2">
           <div className="flex gap-3 items-start min-w-0">
-            <div className={`w-16 h-16 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center border shrink-0 ${theme.avatarBg}`}>
+            <div className={`w-20 h-20 landscape:max-[500px]:w-12 landscape:max-[500px]:h-12 rounded-full flex items-center justify-center shrink-0 ${theme.accentMuted}`}>
               <Layers3 className={`w-7 h-7 landscape:max-[500px]:w-5 landscape:max-[500px]:h-5 ${theme.accentText}`} aria-hidden />
             </div>
             <div className="min-w-0 pt-0.5">
               <p className={`${textStyles.caption} ${theme.textMuted}`}>Вне серий</p>
-              <h2 className={`${textStyles.bookTitle} text-base landscape:max-[500px]:text-sm leading-snug mt-0.5`}>
+              <h2 className={`text-[1.375rem] leading-7 font-extrabold tracking-[-0.02em] landscape:max-[500px]:text-base landscape:max-[500px]:leading-snug mt-0.5 ${theme.text}`}>
                 {selectedAuthorLabel}
               </h2>
               <p className={`${textStyles.caption} mt-1 ${theme.textMuted}`}>{bookCount} книг</p>

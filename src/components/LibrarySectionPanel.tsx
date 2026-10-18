@@ -11,6 +11,7 @@ import CatalogActiveFilterChips from './catalog/CatalogActiveFilterChips';
 import BookSortBar from './catalog/BookSortBar';
 import CatalogBookList from './catalog/CatalogBookList';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
+import ViewModeToggle from '../ui/ViewModeToggle';
 import type { CatalogFormatFilter, CatalogHasSeriesFilter } from './catalog/catalogTypes';
 import { BookGridSkeleton } from '../ui/Skeleton';
 import { useBarHeight } from '../ui/useBarHeight';
@@ -125,7 +126,7 @@ export default function LibrarySectionPanel({
   const [filterSheetOpen, setFilterSheetOpen] = React.useState(false);
   const [genreOptions, setGenreOptions] = React.useState<CatalogGenreOption[]>([]);
   const [sortBy, setSortBy] = React.useState<LibrarySort>(DEFAULT_SORT[view]);
-  const { viewMode } = useCatalogViewMode('books');
+  const { viewMode, setViewMode } = useCatalogViewMode('books');
 
   useOverlayBackHandler(isTabActive, onClose);
   usePageTitle(meta.title, onClose, isTabActive);
@@ -410,8 +411,8 @@ export default function LibrarySectionPanel({
           <button
             type="button"
             onClick={() => setFilterSheetOpen(true)}
-            className={`flex items-center gap-1.5 min-h-11 px-1 ${textStyles.captionBold} ${theme.focusRing} ${
-              hasActiveFilters ? theme.accentActive : theme.textMuted
+            className={`flex items-center gap-2 min-h-10 px-4 rounded-full ${textStyles.body} font-semibold ${theme.focusRing} ${
+              hasActiveFilters ? theme.accentMuted : `${theme.panel} ${theme.text}`
             }`}
           >
             <Filter className="w-4 h-4" aria-hidden />
@@ -423,6 +424,7 @@ export default function LibrarySectionPanel({
               options={SORT_OPTIONS[view]}
               onChange={handleSortChange}
             />
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
           </div>
         </div>
       </div>

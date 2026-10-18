@@ -13,7 +13,7 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variants: Record<ButtonVariant, string> = {
   primary: theme.accentBg,
-  secondary: `${theme.input} border-[color:var(--app-border)] ${theme.text} hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-card-bg-hover)]`,
+  secondary: `bg-[var(--app-card-bg)] border-transparent ${theme.text} hover:bg-[var(--app-card-bg-hover)] active:bg-[var(--app-card-bg-hover)]`,
   danger: 'bg-[var(--app-danger)] text-white border-transparent hover:brightness-95 active:brightness-90',
   ghost: `${theme.textMuted} border-transparent hover:bg-[var(--app-surface-hover)] active:bg-[var(--app-card-bg-hover)]`,
 };
@@ -36,7 +36,7 @@ export default function Button({
         textStyles.bodyBold,
         touchMin,
         radii.button,
-        'inline-flex items-center justify-center gap-2 px-4 py-3 border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100',
+        'inline-flex items-center justify-center gap-2 px-5 py-3 border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100',
         motion.colors,
         motion.press,
         theme.focusRing,

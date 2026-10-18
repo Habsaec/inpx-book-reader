@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, AlertCircle, MoreVertical, Play, Loader2 } from 'lucide-react';
+import { BookOpen, AlertCircle, ChevronRight, MoreVertical, Play, Loader2 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { InpxProfile, mapServerBook, starsFromLibRate, fetchLibraryView, isAuthError, isUnreachableServerError, bookContentUrl, displayCoverUrl } from '../lib/inpxClient';
 import { Book, ServerConfig } from '../types';
@@ -34,15 +34,16 @@ function HomeSectionHeader({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <h3 className={`${textStyles.labelBold} tracking-wide ${theme.textMuted}`}>{title}</h3>
+    <div className="flex items-center justify-between gap-3 -mb-1">
+      <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>{title}</h3>
       {actionLabel && onAction ? (
         <button
           type="button"
           onClick={onAction}
-          className={`${textStyles.body} min-h-12 px-1 ${theme.accentText} ${theme.focusRing} ${motion.press} shrink-0`}
+          className={`${textStyles.bodyBold} min-h-12 -mr-2 pl-2 pr-1 inline-flex items-center ${theme.textMuted} ${theme.focusRing} ${motion.press} shrink-0`}
         >
           {actionLabel}
+          <ChevronRight className="w-4 h-4" aria-hidden />
         </button>
       ) : null}
     </div>
@@ -311,6 +312,10 @@ export default function HomeTab({
     () => (hero ? localRecentToBook(hero, serverConfig) : null),
     [hero, serverConfig],
   );
+  const moreRecent = React.useMemo(
+    () => mergedRecent.slice(1, 11).map((item) => localRecentToBook(item, serverConfig)),
+    [mergedRecent, serverConfig],
+  );
   const heroDownloading = Boolean(
     hero && isBookDownloadInFlight(hero.id, downloadingId, queuedBookIds),
   );
@@ -459,19 +464,13 @@ export default function HomeTab({
   const scrollInner = (
     <>
       {hero && heroBook && heroAction ? (
-        <section className="relative flex w-full min-w-0 max-w-full flex-col items-center text-center gap-3" aria-label={`Продолжить чтение: ${displayBookTitle(hero)}`}>
-          {onBookLongPress ? (
-            <IconButton
-              label="Ещё действия"
-              className="absolute top-0 right-0 shrink-0"
-              onClick={() => onBookLongPress(heroBook)}
-            >
-              <MoreVertical className="w-5 h-5" aria-hidden />
-            </IconButton>
-          ) : null}
+        <section
+          className={`relative flex w-full min-w-0 max-w-full gap-4 p-4 ${radii.lg} ${theme.panel}`}
+          aria-label={`Продолжить чтение: ${displayBookTitle(hero)}`}
+        >
           <button
             type="button"
-            className={`w-40 select-none touch-manipulation ${theme.focusRing} ${motion.press} disabled:opacity-70`}
+            className={`w-[7.5rem] shrink-0 self-start select-none touch-manipulation ${theme.focusRing} ${motion.press} disabled:opacity-70`}
             disabled={heroAction.disabled}
             aria-label={`${heroAction.kind === 'downloading' ? heroAction.label : 'Продолжить'}: ${displayBookTitle(hero)}`}
             {...heroPress}
@@ -490,45 +489,62 @@ export default function HomeTab({
               </span>
             </span>
           </button>
-          <h3 className={`${textStyles.bookTitleHero} ${theme.text} line-clamp-2`}>{bookTitleWithoutVolume(hero)}</h3>
-          <ReadProgressBar value={heroProgress} showLabel className="w-full" />
-          {hero.authorsDisplay ? (
-            <p className={`text-base font-medium ${theme.accentText}`}>{hero.authorsDisplay}</p>
-          ) : null}
-          {heroSeriesName ? (
-            <p className={`${textStyles.caption} ${theme.textMuted}`}>
-              {heroSeriesName}{heroVolume ? ` · том ${heroVolume}` : ''}
-            </p>
-          ) : null}
-          {heroAction.kind === 'downloading' ? (
-            <div className="flex w-full items-center gap-3">
-              <div
-                className="flex-1 min-w-0 h-1 rounded-full bg-[var(--app-progress-track,var(--app-border))] overflow-hidden"
-                role="progressbar"
-                aria-valuenow={Math.round(heroDownloadJob?.progress ?? 0)}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label="Прогресс скачивания"
+          <div className="flex min-w-0 flex-1 flex-col">
+            <p className={`${textStyles.microCaps} ${theme.accentText} ${onBookLongPress ? 'pr-9' : ''}`}>Продолжить чтение</p>
+            <h3 className={`mt-1.5 text-xl leading-6 font-extrabold tracking-[-0.015em] line-clamp-2 [overflow-wrap:anywhere] ${theme.text}`}>
+              {bookTitleWithoutVolume(hero)}
+            </h3>
+            {hero.authorsDisplay ? (
+              <p className={`mt-1 ${textStyles.caption} ${theme.textMuted} line-clamp-1`}>{hero.authorsDisplay}</p>
+            ) : null}
+            {heroSeriesName ? (
+              <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-1`}>
+                {heroSeriesName}{heroVolume ? ` · том ${heroVolume}` : ''}
+              </p>
+            ) : null}
+            <div className="mt-auto pt-3 space-y-3">
+              {heroAction.kind === 'downloading' ? (
+                <div className="flex w-full items-center gap-2">
+                  <div
+                    className="flex-1 min-w-0 h-1 rounded-full bg-[var(--app-progress-track,var(--app-border))] overflow-hidden"
+                    role="progressbar"
+                    aria-valuenow={Math.round(heroDownloadJob?.progress ?? 0)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="Прогресс скачивания"
+                  >
+                    <div
+                      className={`h-full ${theme.progress}`}
+                      style={{ width: `${Math.max(4, heroDownloadJob?.progress ?? 0)}%` }}
+                    />
+                  </div>
+                  <span className={`shrink-0 ${textStyles.microBold} tabular-nums ${theme.textMuted}`}>
+                    {Math.round(heroDownloadJob?.progress ?? 0)}%
+                  </span>
+                </div>
+              ) : (
+                <ReadProgressBar value={heroProgress} showLabel className="w-full" />
+              )}
+              <button
+                type="button"
+                disabled={heroAction.disabled}
+                onClick={handleHeroTap}
+                className={`min-h-10 px-4 ${radii.button} ${textStyles.bodyBold} inline-flex items-center gap-1.5 ${theme.accentBg} disabled:opacity-60 ${motion.press} ${theme.focusRing}`}
               >
-                <div
-                  className={`h-full ${theme.progress}`}
-                  style={{ width: `${Math.max(4, heroDownloadJob?.progress ?? 0)}%` }}
-                />
-              </div>
-              <span className={`shrink-0 ${textStyles.caption} tabular-nums ${theme.textMuted}`}>
-                {Math.round(heroDownloadJob?.progress ?? 0)}%
-              </span>
+                <HeroActionIcon kind={heroAction.kind} />
+                {heroAction.kind === 'downloading' ? heroAction.label : 'Продолжить'}
+              </button>
             </div>
+          </div>
+          {onBookLongPress ? (
+            <IconButton
+              label="Ещё действия"
+              className="absolute top-1 right-1 shrink-0"
+              onClick={() => onBookLongPress(heroBook)}
+            >
+              <MoreVertical className="w-5 h-5" aria-hidden />
+            </IconButton>
           ) : null}
-          <button
-            type="button"
-            disabled={heroAction.disabled}
-            onClick={handleHeroTap}
-            className={`min-h-12 px-5 ${radii.button} ${textStyles.bodyBold} inline-flex items-center gap-1.5 ${theme.accentBg} disabled:opacity-60 ${motion.press} ${theme.focusRing}`}
-          >
-            <HeroActionIcon kind={heroAction.kind} />
-            {heroAction.kind === 'downloading' ? heroAction.label : 'Продолжить'}
-          </button>
         </section>
       ) : (
         <EmptyState
@@ -552,6 +568,23 @@ export default function HomeTab({
           actionVariant="primary"
         />
       )}
+
+      {moreRecent.length > 0 ? (
+        <section className="space-y-4">
+          <HomeSectionHeader title="Недавно читали" />
+          <HomeBookPreview
+            books={moreRecent}
+            viewMode={viewMode}
+            serverConfig={serverConfig}
+            storageDirectory={storageDirectory}
+            readingProgressByBookId={readingProgressByBookId}
+            downloadedBookIds={downloadedBookIds}
+            readIds={readIds}
+            onBookClick={onOpenBook}
+            onBookLongPress={onBookLongPress}
+          />
+        </section>
+      ) : null}
 
       {isOnline && recentMode !== 'off' && (
         <section className="space-y-4">

@@ -117,12 +117,12 @@ export default function SegmentTabStrip<T extends string>({
       ref={listRef}
       role="tablist"
       aria-label={ariaLabel}
-      className={`inpx-scroll-tabs relative flex gap-1 overflow-x-auto scrollbar-none ${className}`}
+      className={`inpx-scroll-tabs relative flex gap-2 overflow-x-auto scrollbar-none ${className}`}
     >
       {indicator.ready ? (
         <motion.span
           aria-hidden
-          className={`pointer-events-none absolute top-0 left-0 origin-left ${radii.md} bg-[var(--app-accent-soft)]`}
+          className={`pointer-events-none absolute top-0 left-0 origin-left ${radii.full} bg-[var(--app-text)]`}
           style={{ transform: indicatorTransform, width: indicator.w, height: '100%' }}
         />
       ) : null}
@@ -142,7 +142,7 @@ export default function SegmentTabStrip<T extends string>({
               if (tab.id !== active) impactLight();
               onChange(tab.id);
             }}
-            className={`relative z-[1] shrink-0 min-h-12 px-3.5 ${textStyles.body} font-medium ${radii.md} ${theme.focusRing} ${motionTokens.press} ${
+            className={`relative z-[1] shrink-0 min-h-10 px-4 ${textStyles.body} ${radii.full} ${theme.focusRing} ${motionTokens.press} ${
               isActive ? theme.segActive : theme.segInactive
             }`}
           >

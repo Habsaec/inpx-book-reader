@@ -40,7 +40,7 @@ function AvatarFrame({
 }) {
   return (
     <span
-      className={`relative inline-block shrink-0 overflow-hidden rounded-full border bg-[var(--app-panel-soft)] ${className}`}
+      className={`relative inline-block shrink-0 overflow-hidden rounded-full bg-[var(--app-card-bg)] ${className}`}
       style={{ width: size, height: size, minWidth: size, minHeight: size, maxWidth: size, maxHeight: size }}
       aria-hidden
     >

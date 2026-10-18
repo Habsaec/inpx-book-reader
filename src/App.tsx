@@ -49,12 +49,9 @@ import { syncAndroidStatusBar } from './lib/androidChrome';
 import {
   type AppAppearance,
   type AppColorSource,
+  applyAccentVars,
   applyAppThemeMode,
-  applyPaletteVars,
-  applyServerChromeVars,
-  applyServerThemeVars,
-  clearServerChromeVars,
-  clearServerThemeVars,
+  clearAccentVars,
   fetchServerUiTheme,
   readCachedServerUiTheme,
   parseAppAppearance,
@@ -68,7 +65,7 @@ import { App as CapApp } from '@capacitor/app';
 import { resolveNextInSeries, type NextInSeriesResult } from './lib/seriesNavigation';
 import { syncContinueReadingWidget } from './lib/continueWidget';
 import { useSnackbar } from './ui/Snackbar';
-import { authHeader, bookContentUrl, coverUrl, displayCoverUrl, fetchServerLogoBlob } from './lib/inpxClient';
+import { authHeader, bookContentUrl, coverUrl, displayCoverUrl } from './lib/inpxClient';
 import { warmCoverCache } from './lib/coverCache';
 import { isBookDownloadInFlight, resolveBookPrimaryAction } from './lib/bookOpenPolicy';
 import type { Book, Shelf } from './types';
@@ -266,17 +263,9 @@ export default function App() {
     () => parseAppAppearance(getAppSettingString(APP_SETTING_KEYS.theme)),
   );
   const [colorSource, setColorSource] = React.useState<AppColorSource>(
-    () => parseAppColorSource(
-      getAppSettingString(APP_SETTING_KEYS.themeColor),
-      getAppSettingString(APP_SETTING_KEYS.theme),
-    ),
+    () => parseAppColorSource(getAppSettingString(APP_SETTING_KEYS.themeColor)),
   );
-  const [useServerBackground, setUseServerBackground] = React.useState(
-    () => getAppSettingString(APP_SETTING_KEYS.serverBackground, '1') !== '0',
-  );
-
   const [serverUiTheme, setServerUiTheme] = React.useState<Awaited<ReturnType<typeof fetchServerUiTheme>>>(null);
-  const [serverBgBlobUrl, setServerBgBlobUrl] = React.useState<string | null>(null);
   const [storageDirectory, setStorageDirectoryState] = React.useState<StorageDirectory | null>(null);
   const [storageDirectoryReady, setStorageDirectoryReady] = React.useState(() => !isAndroid());
 
@@ -372,7 +361,7 @@ export default function App() {
     if (!libraryReady) return;
     const legacy = getAppSettingString(APP_SETTING_KEYS.theme);
     setAppearance(parseAppAppearance(legacy));
-    setColorSource(parseAppColorSource(getAppSettingString(APP_SETTING_KEYS.themeColor), legacy));
+    setColorSource(parseAppColorSource(getAppSettingString(APP_SETTING_KEYS.themeColor)));
   }, [libraryReady]);
 
   React.useEffect(() => {
@@ -380,17 +369,6 @@ export default function App() {
     setAppSettingRaw(APP_SETTING_KEYS.themeColor, colorSource);
     setAppSettingRaw(APP_SETTING_KEYS.theme, appearance);
   }, [appearance, colorSource, libraryReady]);
-
-  React.useEffect(() => {
-    if (!libraryReady) return;
-    const saved = getAppSettingString(APP_SETTING_KEYS.serverBackground, '1');
-    setUseServerBackground(saved !== '0');
-  }, [libraryReady]);
-
-  React.useEffect(() => {
-    if (!libraryReady) return;
-    setAppSettingRaw(APP_SETTING_KEYS.serverBackground, useServerBackground ? '1' : '0');
-  }, [useServerBackground, libraryReady]);
 
   React.useEffect(() => {
     if (!libraryReady) return;
@@ -519,55 +497,24 @@ export default function App() {
     detected: einkDetected,
   } = useEinkMode(libraryReady);
 
-  React.useEffect(() => {
-    const path = serverUiTheme?.backgroundUrl;
-    if (einkActive || !useServerBackground || !path || serverConfig.connectionStatus !== 'connected') {
-      setServerBgBlobUrl(null);
-      return;
-    }
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    void fetchServerLogoBlob(serverConfig, path).then((blob) => {
-      if (cancelled || !blob) return;
-      const nextUrl = URL.createObjectURL(blob);
-      if (cancelled) {
-        URL.revokeObjectURL(nextUrl);
-        return;
-      }
-      objectUrl = nextUrl;
-      setServerBgBlobUrl(objectUrl);
-    });
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [einkActive, useServerBackground, serverUiTheme?.backgroundUrl, serverConfig.connectionStatus, serverConfig.url]);
-
   React.useLayoutEffect(() => {
+    clearAccentVars();
     if (einkActive) {
       // E-ink palette comes from html[data-eink="1"] CSS; keep stored color theme intact.
-      clearServerThemeVars();
-      clearServerChromeVars();
       document.documentElement.dataset.theme = 'light';
       void syncAndroidStatusBar(false, { eink: true });
       return;
     }
     applyAppThemeMode(isAppDark);
-    if (colorSource === 'server') {
-      applyServerThemeVars(serverUiTheme, isAppDark);
-      applyServerChromeVars(serverUiTheme, isAppDark, serverBgBlobUrl, useServerBackground);
-      const palette = isAppDark ? serverUiTheme?.paletteDark : serverUiTheme?.paletteLight;
-      void syncAndroidStatusBar(isAppDark, { eink: false, bg: palette?.bg });
-    } else {
-      // «Система»: без серверных цветов, скруглений, теней и фона.
-      // Material You (Android 12+) — динамическая палитра ОС; иначе встроенная из index.css.
-      clearServerThemeVars();
-      clearServerChromeVars();
-      const palette = systemPalettes ? (isAppDark ? systemPalettes.dark : systemPalettes.light) : null;
-      if (palette) applyPaletteVars(palette);
-      void syncAndroidStatusBar(isAppDark, { eink: false, bg: palette?.bg });
-    }
-  }, [isAppDark, appearance, colorSource, serverUiTheme, serverBgBlobUrl, useServerBackground, einkActive, systemPalettes]);
+    // Only the accent follows the library (server) or Material You (system); surfaces stay the app's own.
+    const palette = colorSource === 'library'
+      ? (isAppDark ? serverUiTheme?.paletteDark : serverUiTheme?.paletteLight)
+      : colorSource === 'system' && systemPalettes
+        ? (isAppDark ? systemPalettes.dark : systemPalettes.light)
+        : null;
+    if (palette) applyAccentVars(palette, isAppDark);
+    void syncAndroidStatusBar(isAppDark, { eink: false });
+  }, [isAppDark, appearance, colorSource, serverUiTheme, einkActive, systemPalettes]);
 
   const { enqueueDownload, downloadingId, queuedBookIds } = useDownloadPipeline({
     serverConfig,
@@ -1276,9 +1223,6 @@ export default function App() {
               onChangeAppearance={setAppearance}
               colorSource={colorSource}
               onChangeColorSource={setColorSource}
-              useServerBackground={useServerBackground}
-              onChangeUseServerBackground={setUseServerBackground}
-              hasServerBackground={Boolean(serverUiTheme?.hasBackground)}
               isAppDark={isAppDark}
               einkMode={einkModePref}
               onChangeEinkMode={setEinkModePref}

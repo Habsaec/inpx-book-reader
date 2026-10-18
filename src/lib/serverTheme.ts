@@ -1,6 +1,7 @@
 import type { ServerConfig } from '../types';
 import { APP_SETTING_KEYS, getAppSettingJson, setAppSettingJson } from './appSettings';
 import { fetchServerBranding } from './inpxClient';
+import { flattenColorMix } from './flattenColorMix';
 
 /** Semantic palette aligned with server buildThemePalette → --app-* vars */
 export interface AppThemePalette {
@@ -69,54 +70,6 @@ const FONT_FAMILY_STACKS: Record<string, string> = {
   rounded: "'Nunito', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
   mono: "ui-monospace, 'SF Mono', 'JetBrains Mono', Consolas, monospace",
 };
-
-const APP_CSS_KEYS = [
-  '--app-bg',
-  '--app-surface',
-  '--app-surface-hover',
-  '--app-surface-elevated',
-  '--app-shell',
-  '--app-text',
-  '--app-muted',
-  '--app-placeholder',
-  '--app-accent',
-  '--app-link',
-  '--app-link-hover',
-  '--app-accent-hover',
-  '--app-border',
-  '--app-field-bg',
-  '--app-card-bg',
-  '--app-card-bg-hover',
-  '--app-panel-soft',
-  '--app-topbar-bg',
-  '--app-topbar-border',
-  '--app-cover-border',
-  '--app-cover-bg',
-  '--app-button-bg',
-  '--app-button-bg-hover',
-  '--app-button-fg',
-  '--font-sans',
-] as const;
-
-const CHROME_CSS_KEYS = [
-  '--app-radius-sm',
-  '--app-radius-md',
-  '--app-radius-lg',
-  '--app-radius-button',
-  '--app-shadow-sm',
-  '--app-shadow-md',
-  '--app-shadow-lg',
-  '--app-bg-image',
-  '--app-bg-blur',
-  '--app-bg-overlay',
-  '--app-bg-overlay-color',
-  '--app-bg-size',
-  '--app-bg-repeat',
-  '--app-bg-position',
-  '--app-bg-transform',
-  '--app-surface-opacity',
-  '--app-surface-blur',
-] as const;
 
 const RADIUS_FALLBACK: Record<string, { sm: string; md: string; lg: string; xl: string; button: string; card: string }> = {
   sharp: { sm: '2px', md: '4px', lg: '6px', xl: '8px', button: '4px', card: '2px' },
@@ -310,7 +263,7 @@ export function parseServerUiTheme(raw: Record<string, unknown>, siteName: strin
 }
 
 export type AppAppearance = 'light' | 'dark' | 'auto';
-export type AppColorSource = 'server' | 'system';
+export type AppColorSource = 'app' | 'library' | 'system';
 
 export function parseAppAppearance(raw: string | null | undefined): AppAppearance {
   if (raw === 'light' || raw === 'sepia') return 'light';
@@ -318,13 +271,10 @@ export function parseAppAppearance(raw: string | null | undefined): AppAppearanc
   return 'auto';
 }
 
-export function parseAppColorSource(
-  rawColor: string | null | undefined,
-  legacyTheme?: string | null,
-): AppColorSource {
-  if (rawColor === 'server' || rawColor === 'system') return rawColor;
-  if (!legacyTheme || legacyTheme === 'server') return 'server';
-  return 'system';
+/** Legacy `server` was auto-persisted as the default, so it maps to the app palette. */
+export function parseAppColorSource(rawColor: string | null | undefined): AppColorSource {
+  if (rawColor === 'library' || rawColor === 'system') return rawColor;
+  return 'app';
 }
 
 export function readCachedServerUiTheme(): ServerUiTheme | null {
@@ -352,69 +302,40 @@ export function resolveIsDark(appearance: AppAppearance): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-/** Sets --app-* color vars from a palette; font only when fontStack is given (server theme). */
-export function applyPaletteVars(palette: AppThemePalette, fontStack?: string): void {
+const ACCENT_CSS_KEYS = [
+  '--app-accent',
+  '--app-accent-hover',
+  '--app-accent-soft',
+  '--app-link',
+  '--app-link-hover',
+  '--app-button-bg',
+  '--app-button-bg-hover',
+  '--app-button-fg',
+] as const;
+
+/** Surfaces, type, radii and shadows are the app's own; a palette only lends its accent. */
+export function applyAccentVars(palette: AppThemePalette, isDark: boolean): void {
+  // Library primary buttons are filled with --link, not --accent.
+  const accent = (palette.link || palette.accent || '').trim();
+  if (!accent) return;
+  const hover = (palette.linkHover || palette.accentHover || accent).trim();
+  const soft = flattenColorMix(`color-mix(in srgb, ${accent} 16%, ${isDark ? '#111113' : '#ffffff'})`);
   const root = document.documentElement;
-  root.style.setProperty('--app-bg', palette.bg);
-  root.style.setProperty('--app-surface', palette.surface);
-  root.style.setProperty('--app-surface-hover', palette.surfaceHover);
-  root.style.setProperty('--app-text', palette.text);
-  root.style.setProperty('--app-muted', palette.muted);
-  root.style.setProperty('--app-accent', palette.accent || palette.link);
-  root.style.setProperty('--app-link', palette.link);
-  root.style.setProperty('--app-link-hover', palette.linkHover);
-  root.style.setProperty('--app-accent-hover', palette.accentHover);
-  root.style.setProperty('--app-border', palette.border);
-  root.style.setProperty('--app-field-bg', palette.fieldBg);
-  root.style.setProperty('--app-card-bg', palette.cardBg);
-  root.style.setProperty('--app-card-bg-hover', palette.cardBgHover);
-  root.style.setProperty('--app-panel-soft', palette.panelSoft);
-  root.style.setProperty('--app-topbar-bg', palette.topbarBg);
-  root.style.setProperty('--app-topbar-border', palette.topbarBorder);
-  root.style.setProperty('--app-cover-border', palette.coverBorder);
-  root.style.setProperty('--app-shell', palette.bg);
-  root.style.setProperty('--app-surface-elevated', palette.surfaceHover || palette.surface);
-  root.style.setProperty('--app-cover-bg', palette.panelSoft || palette.surface);
-  root.style.setProperty('--app-placeholder', palette.muted);
-  if (fontStack) root.style.setProperty('--font-sans', fontStack);
+  root.style.setProperty('--app-accent', accent);
+  root.style.setProperty('--app-accent-hover', hover);
+  root.style.setProperty('--app-accent-soft', soft);
+  root.style.setProperty('--app-link', accent);
+  root.style.setProperty('--app-link-hover', hover);
+  root.style.setProperty('--app-button-bg', accent);
+  root.style.setProperty('--app-button-bg-hover', hover);
+  root.style.setProperty('--app-button-fg', contrastingInk(accent, isDark));
 }
 
-export function clearServerThemeVars(): void {
+export function clearAccentVars(): void {
   const root = document.documentElement;
-  for (const key of APP_CSS_KEYS) {
+  for (const key of ACCENT_CSS_KEYS) {
     root.style.removeProperty(key);
   }
-  root.style.removeProperty('font-size');
-}
-
-export function applyServerThemeVars(theme: ServerUiTheme | null, isDark: boolean): void {
-  if (!theme) return;
-  const palette = isDark ? theme.paletteDark : theme.paletteLight;
-  if (!palette) return;
-  applyPaletteVars(palette, theme.fontFamilyStack);
-  const root = document.documentElement;
-  // Library home primary buttons are filled with --link, not --accent.
-  const buttonBg = palette.link || palette.accent;
-  root.style.setProperty('--app-button-bg', buttonBg);
-  root.style.setProperty('--app-button-bg-hover', palette.linkHover || palette.accentHover);
-  root.style.setProperty('--app-button-fg', contrastingInk(buttonBg, isDark));
-}
-
-export function clearServerChromeVars(): void {
-  const root = document.documentElement;
-  for (const key of CHROME_CSS_KEYS) {
-    root.style.removeProperty(key);
-  }
-  delete root.dataset.uiBg;
-  delete root.dataset.uiGlass;
-}
-
-function backgroundLayout(size: string, position: string): { size: string; repeat: string; position: string } {
-  const pos = ['center', 'top', 'bottom', 'left', 'right'].includes(position) ? position : 'center';
-  if (size === 'tile') {
-    return { size: 'auto', repeat: 'repeat', position: pos };
-  }
-  return { size: 'cover', repeat: 'no-repeat', position: pos };
 }
 
 function relativeLuminance(hex: string): number | null {
@@ -435,117 +356,7 @@ function relativeLuminance(hex: string): number | null {
 export function contrastingInk(fill: string, isDark: boolean): string {
   const lum = relativeLuminance(fill);
   if (lum == null) return isDark ? '#1a1612' : '#fffdf8';
-  return lum >= 0.45 ? '#1a1612' : '#fffdf8';
-}
-
-/** Same rule as the server: light surfaces read as stronger glass, so the mix is 14% lower. */
-export function effectiveGlassFillOpacity(surface: string, surfaceOpacity: number): number {
-  const opacity = Math.min(100, Math.max(0, Math.round(Number(surfaceOpacity))));
-  if (!Number.isFinite(opacity)) return 88;
-  const lum = relativeLuminance(surface);
-  if (lum != null && lum >= 0.45) return Math.max(0, opacity - 14);
-  return opacity;
-}
-
-function parseRadiusPx(value: string): number {
-  const n = Number.parseFloat(value);
-  return Number.isFinite(n) ? n : 8;
-}
-
-/**
- * Server tokens (card 6px / button 999px) don't map 1:1 onto Android controls.
- * Keep a single sm < md < lg scale so tabs, cards and nav stay the same family.
- */
-export function androidRadiusFromServer(
-  radius: NonNullable<ServerUiTheme['radius']>,
-  preset: string,
-): { sm: string; md: string; lg: string; button: string } {
-  const button = radius.button.trim();
-  if (preset === 'pill' || button === '999px' || button === '9999px') {
-    return { sm: '12px', md: '16px', lg: '22px', button: '999px' };
-  }
-  if (preset === 'sharp' || parseRadiusPx(radius.md) <= 4) {
-    return { sm: '0.25rem', md: '0.375rem', lg: '0.5rem', button: '0.25rem' };
-  }
-  return { sm: '0.5rem', md: '0.75rem', lg: '1rem', button: '0.75rem' };
-}
-
-/** Radius, shadows, background — library chrome; applied only when colorSource === 'server'. */
-export function applyServerChromeVars(
-  theme: ServerUiTheme | null,
-  isDark: boolean,
-  backgroundBlobUrl?: string | null,
-  allowBackground = true,
-): void {
-  const root = document.documentElement;
-  if (!theme) {
-    clearServerChromeVars();
-    return;
-  }
-
-  if (theme.radius) {
-    const mapped = androidRadiusFromServer(theme.radius, theme.radiusPreset);
-    root.style.setProperty('--app-radius-sm', mapped.sm);
-    root.style.setProperty('--app-radius-md', mapped.md);
-    root.style.setProperty('--app-radius-lg', mapped.lg);
-    root.style.setProperty('--app-radius-button', mapped.button);
-  }
-
-  const shadows = isDark ? theme.shadows?.dark : theme.shadows?.light;
-  if (shadows) {
-    if (shadows.sm) root.style.setProperty('--app-shadow-sm', shadows.sm);
-    if (shadows.md) root.style.setProperty('--app-shadow-md', shadows.md);
-    if (shadows.lg) root.style.setProperty('--app-shadow-lg', shadows.lg);
-  }
-
-  const imageUrl = backgroundBlobUrl || '';
-  const showBackground = allowBackground && theme.hasBackground && Boolean(imageUrl);
-  if (showBackground) {
-    const layout = backgroundLayout(theme.bgSize, theme.bgPosition);
-    const overlayColor = isDark
-      ? (theme.overlayColorDark || theme.paletteDark?.bg || '#1a1612')
-      : (theme.overlayColorLight || theme.paletteLight?.bg || '#fffdf8');
-    root.dataset.uiBg = '1';
-    root.style.setProperty('--app-bg-image', `url("${imageUrl}")`);
-    root.style.setProperty('--app-bg-blur', `${theme.bgBlur}px`);
-    root.style.setProperty('--app-bg-overlay', String(theme.bgOverlayStrength));
-    root.style.setProperty('--app-bg-overlay-color', overlayColor);
-    root.style.setProperty('--app-bg-size', layout.size);
-    root.style.setProperty('--app-bg-repeat', layout.repeat);
-    root.style.setProperty('--app-bg-position', layout.position);
-  } else {
-    delete root.dataset.uiBg;
-    root.style.removeProperty('--app-bg-image');
-    root.style.removeProperty('--app-bg-blur');
-    root.style.removeProperty('--app-bg-overlay');
-    root.style.removeProperty('--app-bg-overlay-color');
-    root.style.removeProperty('--app-bg-size');
-    root.style.removeProperty('--app-bg-repeat');
-    root.style.removeProperty('--app-bg-position');
-    root.style.removeProperty('--app-bg-transform');
-  }
-
-  // Glass without wallpaper becomes a frosted veil over the page (settings form
-  // looks like half the screen is covered). Only frost panels on the library bg.
-  const useGlass = showBackground;
-  if (useGlass) {
-    const surface = (isDark ? theme.paletteDark?.surface : theme.paletteLight?.surface) || '';
-    const fillOpacity = effectiveGlassFillOpacity(surface, theme.surfaceOpacity);
-    root.dataset.uiGlass = '1';
-    const fill = `color-mix(in srgb, var(--app-surface) ${fillOpacity}%, transparent)`;
-    const fillHover = `color-mix(in srgb, var(--app-surface-hover) ${fillOpacity}%, transparent)`;
-    root.style.setProperty('--app-surface-opacity', String(fillOpacity));
-    root.style.setProperty('--app-surface-blur', `${theme.surfaceBlur}px`);
-    root.style.setProperty('--app-topbar-bg', fill);
-    root.style.setProperty('--app-card-bg', fill);
-    root.style.setProperty('--app-card-bg-hover', fillHover);
-    root.style.setProperty('--app-panel-soft', fill);
-    root.style.setProperty('--app-field-bg', fill);
-  } else {
-    delete root.dataset.uiGlass;
-    root.style.removeProperty('--app-surface-opacity');
-    root.style.removeProperty('--app-surface-blur');
-  }
+  return lum >= 0.2 ? '#1a1612' : '#fffdf8';
 }
 
 export function applyAppThemeMode(isDark: boolean): void {

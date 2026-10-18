@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { parseServerUiTheme, resolveIsDark, androidRadiusFromServer, parseAppAppearance, parseAppColorSource, applyServerChromeVars, effectiveGlassFillOpacity, contrastingInk } from '../serverTheme';
+import { parseServerUiTheme, resolveIsDark, parseAppAppearance, parseAppColorSource, applyAccentVars, clearAccentVars, contrastingInk } from '../serverTheme';
 
 describe('parseServerUiTheme', () => {
   it('maps appPalette from server API', () => {
@@ -98,33 +98,7 @@ describe('contrastingInk', () => {
   it('picks ink from the fill luminance, not from the theme mode', () => {
     expect(contrastingInk('#f5f1e8', true)).toBe('#1a1612');
     expect(contrastingInk('#1e1a16', false)).toBe('#fffdf8');
-  });
-});
-
-describe('effectiveGlassFillOpacity', () => {
-  it('lowers the mix on light surfaces the same way the server does', () => {
-    expect(effectiveGlassFillOpacity('#f5f1e8', 70)).toBe(56);
-    expect(effectiveGlassFillOpacity('#1e1a16', 70)).toBe(70);
-  });
-});
-
-describe('androidRadiusFromServer', () => {
-  it('maps pill to capsule buttons (999px) and rounder cards', () => {
-    const mapped = androidRadiusFromServer(
-      { sm: '12px', md: '16px', lg: '22px', xl: '28px', button: '999px', card: '12px' },
-      'pill',
-    );
-    expect(mapped.button).toBe('999px');
-    expect(mapped.lg).toBe('22px');
-  });
-
-  it('maps sharp to a compact Android scale', () => {
-    const mapped = androidRadiusFromServer(
-      { sm: '2px', md: '4px', lg: '6px', xl: '8px', button: '4px', card: '2px' },
-      'sharp',
-    );
-    expect(mapped.lg).toBe('0.5rem');
-    expect(mapped.button).toBe('0.25rem');
+    expect(contrastingInk('#cfae8c', true)).toBe('#1a1612');
   });
 });
 
@@ -148,43 +122,35 @@ describe('parseAppAppearance', () => {
 });
 
 describe('parseAppColorSource', () => {
-  it('prefers saved color source over legacy theme', () => {
-    expect(parseAppColorSource('system', 'server')).toBe('system');
-    expect(parseAppColorSource('server', 'light')).toBe('server');
+  it('keeps explicit library and system choices', () => {
+    expect(parseAppColorSource('library')).toBe('library');
+    expect(parseAppColorSource('system')).toBe('system');
   });
 
-  it('defaults empty install to server colors and maps local themes to system', () => {
-    expect(parseAppColorSource('', '')).toBe('server');
-    expect(parseAppColorSource(null, 'server')).toBe('server');
-    expect(parseAppColorSource(null, 'light')).toBe('system');
-    expect(parseAppColorSource(null, 'dark')).toBe('system');
+  it('defaults to the app palette, including the legacy auto-saved server value', () => {
+    expect(parseAppColorSource('')).toBe('app');
+    expect(parseAppColorSource(null)).toBe('app');
+    expect(parseAppColorSource('server')).toBe('app');
   });
 });
 
-describe('applyServerChromeVars', () => {
-  it('does not frost panels when the library wallpaper is off', () => {
+describe('applyAccentVars', () => {
+  it('takes only the accent from a library palette, leaving surfaces to the app', () => {
     const theme = parseServerUiTheme(
-      { hasBackground: true, backgroundUrl: '/bg.jpg', surfaceOpacity: 40, surfaceBlur: 12 },
+      { appPaletteLight: { bg: '#f5f1e8', surface: '#fafafa', text: '#111111', link: '#2060c0' } },
       'Lib',
       null,
     );
-    applyServerChromeVars(theme, false, null, true);
-    expect(document.documentElement.dataset.uiGlass).toBeUndefined();
-    expect(document.documentElement.dataset.uiBg).toBeUndefined();
-  });
+    const style = document.documentElement.style;
+    applyAccentVars(theme.paletteLight!, false);
+    expect(style.getPropertyValue('--app-accent')).toBe('#2060c0');
+    expect(style.getPropertyValue('--app-button-fg')).toBe('#fffdf8');
+    expect(style.getPropertyValue('--app-accent-soft')).toMatch(/^rgb\(/);
+    expect(style.getPropertyValue('--app-bg')).toBe('');
+    expect(style.getPropertyValue('--app-surface')).toBe('');
 
-  it('frosts panels only while the wallpaper is actually showing', () => {
-    const theme = parseServerUiTheme(
-      { hasBackground: true, backgroundUrl: '/bg.jpg', surfaceOpacity: 40, surfaceBlur: 12 },
-      'Lib',
-      null,
-    );
-    applyServerChromeVars(theme, false, 'blob:bg', true);
-    expect(document.documentElement.dataset.uiGlass).toBe('1');
-    expect(document.documentElement.dataset.uiBg).toBe('1');
-
-    applyServerChromeVars(theme, false, 'blob:bg', false);
-    expect(document.documentElement.dataset.uiGlass).toBeUndefined();
-    expect(document.documentElement.dataset.uiBg).toBeUndefined();
+    clearAccentVars();
+    expect(style.getPropertyValue('--app-accent')).toBe('');
   });
 });
+

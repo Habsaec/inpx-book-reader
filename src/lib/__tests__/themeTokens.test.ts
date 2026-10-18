@@ -12,12 +12,11 @@ describe('theme typography tokens', () => {
     expect(textStyles.label).toContain('text-[0.8125rem]');
   });
 
-  it('keeps tab labels readable and book titles on serif', () => {
+  it('keeps tab labels readable and book titles in the UI sans', () => {
     expect(textStyles.tabLabel).toContain('text-[0.8125rem]');
     expect(textStyles.tabLabel).not.toContain('text-[11px]');
-    expect(textStyles.bookTitle).toContain('font-serif');
-    expect(textStyles.bookTitle).not.toContain('tracking-tight');
-    expect(textStyles.bookTitleHero).toContain('font-serif');
-    expect(textStyles.bookTitleHero).toContain('tracking-tight');
+    expect(textStyles.bookTitle).not.toContain('font-serif');
+    expect(textStyles.bookTitleHero).not.toContain('font-serif');
+    expect(textStyles.bookTitleHero).toContain('font-extrabold');
   });
 });
