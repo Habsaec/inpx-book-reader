@@ -1215,14 +1215,30 @@ export function useBookActions(opts: {
   );
 
   const handleRemoveShelfConfirmed = React.useCallback(
-    async (shelfId: string) => {
+    async (shelfId: string, kind: 'shelf' | 'smart' = 'shelf') => {
+      const smart = kind === 'smart';
       const ok = await dialog.confirm({
         title: 'Удалить полку?',
-        message: 'Книги на полке не будут удалены с устройства.',
+        message: smart
+          ? 'Умная полка — сохранённый фильтр. Книги в каталоге останутся.'
+          : 'Книги на полке не будут удалены с устройства.',
         confirmLabel: 'Удалить',
         destructive: true,
       });
-      if (!ok) return;
+      if (!ok) return false;
+      if (smart) {
+        if (!(isOnline && /^\d+$/.test(shelfId))) return false;
+        try {
+          await inpxServer.removeSmartShelf(Number(shelfId));
+        } catch (e) {
+          if (isAuthError(e)) {
+            onAuthExpiredRef.current?.();
+            return false;
+          }
+          throw e;
+        }
+        return true;
+      }
       if (isOnline && /^\d+$/.test(shelfId)) {
         try {
           await inpxServer.removeShelf(Number(shelfId));
@@ -1230,11 +1246,11 @@ export function useBookActions(opts: {
         } catch (e) {
           if (isAuthError(e)) {
             onAuthExpiredRef.current?.();
-            return;
+            return false;
           }
           throw e;
         }
-        return;
+        return true;
       }
       let shelfName = '';
       setShelves((prev) => {
@@ -1249,6 +1265,7 @@ export function useBookActions(opts: {
       } else {
         void enqueueSyncOp('shelf_delete', shelfId, { name: shelfName });
       }
+      return true;
     },
     [dialog, inpxServer, isOnline, setShelves],
   );

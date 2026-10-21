@@ -724,6 +724,19 @@ export default function App() {
     ];
   }, [isOnline, inpxServer.shelves, localShelves]);
 
+  const libraryShelves = React.useMemo(() => {
+    const regular = uiShelves.map((shelf) => ({ ...shelf, kind: 'shelf' as const }));
+    if (!isOnline) return regular;
+    const smart = inpxServer.smartShelves.map((shelf) => ({
+      id: shelf.id,
+      name: shelf.name,
+      kind: 'smart' as const,
+      bookCount: shelf.bookCount,
+      previewBookIds: shelf.previewBookIds,
+    }));
+    return [...regular, ...smart];
+  }, [isOnline, uiShelves, inpxServer.smartShelves]);
+
   const handleAddBookToShelfFromUi = React.useCallback(
     async (bookId: string, shelfId: number | string) => {
       const added = await handleAddBookToShelf(bookId, String(shelfId));
@@ -759,6 +772,23 @@ export default function App() {
       handleNavigateToCatalog(CATALOG_BROWSE_ROOT, name, null, activeTab);
     },
     [activeTab, handleNavigateToCatalog, setDownloadPromptBook],
+  );
+
+  const handleOpenGenreFromBook = React.useCallback(
+    (code: string) => {
+      const genre = code.trim();
+      if (!genre) return;
+      setDownloadPromptBook(null);
+      setCatalogPendingSearch(null);
+      setCatalogSelectedAuthor(null);
+      setCatalogSelectedSeries(null);
+      setCatalogSelectedSubgenre({ parent: '', name: genre });
+      setCatalogSubTab(CATALOG_BROWSE_ROOT);
+      setCatalogReturnTo(activeTab !== 'catalog' ? activeTab : null);
+      setCatalogNavEpoch((n) => n + 1);
+      setActiveTab('catalog');
+    },
+    [activeTab, setDownloadPromptBook],
   );
 
   const handleOpenSeriesFromBook = React.useCallback(
@@ -1011,7 +1041,6 @@ export default function App() {
       {!serverConfigReady || !libraryReady || !storageDirectoryReady ? (
         <div
           className={`flex-1 flex flex-col items-center justify-center gap-4 ${theme.bg} ${theme.text}`}
-          style={{ backgroundColor: '#111110' }}
         >
           <img
             src={BRAND_LOCKUP_SRC}
@@ -1150,7 +1179,7 @@ export default function App() {
               readIds={inpxServer.collectionsReady ? inpxServer.readIds : undefined}
               bookmarkIds={inpxServer.collectionsReady ? inpxServer.bookmarkIds : undefined}
               onAuthExpired={markAuthExpired}
-              shelves={uiShelves}
+              shelves={libraryShelves}
               favoriteAuthors={activeFavoriteAuthors}
               favoriteSeries={activeFavoriteSeries}
               favoriteAuthorItems={isOnline ? inpxServer.favoriteAuthorItems : undefined}
@@ -1338,6 +1367,7 @@ export default function App() {
         isAppDark={isAppDark}
         onOpenAuthor={handleOpenAuthorFromBook}
         onOpenSeries={handleOpenSeriesFromBook}
+        onOpenGenre={handleOpenGenreFromBook}
         onAuthExpired={markAuthExpired}
         shelves={uiShelves}
         onAddToShelf={handleAddBookToShelfFromUi}

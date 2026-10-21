@@ -25,7 +25,7 @@ type DragSheetProps = {
 
 function offscreenOf(panel: HTMLElement | null): number {
   const height = panel?.offsetHeight ?? 0;
-  return Math.max(height, Math.round(window.innerHeight * 0.45));
+  return Math.max(height + 32, Math.round(window.innerHeight * 0.45));
 }
 
 function canScrollY(el: HTMLElement): boolean {
@@ -327,7 +327,7 @@ export default function DragSheet({
         aria-modal="true"
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
-        className={`absolute inset-x-0 bottom-0 ${className}`}
+        className={`absolute inset-x-0 bottom-0 mx-auto ${className} min-[600px]:bottom-6 min-[600px]:max-w-[28rem] min-[600px]:rounded-[var(--app-radius-lg)] min-[600px]:border`}
         style={{ transform: calm ? 'translateY(0px)' : panelTransform, ...sheetPanelStyle() }}
         onPointerDown={onContentPointerDown}
         onClick={(event) => event.stopPropagation()}

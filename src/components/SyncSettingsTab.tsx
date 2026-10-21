@@ -261,7 +261,7 @@ export default function SyncSettingsTab({
       <div
         ref={settingsScrollRef}
         data-large-title={embedded ? '' : undefined}
-        className="flex-1 overflow-y-auto inpx-page-scroll px-5 py-4 space-y-8"
+        className="flex-1 overflow-y-auto inpx-page-scroll px-[max(1.25rem,calc((100%_-_45rem)/2))] py-4 space-y-8"
       >
         {scrollHeader}
         <section id="settings-server" className={sectionClass}>

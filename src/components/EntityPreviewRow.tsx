@@ -46,7 +46,7 @@ export default function EntityPreviewRow({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full flex items-center gap-3 min-h-14 py-2.5 text-left ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
+      className={`w-full flex items-center gap-3.5 min-h-[3.75rem] py-2.5 px-0.5 text-left border-b ${theme.divider} ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
     >
       {showAuthor ? (
         <AuthorPortrait

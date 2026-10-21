@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, elevation, radii, motion } from '../ui/tokens';
-import Button from '../ui/Button';
 import { SheetDragHandle, sheetPanelClass } from '../ui/SheetChrome';
 import DragSheet from '../ui/DragSheet';
 import BookCover from './BookCover';
@@ -45,6 +44,29 @@ interface BookActionsSheetProps {
   shelves?: UiShelf[];
   onAddToShelf?: (bookId: string, shelfId: number | string) => void | boolean | Promise<void | boolean>;
   onCreateShelf?: (name: string) => Promise<number | string | null>;
+}
+
+function ActionRow({
+  icon,
+  danger = false,
+  onClick,
+  children,
+}: {
+  icon: React.ReactNode;
+  danger?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full min-h-14 flex items-center gap-4 text-left border-b last:border-b-0 ${theme.divider} text-[0.9375rem] font-medium ${danger ? 'text-[var(--app-danger)]' : theme.text} active:bg-[var(--app-surface-hover)] ${theme.focusRing}`}
+    >
+      {icon}
+      <span className="min-w-0">{children}</span>
+    </button>
+  );
 }
 
 /**
@@ -125,71 +147,65 @@ export default function BookActionsSheet({
           </button>
         </div>
 
-        <div className="flex flex-col gap-2.5">
+        <div className={`flex flex-col border-t ${theme.divider} -mb-2`}>
           {onOpenDetails && (
-            <Button
-              fullWidth
-              variant="secondary"
+            <ActionRow
+              icon={<Info className="w-5 h-5 shrink-0" aria-hidden />}
               onClick={() => {
                 onOpenDetails(book);
                 onClose();
               }}
             >
-              <Info className="w-4 h-4" aria-hidden />
               О книге
-            </Button>
+            </ActionRow>
           )}
 
           {isOnline && onToggleBookmark && (
-            <Button
-              fullWidth
-              variant="secondary"
+            <ActionRow
+              icon={(
+                <Heart
+                  className={`w-5 h-5 shrink-0 ${isBookmarked ? 'fill-current' : ''}`}
+                  aria-hidden
+                />
+              )}
               onClick={() => {
                 onToggleBookmark(book.id);
                 onClose();
               }}
             >
-              <Heart
-                className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`}
-                aria-hidden
-              />
               {isBookmarked ? 'Убрать из избранного' : 'В избранное'}
-            </Button>
+            </ActionRow>
           )}
 
           {onToggleRead && (
-            <Button
-              fullWidth
-              variant="secondary"
+            <ActionRow
+              icon={<CheckCircle2 className="w-5 h-5 shrink-0" aria-hidden />}
               onClick={() => {
                 onToggleRead(book.id);
                 onClose();
               }}
             >
-              <CheckCircle2 className="w-4 h-4" aria-hidden />
               {isRead ? 'Снять «прочитано»' : 'Отметить прочитанной'}
-            </Button>
+            </ActionRow>
           )}
 
           {showRemoveFromShelf && (
-            <Button
-              fullWidth
-              variant="secondary"
+            <ActionRow
+              icon={<FolderMinus className="w-5 h-5 shrink-0" aria-hidden />}
               onClick={() => {
                 onRemoveFromShelf!(book.id, shelfId!);
                 onClose();
               }}
             >
-              <FolderMinus className="w-4 h-4" aria-hidden />
               {shelfName?.trim()
                 ? `Убрать с полки «${shelfName.trim()}»`
                 : 'Убрать с полки'}
-            </Button>
+            </ActionRow>
           )}
 
           {(onAddToShelf || onCreateShelf) && (
             shelfPickerOpen ? (
-              <div className="pt-1">
+              <div className="pt-3 pb-1">
                 <p className={`${textStyles.captionBold} ${theme.textMuted} mb-2`}>На полку</p>
                 <ShelfPicker
                   shelves={shelves}
@@ -225,29 +241,26 @@ export default function BookActionsSheet({
                 />
               </div>
             ) : (
-              <Button
-                fullWidth
-                variant="secondary"
+              <ActionRow
+                icon={<FolderPlus className="w-5 h-5 shrink-0" aria-hidden />}
                 onClick={() => setShelfPickerOpen(true)}
               >
-                <FolderPlus className="w-4 h-4" aria-hidden />
                 На полку
-              </Button>
+              </ActionRow>
             )
           )}
 
           {isDownloaded && onRemove && (
-            <Button
-              fullWidth
-              variant="danger"
+            <ActionRow
+              danger
+              icon={<Trash2 className="w-5 h-5 shrink-0" aria-hidden />}
               onClick={() => {
                 onRemove(book.id);
                 onClose();
               }}
             >
-              <Trash2 className="w-4 h-4" aria-hidden />
               Удалить с устройства
-            </Button>
+            </ActionRow>
           )}
         </div>
     </DragSheet>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ChevronRight, Layers, Tags, User, Users } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
-import { textStyles, motion, radii } from '../../ui/tokens';
+import { textStyles, motion } from '../../ui/tokens';
 import { getRecentBrowse, type RecentBrowseItem } from '../../lib/recentBrowseHistory';
 import { displayAuthorName } from '../../lib/inpxClient';
 import { type CatalogSubTab } from './catalogTypes';
@@ -30,18 +30,17 @@ export default function CatalogBrowseLanding({
 
   return (
     <div className="py-2 space-y-8">
-      <div className="grid grid-cols-3 gap-3">
+      <div className={`border-t ${theme.divider}`}>
         {BROWSE_SHORTCUTS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
             onClick={() => onBrowseTab?.(id)}
-            className={`flex flex-col items-start justify-between gap-6 p-4 min-h-[6.5rem] text-left ${radii.lg} ${theme.card} ${theme.focusRing} ${motion.press}`}
+            className={`w-full min-h-[3.75rem] flex items-center gap-3.5 px-0.5 text-left border-b ${theme.divider} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
           >
-            <span className={`inline-flex w-10 h-10 items-center justify-center ${radii.full} ${theme.accentMuted}`}>
-              <Icon className="w-5 h-5" aria-hidden />
-            </span>
-            <span className={`${textStyles.bodyBold} ${theme.text}`}>{label}</span>
+            <Icon className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
+            <span className={`flex-1 min-w-0 ${textStyles.bodyBold} ${theme.text}`}>{label}</span>
+            <ChevronRight className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
           </button>
         ))}
       </div>
@@ -61,11 +60,9 @@ export default function CatalogBrowseLanding({
                   key={`${item.kind}:${item.name}`}
                   type="button"
                   onClick={() => (isAuthor ? onOpenAuthor?.(item.name) : onOpenSeries?.(item.name))}
-                  className={`w-full min-h-14 flex items-center gap-3 py-2 text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+                  className={`w-full min-h-14 flex items-center gap-3.5 px-0.5 py-2 text-left border-b ${theme.divider} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
                 >
-                  <span className={`inline-flex w-10 h-10 shrink-0 items-center justify-center ${radii.full} ${theme.panel} ${theme.textMuted}`}>
-                    <KindIcon className="w-5 h-5" aria-hidden />
-                  </span>
+                  <KindIcon className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
                   <span className="min-w-0 flex-1">
                     <span className={`block truncate ${textStyles.bodyBold} ${theme.text}`}>{label}</span>
                     <span className={`block ${textStyles.caption} ${theme.textMuted}`}>{isAuthor ? 'Автор' : 'Серия'}</span>

@@ -115,6 +115,69 @@ describe('testConnection', () => {
   });
 });
 
+describe('fetchHomeShelves', () => {
+  it('reads pinned shelves from /api/home/shelves and drops empty ones', async () => {
+    const { fetchHomeShelves } = await import('../inpxClient');
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(decodeURIComponent(String(input)));
+      return new Response(JSON.stringify({
+        items: [
+          { id: 2, kind: 'smart', title: 'Бояр-аниме', href: '/catalog?genre=boyar_anime', items: [{ id: 'b1', title: 'Книга' }] },
+          { id: 5, kind: 'shelf', title: 'Пустая', href: '/shelves/5', items: [] },
+        ],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+
+    const shelves = await fetchHomeShelves(baseConfig);
+    expect(urls.some((u) => u.includes('/api/home/shelves'))).toBe(true);
+    expect(shelves.map((s) => [s.kind, s.id, s.title])).toEqual([['smart', 2, 'Бояр-аниме']]);
+    vi.unstubAllGlobals();
+  });
+
+  it('pages smart shelf books via /api/smart-shelves/:id/books', async () => {
+    const { fetchSmartShelfBooks } = await import('../inpxClient');
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      urls.push(decodeURIComponent(String(input)));
+      return new Response(JSON.stringify({ items: [{ id: 'b25' }], total: 25, page: 2, pageSize: 24 }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }));
+
+    const res = await fetchSmartShelfBooks(baseConfig, 2, 2);
+    expect(urls.some((u) => u.includes('/api/smart-shelves/2/books?page=2'))).toBe(true);
+    expect(res.total).toBe(25);
+    vi.unstubAllGlobals();
+  });
+
+  it('lists smart shelves with preview counts and deletes one', async () => {
+    const { fetchSmartShelves, deleteSmartShelf } = await import('../inpxClient');
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(`${init?.method ?? 'GET'} ${decodeURIComponent(String(input))}`);
+      if ((init?.method ?? 'GET') === 'DELETE') return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return new Response(JSON.stringify([
+        { id: 4, name: 'Бояр-аниме', query: 'genre=boyar&sort=title', bookCount: 12, previewBookIds: ['a', 'b'] },
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+
+    const shelves = await fetchSmartShelves(baseConfig);
+    expect(urls.some((u) => u.includes('/api/smart-shelves?preview=1'))).toBe(true);
+    expect(shelves).toEqual([{
+      id: 4,
+      name: 'Бояр-аниме',
+      query: 'genre=boyar&sort=title',
+      catalogUrl: undefined,
+      bookCount: 12,
+      previewBookIds: ['a', 'b'],
+    }]);
+    await deleteSmartShelf(baseConfig, 4);
+    expect(urls.some((u) => u.includes('DELETE') && u.includes('/api/smart-shelves/4'))).toBe(true);
+    vi.unstubAllGlobals();
+  });
+});
+
 describe('probeServerHealth', () => {
   it('returns true when /health is ok', async () => {
     const { probeServerHealth } = await import('../inpxClient');

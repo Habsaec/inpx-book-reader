@@ -7,8 +7,8 @@ import FlibustaBookRow from './FlibustaBookRow';
 import VirtualList from '../../ui/VirtualList';
 import { useDownloadQueue } from '../../hooks/useDownloadQueue';
 
-/** Cover list rows are 104px. */
-const LIST_ROW_HEIGHT = 104;
+/** Cover list rows are 120px. */
+const LIST_ROW_HEIGHT = 120;
 const VIRTUALIZE_THRESHOLD = 60;
 
 interface CatalogBookListProps {

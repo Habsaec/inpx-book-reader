@@ -2,7 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { Filter, Inbox, WifiOff } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
-import { motion, textStyles } from '../../ui/tokens';
+import { motion, radii, textStyles } from '../../ui/tokens';
 import EmptyState from '../../ui/EmptyState';
 import ViewModeToggle from '../../ui/ViewModeToggle';
 import { Book, ServerConfig } from '../../types';
@@ -235,8 +235,8 @@ export default function CatalogBooksView({
         <button
           type="button"
           onClick={() => setFilterSheetOpen(true)}
-          className={`flex items-center gap-2 min-h-10 px-4 rounded-full ${theme.focusRing} ${motion.press} ${textStyles.body} font-semibold ${
-            hasActiveFilters ? theme.accentMuted : `${theme.panel} ${theme.text}`
+          className={`flex items-center gap-2 min-h-10 px-3.5 ${radii.sm} ${theme.focusRing} ${motion.press} ${textStyles.body} font-semibold ${
+            hasActiveFilters ? `border border-[color:var(--app-accent)] ${theme.accentMuted}` : theme.chip
           }`}
         >
           <Filter className="w-4 h-4" aria-hidden />

@@ -14,7 +14,7 @@ import ReadMark from '../ReadMark';
 const COVER_W = 56;
 const COVER_H = 84;
 
-/** Cover list row — ~104px, title + author + progress. */
+/** Cover list row — 120px: title, author, series, file, progress. */
 export default function FlibustaBookRow({
   book,
   serverConfig,
@@ -55,16 +55,16 @@ export default function FlibustaBookRow({
   React.useEffect(() => () => clearLongPress(), []);
 
   const titleText = displayBookTitle(book);
-  const extLabel = showFileExt && book.ext ? book.ext.toUpperCase() : '';
-  const seriesText = showFileExt ? seriesLabel(book) : '';
-  const fileLine = [extLabel, seriesText].filter(Boolean).join(' · ');
+  const seriesName = seriesLabel(book);
+  const seriesText = seriesName ? `${seriesName}${book.seriesNo ? ` · ${book.seriesNo}` : ''}` : '';
+  const fileLine = [book.ext?.toUpperCase(), book.year ? String(book.year) : ''].filter(Boolean).join(' · ');
   const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));
   const progress = Math.max(0, Math.min(100, Math.round(readProgress || book.readProgress || 0)));
   const finished = isBookFinished(progress, isRead);
 
   return (
     <div
-      className={`w-full flex items-stretch ${showFileExt ? 'min-h-[104px]' : 'h-[104px]'} border-b last:border-b-0 ${theme.divider} ${
+      className={`w-full flex items-stretch ${showFileExt ? 'min-h-[120px]' : 'h-[120px]'} border-b last:border-b-0 ${theme.divider} ${
         isSelected ? theme.accentMuted : ''
       }`}
     >
@@ -90,9 +90,9 @@ export default function FlibustaBookRow({
         onPointerLeave={clearLongPress}
         onPointerCancel={clearLongPress}
         aria-pressed={isSelected || undefined}
-        className={`flex-1 min-w-0 flex items-center gap-3 px-1 text-left ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
+        className={`flex-1 min-w-0 flex items-center gap-3.5 px-0.5 text-left ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
       >
-        <span className="book-cover w-14 h-[84px] shrink-0 relative">
+        <span className="book-cover w-[60px] h-[90px] shrink-0 relative">
           <span className="book-cover-inner">
             <BookCover
               bookId={book.id}
@@ -115,9 +115,12 @@ export default function FlibustaBookRow({
           ) : null}
         </span>
         <span className="flex-1 min-w-0 flex flex-col justify-center gap-0.5 py-2">
-          <span className={`${textStyles.bookTitle} text-[0.9375rem] leading-5 line-clamp-2 ${theme.text}`}>{titleText}</span>
+          <span className={`${textStyles.bookTitle} text-[1.0625rem] leading-[1.375rem] line-clamp-2 ${theme.text}`}>{titleText}</span>
           {book.author ? (
             <span className={`${textStyles.caption} ${theme.textMuted} truncate`}>{book.author}</span>
+          ) : null}
+          {seriesText ? (
+            <span className={`${textStyles.micro} ${theme.textMuted} truncate`}>{seriesText}</span>
           ) : null}
           {rating > 0 || fileLine ? (
             <span className={`${textStyles.micro} ${theme.textMuted} flex items-center gap-1 min-w-0`}>

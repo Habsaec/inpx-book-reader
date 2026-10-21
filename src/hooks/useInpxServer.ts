@@ -18,7 +18,10 @@ import {
   toggleFavoriteSeriesApi,
   createServerShelf,
   deleteServerShelf,
+  deleteSmartShelf,
+  fetchSmartShelves,
   fetchShelfBooks,
+  type ServerSmartShelf,
   addBookToServerShelf,
   removeBookFromServerShelf,
   recordReadingHistory,
@@ -108,6 +111,7 @@ export function useInpxServer(
   const [favoriteAuthorItems, setFavoriteAuthorItems] = React.useState<FavoriteAuthorItem[]>([]);
   const [favoriteSeriesItems, setFavoriteSeriesItems] = React.useState<FavoriteSeriesItem[]>([]);
   const [shelves, setShelves] = React.useState<ServerShelf[]>([]);
+  const [smartShelves, setSmartShelves] = React.useState<ServerSmartShelf[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
   const [syncStatus, setSyncStatus] = React.useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
@@ -132,10 +136,11 @@ export function useInpxServer(
     try {
       await processSyncQueue(config);
       if (!isCurrent()) return;
-      const [profileRes, favs, shelfList, activityMeta] = await Promise.all([
+      const [profileRes, favs, shelfList, smartShelfList, activityMeta] = await Promise.all([
         fetchProfile(config),
         fetchFavorites(config),
         fetchShelves(config),
+        fetchSmartShelves(config),
         fetchReaderActivitySyncMeta(config),
       ]);
       if (!isCurrent()) return;
@@ -147,6 +152,7 @@ export function useInpxServer(
       setFavoriteAuthors(favs.authors.map((a) => a.name));
       setFavoriteSeries(favs.series.map((s) => s.name));
       setShelves(shelfList);
+      setSmartShelves(smartShelfList);
 
       const quickProgress = new Map<string, number>();
       prof.recentBooks.forEach((book) => {
@@ -232,6 +238,7 @@ export function useInpxServer(
       setFavoriteAuthorItems([]);
       setFavoriteSeriesItems([]);
       setShelves([]);
+      setSmartShelves([]);
       setLastSynced(null);
     }
     return () => {
@@ -320,6 +327,13 @@ export function useInpxServer(
     refreshRequestId.current += 1;
     await withAuthGuard(() => deleteServerShelf(config, shelfId));
     setShelves((prev) => prev.filter((s) => s.id !== shelfId));
+  }, [config, online]);
+
+  const removeSmartShelf = React.useCallback(async (shelfId: number) => {
+    if (!online) return;
+    refreshRequestId.current += 1;
+    await withAuthGuard(() => deleteSmartShelf(config, shelfId));
+    setSmartShelves((prev) => prev.filter((s) => s.id !== shelfId));
   }, [config, online]);
 
   const loadShelfBooks = React.useCallback(
@@ -579,6 +593,7 @@ export function useInpxServer(
     favoriteAuthorItems,
     favoriteSeriesItems,
     shelves,
+    smartShelves,
     loading,
     error,
     syncStatus,
@@ -590,6 +605,7 @@ export function useInpxServer(
     toggleFavoriteSeries,
     addShelf,
     removeShelf,
+    removeSmartShelf,
     loadShelfBooks,
     addToShelf,
     removeFromShelf,

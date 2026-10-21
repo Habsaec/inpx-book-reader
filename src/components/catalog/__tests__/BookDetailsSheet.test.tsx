@@ -61,6 +61,7 @@ const book: Book = {
   rating: 4,
   lang: 'ru',
   genresDisplay: ['Триллер', 'Детектив'],
+  genreCodes: ['thriller', 'detective'],
   description: 'Короткое описание.',
 };
 
@@ -93,7 +94,9 @@ describe('BookDetailsSheet', () => {
     expect(screen.getByRole('button', { name: 'Автор: Стив Кавана' })).toBeTruthy();
     expect(screen.getByText('О книге')).toBeTruthy();
     expect(screen.getByText('Короткое описание.')).toBeTruthy();
-    expect(screen.getByText(/^2019 · FB2 · .+ · Русский$/)).toBeTruthy();
+    expect(screen.getByText('2019')).toBeTruthy();
+    expect(screen.getByText(/^FB2 · .+$/)).toBeTruthy();
+    expect(screen.getByText('Русский')).toBeTruthy();
     expect(screen.getByRole('img', { name: 'Рейтинг 4 из 5' })).toBeTruthy();
     expect(screen.getByText('Триллер')).toBeTruthy();
     expect(screen.getByText('Детектив')).toBeTruthy();
@@ -106,6 +109,30 @@ describe('BookDetailsSheet', () => {
     expect(await screen.findByText('Далее в серии')).toBeTruthy();
     expect(screen.getAllByText('Следующий том').length).toBeGreaterThan(0);
     expect(screen.queryByText(/4 из 5/)).toBeNull();
+  });
+
+  it('opens the catalog genre from a genre chip', () => {
+    const onOpenGenre = vi.fn();
+    render(
+      <BookDetailsSheet
+        book={book}
+        onClose={vi.fn()}
+        serverConfig={serverConfig}
+        isServerConnected={false}
+        downloadedBookIds={[]}
+        downloadingId={null}
+        downloadError={null}
+        onDownload={vi.fn()}
+        onOpenBook={vi.fn()}
+        isAppDark={false}
+        onOpenAuthor={vi.fn()}
+        onOpenSeries={vi.fn()}
+        onOpenGenre={onOpenGenre}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Триллер' }));
+    expect(onOpenGenre).toHaveBeenCalledWith('thriller');
   });
 
   it('shows each review as a card with name and date', async () => {

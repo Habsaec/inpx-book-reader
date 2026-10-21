@@ -1,7 +1,7 @@
 import React from 'react';
 import { BookOpen, AlertCircle, ChevronRight, MoreVertical, Play, Loader2 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { InpxProfile, mapServerBook, starsFromLibRate, fetchLibraryView, isAuthError, isUnreachableServerError, bookContentUrl, displayCoverUrl } from '../lib/inpxClient';
+import { InpxProfile, mapServerBook, starsFromLibRate, fetchLibraryView, fetchHomeShelves, isAuthError, isUnreachableServerError, bookContentUrl, displayCoverUrl } from '../lib/inpxClient';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { mergeRecentReadingLists, type LocalRecentReadingItem } from '../lib/localReadingProgress';
@@ -9,9 +9,10 @@ import { isBookDownloadInFlight, isBookFinished, resolveBookPrimaryAction, type 
 import ReadMark from './ReadMark';
 import BookCover from './BookCover';
 import ReadProgressBar from './ReadProgressBar';
-import HorizontalBookShelf from './HorizontalBookShelf';
+import BookShelfGrid from './BookShelfGrid';
 import CatalogBookList from './catalog/CatalogBookList';
 import LibrarySectionPanel, { type LibrarySectionView } from './LibrarySectionPanel';
+import HomeShelfPanel, { type HomeShelfRef } from './HomeShelfPanel';
 import Skeleton, { BookListSkeleton, BookShelfSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
 import IconButton from '../ui/IconButton';
@@ -34,13 +35,13 @@ function HomeSectionHeader({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 -mb-1">
+    <div className="flex min-h-12 items-center justify-between gap-3 -mb-1">
       <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>{title}</h3>
       {actionLabel && onAction ? (
         <button
           type="button"
           onClick={onAction}
-          className={`${textStyles.bodyBold} min-h-12 -mr-2 pl-2 pr-1 inline-flex items-center ${theme.textMuted} ${theme.focusRing} ${motion.press} shrink-0`}
+          className={`${textStyles.bodyBold} min-h-12 -mr-2 pl-2 pr-1 inline-flex items-center ${theme.accentText} ${theme.focusRing} ${motion.press} shrink-0`}
         >
           {actionLabel}
           <ChevronRight className="w-4 h-4" aria-hidden />
@@ -119,8 +120,10 @@ function HomeBookPreview({
   onBookClick,
   onBookLongPress,
   emptyLabel,
+  maxRows = 1,
 }: {
   books: Book[];
+  maxRows?: number;
   viewMode: CatalogViewMode;
   serverConfig: ServerConfig;
   storageDirectory?: StorageDirectory | null;
@@ -157,7 +160,7 @@ function HomeBookPreview({
   }
 
   return (
-    <HorizontalBookShelf
+    <BookShelfGrid
       books={books}
       serverConfig={serverConfig}
       storageDirectory={storageDirectory}
@@ -165,6 +168,7 @@ function HomeBookPreview({
       downloadedBookIds={downloadedBookIds}
       readIds={readIds}
       loading={loading}
+      maxRows={maxRows}
       onBookClick={onBookClick}
       onBookLongPress={onBookLongPress}
       emptyLabel={emptyLabel}
@@ -236,6 +240,8 @@ export default function HomeTab({
   const [recentServer, setRecentServer] = React.useState<Book[]>([]);
   const [recentLoading, setRecentLoading] = React.useState(false);
   const [recentError, setRecentError] = React.useState(false);
+  const [homeShelves, setHomeShelves] = React.useState<Array<{ key: string; ref: HomeShelfRef; books: Book[] }>>([]);
+  const [openShelf, setOpenShelf] = React.useState<HomeShelfRef | null>(null);
   const [sectionKey, setSectionKey] = React.useState(0);
   const [sectionView, setSectionView] = React.useState<LibrarySectionView | null>(null);
   const { viewMode } = useCatalogViewMode('home');
@@ -252,6 +258,7 @@ export default function HomeTab({
     if (homeRootEpochSeen.current === homeRootEpoch) return;
     homeRootEpochSeen.current = homeRootEpoch;
     setSectionView(null);
+    setOpenShelf(null);
   }, [homeRootEpoch]);
 
   const handleCatalogBookTap = React.useCallback(
@@ -391,6 +398,27 @@ export default function HomeTab({
   }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, onAuthExpired, onConnectionLost]);
 
   React.useEffect(() => {
+    if (!fetchSectionBooks || !isOnline) return;
+    let cancelled = false;
+    fetchHomeShelves(serverConfig)
+      .then((shelves) => {
+        if (cancelled) return;
+        setHomeShelves(shelves.map((shelf) => ({
+          key: `${shelf.kind}:${shelf.id}`,
+          ref: { id: shelf.id, kind: shelf.kind, title: shelf.title },
+          books: shelf.items.map((b) => mapServerBook(b, serverConfig)),
+        })));
+      })
+      .catch(() => {
+        // Как на веб-главной: недоступные полки просто не показываются.
+        if (!cancelled) setHomeShelves([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey]);
+
+  React.useEffect(() => {
     if (!fetchSectionBooks || !isOnline || recentMode === 'off') return;
     let cancelled = false;
     setRecentLoading(true);
@@ -416,6 +444,28 @@ export default function HomeTab({
   }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, recentMode, onAuthExpired, onConnectionLost]);
 
   const closeSectionView = React.useCallback(() => setSectionView(null), []);
+  const closeShelf = React.useCallback(() => setOpenShelf(null), []);
+
+  if (openShelf) {
+    return (
+      <HomeShelfPanel
+        shelf={openShelf}
+        serverConfig={serverConfig}
+        storageDirectory={storageDirectory}
+        downloadedBookIds={downloadedBookIds}
+        readingProgressByBookId={readingProgressByBookId}
+        readIds={readIds}
+        isAppDark={isAppDark}
+        isTabActive={isTabActive}
+        onClose={closeShelf}
+        onOpenBook={onOpenBook}
+        onOpenDetails={onOpenDetails}
+        onBookLongPress={onBookLongPress}
+        onAuthExpired={onAuthExpired}
+        onConnectionLost={onConnectionLost}
+      />
+    );
+  }
 
   if (sectionView) {
     return (
@@ -465,12 +515,12 @@ export default function HomeTab({
     <>
       {hero && heroBook && heroAction ? (
         <section
-          className={`relative flex w-full min-w-0 max-w-full gap-4 p-4 ${radii.lg} ${theme.panel}`}
+          className="relative flex w-full min-w-0 max-w-full gap-[1.125rem] pt-3"
           aria-label={`Продолжить чтение: ${displayBookTitle(hero)}`}
         >
           <button
             type="button"
-            className={`w-[7.5rem] shrink-0 self-start select-none touch-manipulation ${theme.focusRing} ${motion.press} disabled:opacity-70`}
+            className={`w-28 min-[600px]:w-[9.5rem] shrink-0 self-start select-none touch-manipulation ${theme.focusRing} ${motion.press} disabled:opacity-70`}
             disabled={heroAction.disabled}
             aria-label={`${heroAction.kind === 'downloading' ? heroAction.label : 'Продолжить'}: ${displayBookTitle(hero)}`}
             {...heroPress}
@@ -490,8 +540,19 @@ export default function HomeTab({
             </span>
           </button>
           <div className="flex min-w-0 flex-1 flex-col">
-            <p className={`${textStyles.microCaps} ${theme.accentText} ${onBookLongPress ? 'pr-9' : ''}`}>Продолжить чтение</p>
-            <h3 className={`mt-1.5 text-xl leading-6 font-extrabold tracking-[-0.015em] line-clamp-2 [overflow-wrap:anywhere] ${theme.text}`}>
+            <div className="flex items-start justify-between gap-2">
+              <p className={`${textStyles.microBold} ${theme.accentText}`}>Продолжить чтение</p>
+              {onBookLongPress ? (
+                <IconButton
+                  label="Ещё действия"
+                  className="-my-3 -mr-3 shrink-0"
+                  onClick={() => onBookLongPress(heroBook)}
+                >
+                  <MoreVertical className="w-5 h-5" aria-hidden />
+                </IconButton>
+              ) : null}
+            </div>
+            <h3 className={`mt-1.5 font-serif text-[1.375rem] leading-7 font-semibold line-clamp-2 [overflow-wrap:break-word] hyphens-auto ${theme.text}`}>
               {bookTitleWithoutVolume(hero)}
             </h3>
             {hero.authorsDisplay ? (
@@ -529,22 +590,13 @@ export default function HomeTab({
                 type="button"
                 disabled={heroAction.disabled}
                 onClick={handleHeroTap}
-                className={`min-h-10 px-4 ${radii.button} ${textStyles.bodyBold} inline-flex items-center gap-1.5 ${theme.accentBg} disabled:opacity-60 ${motion.press} ${theme.focusRing}`}
+                className={`min-h-12 px-5 ${radii.button} ${textStyles.bodyBold} inline-flex items-center gap-2 ${theme.accentBg} disabled:opacity-60 ${motion.press} ${theme.focusRing}`}
               >
                 <HeroActionIcon kind={heroAction.kind} />
                 {heroAction.kind === 'downloading' ? heroAction.label : 'Продолжить'}
               </button>
             </div>
           </div>
-          {onBookLongPress ? (
-            <IconButton
-              label="Ещё действия"
-              className="absolute top-1 right-1 shrink-0"
-              onClick={() => onBookLongPress(heroBook)}
-            >
-              <MoreVertical className="w-5 h-5" aria-hidden />
-            </IconButton>
-          ) : null}
         </section>
       ) : (
         <EmptyState
@@ -574,6 +626,7 @@ export default function HomeTab({
           <HomeSectionHeader title="Недавно читали" />
           <HomeBookPreview
             books={moreRecent}
+            maxRows={2}
             viewMode={viewMode}
             serverConfig={serverConfig}
             storageDirectory={storageDirectory}
@@ -653,12 +706,31 @@ export default function HomeTab({
           )}
         </section>
       )}
+
+      {isOnline && homeShelves.map((shelf) => (
+        <section key={shelf.key} className="space-y-4">
+          <HomeSectionHeader title={shelf.ref.title} actionLabel="Все" onAction={() => setOpenShelf(shelf.ref)} />
+          <HomeBookPreview
+            books={shelf.books}
+            viewMode={viewMode}
+            serverConfig={serverConfig}
+            storageDirectory={storageDirectory}
+            readingProgressByBookId={readingProgressByBookId}
+            downloadedBookIds={downloadedBookIds}
+            readIds={readIds}
+            onBookClick={handleCatalogBookTap}
+            onBookLongPress={onBookLongPress}
+          />
+        </section>
+      ))}
     </>
   );
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      <div className={`flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-5 ${spacing.shelfY}`}>{scrollInner}</div>
+      <div className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-5 min-[600px]:px-8">
+        <div className={`mx-auto w-full max-w-[60rem] ${spacing.shelfY}`}>{scrollInner}</div>
+      </div>
     </div>
   );
 }

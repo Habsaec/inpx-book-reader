@@ -1,11 +1,10 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, ChevronLeft, Download, FolderPlus, Heart, MoreVertical, Star } from 'lucide-react';
+import { BookOpen, ChevronLeft, Download, FolderPlus, Heart, MoreHorizontal, Star } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles, semantic, radii, motion as motionTokens } from '../../ui/tokens';
 import Button from '../../ui/Button';
-import IconButton from '../../ui/IconButton';
-import { BookCardSkeleton, BookShelfSkeleton, TextBlockSkeleton } from '../../ui/Skeleton';
+import { BookCardSkeleton, TextBlockSkeleton } from '../../ui/Skeleton';
 import ReadProgressBar from '../ReadProgressBar';
 import { useOverlayBackHandler } from '../../hooks/useBackHandler';
 import { Book, ServerConfig } from '../../types';
@@ -18,7 +17,7 @@ import { isBookDownloadInFlight, isBookFinished, resolveBookPrimaryAction } from
 import ReadMark from '../ReadMark';
 import type { StorageDirectory } from '../../lib/storageDirectory';
 import BookCover from '../BookCover';
-import HorizontalBookShelf from '../HorizontalBookShelf';
+import BookShelfGrid from '../BookShelfGrid';
 import ShelfPicker from '../ShelfPicker';
 import type { UiShelf } from '../../lib/inpxClient';
 
@@ -43,6 +42,19 @@ const LANG_LABELS: Record<string, string> = {
   it: 'Итальянский',
 };
 
+/** Display label paired with the catalog genre code. Lists from the index stay aligned. */
+function genreLinks(book: Book): Array<{ code: string; label: string }> {
+  const labels = (book.genresDisplay ?? []).map((label) => label.trim()).filter(Boolean);
+  const codes = (book.genreCodes ?? []).map((code) => code.trim()).filter(Boolean);
+  if (codes.length) {
+    return codes.map((code, index) => ({ code, label: labels[index] || code }));
+  }
+  const fallback = labels.length
+    ? labels
+    : (book.genre && book.genre !== 'Другое' ? [book.genre] : []);
+  return fallback.map((label) => ({ code: label, label }));
+}
+
 function formatLang(code?: string): string | null {
   const raw = code?.trim().toLowerCase();
   if (!raw || raw === 'unknown') return null;
@@ -58,7 +70,8 @@ function mergeBookFacts(base: Book, extra: Book): Book {
     rating: base.rating || extra.rating,
     lang: base.lang || extra.lang,
     authors: base.authors?.length ? base.authors : extra.authors,
-    genresDisplay: base.genresDisplay?.length ? base.genresDisplay : extra.genresDisplay,
+    genresDisplay: extra.genresDisplay?.length ? extra.genresDisplay : base.genresDisplay,
+    genreCodes: extra.genreCodes?.length ? extra.genreCodes : base.genreCodes,
     series: base.series || extra.series,
     seriesDisplay: base.seriesDisplay || extra.seriesDisplay,
     seriesNo: base.seriesNo ?? extra.seriesNo,
@@ -132,10 +145,42 @@ function BookSheetMetaLink({
       aria-label={ariaLabel}
       onClick={onClick}
       className={`inline-flex items-center min-h-9 max-w-full text-left cursor-pointer ${radii.sm} ${theme.focusRing} ${motionTokens.press} ${
-        muted ? `${textStyles.caption} font-normal ${theme.textMuted}` : `${textStyles.bodyBold} ${theme.accentText}`
+        `underline decoration-2 decoration-[color:var(--app-border)] underline-offset-[3px] ${muted ? `${textStyles.caption} font-normal ${theme.textMuted}` : `${textStyles.bodyBold} ${theme.text}`}`
       }`}
     >
       <span className="min-w-0">{children}</span>
+    </button>
+  );
+}
+
+function QuickAction({
+  label,
+  pressed,
+  expanded,
+  onClick,
+  children,
+}: {
+  label: string;
+  pressed?: boolean;
+  expanded?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      aria-expanded={expanded}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={`flex-1 min-w-0 min-h-16 py-3 px-1 flex flex-col items-center justify-center gap-1 ${textStyles.caption} ${
+        pressed ? `font-bold ${theme.accentText}` : `font-medium ${theme.text}`
+      } ${theme.rowPress} ${theme.focusRing} ${motionTokens.press}`}
+    >
+      {children}
+      <span className="max-w-full truncate">{label}</span>
     </button>
   );
 }
@@ -208,6 +253,8 @@ export interface BookDetailsSheetProps {
   isAppDark: boolean;
   onOpenAuthor: (name: string) => void;
   onOpenSeries: (name: string) => void;
+  /** Genre code (`sf_action`), the same value as a catalog genre page. */
+  onOpenGenre?: (code: string) => void;
   onAuthExpired?: () => void;
   shelves?: UiShelf[];
   onAddToShelf?: (bookId: string, shelfId: number | string) => void | boolean | Promise<void | boolean>;
@@ -235,6 +282,7 @@ export default function BookDetailsSheet({
   isAppDark,
   onOpenAuthor,
   onOpenSeries,
+  onOpenGenre,
   onAuthExpired,
   shelves = [],
   onAddToShelf,
@@ -411,15 +459,14 @@ export default function BookDetailsSheet({
   const finished = book ? isBookFinished(progress, readIds?.has(book.id)) : false;
   const sizeLabel = formatBookSize(detail.size);
   const descLong = (description || '').replace(/<[^>]+>/g, '').length > 220;
-  const factLine = [
-    detail.year ? String(detail.year) : null,
-    detail.ext ? detail.ext.toUpperCase() : null,
-    sizeLabel,
-    formatLang(detail.lang),
-  ].filter((part): part is string => Boolean(part)).join(' · ');
-  const genres = detail.genresDisplay?.length
-    ? detail.genresDisplay
-    : (detail.genre && detail.genre !== 'Другое' ? [detail.genre] : []);
+  const fileLabel = [detail.ext ? detail.ext.toUpperCase() : null, sizeLabel].filter(Boolean).join(' · ');
+  const langLabel = formatLang(detail.lang);
+  const facts = ([
+    ['Год', detail.year ? String(detail.year) : ''],
+    ['Файл', fileLabel],
+    ['Язык', langLabel ?? ''],
+  ] as const).filter(([, value]) => Boolean(value));
+  const genres = genreLinks(detail);
   const showShelf = Boolean(onAddToShelf || onCreateShelf);
   const volume = seriesVolumeLabel(detail);
   const showSeriesBlock = Boolean(detail.series) && (seriesLoading || Boolean(seriesFollow?.books.length));
@@ -444,33 +491,11 @@ export default function BookDetailsSheet({
               >
                 <ChevronLeft className="w-6 h-6" aria-hidden />
               </button>
-              <div className="flex-1" />
-              {onToggleBookmark ? (
-                <IconButton
-                  label={isBookmarked ? 'Убрать из избранного' : 'В избранное'}
-                  aria-pressed={isBookmarked}
-                  onClick={() => onToggleBookmark(book.id)}
-                  className={`shrink-0 ${isBookmarked ? theme.accentText : theme.text}`}
-                >
-                  <Heart className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} aria-hidden />
-                </IconButton>
-              ) : null}
-              {onOpenActions ? (
-                <IconButton
-                  label="Ещё"
-                  className="shrink-0"
-                  onClick={() => onOpenActions(book)}
-                >
-                  <MoreVertical className="w-5 h-5" aria-hidden />
-                </IconButton>
-              ) : (
-                <div className="w-12 shrink-0" aria-hidden />
-              )}
             </header>
 
-            <div className="px-5 pb-8 flex min-w-0 max-w-full flex-col">
-              <div className="flex w-full min-w-0 items-start gap-4">
-                <div className="book-cover w-[7.5rem] shrink-0">
+            <div className="mx-auto w-full max-w-[45rem] px-5 min-[600px]:px-8 pb-8 flex min-w-0 flex-col">
+              <div className="flex w-full min-w-0 items-start gap-5">
+                <div className="book-cover w-32 min-[600px]:w-[11.25rem] shrink-0">
                   <span className="book-cover-inner">
                     <BookCover
                       bookId={book.id}
@@ -487,7 +512,7 @@ export default function BookDetailsSheet({
                   </span>
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <h3 id="catalog-book-sheet-title" className={`text-[1.375rem] leading-7 font-extrabold tracking-[-0.02em] ${theme.text} max-w-full min-w-0 [overflow-wrap:anywhere]`}>
+                  <h3 id="catalog-book-sheet-title" className={`${textStyles.bookTitleHero} min-[600px]:text-[1.875rem] min-[600px]:leading-[2.3125rem] mb-1 ${theme.text}`}>
                     {bookTitleWithoutVolume(detail)}
                   </h3>
                   {authorNames.length ? (
@@ -514,10 +539,22 @@ export default function BookDetailsSheet({
                       {seriesLabel(detail)}{volume ? ` · том ${volume}` : ''}
                     </BookSheetMetaLink>
                   ) : null}
-                  <div className="mt-3 space-y-1">
-                    {coverRating > 0 ? <RatingStars value={coverRating} /> : null}
-                    {factLine ? <p className={`${textStyles.caption} ${themeTextMuted}`}>{factLine}</p> : null}
-                  </div>
+                  {coverRating > 0 || facts.length ? (
+                    <dl className={`mt-3 grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1.5 ${textStyles.caption}`}>
+                      {coverRating > 0 ? (
+                        <>
+                          <dt className={themeTextMuted}>Рейтинг</dt>
+                          <dd><RatingStars value={coverRating} /></dd>
+                        </>
+                      ) : null}
+                      {facts.map(([label, value]) => (
+                        <React.Fragment key={label}>
+                          <dt className={themeTextMuted}>{label}</dt>
+                          <dd className={`font-medium ${theme.text}`}>{value}</dd>
+                        </React.Fragment>
+                      ))}
+                    </dl>
+                  ) : null}
                 </div>
               </div>
               {progress > 0 && !finished ? <ReadProgressBar value={progress} showLabel className="w-full mt-4" /> : null}
@@ -529,10 +566,10 @@ export default function BookDetailsSheet({
                 {primaryAction?.kind === 'download' && !isServerConnected ? (
                   <p className={`${textStyles.caption} ${themeTextMuted}`}>Нужен интернет для скачивания</p>
                 ) : null}
-                <div className="flex items-stretch gap-3">
+                <div className="flex items-stretch">
                   {primaryAction ? (
                     <Button
-                      className="flex-1 min-w-0"
+                      className="flex-1 min-w-0 min-h-12 min-[600px]:flex-none min-[600px]:min-w-[13.75rem]"
                       loading={primaryAction.kind === 'downloading'}
                       disabled={
                         primaryAction.disabled ||
@@ -557,21 +594,34 @@ export default function BookDetailsSheet({
                       {primaryAction.label}
                     </Button>
                   ) : null}
-                  {showShelf ? (
-                    <Button
-                      variant="secondary"
-                      className="flex-1 min-w-0"
-                      aria-expanded={shelfPickerOpen}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShelfPickerOpen((open) => !open);
-                      }}
-                    >
-                      <FolderPlus className="w-4 h-4 shrink-0" aria-hidden />
-                      На полку
-                    </Button>
-                  ) : null}
                 </div>
+                {onToggleBookmark || showShelf || onOpenActions ? (
+                  <div className={`!mt-3.5 flex border-y ${theme.divider}`}>
+                    {onToggleBookmark ? (
+                      <QuickAction
+                        label={isBookmarked ? 'В избранном' : 'В избранное'}
+                        pressed={isBookmarked}
+                        onClick={() => onToggleBookmark(book.id)}
+                      >
+                        <Heart className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} aria-hidden />
+                      </QuickAction>
+                    ) : null}
+                    {showShelf ? (
+                      <QuickAction
+                        label="На полку"
+                        expanded={shelfPickerOpen}
+                        onClick={() => setShelfPickerOpen((open) => !open)}
+                      >
+                        <FolderPlus className="w-5 h-5" aria-hidden />
+                      </QuickAction>
+                    ) : null}
+                    {onOpenActions ? (
+                      <QuickAction label="Ещё" onClick={() => onOpenActions(book)}>
+                        <MoreHorizontal className="w-5 h-5" aria-hidden />
+                      </QuickAction>
+                    ) : null}
+                  </div>
+                ) : null}
                 {shelfPickerOpen ? (
                   <ShelfPicker
                     shelves={shelves}
@@ -608,7 +658,7 @@ export default function BookDetailsSheet({
               </div>
 
               {showSeriesBlock ? (
-                <div role="tablist" aria-label="Разделы книги" className="mt-6 -mx-5 px-5 flex gap-6 border-b border-[color:var(--app-border)]">
+                <div role="tablist" aria-label="Разделы книги" className="mt-7 flex gap-6 border-b border-[color:var(--app-border)]">
                   {([
                     { id: 'about' as const, label: 'О книге' },
                     { id: 'series' as const, label: 'Серия' },
@@ -623,14 +673,12 @@ export default function BookDetailsSheet({
                     >
                       {item.label}
                       {tab === item.id ? (
-                        <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-[var(--app-accent)]" aria-hidden />
+                        <span className="absolute inset-x-0 -bottom-px h-[3px] bg-[var(--app-text)]" aria-hidden />
                       ) : null}
                     </button>
                   ))}
                 </div>
-              ) : (
-                <div className="mt-6 -mx-5 h-2 bg-[var(--app-card-bg)]" aria-hidden />
-              )}
+              ) : null}
 
               {tab === 'series' && showSeriesBlock ? (
                 <section className="pt-2" role="tabpanel">
@@ -668,11 +716,11 @@ export default function BookDetailsSheet({
                     {showSeriesBlock ? null : <h4 className={sectionKicker}>О книге</h4>}
                     {descriptionIsHtml && description ? (
                       <div
-                        className={`${textStyles.body} ${theme.text} leading-relaxed select-text prose prose-sm ${isAppDark ? 'prose-invert' : ''} ${descOpen || !descLong ? '' : 'line-clamp-4 overflow-hidden'}`}
+                        className={`font-serif text-[1.0625rem] leading-[1.6875rem] ${theme.text} select-text prose prose-sm ${isAppDark ? 'prose-invert' : ''} ${descOpen || !descLong ? '' : 'line-clamp-4 overflow-hidden'}`}
                         dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
                       />
                     ) : (
-                      <p className={`${textStyles.body} ${theme.text} leading-relaxed select-text ${descOpen || !descLong ? '' : 'line-clamp-4'}`}>
+                      <p className={`font-serif text-[1.0625rem] leading-[1.6875rem] ${theme.text} select-text ${descOpen || !descLong ? '' : 'line-clamp-4'}`}>
                         {description || 'Аннотация отсутствует.'}
                       </p>
                     )}
@@ -688,7 +736,15 @@ export default function BookDetailsSheet({
                     {genres.length ? (
                       <ul className="flex flex-wrap gap-2 pt-1" aria-label="Жанры">
                         {genres.map((genre) => (
-                          <li key={genre} className={`px-3 py-1.5 ${radii.full} ${textStyles.captionBold} ${theme.chip}`}>{genre}</li>
+                          <li key={genre.code}>
+                            <button
+                              type="button"
+                              onClick={() => onOpenGenre?.(genre.code)}
+                              className={`inline-flex items-center min-h-10 px-3 ${radii.sm} ${textStyles.caption} font-medium ${theme.chip} ${theme.chipHover} ${theme.focusRing} ${motionTokens.press}`}
+                            >
+                              {genre.label}
+                            </button>
+                          </li>
                         ))}
                       </ul>
                     ) : null}
@@ -696,7 +752,7 @@ export default function BookDetailsSheet({
 
                   {showAuthorBlock ? (
                     <>
-                      <div className="my-6 -mx-5 h-2 bg-[var(--app-card-bg)]" aria-hidden />
+                      <div className="my-6 border-t border-[color:var(--app-border)]" aria-hidden />
                       <section className="space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <h4 className={sectionKicker}>Другие книги автора</h4>
@@ -708,25 +764,23 @@ export default function BookDetailsSheet({
                             Все
                           </button>
                         </div>
-                        {authorLoading && moreByAuthor.length === 0 ? (
-                          <BookShelfSkeleton count={4} />
-                        ) : (
-                          <HorizontalBookShelf
-                            books={moreByAuthor}
-                            serverConfig={serverConfig}
-                            storageDirectory={storageDirectory}
-                            downloadedBookIds={downloadedBookIds}
-                            readIds={readIds}
-                            onBookClick={openBookPage}
-                          />
-                        )}
+                        <BookShelfGrid
+                          books={moreByAuthor}
+                          serverConfig={serverConfig}
+                          storageDirectory={storageDirectory}
+                          downloadedBookIds={downloadedBookIds}
+                          readIds={readIds}
+                          loading={authorLoading}
+                          maxRows={1}
+                          onBookClick={openBookPage}
+                        />
                       </section>
                     </>
                   ) : null}
 
                   {(bookReviewLoading || bookReviewHtml) && (
                     <>
-                      <div className="my-6 -mx-5 h-2 bg-[var(--app-card-bg)]" aria-hidden />
+                      <div className="my-6 border-t border-[color:var(--app-border)]" aria-hidden />
                       <section className="space-y-3">
                         <h4 className={`flex items-baseline gap-2 ${sectionKicker}`}>
                           Отзывы
@@ -744,7 +798,7 @@ export default function BookDetailsSheet({
                               return (
                                 <article
                                   key={`${review.name}-${index}`}
-                                  className={`${radii.lg} ${theme.panel} px-4 py-4 ${theme.text}`}
+                                  className={`${radii.md} ${theme.cardSecondary} px-4 py-4 ${theme.text}`}
                                 >
                                   {review.name ? (
                                     <div className="flex items-center gap-3">

@@ -19,8 +19,8 @@ import { useBackHandler } from '../hooks/useBackHandler';
 
 function StepIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
-    <span className={`mb-5 w-16 h-16 rounded-full inline-flex items-center justify-center ${theme.accentMuted}`}>
-      <Icon className="w-8 h-8" aria-hidden strokeWidth={1.75} />
+    <span className={`mb-4 inline-flex ${theme.accentText}`}>
+      <Icon className="w-9 h-9" aria-hidden strokeWidth={1.5} />
     </span>
   );
 }
@@ -133,13 +133,13 @@ export default function OnboardingFlow({
 
   return (
     <div className={`flex-1 min-h-0 flex flex-col ${theme.bg} ${theme.text}`} style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-      <div className="px-5 pb-4 shrink-0" style={{ paddingTop: 'max(2.5rem, env(safe-area-inset-top, 0px))' }}>
+      <div className="px-[max(1.25rem,calc((100%_-_30rem)/2))] pb-4 shrink-0" style={{ paddingTop: 'max(2.5rem, env(safe-area-inset-top, 0px))' }}>
         <div className="flex gap-2 mb-3">
           {[1, 2, 3].map((n) => (
             <span
               key={n}
               className={`h-1 flex-1 rounded-full ${
-                n <= step ? 'bg-[var(--app-accent)]' : 'bg-[var(--app-panel-soft)]'
+                n <= step ? 'bg-[var(--app-accent)]' : 'bg-[var(--app-border)]'
               }`}
             />
           ))}
@@ -149,7 +149,7 @@ export default function OnboardingFlow({
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 pb-8 space-y-6">
+      <div className="flex-1 overflow-y-auto px-[max(1.25rem,calc((100%_-_30rem)/2))] pb-8 space-y-6">
         {step === 1 && (
           <>
             <div>

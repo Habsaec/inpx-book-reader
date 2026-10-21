@@ -1,4 +1,5 @@
 @import "@fontsource-variable/inter/wght.css";
+@import "@fontsource-variable/literata/wght.css";
 @import "tailwindcss";
 
 /* Touch WebView keeps :hover after a tap. Hover styles only for a real pointer. */
@@ -12,7 +13,7 @@
 
 @theme {
   --font-sans: "Inter Variable", "Inter", Roboto, system-ui, sans-serif;
-  --font-serif: Georgia, ui-serif, serif;
+  --font-serif: "Literata Variable", "Literata", Georgia, ui-serif, serif;
   --font-mono: ui-monospace, "SF Mono", Consolas, monospace;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
@@ -93,90 +94,96 @@ body {
   --app-tab-bar-height: calc(4.5rem + max(0.5rem, env(safe-area-inset-bottom)));
 }
 
+/* «Ночь»: warm dark paper, light ink. */
 :root,
 html[data-theme="dark"] {
-  --app-bg: #111113;
+  --app-bg: #14130f;
   --app-shell-bg: var(--app-bg);
-  --app-surface: #1a1a1d;
-  --app-surface-elevated: #232327;
-  --app-surface-hover: #26262b;
-  --app-shell: #111113;
-  --app-text: #f2f2f4;
-  --app-muted: #9a9aa3;
+  --app-surface: #1c1a16;
+  --app-surface-elevated: #24211b;
+  --app-surface-hover: #2a261f;
+  --app-shell: #14130f;
+  --app-text: #ede6d9;
+  --app-muted: #a99f8e;
   --app-text-secondary: var(--app-muted);
-  --app-accent: #ff6a45;
-  --app-accent-hover: #ff8160;
-  --app-accent-soft: #3a2119;
-  --app-link: #ff6a45;
-  --app-link-hover: #ff8160;
-  --app-border: #2a2a2f;
-  --app-field-bg: #1f1f23;
-  --app-card-bg: #1f1f23;
-  --app-card-bg-hover: #26262b;
-  --app-panel-soft: #1f1f23;
-  --app-topbar-bg: #111113;
-  --app-topbar-border: #2a2a2f;
-  --app-placeholder: #6f6f78;
-  --app-cover-border: #2a2a2f;
-  --app-cover-bg: #232327;
-  --app-cover-shadow: 0 6px 16px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.4);
-  --app-progress-track: #2e2e34;
-  --app-danger: #ff6b6b;
-  --app-frame-border: #2a2a2f;
-  --app-success: #4cc27a;
-  --app-warning: #f5b84b;
-  --app-offline: #f5b84b;
-  --app-star: #f5b84b;
-  --app-radius-sm: 10px;
-  --app-radius-md: 14px;
-  --app-radius-lg: 20px;
-  --app-radius-button: 999px;
+  --app-accent: #e39a7c;
+  --app-accent-hover: #eeae94;
+  --app-accent-soft: #3a261e;
+  --app-link: #e39a7c;
+  --app-link-hover: #eeae94;
+  --app-button-fg: #1a0f0b;
+  --app-border: #38332b;
+  --app-border-strong: #5a5246;
+  --app-field-bg: #1f1c17;
+  --app-card-bg: #1f1c17;
+  --app-card-bg-hover: #2a261f;
+  --app-panel-soft: #1f1c17;
+  --app-topbar-bg: #14130f;
+  --app-topbar-border: #38332b;
+  --app-placeholder: #8e8676;
+  --app-cover-border: rgb(255 255 255 / 0.12);
+  --app-cover-bg: #2a261f;
+  --app-cover-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+  --app-progress-track: #38332b;
+  --app-danger: #f2827a;
+  --app-frame-border: #38332b;
+  --app-success: #7cc58e;
+  --app-warning: #e0b25c;
+  --app-offline: #e0b25c;
+  --app-star: #e0b25c;
+  --app-radius-sm: 6px;
+  --app-radius-md: 10px;
+  --app-radius-lg: 12px;
+  --app-radius-button: 10px;
   --app-shadow-sm: none;
-  --app-shadow-md: 0 8px 28px rgb(0 0 0 / 0.45);
-  --app-shadow-lg: 0 12px 36px rgb(0 0 0 / 0.5);
+  --app-shadow-md: 0 8px 24px rgb(0 0 0 / 0.45);
+  --app-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.5);
 }
 
+/* «Бумага»: warm paper, ink-black text, one oxblood accent. */
 html[data-theme="light"] {
-  --app-bg: #ffffff;
+  --app-bg: #f4efe6;
   --app-shell-bg: var(--app-bg);
-  --app-surface: #ffffff;
-  --app-surface-elevated: #ffffff;
-  --app-surface-hover: #f3f3f5;
-  --app-shell: #ffffff;
-  --app-text: #141416;
-  --app-muted: #6e6e76;
+  --app-surface: #fbf8f2;
+  --app-surface-elevated: #fbf8f2;
+  --app-surface-hover: #ebe4d6;
+  --app-shell: #f4efe6;
+  --app-text: #1d1b18;
+  --app-muted: #5e574c;
   --app-text-secondary: var(--app-muted);
-  --app-accent: #e5482a;
-  --app-accent-hover: #cc3b1f;
-  --app-accent-soft: #fde6df;
-  --app-link: #e5482a;
-  --app-link-hover: #cc3b1f;
-  --app-border: #ececf0;
-  --app-field-bg: #f3f3f5;
-  --app-card-bg: #f3f3f5;
-  --app-card-bg-hover: #ebebee;
-  --app-panel-soft: #f3f3f5;
-  --app-topbar-bg: #ffffff;
-  --app-topbar-border: #ececf0;
-  --app-placeholder: #9a9aa2;
-  --app-cover-border: #ececf0;
-  --app-cover-bg: #ececf0;
-  --app-cover-shadow: 0 6px 14px rgb(20 20 30 / 0.16), 0 1px 3px rgb(20 20 30 / 0.1);
-  --app-progress-track: #e4e4e8;
-  --app-danger: #d43b3b;
-  --app-frame-border: #ececf0;
-  --app-frame-notch: #ececf0;
-  --app-success: #24965a;
-  --app-warning: #c98a1b;
-  --app-offline: #c98a1b;
-  --app-star: #f2a000;
-  --app-radius-sm: 10px;
-  --app-radius-md: 14px;
-  --app-radius-lg: 20px;
-  --app-radius-button: 999px;
+  --app-accent: #8a2e1e;
+  --app-accent-hover: #73251a;
+  --app-accent-soft: #efdfd5;
+  --app-link: #8a2e1e;
+  --app-link-hover: #73251a;
+  --app-button-fg: #ffffff;
+  --app-border: #d9cebb;
+  --app-border-strong: #b9ab93;
+  --app-field-bg: #fbf8f2;
+  --app-card-bg: #fbf8f2;
+  --app-card-bg-hover: #efe8db;
+  --app-panel-soft: #ebe4d6;
+  --app-topbar-bg: #f4efe6;
+  --app-topbar-border: #d9cebb;
+  --app-placeholder: #7a7164;
+  --app-cover-border: rgb(29 27 24 / 0.18);
+  --app-cover-bg: #e4dccb;
+  --app-cover-shadow: 0 1px 3px rgb(29 27 24 / 0.2);
+  --app-progress-track: #d9cebb;
+  --app-danger: #b3261e;
+  --app-frame-border: #d9cebb;
+  --app-frame-notch: #d9cebb;
+  --app-success: #2f6b3a;
+  --app-warning: #8a5a00;
+  --app-offline: #8a5a00;
+  --app-star: #b7791f;
+  --app-radius-sm: 6px;
+  --app-radius-md: 10px;
+  --app-radius-lg: 12px;
+  --app-radius-button: 10px;
   --app-shadow-sm: none;
-  --app-shadow-md: 0 8px 28px rgb(20 20 30 / 0.14);
-  --app-shadow-lg: 0 12px 36px rgb(20 20 30 / 0.18);
+  --app-shadow-md: 0 8px 24px rgb(29 27 24 / 0.14);
+  --app-shadow-lg: 0 12px 32px rgb(29 27 24 / 0.18);
 }
 
 /* Book cover shape — matches INPX Library Server `.cover` (spine radius + shadow) */
@@ -508,6 +515,17 @@ html[data-eink='1'] .cover-rating-wrapper {
   border-top: 1px solid var(--app-border);
 }
 
+/* Side rail (AppShell NAV_RAIL_QUERY): nothing sits under the content, so snackbars drop to the edge. */
+@media (min-width: 600px) {
+  :root {
+    --app-tab-bar-height: calc(1rem + env(safe-area-inset-bottom));
+  }
+  #mobile-tab-navigation.inpx-chrome-bottom {
+    border-top: 0;
+    border-right: 1px solid var(--app-border);
+  }
+}
+
 .inpx-chrome-bottom::before {
   display: none;
 }
@@ -547,6 +565,7 @@ html[data-eink="1"] {
   --app-link: #000000;
   --app-link-hover: #000000;
   --app-border: #8a8a8a;
+  --app-border-strong: #000000;
   --app-field-bg: #ffffff;
   --app-card-bg: #ffffff;
   --app-card-bg-hover: #efeee9;
@@ -558,6 +577,7 @@ html[data-eink="1"] {
   --app-cover-bg: #ffffff;
   --app-cover-shadow: none;
   --app-progress-track: #8a8a8a;
+  --app-star: #000000;
   --app-danger: #000000;
   --app-frame-border: #000000;
   --app-success: #000000;
@@ -802,5 +822,12 @@ html[data-eink="1"] .inpx-snackbar button {
   background: #fff !important;
   color: #000 !important;
   border: 2px solid #000 !important;
+}
+
+@media (min-width: 600px) {
+  html[data-eink="1"] #mobile-tab-navigation {
+    border-top: 0;
+    border-right: 2px solid var(--app-text);
+  }
 }
 

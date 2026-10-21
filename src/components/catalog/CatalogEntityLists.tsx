@@ -9,7 +9,7 @@ import BookSortBar from './BookSortBar';
 import type { LocalGenreAgg } from '../../lib/catalogAggregations';
 import type { AuthorSeriesSort } from '../../lib/catalogAggregations';
 import type { CatalogSubTab } from './catalogTypes';
-import { motion, radii, textStyles } from '../../ui/tokens';
+import { motion, textStyles } from '../../ui/tokens';
 import EmptyState from '../../ui/EmptyState';
 
 export interface CatalogEntityAuthor {
@@ -150,10 +150,10 @@ export default function CatalogEntityLists({
                     type="button"
                     key={author.name}
                     onClick={() => onOpenAuthor(author.name)}
-                    className={`w-full min-h-14 py-2.5 flex items-center justify-between gap-3 text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+                    className={`w-full min-h-[3.75rem] py-2.5 px-0.5 flex items-center justify-between gap-3 text-left border-b ${theme.divider} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${theme.panel}`}>
+                      <div className="w-6 flex items-center justify-center shrink-0">
                         <User className={`w-5 h-5 ${theme.textMuted}`} aria-hidden />
                       </div>
                       <div className="min-w-0">
@@ -219,10 +219,10 @@ export default function CatalogEntityLists({
                 type="button"
                 key={item.name}
                 onClick={() => onOpenSeries(item.name)}
-                className={`w-full min-h-14 py-2.5 flex items-center justify-between gap-3 text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+                className={`w-full min-h-[3.75rem] py-2.5 px-0.5 flex items-center justify-between gap-3 text-left border-b ${theme.divider} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${theme.panel}`}>
+                  <div className="w-6 flex items-center justify-center shrink-0">
                     <Library className={`w-5 h-5 ${theme.textMuted}`} aria-hidden />
                   </div>
                   <div className="min-w-0">
@@ -259,7 +259,7 @@ export default function CatalogEntityLists({
   // (e.g. series opened from a book card inside a genre).
   if (subTab === 'genres' && !selectedSubgenre && !selectedSeries && !selectedAuthor) {
     return (
-      <div className="space-y-2.5">
+      <div>
         {genres.length === 0 ? (
           <EmptyState
             icon={Inbox}
@@ -279,10 +279,10 @@ export default function CatalogEntityLists({
                 type="button"
                 onClick={() => onToggleGenreExpand(genreItem.name)}
                 aria-expanded={isExpanded}
-                className={`w-full min-h-14 py-2.5 flex items-center justify-between gap-3 text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+                className={`w-full min-h-[3.75rem] py-2.5 px-0.5 flex items-center justify-between gap-3 text-left border-b ${theme.divider} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${theme.accentMuted}`}>
+                  <span className={`w-6 flex items-center justify-center shrink-0 ${theme.textMuted}`}>
                     <Tag className="w-5 h-5" aria-hidden />
                   </span>
                   <div>
@@ -300,14 +300,14 @@ export default function CatalogEntityLists({
               <div className={`inpx-collapse ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                 <div
                   inert={isExpanded ? undefined : true}
-                  className={`min-h-0 overflow-hidden ${radii.md} ${theme.panel}`}
+                  className="min-h-0 overflow-hidden pl-9"
                 >
                   {subgenresList.map(([genreCode, sub]) => (
                     <button
                       type="button"
                       key={genreCode}
                       onClick={() => onSelectSubgenre(genreItem.name, genreCode)}
-                      className={`w-full min-h-12 px-4 py-3 flex items-center justify-between text-left ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+                      className={`w-full min-h-12 px-0.5 py-3 flex items-center justify-between text-left border-b ${theme.divider} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
                     >
                       <div>
                         <span className={textStyles.bodyBold}>{sub.name}</span>

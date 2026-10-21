@@ -413,6 +413,7 @@ export default function CatalogTab({
     // Match openAuthorPage / openSeriesPage sort defaults for deep-links.
     if (selectedSeries) setCatalogSort('series');
     else if (selectedAuthor) setCatalogSort('title');
+    else if (selectedSubgenre) setCatalogSort('rating');
   }, [
     catalogNavEpoch,
     pendingSearchQuery,
@@ -423,6 +424,7 @@ export default function CatalogTab({
     setAuthorOutsideSeries,
     selectedAuthor,
     selectedSeries,
+    selectedSubgenre,
   ]);
 
   /** Genre to restore when Back from series/author opened from a genre book card. */

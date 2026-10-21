@@ -895,7 +895,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
   const themeColors = {
     dark:  { bg: '#1e1a16', fg: '#e8e0d4', link: '#d4ac5c' },
     light: { bg: '#f5f1e8', fg: '#2e2418', link: '#8b5a12' },
-    sepia: { bg: '#f4ecd8', fg: '#463b2f', link: '#8b5a12' },
+    sepia: { bg: '#f4ecdc', fg: '#2a241b', link: '#8a2e1e' },
     night: { bg: '#0d0b0a', fg: '#948b81', link: '#8a7a67' },
     eink:  { bg: '#ffffff', fg: '#000000', link: '#000000' },
   };

@@ -1,7 +1,7 @@
-/** Design tokens — four UI type levels, one sans family (Inter). */
+/** Design tokens — UI text in Inter, titles and book names in Literata. */
 
 const typeSecondary = 'text-[0.8125rem] leading-[1.125rem]';
-const typeBody = 'text-[0.9375rem] leading-[1.375rem]';
+const typeBody = 'text-base leading-6';
 
 export const textStyles = {
   /** Secondary — 13/18 */
@@ -14,19 +14,19 @@ export const textStyles = {
   tabLabel: `${typeSecondary} font-medium`,
   caption: typeSecondary,
   captionBold: `${typeSecondary} font-semibold`,
-  /** Body — 15/22 */
+  /** Body — 16/24 */
   body: typeBody,
   bodyBold: `${typeBody} font-semibold`,
-  /** Screen title — 28/34, 800 */
-  title: 'text-[1.75rem] leading-[2.125rem] font-extrabold tracking-[-0.025em]',
-  display: 'text-[1.75rem] leading-[2.125rem] font-extrabold tracking-[-0.025em]',
-  /** Book title in tiles and rows — 14/18, 600 */
-  bookTitle: 'text-sm leading-[1.125rem] font-semibold min-w-0 max-w-full [overflow-wrap:anywhere]',
-  /** Book title on the hero card and book page — 24/30, 800 */
-  bookTitleHero: 'text-2xl leading-[1.875rem] font-extrabold tracking-[-0.025em] min-w-0 max-w-full [overflow-wrap:anywhere]',
-  /** Section title — 20/26, 800 */
-  sectionLabel: 'text-xl leading-[1.625rem] font-extrabold tracking-[-0.02em]',
-  statNumber: 'text-[1.75rem] leading-8 font-extrabold tabular-nums',
+  /** Screen title — serif 30/38 */
+  title: 'font-serif text-[1.875rem] leading-[2.375rem] font-semibold tracking-[-0.01em]',
+  display: 'font-serif text-[1.875rem] leading-[2.375rem] font-semibold tracking-[-0.01em]',
+  /** Book title in tiles and rows — serif 15/20 */
+  bookTitle: 'font-serif text-[0.9375rem] leading-5 font-semibold min-w-0 max-w-full [overflow-wrap:break-word] hyphens-auto',
+  /** Book title on the hero card and book page — serif 25/31 */
+  bookTitleHero: 'font-serif text-[1.5625rem] leading-[1.9375rem] font-semibold min-w-0 max-w-full [overflow-wrap:break-word] hyphens-auto',
+  /** Section title — serif 21/28 */
+  sectionLabel: 'font-serif text-[1.3125rem] leading-7 font-semibold',
+  statNumber: 'font-serif text-[1.75rem] leading-8 font-semibold tabular-nums',
 } as const;
 
 export const spacing = {

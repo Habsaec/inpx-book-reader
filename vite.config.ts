@@ -10,12 +10,27 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, type Plugin} from 'vite';
+import {addFlexGapFallback, physicalizeLogicalCss, unwrapCssLayers} from './scripts/unwrap-css-layers.mjs';
+
+/** Chrome 83 (Android 11 emulator WebView) ignores `@layer` and drops the utilities inside. */
+function unwrapCssLayersPlugin(): Plugin {
+  return {
+    name: 'unwrap-css-layers',
+    generateBundle(_options, bundle) {
+      for (const item of Object.values(bundle)) {
+        if (item.type !== 'asset' || !item.fileName.endsWith('.css')) continue;
+        const source = typeof item.source === 'string' ? item.source : Buffer.from(item.source).toString('utf8');
+        item.source = addFlexGapFallback(physicalizeLogicalCss(unwrapCssLayers(source)));
+      }
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
     base: './',
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), unwrapCssLayersPlugin()],
     build: {
       outDir: 'dist',
       emptyOutDir: true,
@@ -38,7 +53,10 @@ export default defineConfig(() => {
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // build:android rewrites these trees; watching them crashes dev with EBUSY on Windows.
+      watch: process.env.DISABLE_HMR === 'true'
+        ? null
+        : { ignored: ['**/public/foliate/**', '**/dist/**', '**/android/**'] },
     },
   };
 });

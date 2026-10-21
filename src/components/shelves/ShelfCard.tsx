@@ -1,4 +1,5 @@
 import React from 'react';
+import { Trash2 } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles, motion } from '../../ui/tokens';
 import type { ServerConfig } from '../../types';
@@ -17,40 +18,57 @@ function bookCountLabel(n: number): string {
 export default function ShelfCard({
   name,
   count = 0,
+  smart = false,
   previewBookIds,
   serverConfig,
   storageDirectory,
   onClick,
+  onDelete,
 }: {
   name: string;
   count?: number;
+  smart?: boolean;
   previewBookIds?: string[];
   serverConfig?: ServerConfig | null;
   storageDirectory?: StorageDirectory | null;
   onClick?: () => void;
+  onDelete?: () => void;
 }) {
   const ids = (previewBookIds ?? []).map(String).filter(Boolean);
   const empty = count <= 0 && ids.length === 0;
+  const countText = empty ? 'Пока нет книг' : bookCountLabel(count);
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full text-left py-4 border-b last:border-b-0 ${theme.divider} ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
-    >
-      {serverConfig && ids.length > 0 ? (
-        <ShelfCoverStack
-          bookIds={ids}
-          serverConfig={serverConfig}
-          storageDirectory={storageDirectory}
-        />
+    <div className={`flex items-stretch border-b last:border-b-0 ${theme.divider}`}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex-1 min-w-0 text-left py-4 ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
+      >
+        {serverConfig && ids.length > 0 ? (
+          <ShelfCoverStack
+            bookIds={ids}
+            serverConfig={serverConfig}
+            storageDirectory={storageDirectory}
+          />
+        ) : null}
+        <p className={`${textStyles.sectionLabel} ${theme.text} ${ids.length ? 'mt-3' : ''} truncate`}>
+          {name}
+        </p>
+        <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>
+          {smart ? `Умная · ${countText}` : countText}
+        </p>
+      </button>
+      {onDelete ? (
+        <button
+          type="button"
+          aria-label={`Удалить полку «${name}»`}
+          onClick={onDelete}
+          className={`w-12 shrink-0 self-center inline-flex items-center justify-center ${theme.accentText} ${theme.focusRing} ${motion.press}`}
+        >
+          <Trash2 className="w-5 h-5" aria-hidden />
+        </button>
       ) : null}
-      <p className={`${textStyles.sectionLabel} ${theme.text} ${ids.length ? 'mt-3' : ''} truncate`}>
-        {name}
-      </p>
-      <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>
-        {empty ? 'Пока нет книг' : bookCountLabel(count)}
-      </p>
-    </button>
+    </div>
   );
 }

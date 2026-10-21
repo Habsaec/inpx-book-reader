@@ -55,14 +55,6 @@ export function coverTileLayoutForContainer(containerWidth: number): {
   return { cols, tileWidth };
 }
 
-/** Carousel: the grid's column count minus a peek of the next cover (~2.7 visible on a phone). */
-export function shelfTileWidthForContainer(containerWidth: number): number {
-  const w = Math.max(0, Number(containerWidth) || 0);
-  if (w <= 0) return BOOK_COVER_TILE_WIDTH_PX;
-  const visible = coverGridColumnsForWidth(w) - 0.3;
-  return Math.max(1, Math.floor((w - COVER_GAP_PX * Math.floor(visible)) / visible));
-}
-
 export interface BookCoverTileProps {
   book: Book;
   serverConfig?: ServerConfig | null;

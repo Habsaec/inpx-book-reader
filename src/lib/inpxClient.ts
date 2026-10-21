@@ -574,9 +574,15 @@ export interface ServerShelf {
 export type UiShelf = {
   id: number | string;
   name: string;
+  /** Smart shelves share the numeric id space with ordinary shelves. */
+  kind?: 'shelf' | 'smart';
   bookCount?: number;
   previewBookIds?: string[];
 };
+
+export function shelfKey(shelf: { id: number | string; kind?: 'shelf' | 'smart' }): string {
+  return `${shelf.kind === 'smart' ? 'smart' : 'shelf'}:${shelf.id}`;
+}
 
 export async function fetchShelves(config: ServerConfig): Promise<ServerShelf[]> {
   const rows = await apiJson<ServerShelf[]>(config, '/api/shelves');
@@ -598,8 +604,56 @@ export async function deleteServerShelf(config: ServerConfig, shelfId: number): 
   await apiDelete(config, `/api/shelves/${shelfId}`);
 }
 
+export interface ServerSmartShelf {
+  id: number;
+  name: string;
+  query?: string;
+  catalogUrl?: string;
+  bookCount?: number;
+  previewBookIds?: string[];
+}
+
+/** Saved catalog filters. `preview=1` adds `bookCount` and `previewBookIds`, same as the web shelves page. */
+export async function fetchSmartShelves(config: ServerConfig): Promise<ServerSmartShelf[]> {
+  const rows = await apiJson<ServerSmartShelf[]>(config, '/api/smart-shelves?preview=1');
+  return (Array.isArray(rows) ? rows : []).map((s) => ({
+    id: Number(s.id),
+    name: String(s.name ?? ''),
+    query: s.query != null ? String(s.query) : undefined,
+    catalogUrl: s.catalogUrl != null ? String(s.catalogUrl) : undefined,
+    bookCount: s.bookCount != null ? Number(s.bookCount) : undefined,
+    previewBookIds: normalizePreviewBookIds(s.previewBookIds).slice(0, 4),
+  })).filter((s) => s.name && Number.isFinite(s.id));
+}
+
+export async function deleteSmartShelf(config: ServerConfig, shelfId: number): Promise<void> {
+  await apiDelete(config, `/api/smart-shelves/${shelfId}`);
+}
+
 export async function fetchShelfBooks(config: ServerConfig, shelfId: number): Promise<InpxBookItem[]> {
   return apiJson(config, `/api/shelves/${shelfId}/books`);
+}
+
+/** Полка, закреплённая на главной (`on_home`): обычная или умная, как на веб-главной. */
+export interface HomeShelf {
+  id: number;
+  kind: 'shelf' | 'smart';
+  title: string;
+  href: string;
+  items: InpxBookItem[];
+}
+
+export async function fetchHomeShelves(config: ServerConfig): Promise<HomeShelf[]> {
+  const data = await apiJson<{ items?: HomeShelf[] }>(config, '/api/home/shelves');
+  return Array.isArray(data?.items) ? data.items.filter((shelf) => Array.isArray(shelf.items) && shelf.items.length > 0) : [];
+}
+
+export async function fetchSmartShelfBooks(
+  config: ServerConfig,
+  shelfId: number,
+  page = 1,
+): Promise<Paginated<InpxBookItem>> {
+  return apiJson(config, `/api/smart-shelves/${shelfId}/books?page=${page}`);
 }
 
 export async function addBookToServerShelf(config: ServerConfig, shelfId: number, bookId: string): Promise<void> {

@@ -1,14 +1,8 @@
 import React from 'react';
 import { APP_SETTING_KEYS, getAppSettingRaw, setAppSettingRaw } from '../lib/appSettings';
-import {
-  defaultCatalogViewMode,
-  isEinkDocumentActive,
-  resolveCatalogViewMode,
-  type CatalogViewMode,
-} from '../lib/catalogViewMode';
+import { resolveCatalogViewMode, type BooksViewScope, type CatalogViewMode } from '../lib/catalogViewMode';
 
-/** `home` — полки на главной; `books` — каталог, мои книги, «Показать всё». */
-export type BooksViewScope = 'home' | 'books';
+export type { BooksViewScope };
 
 type Listener = (mode: CatalogViewMode) => void;
 
@@ -21,12 +15,8 @@ function settingKey(scope: BooksViewScope): string {
   return scope === 'home' ? APP_SETTING_KEYS.homeView : APP_SETTING_KEYS.catalogView;
 }
 
-function readStoredRaw(scope: BooksViewScope): string | null {
-  return getAppSettingRaw(settingKey(scope));
-}
-
 function readResolved(scope: BooksViewScope): CatalogViewMode {
-  return resolveCatalogViewMode(readStoredRaw(scope));
+  return resolveCatalogViewMode(getAppSettingRaw(settingKey(scope)), scope);
 }
 
 export function useCatalogViewMode(scope: BooksViewScope = 'books', libraryReady = true) {
@@ -43,20 +33,6 @@ export function useCatalogViewMode(scope: BooksViewScope = 'books', libraryReady
     return () => {
       listenersByScope[scope].delete(onChange);
     };
-  }, [scope]);
-
-  // Unset preference follows e-ink on/off (dataset applied by useEinkMode).
-  React.useEffect(() => {
-    const el = document.documentElement;
-    const sync = () => {
-      if (readStoredRaw(scope) != null) return;
-      const next = defaultCatalogViewMode(isEinkDocumentActive());
-      setViewModeState(next);
-    };
-    sync();
-    const obs = new MutationObserver(sync);
-    obs.observe(el, { attributes: true, attributeFilter: ['data-eink'] });
-    return () => obs.disconnect();
   }, [scope]);
 
   const setViewMode = React.useCallback(

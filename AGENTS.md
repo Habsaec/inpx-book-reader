@@ -154,7 +154,8 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/shelves` — список полок
 - `POST /api/shelves` — создать полку
 - `DELETE /api/shelves/:id` — удалить полку
-- Умные полки (сохранённый фильтр каталога): `GET/POST /api/smart-shelves`, `PUT/DELETE /api/smart-shelves/:id`, `GET /api/smart-shelves/:id/books?page=` → `{items,total,page,pageSize}`; полка `{id,name,query,catalogUrl,createdAt}`. Сервер готов, в `inpxClient.ts` пока не используется
+- Умные полки (сохранённый фильтр каталога): `GET/POST /api/smart-shelves`, `PUT/DELETE /api/smart-shelves/:id`, `GET /api/smart-shelves/:id/books?page=` → `{items,total,page,pageSize}`; полка `{id,name,query,catalogUrl,createdAt}`. `GET /api/smart-shelves?preview=1` добавляет `bookCount` и `previewBookIds`. В «Моих книгах» они идут отдельным списком «Умные полки» (`fetchSmartShelves`); открытие листает `fetchSmartShelfBooks`, удаление — `deleteSmartShelf`. Закрепление на главной — только на сайте
+- `GET /api/home/shelves` — полки (обычные и умные), закреплённые на главной сайта: `{ items: [{ id, kind: 'shelf'|'smart', title, href, items }] }`, пустые не приходят, до 8. Главная приложения показывает их после «Рекомендаций» в том же порядке (`fetchHomeShelves`); «Все» открывает `HomeShelfPanel`: обычная полка — `GET /api/shelves/:id/books`, умная — `GET /api/smart-shelves/:id/books?page=` (по 24); закрепление — только на сайте
 - `GET /api/shelves/:id/books` — книги на полке
 - `POST /api/shelves/:id/books` — добавить книгу на полку
 - `DELETE /api/shelves/:id/books/:bookId` — удалить книгу с полки; id с NUL/control-символами — `DELETE /api/shelves/:id/books/b64/:ref`

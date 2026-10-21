@@ -33,7 +33,7 @@ export default function BookSortBar({
         value={selected}
         onChange={(e) => onChange(e.target.value)}
         aria-label={ariaLabel}
-        className={`w-full min-h-10 ${radii.button} border px-4 py-2 ${textStyles.captionBold} ${theme.input} ${theme.inputFocus}`}
+        className={`w-full min-h-10 ${radii.sm} border px-3.5 py-2 ${textStyles.captionBold} ${theme.input} ${theme.inputFocus}`}
       >
         {options.map((opt) => (
           <option key={opt.id} value={opt.id}>

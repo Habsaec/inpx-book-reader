@@ -1,12 +1,13 @@
 import React from 'react';
-import { Heart, Folder, FolderPlus, CheckCircle2, ArrowLeft, AlertCircle } from 'lucide-react';
+import { Heart, Folder, FolderPlus, CheckCircle2, AlertCircle } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { FavoriteAuthorItem, FavoriteSeriesItem, UiShelf } from '../lib/inpxClient';
-import { mapServerBook, fetchAllReaderBookmarkList, fetchAllReaderAnnotationList, fetchBookmarkedBooks, fetchLibraryView, isAuthError, type InpxBookItem } from '../lib/inpxClient';
+import { mapServerBook, fetchAllReaderBookmarkList, fetchAllReaderAnnotationList, fetchBookmarkedBooks, fetchLibraryView, fetchSmartShelfBooks, isAuthError, shelfKey, type InpxBookItem } from '../lib/inpxClient';
 import DeviceLibraryTab from './DeviceLibraryTab';
 import CatalogBookList from './catalog/CatalogBookList';
+import CatalogPagination from './catalog/CatalogPagination';
 import EntityPreviewRow from './EntityPreviewRow';
 import ShelfCard from './shelves/ShelfCard';
 import ViewModeToggle from '../ui/ViewModeToggle';
@@ -14,11 +15,14 @@ import BookSortBar from './catalog/BookSortBar';
 import { LOCAL_BOOK_SORT_OPTIONS, sortBooksLocal, type LocalBookSort } from '../lib/localBookSort';
 import { BookGridSkeleton, BookListSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
-import { textStyles, touchMin, radii } from '../ui/tokens';
-import SegmentTabStrip from '../ui/SegmentTabStrip';
+import { textStyles, radii } from '../ui/tokens';
+import { usePageTitle } from '../ui/pageTitle';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
-import { useHorizontalTabSwipe } from '../hooks/useHorizontalTabSwipe';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
+
+/** Server page size of `/api/smart-shelves/:id/books`. */
+const SMART_PAGE_SIZE = 24;
+import LibraryCollections, { LIBRARY_SEG_LABELS, type LibrarySeg } from './mybooks/LibraryCollections';
 import { isFolderLocalBookId } from '../lib/importExternalBook';
 import LocalFolderBrowser from './mybooks/LocalFolderBrowser';
 import ReaderNotesPanel from './mybooks/ReaderNotesPanel';
@@ -34,18 +38,19 @@ import {
   type LocalReaderBookmarkItem,
 } from '../lib/offlineReaderStore';
 
-const LIBRARY_SEGS = ['downloaded', 'local', 'favorites', 'shelves', 'read', 'bookmarks', 'notes'] as const;
-type LibrarySeg = (typeof LIBRARY_SEGS)[number];
+/** Collections list beside the content instead of drill-in (keep in sync with `min-[900px]:`). */
+const WIDE_QUERY = '(min-width: 900px)';
 
-const SEG_TABS: { id: LibrarySeg; label: string }[] = [
-  { id: 'downloaded', label: 'Загрузки' },
-  { id: 'local', label: 'Папки' },
-  { id: 'favorites', label: 'Избранное' },
-  { id: 'shelves', label: 'Полки' },
-  { id: 'read', label: 'Прочитано' },
-  { id: 'bookmarks', label: 'Закладки' },
-  { id: 'notes', label: 'Заметки' },
-];
+function useWideLayout(): boolean {
+  const [wide, setWide] = React.useState(() => window.matchMedia(WIDE_QUERY).matches);
+  React.useEffect(() => {
+    const mq = window.matchMedia(WIDE_QUERY);
+    const onChange = () => setWide(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return wide;
+}
 
 interface MyBooksTabProps {
   serverConfig: ServerConfig;
@@ -78,7 +83,7 @@ interface MyBooksTabProps {
   onAddShelf?: (name: string) => Promise<number | string | null>;
   onOpenAuthor?: (name: string) => void;
   onOpenSeries?: (name: string) => void;
-  onRemoveShelf?: (shelfId: string) => void | Promise<void>;
+  onRemoveShelf?: (shelfId: string, kind?: 'shelf' | 'smart') => void | Promise<void | boolean>;
   localReaderAnnotations?: LocalReaderAnnotationItem[];
   localReaderBookmarks?: LocalReaderBookmarkItem[];
   onOpenBookAtPosition?: (bookId: string, position: string, fallbackBook?: Book) => void;
@@ -126,6 +131,7 @@ export default function MyBooksTab({
   onAddShelf,
   onOpenAuthor,
   onOpenSeries,
+  onRemoveShelf,
   localReaderAnnotations = [],
   localReaderBookmarks = [],
   onOpenBookAtPosition,
@@ -160,13 +166,15 @@ export default function MyBooksTab({
   );
 
   const [seg, setSeg] = React.useState<LibrarySeg>('downloaded');
+  const [collectionOpen, setCollectionOpen] = React.useState(false);
+  const wide = useWideLayout();
+  const showIndex = !wide && !collectionOpen;
   const downloadedLibraryBooks = React.useMemo(
     () => localOfflineBooks.filter((book) => !isFolderLocalBookId(book.id)),
     [localOfflineBooks],
   );
   const { viewMode, setViewMode } = useCatalogViewMode('books');
   const [bookSort, setBookSort] = React.useState<LocalBookSort>('recent');
-  const segBtnRefs = React.useRef<Partial<Record<LibrarySeg, HTMLButtonElement | null>>>({});
   const [sectionBySeg, setSectionBySeg] = React.useState<{ favorites: Book[]; read: Book[] }>({
     favorites: [],
     read: [],
@@ -176,7 +184,9 @@ export default function MyBooksTab({
   const [sectionRetry, setSectionRetry] = React.useState(0);
   const [readerListsError, setReaderListsError] = React.useState(false);
   const [readerListsRetry, setReaderListsRetry] = React.useState(0);
-  const [activeShelfId, setActiveShelfId] = React.useState<number | string | null>(null);
+  const [activeShelfKey, setActiveShelfKey] = React.useState<string | null>(null);
+  const [smartPage, setSmartPage] = React.useState(1);
+  const [smartTotal, setSmartTotal] = React.useState(0);
   const [newShelfOpen, setNewShelfOpen] = React.useState(false);
   const [newShelfName, setNewShelfName] = React.useState('');
   const [newShelfBusy, setNewShelfBusy] = React.useState(false);
@@ -189,9 +199,11 @@ export default function MyBooksTab({
   React.useEffect(() => {
     if (libraryRootEpochSeen.current === libraryRootEpoch) return;
     libraryRootEpochSeen.current = libraryRootEpoch;
-    setActiveShelfId(null);
+    setActiveShelfKey(null);
+    setSmartPage(1);
     setSeg('downloaded');
     setNewShelfOpen(false);
+    setCollectionOpen(false);
   }, [libraryRootEpoch]);
 
   const authorRows = React.useMemo(() => {
@@ -204,22 +216,31 @@ export default function MyBooksTab({
     return favoriteSeries.map((name) => ({ name, displayName: name }));
   }, [favoriteSeriesItems, favoriteSeries]);
 
-  const goToSeg = React.useCallback((next: LibrarySeg) => {
-    setSeg(next);
-    setActiveShelfId(null);
+  const selectShelf = React.useCallback((shelf: UiShelf) => {
+    setSeg('shelves');
+    setSmartPage(1);
+    setActiveShelfKey(shelfKey(shelf));
     setNewShelfOpen(false);
+    setCollectionOpen(true);
   }, []);
 
-  React.useEffect(() => {
-    segBtnRefs.current[seg]?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-  }, [seg]);
-
-  const librarySwipe = useHorizontalTabSwipe(
-    LIBRARY_SEGS,
-    seg,
-    goToSeg,
-    { enabled: isTabActive && activeShelfId == null },
+  const openCollection = React.useCallback(
+    (next: LibrarySeg, options: { newShelf?: boolean } = {}) => {
+      setSeg(next);
+      setSmartPage(1);
+      setActiveShelfKey(null);
+      setNewShelfOpen(Boolean(options.newShelf));
+      setCollectionOpen(true);
+    },
+    [],
   );
+
+  const closeCollection = React.useCallback(() => {
+    setCollectionOpen(false);
+    setActiveShelfKey(null);
+    setSmartPage(1);
+    setNewShelfOpen(false);
+  }, []);
 
   React.useEffect(() => {
     if (seg !== 'favorites' && seg !== 'read') return;
@@ -297,12 +318,18 @@ export default function MyBooksTab({
     [serverAnnotations, localReaderAnnotations],
   );
 
-  const inShelfDrilldown = seg === 'shelves' && activeShelfId != null;
-  const activeShelfName = shelves.find((s) => s.id === activeShelfId)?.name;
+  const activeShelf = React.useMemo(
+    () => shelves.find((shelf) => shelfKey(shelf) === activeShelfKey) ?? null,
+    [shelves, activeShelfKey],
+  );
+  const inShelfDrilldown = seg === 'shelves' && activeShelf != null;
+  const activeShelfName = activeShelf?.name;
   const shelfRevision = React.useMemo(
-    () => shelves.map((s) => `${s.id}:${s.bookCount ?? 0}`).join('|'),
+    () => shelves.map((s) => `${shelfKey(s)}:${s.bookCount ?? 0}`).join('|'),
     [shelves],
   );
+  const regularShelves = React.useMemo(() => shelves.filter((shelf) => shelf.kind !== 'smart'), [shelves]);
+  const smartShelves = React.useMemo(() => shelves.filter((shelf) => shelf.kind === 'smart'), [shelves]);
 
   const localReadBooks = React.useMemo(
     () => localOfflineBooks.filter((book) => (readingProgressByBookId?.[book.id] ?? book.readProgress ?? 0) >= 99),
@@ -358,25 +385,38 @@ export default function MyBooksTab({
   const lastShelfIdLoaded = React.useRef<number | string | null>(null);
 
   React.useEffect(() => {
-    if (seg !== 'shelves' || activeShelfId == null || !loadShelfBooks) {
+    const smart = activeShelf?.kind === 'smart';
+    if (seg !== 'shelves' || activeShelf == null || (!smart && !loadShelfBooks)) {
       shelfLoadGen.current += 1;
       setShelfBooks([]);
+      setSmartTotal(0);
       lastShelfIdLoaded.current = null;
       return;
     }
     const gen = ++shelfLoadGen.current;
-    const shelfChanged = lastShelfIdLoaded.current !== activeShelfId;
+    const loadMark = smart ? `${activeShelfKey}@${smartPage}` : activeShelfKey;
+    const shelfChanged = lastShelfIdLoaded.current !== loadMark;
     if (shelfChanged) setSectionLoading(true);
-    loadShelfBooks(activeShelfId)
+    const request = smart
+      ? fetchSmartShelfBooks(serverConfig, Number(activeShelf.id), smartPage).then((res) => {
+          if (shelfLoadGen.current !== gen) return [];
+          const total = Number(res.total) || 0;
+          setSmartTotal(total);
+          return (res.items || []).map((book) => mapServerBook(book, serverConfig));
+        })
+      : loadShelfBooks!(activeShelf.id);
+    request
       .then((books) => {
         if (shelfLoadGen.current !== gen) return;
-        lastShelfIdLoaded.current = activeShelfId;
+        lastShelfIdLoaded.current = loadMark;
         setShelfBooks(books);
+        if (!smart) setSmartTotal(books.length);
         setSectionError(false);
       })
       .catch((e: unknown) => {
         if (shelfLoadGen.current !== gen) return;
         setShelfBooks([]);
+        setSmartTotal(0);
         setSectionError(true);
         if (isAuthError(e)) onAuthExpired?.();
       })
@@ -386,9 +426,11 @@ export default function MyBooksTab({
     return () => {
       shelfLoadGen.current += 1;
     };
-  }, [seg, activeShelfId, loadShelfBooks, shelfRevision, onAuthExpired, sectionRetry]);
+  }, [seg, activeShelf, activeShelfKey, loadShelfBooks, shelfRevision, onAuthExpired, sectionRetry, smartPage, serverConfig]);
 
-  useOverlayBackHandler(isTabActive && inShelfDrilldown, () => setActiveShelfId(null));
+  const drilledIn = isTabActive && !wide && collectionOpen;
+  usePageTitle(inShelfDrilldown ? activeShelfName ?? 'Полка' : LIBRARY_SEG_LABELS[seg], closeCollection, drilledIn);
+  useOverlayBackHandler(drilledIn, closeCollection);
 
   const listError = (
     <EmptyState
@@ -483,26 +525,44 @@ export default function MyBooksTab({
       />
     );
 
-  const tabsRef = React.useRef<HTMLDivElement>(null);
-  const [tabsH, setTabsH] = React.useState(58);
-
-  React.useLayoutEffect(() => {
-    const el = tabsRef.current;
-    if (!el) return;
-    const measure = () => setTabsH(el.offsetHeight);
-    measure();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-    ro?.observe(el);
-    return () => ro?.disconnect();
-  }, [queueChipCount]);
+  const collectionCounts: Partial<Record<LibrarySeg, number>> = {
+    downloaded: downloadedLibraryBooks.length,
+    ...(bookmarkIds ? { favorites: bookmarkIds.size + authorRows.length + seriesRows.length } : {}),
+    ...(readIds ? { read: readIds.size } : {}),
+  };
 
   return (
-    <div className="relative flex-1 min-h-0 h-full overflow-hidden">
-      <div
-        className="inpx-books-pane absolute inset-0 min-h-0 flex flex-col"
-        style={{ ['--inpx-under' as string]: `${tabsH}px` }}
-        {...librarySwipe}
-      >
+    <div className="relative flex flex-1 min-h-0 h-full overflow-hidden">
+      {wide || showIndex ? (
+        <div
+          className={`min-h-0 overflow-y-auto inpx-page-scroll px-5 min-[600px]:px-8 ${
+            wide ? `w-[21.25rem] shrink-0 border-r ${theme.divider}` : 'flex-1'
+          }`}
+        >
+          <div className={wide ? '' : 'mx-auto max-w-[45rem]'}>
+            <LibraryCollections
+              seg={seg}
+              activeShelfKey={activeShelfKey}
+              highlightCurrent={wide}
+              counts={collectionCounts}
+              shelves={shelves}
+              queueCount={queueChipCount}
+              onOpenQueue={onOpenQueue}
+              onSelect={(next) => openCollection(next)}
+              onSelectShelf={selectShelf}
+              onRemoveShelf={
+                onRemoveShelf
+                  ? (shelf) => { void onRemoveShelf(String(shelf.id), shelf.kind === 'smart' ? 'smart' : 'shelf'); }
+                  : undefined
+              }
+              onNewShelf={onAddShelf ? () => openCollection('shelves', { newShelf: true }) : undefined}
+            />
+          </div>
+        </div>
+      ) : null}
+      {showIndex ? null : (
+      <div className="relative flex-1 min-w-0 min-h-0">
+      <div className="inpx-books-pane absolute inset-0 min-h-0 flex flex-col">
         {seg === 'bookmarks' ? (
           bookmarksPanel
         ) : seg === 'notes' ? (
@@ -547,7 +607,7 @@ export default function MyBooksTab({
           />
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-4 space-y-4">
-              {seg === 'shelves' && activeShelfId == null && (
+              {seg === 'shelves' && activeShelf == null && (
                 <>
                   {onAddShelf ? (
                     newShelfOpen ? (
@@ -615,70 +675,106 @@ export default function MyBooksTab({
                       onAction={onAddShelf ? () => setNewShelfOpen(true) : onGoCatalog}
                     />
                   ) : (
-                    shelves.map((s) => (
-                      <ShelfCard
-                        key={String(s.id)}
-                        name={s.name}
-                        count={s.bookCount ?? 0}
-                        serverConfig={serverConfig}
-                        storageDirectory={storageDirectory}
-                        previewBookIds={s.previewBookIds}
-                        onClick={() => setActiveShelfId(s.id)}
-                      />
-                    ))
+                    <>
+                      {regularShelves.map((s) => (
+                        <ShelfCard
+                          key={shelfKey(s)}
+                          name={s.name}
+                          count={s.bookCount ?? 0}
+                          serverConfig={serverConfig}
+                          storageDirectory={storageDirectory}
+                          previewBookIds={s.previewBookIds}
+                          onClick={() => selectShelf(s)}
+                          onDelete={onRemoveShelf ? () => { void onRemoveShelf(String(s.id), 'shelf'); } : undefined}
+                        />
+                      ))}
+                      {smartShelves.length > 0 ? (
+                        <h3 className={`${textStyles.sectionLabel} ${theme.text} mt-6 mb-1`}>Умные полки</h3>
+                      ) : null}
+                      {smartShelves.map((s) => (
+                        <ShelfCard
+                          key={shelfKey(s)}
+                          name={s.name}
+                          smart
+                          count={s.bookCount ?? 0}
+                          serverConfig={serverConfig}
+                          storageDirectory={storageDirectory}
+                          previewBookIds={s.previewBookIds}
+                          onClick={() => selectShelf(s)}
+                          onDelete={onRemoveShelf ? () => { void onRemoveShelf(String(s.id), 'smart'); } : undefined}
+                        />
+                      ))}
+                    </>
                   )}
                 </>
               )}
 
-              {seg === 'shelves' && activeShelfId != null && (
+              {seg === 'shelves' && activeShelf != null && (
                 sectionLoading ? (
                   <BookGridSkeleton count={6} />
                 ) : (
                   <div>
-                    <div className="mb-3 flex items-center gap-2">
-                      <button
-                        type="button"
-                        aria-label="Назад к списку полок"
-                        onClick={() => setActiveShelfId(null)}
-                        className={`${touchMin} inline-flex items-center gap-1 px-1 ${textStyles.bodyBold} ${theme.accentText} ${theme.focusRing}`}
-                      >
-                        <ArrowLeft className="w-4 h-4" aria-hidden /> Назад
-                      </button>
-                      <p className={`${textStyles.title} truncate flex-1 min-w-0`}>{activeShelfName ?? '…'}</p>
+                    {wide ? <h2 className={`${textStyles.sectionLabel} ${theme.text} mb-3 truncate`}>{activeShelfName ?? '…'}</h2> : null}
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      {onRemoveShelf ? (
+                        <button
+                          type="button"
+                          onClick={() => { void onRemoveShelf(String(activeShelf.id), activeShelf.kind === 'smart' ? 'smart' : 'shelf'); }}
+                          className={`shrink-0 min-h-12 ${textStyles.bodyBold} ${theme.accentText} ${theme.focusRing}`}
+                        >
+                          Удалить полку
+                        </button>
+                      ) : <span />}
+                      {shelfBooks.length > 0 ? bookListTools : null}
                     </div>
-                    {shelfBooks.length > 0 ? <div className="mb-3">{bookListTools}</div> : null}
                     {sectionError && shelfBooks.length === 0 ? (
                       listError
                     ) : shelfBooks.length === 0 ? (
                       <EmptyState
                         icon={Folder}
-                        title="Полка пуста"
-                        description="Добавьте сюда книги из библиотеки."
-                        actionLabel={onGoCatalog ? 'Каталог' : undefined}
+                        title={activeShelf.kind === 'smart' ? 'По фильтру ничего не нашлось' : 'Полка пуста'}
+                        description={activeShelf.kind === 'smart' ? 'Книги подберутся, когда в каталоге появятся совпадения.' : 'Добавьте сюда книги из библиотеки.'}
+                        actionLabel={activeShelf.kind === 'smart' ? undefined : onGoCatalog ? 'Каталог' : undefined}
                         actionVariant="primary"
-                        onAction={onGoCatalog}
+                        onAction={activeShelf.kind === 'smart' ? undefined : onGoCatalog}
                       />
                     ) : (
-                      <CatalogBookList
-                        books={sortedShelfBooks}
-                        viewMode={viewMode}
-                        serverConfig={serverConfig}
-                        storageDirectory={storageDirectory}
-                        downloadedBookIds={downloadedBookIds}
-                        readingProgressByBookId={readingProgressByBookId}
-                        readIds={readIds}
-                        virtualizeList={false}
-                        onBookClick={handleBookTap}
-                        onBookLongPress={
-                          onBookLongPress
-                            ? (book) =>
-                                onBookLongPress(book, {
-                                  shelfId: activeShelfId ?? undefined,
-                                  shelfName: activeShelfName ?? undefined,
-                                })
-                            : undefined
-                        }
-                      />
+                      <>
+                        <CatalogBookList
+                          books={sortedShelfBooks}
+                          viewMode={viewMode}
+                          serverConfig={serverConfig}
+                          storageDirectory={storageDirectory}
+                          downloadedBookIds={downloadedBookIds}
+                          readingProgressByBookId={readingProgressByBookId}
+                          readIds={readIds}
+                          virtualizeList={false}
+                          onBookClick={handleBookTap}
+                          onBookLongPress={
+                            onBookLongPress
+                              ? (book) =>
+                                  onBookLongPress(
+                                    book,
+                                    activeShelf.kind === 'smart'
+                                      ? undefined
+                                      : {
+                                          shelfId: activeShelf.id,
+                                          shelfName: activeShelfName ?? undefined,
+                                        },
+                                  )
+                              : undefined
+                          }
+                        />
+                        {activeShelf.kind === 'smart' ? (
+                          <CatalogPagination
+                            page={smartPage}
+                            pageSize={SMART_PAGE_SIZE}
+                            total={smartTotal}
+                            onPageChange={setSmartPage}
+                            isAppDark={isAppDark}
+                          />
+                        ) : null}
+                      </>
                     )}
                   </div>
                 )
@@ -770,30 +866,8 @@ export default function MyBooksTab({
           </div>
         )}
       </div>
-      <div
-        ref={tabsRef}
-        className="inpx-chrome inpx-chrome-top absolute inset-x-0 z-20 px-5 pt-1 pb-3"
-        style={{ top: 'var(--app-header-offset, 4rem)' }}
-      >
-        {queueChipCount > 0 && onOpenQueue ? (
-          <div className="flex justify-end pb-1">
-            <button
-              type="button"
-              onClick={onOpenQueue}
-              className={`shrink-0 min-h-11 px-3 ${textStyles.captionBold} ${theme.accentText} ${theme.focusRing}`}
-            >
-              {queueChipCount} в очереди
-            </button>
-          </div>
-        ) : null}
-        <SegmentTabStrip<LibrarySeg>
-          tabs={SEG_TABS}
-          active={seg}
-          tabRefs={segBtnRefs}
-          aria-label="Раздел библиотеки"
-          onChange={goToSeg}
-        />
       </div>
+      )}
     </div>
   );
 }

@@ -117,7 +117,7 @@ export default function ProfileScreen({
         ) : null}
         <div className="min-w-0">
           {username ? (
-            <p className={`text-xl leading-7 font-extrabold tracking-[-0.02em] ${theme.text} truncate`}>{username}</p>
+            <p className={`font-serif text-[1.375rem] leading-7 font-semibold ${theme.text} truncate`}>{username}</p>
           ) : null}
           {profile?.user?.role === 'admin' ? (
             <p className={`${textStyles.caption} ${theme.textMuted}`}>Администратор</p>
