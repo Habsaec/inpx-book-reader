@@ -5,16 +5,16 @@ import {
   ChevronRight,
   Download,
   FolderOpen,
-  FolderPlus,
   HardDrive,
   Heart,
   Highlighter,
   Library,
+  Plus,
   Trash2,
   type LucideIcon,
 } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
-import { motion, textStyles } from '../../ui/tokens';
+import { motion, radii, textStyles } from '../../ui/tokens';
 import { shelfKey, type UiShelf } from '../../lib/inpxClient';
 
 export type LibrarySeg = 'downloaded' | 'local' | 'favorites' | 'shelves' | 'read' | 'bookmarks' | 'notes';
@@ -198,7 +198,17 @@ export default function LibraryCollections({
             onDelete={removeShelf?.(shelf)}
           />
         ))}
-        {onNewShelf ? <Row icon={FolderPlus} label="Новая полка" accent onClick={onNewShelf} /> : null}
+        {onNewShelf ? (
+          <button
+            type="button"
+            onClick={onNewShelf}
+            title="Создать"
+            aria-label="Создать"
+            className={`inline-flex items-center justify-center w-12 h-12 mt-1 ${radii.md} ${theme.accentText} ${theme.focusRing} ${motion.press}`}
+          >
+            <Plus className="w-5 h-5" aria-hidden />
+          </button>
+        ) : null}
       </Group> : null}
       {smartShelves.length > 0 ? <Group title="Умные полки">
         {smartShelves.map((shelf) => (

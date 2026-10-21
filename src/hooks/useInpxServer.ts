@@ -119,6 +119,10 @@ export function useInpxServer(
 
   // Request ID для защиты от гонок данных при изменении config во время запроса
   const refreshRequestId = React.useRef(0);
+  /** Newer shelf-list fetch wins over an older in-flight refresh. */
+  const shelfListGen = React.useRef(0);
+  const lastShelfFetchAt = React.useRef(0);
+  const shelfMembershipRef = React.useRef('');
   /** Bumped on bookmark/read toggles so slow-path dumps don't clobber optimistic UI. */
   const collectionsMutationEpoch = React.useRef(0);
 
@@ -136,6 +140,8 @@ export function useInpxServer(
     try {
       await processSyncQueue(config);
       if (!isCurrent()) return;
+      const shelfGen = ++shelfListGen.current;
+      lastShelfFetchAt.current = Date.now();
       const [profileRes, favs, shelfList, smartShelfList, activityMeta] = await Promise.all([
         fetchProfile(config),
         fetchFavorites(config),
@@ -151,8 +157,11 @@ export function useInpxServer(
       setFavoriteSeriesItems(favs.series);
       setFavoriteAuthors(favs.authors.map((a) => a.name));
       setFavoriteSeries(favs.series.map((s) => s.name));
-      setShelves(shelfList);
-      setSmartShelves(smartShelfList);
+      if (shelfGen === shelfListGen.current) {
+        shelfMembershipRef.current = `${shelfList.map((s) => `${s.id}\0${s.name}`).join('|')}#${smartShelfList.map((s) => `${s.id}\0${s.name}`).join('|')}`;
+        setShelves(shelfList);
+        setSmartShelves(smartShelfList);
+      }
 
       const quickProgress = new Map<string, number>();
       prof.recentBooks.forEach((book) => {
@@ -315,6 +324,7 @@ export function useInpxServer(
   const addShelf = React.useCallback(async (name: string) => {
     if (!online) return null;
     const id = await withAuthGuard(() => createServerShelf(config, name));
+    shelfListGen.current += 1;
     setShelves((prev) => {
       if (prev.some((s) => s.id === id)) return prev;
       return [...prev, { id, name, bookCount: 0, previewBookIds: [] }];
@@ -326,6 +336,7 @@ export function useInpxServer(
     if (!online) return;
     refreshRequestId.current += 1;
     await withAuthGuard(() => deleteServerShelf(config, shelfId));
+    shelfListGen.current += 1;
     setShelves((prev) => prev.filter((s) => s.id !== shelfId));
   }, [config, online]);
 
@@ -333,6 +344,7 @@ export function useInpxServer(
     if (!online) return;
     refreshRequestId.current += 1;
     await withAuthGuard(() => deleteSmartShelf(config, shelfId));
+    shelfListGen.current += 1;
     setSmartShelves((prev) => prev.filter((s) => s.id !== shelfId));
   }, [config, online]);
 
@@ -566,6 +578,31 @@ export function useInpxServer(
     [config, online, withAuthGuard],
   );
 
+  /** Shelves only — a deletion on the website should drop the row without a full profile reload. */
+  const refreshShelves = React.useCallback(async (): Promise<boolean> => {
+    if (!online) return false;
+    const now = Date.now();
+    if (now - lastShelfFetchAt.current < 1500) return false;
+    lastShelfFetchAt.current = now;
+    const gen = ++shelfListGen.current;
+    try {
+      const [shelfList, smartShelfList] = await withAuthGuard(() => Promise.all([
+        fetchShelves(config),
+        fetchSmartShelves(config),
+      ]));
+      if (gen !== shelfListGen.current) return false;
+      const membership = `${shelfList.map((s) => `${s.id}\0${s.name}`).join('|')}#${smartShelfList.map((s) => `${s.id}\0${s.name}`).join('|')}`;
+      const changed = membership !== shelfMembershipRef.current;
+      shelfMembershipRef.current = membership;
+      setShelves(shelfList);
+      setSmartShelves(smartShelfList);
+      return changed;
+    } catch {
+      if (gen === shelfListGen.current) lastShelfFetchAt.current = 0;
+      return false;
+    }
+  }, [config, online, withAuthGuard]);
+
   const fetchSectionBooks = React.useCallback(
     async (section: 'bookmarks' | 'read' | 'continue' | 'recent' | 'recommended', page = 1): Promise<InpxBookItem[]> => {
       if (!online) return [];
@@ -599,6 +636,7 @@ export function useInpxServer(
     syncStatus,
     lastSynced,
     refresh,
+    refreshShelves,
     toggleBookmark,
     toggleRead,
     toggleFavoriteAuthor,

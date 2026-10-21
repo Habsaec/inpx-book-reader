@@ -1,8 +1,7 @@
 import React from 'react';
-import { FolderPlus } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, radii, motion } from '../ui/tokens';
-import Button from '../ui/Button';
+import ShelfCreateField from './shelves/ShelfCreateField';
 import type { UiShelf } from '../lib/inpxClient';
 
 interface ShelfPickerProps {
@@ -58,33 +57,19 @@ export default function ShelfPicker({
           </button>
         ))
       )}
-      {onCreate && creating ? (
-        <div className="flex gap-2">
-          <input
-            className={`flex-1 min-h-12 min-w-0 px-3 ${textStyles.body} ${radii.button} ${theme.input} ${theme.inputFocus}`}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                submitCreate();
-              }
-            }}
-            placeholder="Название полки"
-            maxLength={80}
-            autoFocus
-            disabled={busy}
-            aria-label="Название новой полки"
-          />
-          <Button disabled={busy || !name.trim()} onClick={submitCreate}>
-            Создать
-          </Button>
-        </div>
-      ) : onCreate ? (
-        <Button variant="secondary" fullWidth disabled={busy} onClick={() => setCreating(true)}>
-          <FolderPlus className="w-4 h-4" aria-hidden />
-          Новая полка
-        </Button>
+      {onCreate ? (
+        <ShelfCreateField
+          open={creating}
+          name={name}
+          busy={busy}
+          onOpen={() => setCreating(true)}
+          onClose={() => {
+            setCreating(false);
+            setName('');
+          }}
+          onNameChange={setName}
+          onSubmit={submitCreate}
+        />
       ) : null}
     </div>
   );

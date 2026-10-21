@@ -347,6 +347,28 @@ export default function App() {
     setFavoriteSeries,
     setShelves,
   ]);
+
+  const [homeShelvesEpoch, setHomeShelvesEpoch] = React.useState(0);
+  React.useEffect(() => {
+    if (!isOnline) return;
+    if (activeTab !== 'home' && activeTab !== 'library') return;
+    let timer = 0;
+    const pull = () => {
+      if (document.visibilityState === 'hidden') return;
+      void inpxServer.refreshShelves().then((updated) => {
+        if (updated) setHomeShelvesEpoch((n) => n + 1);
+      });
+    };
+    document.addEventListener('visibilitychange', pull);
+    window.addEventListener('focus', pull);
+    pull();
+    timer = window.setInterval(pull, 8000);
+    return () => {
+      document.removeEventListener('visibilitychange', pull);
+      window.removeEventListener('focus', pull);
+      window.clearInterval(timer);
+    };
+  }, [isOnline, activeTab, inpxServer.refreshShelves]);
   const { siteName, logoSrc } = useServerBranding(serverConfig);
 
   const appBootReady = serverConfigReady && libraryReady && storageDirectoryReady;
@@ -1110,6 +1132,7 @@ export default function App() {
               onBookLongPress={openBookActions}
               isTabActive={activeTab === 'home' && !activeReader}
               homeRootEpoch={homeRootEpoch}
+              homeShelvesEpoch={homeShelvesEpoch}
               readIds={isOnline ? inpxServer.readIds : undefined}
               onAuthExpired={markAuthExpired}
               onConnectionLost={markServerDisconnected}

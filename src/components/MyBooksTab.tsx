@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Folder, FolderPlus, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Heart, Folder, CheckCircle2, AlertCircle } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
@@ -10,12 +10,13 @@ import CatalogBookList from './catalog/CatalogBookList';
 import CatalogPagination from './catalog/CatalogPagination';
 import EntityPreviewRow from './EntityPreviewRow';
 import ShelfCard from './shelves/ShelfCard';
+import ShelfCreateField from './shelves/ShelfCreateField';
 import ViewModeToggle from '../ui/ViewModeToggle';
 import BookSortBar from './catalog/BookSortBar';
 import { LOCAL_BOOK_SORT_OPTIONS, sortBooksLocal, type LocalBookSort } from '../lib/localBookSort';
 import { BookGridSkeleton, BookListSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
-import { textStyles, radii } from '../ui/tokens';
+import { textStyles } from '../ui/tokens';
 import { usePageTitle } from '../ui/pageTitle';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
@@ -205,6 +206,12 @@ export default function MyBooksTab({
     setNewShelfOpen(false);
     setCollectionOpen(false);
   }, [libraryRootEpoch]);
+
+  React.useEffect(() => {
+    if (!activeShelfKey) return;
+    if (shelves.some((shelf) => shelfKey(shelf) === activeShelfKey)) return;
+    setActiveShelfKey(null);
+  }, [shelves, activeShelfKey]);
 
   const authorRows = React.useMemo(() => {
     if (favoriteAuthorItems && favoriteAuthorItems.length > 0) return favoriteAuthorItems;
@@ -610,60 +617,28 @@ export default function MyBooksTab({
               {seg === 'shelves' && activeShelf == null && (
                 <>
                   {onAddShelf ? (
-                    newShelfOpen ? (
-                      <div className="flex gap-2">
-                        <input
-                          className={`flex-1 min-h-12 min-w-0 px-3 ${textStyles.body} ${radii.button} ${theme.input} ${theme.inputFocus}`}
-                          value={newShelfName}
-                          onChange={(e) => setNewShelfName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key !== 'Enter') return;
-                            e.preventDefault();
-                            const name = newShelfName.trim();
-                            if (!name || newShelfBusy) return;
-                            setNewShelfBusy(true);
-                            void onAddShelf(name)
-                              .then(() => {
-                                setNewShelfName('');
-                                setNewShelfOpen(false);
-                              })
-                              .finally(() => setNewShelfBusy(false));
-                          }}
-                          placeholder="Название полки"
-                          maxLength={80}
-                          autoFocus
-                          disabled={newShelfBusy}
-                          aria-label="Название новой полки"
-                        />
-                        <button
-                          type="button"
-                          disabled={newShelfBusy || !newShelfName.trim()}
-                          onClick={() => {
-                            const name = newShelfName.trim();
-                            if (!name || newShelfBusy) return;
-                            setNewShelfBusy(true);
-                            void onAddShelf(name)
-                              .then(() => {
-                                setNewShelfName('');
-                                setNewShelfOpen(false);
-                              })
-                              .finally(() => setNewShelfBusy(false));
-                          }}
-                          className={`shrink-0 min-h-12 px-4 ${textStyles.bodyBold} ${theme.accentText} ${theme.focusRing} disabled:opacity-50`}
-                        >
-                          Создать
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setNewShelfOpen(true)}
-                        className={`w-full min-h-12 px-3 inline-flex items-center justify-center gap-2 ${textStyles.bodyBold} ${theme.accentText} ${radii.button} ${theme.chip} ${theme.focusRing}`}
-                      >
-                        <FolderPlus className="w-4 h-4" aria-hidden />
-                        Новая полка
-                      </button>
-                    )
+                    <ShelfCreateField
+                      open={newShelfOpen}
+                      name={newShelfName}
+                      busy={newShelfBusy}
+                      onOpen={() => setNewShelfOpen(true)}
+                      onClose={() => {
+                        setNewShelfOpen(false);
+                        setNewShelfName('');
+                      }}
+                      onNameChange={setNewShelfName}
+                      onSubmit={() => {
+                        const name = newShelfName.trim();
+                        if (!name || newShelfBusy) return;
+                        setNewShelfBusy(true);
+                        void onAddShelf(name)
+                          .then(() => {
+                            setNewShelfName('');
+                            setNewShelfOpen(false);
+                          })
+                          .finally(() => setNewShelfBusy(false));
+                      }}
+                    />
                   ) : null}
                   {shelves.length === 0 && !newShelfOpen ? (
                     <EmptyState

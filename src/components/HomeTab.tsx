@@ -203,6 +203,8 @@ interface HomeTabProps {
   isTabActive?: boolean;
   /** Bumped when Home tab is selected again — close «Показать всё» lists. */
   homeRootEpoch?: number;
+  /** Bumped when the server shelf list changes — reload pinned home shelves. */
+  homeShelvesEpoch?: number;
   readIds?: Set<string>;
   onAuthExpired?: () => void;
   onConnectionLost?: () => void;
@@ -230,6 +232,7 @@ export default function HomeTab({
   onOpenDetails,
   isTabActive = true,
   homeRootEpoch = 0,
+  homeShelvesEpoch = 0,
   readIds,
   onAuthExpired,
   onConnectionLost,
@@ -403,11 +406,15 @@ export default function HomeTab({
     fetchHomeShelves(serverConfig)
       .then((shelves) => {
         if (cancelled) return;
-        setHomeShelves(shelves.map((shelf) => ({
+        const next = shelves.map((shelf) => ({
           key: `${shelf.kind}:${shelf.id}`,
           ref: { id: shelf.id, kind: shelf.kind, title: shelf.title },
           books: shelf.items.map((b) => mapServerBook(b, serverConfig)),
-        })));
+        }));
+        setHomeShelves(next);
+        setOpenShelf((current) => (
+          current && next.some((shelf) => shelf.key === `${current.kind}:${current.id}`) ? current : null
+        ));
       })
       .catch(() => {
         // Как на веб-главной: недоступные полки просто не показываются.
@@ -416,7 +423,7 @@ export default function HomeTab({
     return () => {
       cancelled = true;
     };
-  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey]);
+  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, homeShelvesEpoch]);
 
   React.useEffect(() => {
     if (!fetchSectionBooks || !isOnline || recentMode === 'off') return;
