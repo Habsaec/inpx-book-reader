@@ -1110,7 +1110,8 @@ export function useBookActions(opts: {
             onAuthExpiredRef.current?.();
             return null;
           }
-          throw e;
+          snackbar.show(e instanceof Error && e.message ? e.message : 'Не удалось создать полку', undefined, 'error');
+          return null;
         }
       }
       const id = `shelf_${Date.now()}`;
@@ -1118,7 +1119,7 @@ export function useBookActions(opts: {
       void enqueueSyncOp('shelf_create', id, { name: trimmed });
       return id;
     },
-    [inpxServer, isOnline, setShelves],
+    [inpxServer, isOnline, setShelves, snackbar],
   );
 
   const handleAddBookToShelf = React.useCallback(

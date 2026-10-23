@@ -25,6 +25,8 @@ export type BookActionsTarget = {
   /** When opened from a shelf book grid — enables «Убрать с полки». */
   shelfId?: number | string;
   shelfName?: string;
+  /** Opened from «Ещё» on the book page — skip actions that page already has. */
+  fromDetails?: boolean;
 };
 
 interface BookActionsSheetProps {
@@ -104,7 +106,7 @@ export default function BookActionsSheet({
   }, [open]);
 
   if (!shown) return null;
-  const { book, shelfId, shelfName } = shown;
+  const { book, shelfId, shelfName, fromDetails = false } = shown;
   const showRemoveFromShelf = shelfId != null && Boolean(onRemoveFromShelf);
 
   return (
@@ -148,7 +150,7 @@ export default function BookActionsSheet({
         </div>
 
         <div className={`flex flex-col border-t ${theme.divider} -mb-2`}>
-          {onOpenDetails && (
+          {onOpenDetails && !fromDetails && (
             <ActionRow
               icon={<Info className="w-5 h-5 shrink-0" aria-hidden />}
               onClick={() => {
@@ -160,7 +162,7 @@ export default function BookActionsSheet({
             </ActionRow>
           )}
 
-          {isOnline && onToggleBookmark && (
+          {isOnline && onToggleBookmark && !fromDetails && (
             <ActionRow
               icon={(
                 <Heart
@@ -203,7 +205,7 @@ export default function BookActionsSheet({
             </ActionRow>
           )}
 
-          {(onAddToShelf || onCreateShelf) && (
+          {(onAddToShelf || onCreateShelf) && !fromDetails && (
             shelfPickerOpen ? (
               <div className="pt-3 pb-1">
                 <p className={`${textStyles.captionBold} ${theme.textMuted} mb-2`}>На полку</p>
@@ -226,12 +228,14 @@ export default function BookActionsSheet({
                           setShelfBusy(true);
                           try {
                             const id = await onCreateShelf(name);
-                            if (id != null && onAddToShelf) {
+                            if (id == null) return false;
+                            if (onAddToShelf) {
                               const added = await onAddToShelf(book.id, id);
                               if (added !== false) onClose();
-                            } else if (id != null) {
+                            } else {
                               onClose();
                             }
+                            return true;
                           } finally {
                             setShelfBusy(false);
                           }

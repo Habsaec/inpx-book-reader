@@ -3,6 +3,8 @@ import React from 'react';
 export type PageTitleEntry = {
   title: string;
   onBack: (() => void) | null;
+  /** Query shown by this screen — prefills the shell search when it opens. */
+  searchQuery?: string;
 };
 
 type Api = {
@@ -10,6 +12,9 @@ type Api = {
   pop: (id: number) => void;
   top: PageTitleEntry | null;
   subscribe: (listener: () => void) => () => void;
+  /** Shell registers how to open its search field; screens call `openSearch`. */
+  setSearchOpener: (opener: (() => void) | null) => void;
+  openSearch: () => void;
 };
 
 const PageTitleContext = React.createContext<Api | null>(null);
@@ -18,6 +23,7 @@ export function PageTitleProvider({ children }: { children: React.ReactNode }) {
   const stack = React.useRef<{ id: number; entry: PageTitleEntry }[]>([]);
   const seq = React.useRef(0);
   const listeners = React.useRef(new Set<() => void>());
+  const searchOpener = React.useRef<(() => void) | null>(null);
 
   const api = React.useMemo<Api>(() => {
     const notify = () => {
@@ -42,6 +48,12 @@ export function PageTitleProvider({ children }: { children: React.ReactNode }) {
         listeners.current.add(listener);
         return () => listeners.current.delete(listener);
       },
+      setSearchOpener(opener) {
+        searchOpener.current = opener;
+      },
+      openSearch() {
+        searchOpener.current?.();
+      },
     };
   }, []);
 
@@ -49,7 +61,12 @@ export function PageTitleProvider({ children }: { children: React.ReactNode }) {
 }
 
 /** Puts this screen's title in the shell bar. `onBack` may change every render. */
-export function usePageTitle(title: string, onBack?: () => void, enabled = true) {
+export function usePageTitle(
+  title: string,
+  onBack?: () => void,
+  enabled = true,
+  searchQuery?: string,
+) {
   const api = React.useContext(PageTitleContext);
   const onBackRef = React.useRef(onBack);
   onBackRef.current = onBack;
@@ -59,9 +76,10 @@ export function usePageTitle(title: string, onBack?: () => void, enabled = true)
     const id = api.push({
       title,
       onBack: () => onBackRef.current?.(),
+      searchQuery,
     });
     return () => api.pop(id);
-  }, [api, enabled, title]);
+  }, [api, enabled, title, searchQuery]);
 }
 
 export function usePageTitleTop(): PageTitleEntry | null {
@@ -74,4 +92,22 @@ export function usePageTitleTop(): PageTitleEntry | null {
     return api.subscribe(read);
   }, [api]);
   return top;
+}
+
+/** Opens the shell search field (prefilled with the screen's `searchQuery`). */
+export function useOpenShellSearch(): () => void {
+  const api = React.useContext(PageTitleContext);
+  return React.useCallback(() => api?.openSearch(), [api]);
+}
+
+/** Shell side of `useOpenShellSearch`. */
+export function useShellSearchOpener(opener: () => void) {
+  const api = React.useContext(PageTitleContext);
+  const ref = React.useRef(opener);
+  ref.current = opener;
+  React.useEffect(() => {
+    if (!api) return;
+    api.setSearchOpener(() => ref.current());
+    return () => api.setSearchOpener(null);
+  }, [api]);
 }

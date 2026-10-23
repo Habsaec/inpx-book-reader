@@ -22,6 +22,12 @@ export function useEinkMode(libraryReady: boolean) {
     if (!libraryReady) return;
     const saved = parseEinkModePref(getAppSettingString(APP_SETTING_KEYS.einkMode, 'auto'));
     setPrefState(saved);
+    // Settings restored from a backup.
+    const onSettings = () => setPrefState(
+      parseEinkModePref(getAppSettingString(APP_SETTING_KEYS.einkMode, 'auto')),
+    );
+    window.addEventListener('inpx-settings', onSettings);
+    return () => window.removeEventListener('inpx-settings', onSettings);
   }, [libraryReady]);
 
   React.useEffect(() => {

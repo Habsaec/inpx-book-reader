@@ -38,6 +38,7 @@ interface ProfileScreenProps {
   localBookCount?: number;
   localInProgressCount?: number;
   connectionFocusEpoch?: number;
+  updateFocusEpoch?: number;
 }
 
 const MEMBER_MONTHS = [
@@ -77,6 +78,7 @@ export default function ProfileScreen({
   localBookCount = 0,
   localInProgressCount = 0,
   connectionFocusEpoch = 0,
+  updateFocusEpoch = 0,
 }: ProfileScreenProps) {
   const username = profile?.user?.username?.trim() || serverConfig.username?.trim() || '';
   const initial = username ? username.charAt(0).toUpperCase() : '';
@@ -208,6 +210,7 @@ export default function ProfileScreen({
         onForgetServer={onForgetServer}
         connectionError={connectionError}
         connectionFocusEpoch={connectionFocusEpoch}
+        updateFocusEpoch={updateFocusEpoch}
       />
     </div>
   );

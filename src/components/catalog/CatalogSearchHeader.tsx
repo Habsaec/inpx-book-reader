@@ -52,6 +52,7 @@ export default function CatalogSearchHeader({
   subTab,
   onSubTabChange,
   isServerConnected,
+  searchInput,
   onClearSearch,
   entitySort,
   onEntitySortChange,
@@ -61,12 +62,13 @@ export default function CatalogSearchHeader({
   onEntityBack,
   active = true,
 }: CatalogSearchHeaderProps) {
+  const query = mode === 'search' ? searchInput.trim() : '';
   const drillTitle = mode === 'entity'
     ? (entityTitle || 'Каталог')
     : mode === 'browse'
       ? (browseTitle || 'Каталог')
       : mode === 'search'
-        ? 'Поиск'
+        ? (query ? `«${query}»` : 'Поиск')
         : '';
   const onBack = mode === 'entity'
     ? onEntityBack
@@ -76,7 +78,7 @@ export default function CatalogSearchHeader({
         ? onClearSearch
         : undefined;
 
-  usePageTitle(drillTitle, onBack, active && mode !== 'landing');
+  usePageTitle(drillTitle, onBack, active && mode !== 'landing', query || undefined);
   const slot = React.useContext(CatalogToolSlot);
 
   const showSort =

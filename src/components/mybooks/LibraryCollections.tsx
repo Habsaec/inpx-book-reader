@@ -106,7 +106,7 @@ function ShelfRow({
           type="button"
           aria-label={`Удалить полку «${shelf.name}»`}
           onClick={onDelete}
-          className={`w-12 shrink-0 inline-flex items-center justify-center ${theme.accentText} ${theme.focusRing} ${motion.press}`}
+          className={`w-12 shrink-0 inline-flex items-center justify-center text-[var(--app-danger)] ${theme.focusRing} ${motion.press}`}
         >
           <Trash2 className="w-5 h-5" aria-hidden />
         </button>
@@ -176,7 +176,7 @@ export default function LibraryCollections({
           />
         ))}
       </Group>
-      <Group title="Заметки">
+      <Group title="Из книг">
         {NOTES_GROUP.map(({ seg: s, icon }) => (
           <Row
             key={s}
@@ -202,8 +202,8 @@ export default function LibraryCollections({
           <button
             type="button"
             onClick={onNewShelf}
-            title="Создать"
-            aria-label="Создать"
+            title="Создать полку"
+            aria-label="Создать полку"
             className={`inline-flex items-center justify-center w-12 h-12 mt-1 ${radii.md} ${theme.accentText} ${theme.focusRing} ${motion.press}`}
           >
             <Plus className="w-5 h-5" aria-hidden />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, AlertCircle, ChevronRight, MoreVertical, Play, Loader2 } from 'lucide-react';
+import { BookOpen, AlertCircle, ChevronRight, Download, MoreVertical, Play, Loader2 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { InpxProfile, mapServerBook, starsFromLibRate, fetchLibraryView, fetchHomeShelves, isAuthError, isUnreachableServerError, bookContentUrl, displayCoverUrl } from '../lib/inpxClient';
 import { Book, ServerConfig } from '../types';
@@ -53,6 +53,7 @@ function HomeSectionHeader({
 
 function HeroActionIcon({ kind }: { kind: BookPrimaryKind }) {
   if (kind === 'downloading') return <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />;
+  if (kind === 'download') return <Download className="w-4 h-4 shrink-0" aria-hidden />;
   return <Play className="w-4 h-4 fill-current shrink-0" aria-hidden />;
 }
 
@@ -226,6 +227,7 @@ export default function HomeTab({
   downloadingId = null,
   queuedBookIds,
   fetchSectionBooks,
+  onRefresh,
   onGoCatalog,
   onGoProfile,
   onBookLongPress,
@@ -257,11 +259,22 @@ export default function HomeTab({
   const downloadJobs = useDownloadQueue();
   const homeRootEpochSeen = React.useRef(homeRootEpoch);
 
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Re-tap on «Главная»: close «Все» lists; already at the root — scroll up and reload.
   React.useEffect(() => {
     if (homeRootEpochSeen.current === homeRootEpoch) return;
     homeRootEpochSeen.current = homeRootEpoch;
-    setSectionView(null);
-    setOpenShelf(null);
+    if (sectionView || openShelf) {
+      setSectionView(null);
+      setOpenShelf(null);
+      return;
+    }
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!isOnline) return;
+    setSectionKey((k) => k + 1);
+    void onRefresh?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to the re-tap only
   }, [homeRootEpoch]);
 
   const handleCatalogBookTap = React.useCallback(
@@ -304,7 +317,7 @@ export default function HomeTab({
     }
     return set;
   }, [mergedRecent]);
-  const visibleRecent = recentMode === 'fav'
+  const visibleRecent = (recentMode === 'fav'
     ? recentServer.filter((book) => {
         const author = (book.author || '').toLowerCase();
         if (!author || readAuthorKeys.size === 0) return false;
@@ -313,7 +326,7 @@ export default function HomeTab({
         }
         return false;
       })
-    : recentServer;
+    : recentServer).slice(0, 8);
 
   const hero = mergedRecent[0];
   const heroProgress = hero ? (readingProgressByBookId[hero.id] ?? hero.readProgress ?? 0) : 0;
@@ -433,7 +446,8 @@ export default function HomeTab({
     fetchSectionBooks('recent', 1)
       .then((items) => {
         if (cancelled) return;
-        setRecentServer(items.slice(0, 8).map((b) => mapServerBook(b, serverConfig)));
+        // Keep the whole first page: «Мои авторы» filters it before the preview is cut to 8.
+        setRecentServer(items.map((b) => mapServerBook(b, serverConfig)));
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -529,7 +543,7 @@ export default function HomeTab({
             type="button"
             className={`w-28 min-[600px]:w-[9.5rem] shrink-0 self-start select-none touch-manipulation ${theme.focusRing} ${motion.press} disabled:opacity-70`}
             disabled={heroAction.disabled}
-            aria-label={`${heroAction.kind === 'downloading' ? heroAction.label : 'Продолжить'}: ${displayBookTitle(hero)}`}
+            aria-label={`${heroAction.kind === 'reread' ? 'Читать снова' : heroAction.label}: ${displayBookTitle(hero)}`}
             {...heroPress}
           >
             <span className="book-cover w-full">
@@ -600,7 +614,7 @@ export default function HomeTab({
                 className={`min-h-12 px-5 ${radii.button} ${textStyles.bodyBold} inline-flex items-center gap-2 ${theme.accentBg} disabled:opacity-60 ${motion.press} ${theme.focusRing}`}
               >
                 <HeroActionIcon kind={heroAction.kind} />
-                {heroAction.kind === 'downloading' ? heroAction.label : 'Продолжить'}
+                {heroAction.kind === 'reread' ? 'Читать снова' : heroAction.label}
               </button>
             </div>
           </div>
@@ -648,7 +662,11 @@ export default function HomeTab({
 
       {isOnline && recentMode !== 'off' && (
         <section className="space-y-4">
-          <HomeSectionHeader title="Новинки" actionLabel="Все" onAction={() => setSectionView('recent')} />
+          <HomeSectionHeader
+            title={recentMode === 'fav' ? 'Новинки ваших авторов' : 'Новинки'}
+            actionLabel={recentMode === 'fav' ? 'Все новинки' : 'Все'}
+            onAction={() => setSectionView('recent')}
+          />
           {recentError && !recentLoading ? (
             <EmptyState
               compact
@@ -735,7 +753,7 @@ export default function HomeTab({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-5 min-[600px]:px-8">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-5 min-[600px]:px-8">
         <div className={`mx-auto w-full max-w-[60rem] ${spacing.shelfY}`}>{scrollInner}</div>
       </div>
     </div>

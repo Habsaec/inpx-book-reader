@@ -64,7 +64,7 @@ export default function ShelfCard({
           type="button"
           aria-label={`Удалить полку «${name}»`}
           onClick={onDelete}
-          className={`w-12 shrink-0 self-center inline-flex items-center justify-center ${theme.accentText} ${theme.focusRing} ${motion.press}`}
+          className={`w-12 shrink-0 self-center inline-flex items-center justify-center text-[var(--app-danger)] ${theme.focusRing} ${motion.press}`}
         >
           <Trash2 className="w-5 h-5" aria-hidden />
         </button>

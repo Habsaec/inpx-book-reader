@@ -30,8 +30,12 @@ export function useCatalogViewMode(scope: BooksViewScope = 'books', libraryReady
   React.useEffect(() => {
     const onChange: Listener = (mode) => setViewModeState(mode);
     listenersByScope[scope].add(onChange);
+    // Settings restored from a backup.
+    const onSettings = () => setViewModeState(readResolved(scope));
+    window.addEventListener('inpx-settings', onSettings);
     return () => {
       listenersByScope[scope].delete(onChange);
+      window.removeEventListener('inpx-settings', onSettings);
     };
   }, [scope]);
 

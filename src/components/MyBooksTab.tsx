@@ -601,7 +601,7 @@ export default function MyBooksTab({
             downloadingId={downloadingId}
             readingProgressByBookId={readingProgressByBookId}
             readIds={readIds}
-            shelves={shelves}
+            shelves={regularShelves}
             onOpenBook={onOpenBook}
             onOpenDetails={onOpenDetails}
             onBookLongPress={onBookLongPress}
@@ -632,7 +632,8 @@ export default function MyBooksTab({
                         if (!name || newShelfBusy) return;
                         setNewShelfBusy(true);
                         void onAddShelf(name)
-                          .then(() => {
+                          .then((id) => {
+                            if (id == null) return;
                             setNewShelfName('');
                             setNewShelfOpen(false);
                           })
@@ -695,7 +696,7 @@ export default function MyBooksTab({
                         <button
                           type="button"
                           onClick={() => { void onRemoveShelf(String(activeShelf.id), activeShelf.kind === 'smart' ? 'smart' : 'shelf'); }}
-                          className={`shrink-0 min-h-12 ${textStyles.bodyBold} ${theme.accentText} ${theme.focusRing}`}
+                          className={`shrink-0 min-h-12 ${textStyles.bodyBold} text-[var(--app-danger)] ${theme.focusRing}`}
                         >
                           Удалить полку
                         </button>

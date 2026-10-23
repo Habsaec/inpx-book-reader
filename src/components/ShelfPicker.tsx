@@ -9,7 +9,8 @@ interface ShelfPickerProps {
   /** Hide the shelf the book is already on (when opened from that shelf). */
   excludeShelfId?: number | string | null;
   onPick: (shelfId: number | string) => void;
-  onCreate?: (name: string) => void | Promise<void>;
+  /** Resolve `false` when the shelf was not created, to keep the typed name. */
+  onCreate?: (name: string) => void | boolean | Promise<void | boolean>;
   busy?: boolean;
 }
 
@@ -29,7 +30,8 @@ export default function ShelfPicker({
   const submitCreate = () => {
     const next = name.trim();
     if (!next || busy) return;
-    void Promise.resolve(onCreate?.(next)).then(() => {
+    void Promise.resolve(onCreate?.(next)).then((created) => {
+      if (created === false) return;
       setName('');
       setCreating(false);
     });

@@ -164,6 +164,8 @@ export default function App() {
   const [libraryRootEpoch, setLibraryRootEpoch] = React.useState(0);
   /** Bumped when the header status icon opens connection settings. */
   const [connectionFocusEpoch, setConnectionFocusEpoch] = React.useState(0);
+  /** Bumped by «Обновить» in the new-version snackbar — scroll Profile to the update block. */
+  const [updateFocusEpoch, setUpdateFocusEpoch] = React.useState(0);
   const readerOriginTabRef = React.useRef<AppTab>('home');
 
   const { resetExitPrompt } = useAppBackButton(() => snackbar.show('Ещё раз для выхода', undefined, 'default', 4000));
@@ -381,9 +383,14 @@ export default function App() {
 
   React.useEffect(() => {
     if (!libraryReady) return;
-    const legacy = getAppSettingString(APP_SETTING_KEYS.theme);
-    setAppearance(parseAppAppearance(legacy));
-    setColorSource(parseAppColorSource(getAppSettingString(APP_SETTING_KEYS.themeColor)));
+    const read = () => {
+      setAppearance(parseAppAppearance(getAppSettingString(APP_SETTING_KEYS.theme)));
+      setColorSource(parseAppColorSource(getAppSettingString(APP_SETTING_KEYS.themeColor)));
+    };
+    read();
+    // Settings restored from a backup.
+    window.addEventListener('inpx-settings', read);
+    return () => window.removeEventListener('inpx-settings', read);
   }, [libraryReady]);
 
   React.useEffect(() => {
@@ -687,14 +694,21 @@ export default function App() {
     openBookDetails(book);
   }, [openBookDetails]);
 
-  const openBookActions = React.useCallback((book: Book, context?: { shelfId?: number | string; shelfName?: string }) => {
-    setDownloadPromptBook(null);
-    setDownloadPromptError(null);
+  const openBookActions = React.useCallback((
+    book: Book,
+    context?: { shelfId?: number | string; shelfName?: string; fromDetails?: boolean },
+  ) => {
+    // From the book page the sheet opens on top of it; closing returns to the page.
+    if (!context?.fromDetails) {
+      setDownloadPromptBook(null);
+      setDownloadPromptError(null);
+    }
     setQueueSheetOpen(false);
     setActionsTarget({
       book,
       shelfId: context?.shelfId,
       shelfName: context?.shelfName,
+      fromDetails: context?.fromDetails,
     });
   }, [setDownloadPromptBook, setDownloadPromptError]);
 
@@ -1025,6 +1039,11 @@ export default function App() {
 
   const snackbarShowRef = React.useRef(snackbar.show);
   snackbarShowRef.current = snackbar.show;
+  const openAppUpdateRef = React.useRef(() => {});
+  openAppUpdateRef.current = () => {
+    handleTabChange('profile');
+    setUpdateFocusEpoch((n) => n + 1);
+  };
 
   React.useEffect(() => {
     if (!isNativeApp()) return;
@@ -1039,7 +1058,7 @@ export default function App() {
           setAppSettingRaw(APP_SETTING_KEYS.appUpdatePrompted, result.latestVersion);
           snackbarShowRef.current(`Доступна версия v${result.latestVersion}`, {
             label: 'Обновить',
-            onClick: () => setActiveTab('profile'),
+            onClick: () => openAppUpdateRef.current(),
           });
         })
         .catch(() => {
@@ -1282,6 +1301,7 @@ export default function App() {
               localBookCount={downloadedBooksWithFile.length}
               localInProgressCount={localRecentReading.filter((b) => b.readProgress > 0 && b.readProgress < 99).length}
               connectionFocusEpoch={connectionFocusEpoch}
+              updateFocusEpoch={updateFocusEpoch}
             />
           </TabScreenPanel>
           <NextInSeriesSheet
@@ -1350,7 +1370,7 @@ export default function App() {
       )}
 
       <BookDetailsSheet
-        book={activeReader || queueSheetOpen || actionsTarget ? null : downloadPromptBook}
+        book={activeReader || queueSheetOpen ? null : downloadPromptBook}
         onClose={() => {
           setDownloadPromptBook(null);
           setDownloadPromptError(null);
@@ -1397,7 +1417,7 @@ export default function App() {
         onCreateShelf={handleAddShelf}
         isBookmarked={downloadPromptBook ? inpxServer.bookmarkIds?.has(downloadPromptBook.id) : false}
         onToggleBookmark={isOnline ? handleToggleBookBookmark : undefined}
-        onOpenActions={openBookActions}
+        onOpenActions={(book) => openBookActions(book, { fromDetails: true })}
       />
 
       <DownloadQueueSheet

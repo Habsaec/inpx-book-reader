@@ -4,7 +4,8 @@ import { isNativeApp } from './platform';
 import { revokeDeviceToken } from './inpxClient';
 
 const STORAGE_KEY = 'inpx_server_config';
-const DEFAULT_URL = 'http://127.0.0.1:3000';
+/** No address until the user enters one — a loopback placeholder means nothing on a phone. */
+const DEFAULT_URL = '';
 
 interface SecureCredentialsPlugin {
   save(options: {

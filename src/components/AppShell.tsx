@@ -8,7 +8,7 @@ import { useFollowSpring } from '../ui/useFollowSpring';
 import { useBackHandler } from '../hooks/useBackHandler';
 import DownloadQueueWidget from './DownloadQueueWidget';
 import HomeSearchBar from './HomeSearchBar';
-import { PageTitleProvider, usePageTitleTop } from '../ui/pageTitle';
+import { PageTitleProvider, usePageTitleTop, useShellSearchOpener } from '../ui/pageTitle';
 import type { ServerConfig } from '../types';
 
 /** Internal ids kept for wiring; labels are storefront-style. */
@@ -81,7 +81,8 @@ function ShellFrame({
   const pageTitle = usePageTitleTop();
   const showOfflineBanner =
     !isOnline && !isVerifyingConnection && (activeTab === 'catalog' || activeTab === 'home');
-  const showSearch = activeTab !== 'profile';
+  // Shell search looks up the server catalog — not offered where it would read as «search my books».
+  const showSearch = activeTab === 'home' || activeTab === 'catalog';
   const title = pageTitle?.title || (
     activeTab === 'home' ? siteName
       : activeTab === 'catalog' ? 'Каталог'
@@ -135,6 +136,12 @@ function ShellFrame({
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [searchOpen]);
+
+  useShellSearchOpener(() => {
+    if (!toggleSearch) return;
+    setSearchField(true);
+    setSearchOpen(true);
+  });
 
   useBackHandler(() => {
     setSearchOpen(false);
@@ -224,6 +231,7 @@ function ShellFrame({
                   serverConfig={serverConfig}
                   isOnline={isOnline}
                   inputId="shell-search"
+                  initialQuery={pageTitle?.searchQuery}
                   autoFocus={searchOpen}
                   onDismiss={() => setSearchOpen(false)}
                   onSubmitSearch={onSearchSubmit}

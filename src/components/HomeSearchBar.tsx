@@ -12,6 +12,8 @@ interface HomeSearchBarProps {
   serverConfig: ServerConfig;
   isOnline: boolean;
   inputId?: string;
+  /** Prefill when the field mounts (e.g. edit the current catalog query). */
+  initialQuery?: string;
   autoFocus?: boolean;
   onDismiss?: () => void;
   onSubmitSearch: (query: string) => void;
@@ -24,6 +26,7 @@ export default function HomeSearchBar({
   serverConfig,
   isOnline,
   inputId = 'home-search',
+  initialQuery,
   autoFocus = false,
   onDismiss,
   onSubmitSearch,
@@ -35,7 +38,7 @@ export default function HomeSearchBar({
   const panelRef = React.useRef<HTMLDivElement>(null);
   const blurTimerRef = React.useRef<number | null>(null);
   const suggestSeqRef = React.useRef(0);
-  const [query, setQuery] = React.useState('');
+  const [query, setQuery] = React.useState(initialQuery ?? '');
   const [focused, setFocused] = React.useState(false);
   const [suggestions, setSuggestions] = React.useState<SearchSuggestions>({
     books: [],
@@ -51,8 +54,17 @@ export default function HomeSearchBar({
   }, []);
 
   React.useEffect(() => {
-    if (autoFocus) inputRef.current?.focus();
-    else inputRef.current?.blur();
+    const input = inputRef.current;
+    if (!input) return;
+    if (autoFocus) {
+      input.focus();
+      const end = input.value.length;
+      try {
+        input.setSelectionRange(end, end);
+      } catch {
+        /* type=search may refuse selection */
+      }
+    } else input.blur();
   }, [autoFocus]);
 
   React.useEffect(() => {

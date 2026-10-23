@@ -325,6 +325,7 @@ export default function BookDetailsSheet({
   useOverlayBackHandler(Boolean(liveBook), goBack);
   const [annotation, setAnnotation] = React.useState<string | null>(null);
   const [annotationIsHtml, setAnnotationIsHtml] = React.useState(false);
+  const [annotationLoading, setAnnotationLoading] = React.useState(false);
   const [bookReviewHtml, setBookReviewHtml] = React.useState('');
   const [bookReviewLoading, setBookReviewLoading] = React.useState(false);
   const bookReviews = React.useMemo(() => parseBookReviews(bookReviewHtml), [bookReviewHtml]);
@@ -352,6 +353,7 @@ export default function BookDetailsSheet({
     setShelfPickerOpen(false);
     setDescOpen(false);
     setTab('about');
+    setAnnotationLoading(isServerConnected);
     if (!isServerConnected) {
       setAuthorLoading(false);
       setSeriesLoading(false);
@@ -369,7 +371,8 @@ export default function BookDetailsSheet({
       .catch((e) => {
         if (cancelled) return;
         if (isAuthError(e)) onAuthExpired?.();
-      });
+      })
+      .finally(() => { if (!cancelled) setAnnotationLoading(false); });
     if (liveBook.series?.trim()) {
       void loadSeriesFollow(serverConfig, liveBook)
         .then((shelf) => { if (!cancelled) setSeriesFollow(shelf); })
@@ -641,12 +644,14 @@ export default function BookDetailsSheet({
                             setShelfBusy(true);
                             try {
                               const id = await onCreateShelf(name);
-                              if (id != null && onAddToShelf) {
+                              if (id == null) return false;
+                              if (onAddToShelf) {
                                 const added = await onAddToShelf(book.id, id);
                                 if (added !== false) setShelfPickerOpen(false);
-                              } else if (id != null) {
+                              } else {
                                 setShelfPickerOpen(false);
                               }
+                              return true;
                             } finally {
                               setShelfBusy(false);
                             }
@@ -719,6 +724,8 @@ export default function BookDetailsSheet({
                         className={`font-serif text-[1.0625rem] leading-[1.6875rem] ${theme.text} select-text prose prose-sm ${isAppDark ? 'prose-invert' : ''} ${descOpen || !descLong ? '' : 'line-clamp-4 overflow-hidden'}`}
                         dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
                       />
+                    ) : !description && annotationLoading ? (
+                      <TextBlockSkeleton lines={4} />
                     ) : (
                       <p className={`font-serif text-[1.0625rem] leading-[1.6875rem] ${theme.text} select-text ${descOpen || !descLong ? '' : 'line-clamp-4'}`}>
                         {description || 'Аннотация отсутствует.'}

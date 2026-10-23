@@ -42,6 +42,7 @@ import {
 } from './catalog/catalogTypes';
 import { textStyles } from '../ui/tokens';
 import { useSnackbar } from '../ui/Snackbar';
+import { useOpenShellSearch } from '../ui/pageTitle';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { CatalogFilterDraft, CatalogGenreOption } from './catalog/CatalogFilterSheet';
 
@@ -156,6 +157,7 @@ export default function CatalogTab({
   const subTab = propSubTab !== undefined ? propSubTab : localSubTab;
   const setSubTab = onSubTabChange || setLocalSubTab;
   const [setToolSlot, catalogToolH, toolSlot] = useBarHeight();
+  const openShellSearch = useOpenShellSearch();
 
   const isServerConnectedEarly =
     Boolean(serverConfig.url) && serverConfig.connectionStatus === 'connected';
@@ -822,6 +824,15 @@ export default function CatalogTab({
     onClearReturnTo?.();
   }, [clearSearch, onClearReturnTo, setSubTab]);
 
+  /** Header ← in search results — same target as Android Back. */
+  const leaveSearch = React.useCallback(() => {
+    if (returnToPreviousTab) {
+      onReturnToPreviousTab?.();
+      return;
+    }
+    resetSearch();
+  }, [returnToPreviousTab, onReturnToPreviousTab, resetSearch]);
+
   const handleSubmitSearch = React.useCallback(() => {
     const q = submitSearch();
     if (!q) return;
@@ -889,7 +900,7 @@ export default function CatalogTab({
           searchInput={searchInput}
           onSearchInputChange={setSearchInput}
           onSubmitSearch={handleSubmitSearch}
-          onClearSearch={resetSearch}
+          onClearSearch={leaveSearch}
           searchPlaceholder={searchPlaceholder}
           showSearchHistory={searchHistory.length > 0}
           searchHistory={searchHistory}
@@ -1066,7 +1077,8 @@ export default function CatalogTab({
               onBookSortChange={setCatalogSort}
               onEditQuery={() => {
                 const el = document.getElementById('catalog-search') as HTMLInputElement | null;
-                el?.focus();
+                if (el) el.focus();
+                else openShellSearch();
               }}
               onGoLanding={resetSearch}
               filterCount={
@@ -1141,14 +1153,7 @@ export default function CatalogTab({
               selectedSeries={selectedSeries}
               selectedSubgenre={selectedSubgenre}
               onGoLanding={searchMode ? undefined : resetSearch}
-              onEditQuery={
-                searchMode
-                  ? () => {
-                      const open = document.querySelector('#dashboard-navbar button[aria-label="Поиск"]');
-                      if (open instanceof HTMLButtonElement) open.click();
-                    }
-                  : undefined
-              }
+              onEditQuery={searchMode ? openShellSearch : undefined}
               />
             )}
 

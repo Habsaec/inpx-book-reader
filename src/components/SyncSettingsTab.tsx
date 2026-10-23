@@ -80,6 +80,8 @@ interface SyncSettingsTabProps {
   scrollHeader?: React.ReactNode;
   /** Bumped to scroll the connection block into view (header status icon). */
   connectionFocusEpoch?: number;
+  /** Bumped to scroll the app update block into view («Обновить» in the snackbar). */
+  updateFocusEpoch?: number;
 }
 
 export default function SyncSettingsTab({
@@ -102,6 +104,7 @@ export default function SyncSettingsTab({
   embedded = false,
   scrollHeader,
   connectionFocusEpoch = 0,
+  updateFocusEpoch = 0,
 }: SyncSettingsTabProps) {
   usePageTitle('Настройки', undefined, !embedded);
   const [pickingFolder, setPickingFolder] = React.useState(false);
@@ -113,15 +116,20 @@ export default function SyncSettingsTab({
   const snackbar = useSnackbar();
   const [homeRecent, setHomeRecent] = React.useState(getHomeRecentMode);
   const [libraryFolders, setLibraryFolders] = React.useState(() => readLibraryFolders(storageDirectory));
+  const [nameStyle, setNameStyle] = React.useState(getStorageNameStyle);
   React.useEffect(() => {
-    const refresh = () => setLibraryFolders(readLibraryFolders(storageDirectory));
+    const refresh = () => {
+      setLibraryFolders(readLibraryFolders(storageDirectory));
+      setHomeRecent(getHomeRecentMode());
+      setNameStyle(getStorageNameStyle());
+    };
     window.addEventListener('inpx-settings', refresh);
     return () => window.removeEventListener('inpx-settings', refresh);
   }, [storageDirectory]);
-  const [nameStyle, setNameStyle] = React.useState(getStorageNameStyle);
   const dialog = useDialog();
   const settingsScrollRef = React.useRef<HTMLDivElement>(null);
   const connectionFocusSeen = React.useRef(connectionFocusEpoch);
+  const updateFocusSeen = React.useRef(updateFocusEpoch);
   const themeInput = theme.input;
   const themeAccentText = theme.accentText;
   const themeTextMuted = theme.textMuted;
@@ -162,7 +170,7 @@ export default function SyncSettingsTab({
     // Wipe React state first so the 250ms persist effect cannot re-save credentials
     // after clearServerCredentials finishes.
     onChangeServerConfig({
-      url: 'http://127.0.0.1:3000',
+      url: '',
       username: '',
       password: '',
       deviceToken: '',
@@ -216,16 +224,26 @@ export default function SyncSettingsTab({
     };
   }, [storageDirectory, onChangeStorageDirectory]);
 
-  const scrollServerIntoView = React.useCallback(() => {
+  const scrollSectionIntoView = React.useCallback((id: string) => {
     const root = settingsScrollRef.current;
-    const server = root?.querySelector('#settings-server');
-    if (!root || !(server instanceof HTMLElement)) {
+    const section = root?.querySelector(`#${id}`);
+    if (!root || !(section instanceof HTMLElement)) {
       root?.scrollTo({ top: 0 });
       return;
     }
-    const top = server.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop;
+    const top = section.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop;
     root.scrollTo({ top: Math.max(0, top) });
   }, []);
+  const scrollServerIntoView = React.useCallback(
+    () => scrollSectionIntoView('settings-server'),
+    [scrollSectionIntoView],
+  );
+
+  React.useLayoutEffect(() => {
+    if (updateFocusEpoch === updateFocusSeen.current) return;
+    updateFocusSeen.current = updateFocusEpoch;
+    scrollSectionIntoView('settings-update');
+  }, [updateFocusEpoch, scrollSectionIntoView]);
 
   React.useLayoutEffect(() => {
     if (connectionFocusEpoch === connectionFocusSeen.current) return;
@@ -537,13 +555,29 @@ export default function SyncSettingsTab({
             <Button className="min-w-0 flex-1" variant="secondary" onClick={() => void saveSettingsBackup(storageDirectory, snackbar.show)}>
               Сохранить настройки
             </Button>
-            <Button className="min-w-0 flex-1" variant="secondary" onClick={() => void loadSettingsBackup(storageDirectory, snackbar.show)}>
+            <Button
+              className="min-w-0 flex-1"
+              variant="secondary"
+              onClick={() => {
+                void (async () => {
+                  const accepted = await dialog.confirm({
+                    title: 'Восстановить настройки?',
+                    message: 'Текущие настройки приложения заменятся сохранёнными в папке книг.',
+                    confirmLabel: 'Восстановить',
+                    cancelLabel: 'Отмена',
+                  });
+                  if (accepted) await loadSettingsBackup(storageDirectory, snackbar.show);
+                })();
+              }}
+            >
               Восстановить
             </Button>
           </div>
         </section>
 
-        <AppUpdateSection serverConfig={serverConfig} />
+        <div id="settings-update">
+          <AppUpdateSection serverConfig={serverConfig} />
+        </div>
       </div>
     </div>
   );
@@ -551,28 +585,46 @@ export default function SyncSettingsTab({
 
 const SETTINGS_BACKUP_PATH = '.inpx-reader/settings-backup.json';
 
-async function saveSettingsBackup(dir: StorageDirectory | null, show: (message: string) => void) {
+type ShowSnackbar = ReturnType<typeof useSnackbar>['show'];
+
+async function saveSettingsBackup(dir: StorageDirectory | null, show: ShowSnackbar) {
   if (!dir?.uri) {
-    show('Сначала выберите папку книг');
+    show('Сначала выберите папку книг', undefined, 'error');
     return;
   }
-  await BookStorage.writeTextFile({
-    treeUri: dir.uri,
-    path: SETTINGS_BACKUP_PATH,
-    content: await exportAppSettingsJson(),
-  });
-  show('Настройки записаны в папку книг');
+  try {
+    await BookStorage.writeTextFile({
+      treeUri: dir.uri,
+      path: SETTINGS_BACKUP_PATH,
+      content: await exportAppSettingsJson(),
+    });
+    show('Настройки записаны в папку книг', undefined, 'success');
+  } catch (error) {
+    console.warn('[SyncSettingsTab] settings backup failed:', error);
+    show('Не удалось сохранить настройки в папку книг', undefined, 'error');
+  }
 }
 
-async function loadSettingsBackup(dir: StorageDirectory | null, show: (message: string) => void) {
+async function loadSettingsBackup(dir: StorageDirectory | null, show: ShowSnackbar) {
   if (!dir?.uri) {
-    show('Сначала выберите папку книг');
+    show('Сначала выберите папку книг', undefined, 'error');
     return;
   }
-  const { content } = await BookStorage.readTextFile({ treeUri: dir.uri, path: SETTINGS_BACKUP_PATH });
-  const n = await importAppSettingsJson(content);
-  window.dispatchEvent(new Event('inpx-settings'));
-  show(n > 0 ? 'Настройки восстановлены' : 'В файле нет настроек');
+  let content: string;
+  try {
+    ({ content } = await BookStorage.readTextFile({ treeUri: dir.uri, path: SETTINGS_BACKUP_PATH }));
+  } catch (error) {
+    console.warn('[SyncSettingsTab] settings backup read failed:', error);
+    show('В папке книг нет сохранённых настроек', undefined, 'error');
+    return;
+  }
+  try {
+    const n = await importAppSettingsJson(content);
+    window.dispatchEvent(new Event('inpx-settings'));
+    show(n > 0 ? 'Настройки восстановлены' : 'В файле нет настроек', undefined, n > 0 ? 'success' : 'default');
+  } catch (error) {
+    show(error instanceof SyntaxError || !(error instanceof Error) ? 'Файл настроек повреждён' : error.message, undefined, 'error');
+  }
 }
 
 function SettingsChoice({
