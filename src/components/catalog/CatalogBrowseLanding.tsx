@@ -29,7 +29,7 @@ export default function CatalogBrowseLanding({
   }, []);
 
   return (
-    <div className="py-2 space-y-8">
+    <div className="py-2 space-y-8 w-full max-w-[45rem] mx-auto">
       <div className={`border-t ${theme.divider}`}>
         {BROWSE_SHORTCUTS.map(({ id, label, icon: Icon }) => (
           <button

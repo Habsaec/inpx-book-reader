@@ -32,3 +32,19 @@ export function sortBooksLocal(books: Book[], sort: LocalBookSort): Book[] {
   }
   return list;
 }
+
+function normalizeForSearch(value: string): string {
+  return value.toLocaleLowerCase('ru').replace(/ё/g, 'е');
+}
+
+/** «Мои книги» filter: every word of the query must appear in the title, author or series. */
+export function filterBooksLocal(books: Book[], query: string): Book[] {
+  const words = normalizeForSearch(query).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return books;
+  return books.filter((book) => {
+    const haystack = normalizeForSearch(
+      [book.title, book.author, book.seriesDisplay, book.series].filter(Boolean).join(' '),
+    );
+    return words.every((word) => haystack.includes(word));
+  });
+}

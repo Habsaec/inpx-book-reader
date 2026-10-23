@@ -14,7 +14,8 @@ import type { UiShelf } from '../lib/inpxClient';
 import Button from '../ui/Button';
 import { readOfflineReaderData } from '../lib/offlineReaderStore';
 import { parseSyncTs } from '../lib/readerActivitySync';
-import { sortBooksLocal } from '../lib/localBookSort';
+import { filterBooksLocal, sortBooksLocal } from '../lib/localBookSort';
+import LocalBookFilter from './mybooks/LocalBookFilter';
 import { usePageTitle } from '../ui/pageTitle';
 import { useBarHeight } from '../ui/useBarHeight';
 import BookSortBar from './catalog/BookSortBar';
@@ -78,6 +79,7 @@ export default function DeviceLibraryTab({
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [shelfPickerOpen, setShelfPickerOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [query, setQuery] = React.useState('');
   const [setToolEl, toolH] = useBarHeight();
   const { viewMode, setViewMode } = useCatalogViewMode('books');
   const resetEpochSeen = React.useRef(resetEpoch);
@@ -96,6 +98,8 @@ export default function DeviceLibraryTab({
       return a.title.localeCompare(b.title, 'ru');
     });
   }, [books, readingProgressByBookId, sort]);
+
+  const visible = React.useMemo(() => filterBooksLocal(sorted, query), [sorted, query]);
 
   const exitSelect = React.useCallback(() => {
     setSelectMode(false);
@@ -191,8 +195,11 @@ export default function DeviceLibraryTab({
       style={{ ['--inpx-tool' as string]: `${toolH}px` }}
     >
       <div className="absolute inset-0 overflow-y-auto inpx-page-scroll px-5 py-4">
+        {visible.length === 0 ? (
+          <p className={`py-8 text-center ${textStyles.body} ${theme.textMuted}`}>Ничего не найдено</p>
+        ) : null}
         <CatalogBookList
-          books={sorted}
+          books={visible}
           viewMode={viewMode}
           serverConfig={serverConfig}
           storageDirectory={storageDirectory}
@@ -224,6 +231,7 @@ export default function DeviceLibraryTab({
         className="inpx-chrome inpx-chrome-top absolute inset-x-0 z-10 px-5 py-1 space-y-2"
         style={{ top: 'calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px))' }}
       >
+        {sorted.length > 1 ? <LocalBookFilter value={query} onChange={setQuery} /> : null}
         <div className="flex items-center justify-between gap-3">
           <BookSortBar
             value={sort}

@@ -120,6 +120,37 @@ function ShellFrame({
     setSearchOpen(false);
   }, [activeTab]);
 
+  // Scrolling down slides the header (and the bars pinned under it) out of view; scrolling up
+  // or reaching the top brings it back. A transform, not a height change: pages keep their
+  // top padding, so the content never jumps.
+  const shellRef = React.useRef<HTMLDivElement>(null);
+  const [chromeHidden, setChromeHidden] = React.useState(false);
+  const lastScrollTop = React.useRef(new WeakMap<Element, number>());
+  React.useEffect(() => {
+    const root = shellRef.current;
+    if (!root) return;
+    const onScroll = (event: Event) => {
+      const el = event.target;
+      if (!(el instanceof HTMLElement) || !el.classList.contains('inpx-page-scroll')) return;
+      const y = el.scrollTop;
+      const last = lastScrollTop.current.get(el) ?? y;
+      lastScrollTop.current.set(el, y);
+      if (y <= chrome.header) {
+        setChromeHidden(false);
+        return;
+      }
+      const dy = y - last;
+      if (dy > 8) setChromeHidden(true);
+      else if (dy < -8) setChromeHidden(false);
+    };
+    root.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => root.removeEventListener('scroll', onScroll, { capture: true });
+  }, [chrome.header]);
+  const headerShift = chromeHidden && !searchOpen ? chrome.header : 0;
+  React.useEffect(() => {
+    setChromeHidden(false);
+  }, [activeTab, pageTitle?.title]);
+
   React.useEffect(() => {
     if (!searchOpen) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -146,10 +177,12 @@ function ShellFrame({
 
   return (
     <div
+      ref={shellRef}
       id="main-dashboard-tabs"
       className={`relative flex flex-col h-full min-h-0 flex-1 ${theme.bg} ${theme.text}`}
       style={{
         ['--app-header-offset' as string]: `${chrome.header}px`,
+        ['--app-header-shift' as string]: `${-headerShift}px`,
         ['--app-tab-measured' as string]: `${chrome.tab}px`,
       }}
     >

@@ -1,10 +1,10 @@
 import React from 'react';
-import { Trash2 } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles, motion } from '../../ui/tokens';
 import type { ServerConfig } from '../../types';
 import type { StorageDirectory } from '../../lib/storageDirectory';
 import ShelfCoverStack from './ShelfCoverStack';
+import { useLongPress } from '../../hooks/useLongPress';
 
 function bookCountLabel(n: number): string {
   const v = Math.max(0, Math.floor(n));
@@ -37,13 +37,16 @@ export default function ShelfCard({
   const ids = (previewBookIds ?? []).map(String).filter(Boolean);
   const empty = count <= 0 && ids.length === 0;
   const countText = empty ? 'Пока нет книг' : bookCountLabel(count);
+  // Delete lives on long-press: a red bin on every card was noise and an easy mis-tap.
+  const press = useLongPress(() => onClick?.(), onDelete);
 
   return (
     <div className={`flex items-stretch border-b last:border-b-0 ${theme.divider}`}>
       <button
         type="button"
-        onClick={onClick}
-        className={`flex-1 min-w-0 text-left py-4 ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
+        {...press}
+        aria-description={onDelete ? 'Удерживайте, чтобы удалить полку' : undefined}
+        className={`flex-1 min-w-0 text-left py-4 select-none ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
       >
         {serverConfig && ids.length > 0 ? (
           <ShelfCoverStack
@@ -59,16 +62,6 @@ export default function ShelfCard({
           {smart ? `Умная · ${countText}` : countText}
         </p>
       </button>
-      {onDelete ? (
-        <button
-          type="button"
-          aria-label={`Удалить полку «${name}»`}
-          onClick={onDelete}
-          className={`w-12 shrink-0 self-center inline-flex items-center justify-center text-[var(--app-danger)] ${theme.focusRing} ${motion.press}`}
-        >
-          <Trash2 className="w-5 h-5" aria-hidden />
-        </button>
-      ) : null}
     </div>
   );
 }

@@ -707,6 +707,9 @@ body.chrome-hidden .reader-book-pages{
 
 .panel-tabs{display:flex;padding:0 12px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
 .panel-tabs::-webkit-scrollbar{display:none}
+/* openPanel sets the mode: settings has its own button, so it is not a navigation tab. */
+.panel-overlay[data-panel-mode="settings"] .panel-tabs{display:none}
+.panel-overlay[data-panel-mode="nav"] .panel-tab[data-tab="settings"]{display:none}
 .panel-tab{
   flex:1 0 auto;min-height:48px;padding:12px 10px 10px;text-align:center;font-size:12px;white-space:nowrap;
   font-weight:600;cursor:pointer;background:none;border:none;

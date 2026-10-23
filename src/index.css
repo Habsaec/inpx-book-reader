@@ -170,7 +170,7 @@ html[data-theme="light"] {
   --app-panel-soft: #ebe4d6;
   --app-topbar-bg: #f4efe6;
   --app-topbar-border: #d9cebb;
-  --app-placeholder: #7a7164;
+  --app-placeholder: #6b6357; /* ≥4.5:1 on bg, surface and panel-soft (WCAG AA) */
   --app-cover-border: rgb(29 27 24 / 0.18);
   --app-cover-bg: #e4dccb;
   --app-cover-shadow: 0 1px 3px rgb(29 27 24 / 0.2);
@@ -522,6 +522,16 @@ html[data-eink='1'] .cover-rating-wrapper {
   max-width: 100%;
   overflow-x: clip;
 }
+
+/* AppShell slides the header and the bars pinned under it up while scrolling down. */
+#main-dashboard-tabs .inpx-chrome-top {
+  transform: translateY(var(--app-header-shift, 0px));
+  transition: transform 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  #main-dashboard-tabs .inpx-chrome-top { transition: none; }
+}
+html[data-eink="1"] #main-dashboard-tabs .inpx-chrome-top { transition: none; }
 
 #main-dashboard-tabs .inpx-page-scroll {
   padding-top: calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px) + var(--inpx-tool, 0px));

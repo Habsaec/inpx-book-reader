@@ -8,6 +8,7 @@ import type { AppAppearance, AppColorSource } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { textStyles, semantic, radii, motion } from '../ui/tokens';
+import type { LibrarySeg } from './mybooks/LibraryCollections';
 
 interface ProfileScreenProps {
   profile: InpxProfile | null;
@@ -39,6 +40,10 @@ interface ProfileScreenProps {
   localInProgressCount?: number;
   connectionFocusEpoch?: number;
   updateFocusEpoch?: number;
+  isTabActive?: boolean;
+  rootEpoch?: number;
+  /** Stat tiles open the matching «Мои книги» collection. */
+  onOpenLibrary?: (seg: LibrarySeg) => void;
 }
 
 const MEMBER_MONTHS = [
@@ -79,6 +84,9 @@ export default function ProfileScreen({
   localInProgressCount = 0,
   connectionFocusEpoch = 0,
   updateFocusEpoch = 0,
+  isTabActive = true,
+  rootEpoch = 0,
+  onOpenLibrary,
 }: ProfileScreenProps) {
   const username = profile?.user?.username?.trim() || serverConfig.username?.trim() || '';
   const initial = username ? username.charAt(0).toUpperCase() : '';
@@ -91,18 +99,19 @@ export default function ProfileScreen({
       ? 'Офлайн — локальные настройки доступны'
       : '';
   const [statsOpen, setStatsOpen] = React.useState(false);
-  const statTiles = [
-    { label: 'На устройстве', value: localBookCount },
-    { label: 'Читаете', value: readingCount },
-    ...(stats ? [{ label: 'Прочитано', value: stats.readBooksCount }] : []),
+  const statTiles: Array<{ label: string; value: number; seg: LibrarySeg }> = [
+    { label: 'На устройстве', value: localBookCount, seg: 'downloaded' },
+    // «На устройстве» is sorted by last read, so books in progress come first.
+    { label: 'Читаете', value: readingCount, seg: 'downloaded' },
+    ...(stats ? [{ label: 'Прочитано', value: stats.readBooksCount, seg: 'read' as const }] : []),
   ];
-  const statRows = stats
+  const statRows: Array<{ label: string; value: number; seg: LibrarySeg }> = stats
     ? [
-        { label: 'Закладки', value: stats.readerBookmarksCount },
-        { label: 'Заметки', value: stats.readerAnnotationsCount },
-        { label: 'Полки', value: stats.shelvesCount },
-        { label: 'Авторы', value: stats.favoriteAuthorsCount },
-        { label: 'Серии', value: stats.favoriteSeriesCount },
+        { label: 'Закладки', value: stats.readerBookmarksCount, seg: 'bookmarks' },
+        { label: 'Заметки', value: stats.readerAnnotationsCount, seg: 'notes' },
+        { label: 'Полки', value: stats.shelvesCount, seg: 'shelves' },
+        { label: 'Авторы', value: stats.favoriteAuthorsCount, seg: 'favorites' },
+        { label: 'Серии', value: stats.favoriteSeriesCount, seg: 'favorites' },
       ]
     : [];
 
@@ -134,9 +143,16 @@ export default function ProfileScreen({
       </div>
       <ul className="mt-5 grid grid-cols-3 gap-3">
         {statTiles.map((tile) => (
-          <li key={tile.label} className={`p-3 ${radii.lg} ${theme.card}`}>
-            <p className={`${textStyles.statNumber} ${theme.text}`}>{tile.value}</p>
-            <p className={`${textStyles.caption} ${theme.textMuted} truncate`}>{tile.label}</p>
+          <li key={tile.label}>
+            <button
+              type="button"
+              disabled={!onOpenLibrary}
+              onClick={() => onOpenLibrary?.(tile.seg)}
+              className={`w-full h-full p-3 text-left ${radii.lg} ${theme.card} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+            >
+              <span className={`block ${textStyles.statNumber} ${theme.text}`}>{tile.value}</span>
+              <span className={`block ${textStyles.caption} ${theme.textMuted} leading-tight`}>{tile.label}</span>
+            </button>
           </li>
         ))}
       </ul>
@@ -156,26 +172,24 @@ export default function ProfileScreen({
           </button>
           <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${statsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
             <div className="min-h-0 overflow-hidden">
-              <table className="w-full border-separate border-spacing-0">
-                <caption className="sr-only">Статистика</caption>
-                <tbody>
-                  {statRows.map((row) => (
-                    <tr key={row.label}>
-                      <th
-                        scope="row"
-                        className={`px-4 py-3 text-left font-normal border-t ${theme.divider} ${textStyles.body} ${theme.textMuted}`}
-                      >
-                        {row.label}
-                      </th>
-                      <td
-                        className={`px-4 py-3 text-right tabular-nums border-t ${theme.divider} ${textStyles.bodyBold} ${theme.text}`}
-                      >
-                        {row.value}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <ul aria-label="Статистика">
+                {statRows.map((row) => (
+                  <li key={row.label}>
+                    <button
+                      type="button"
+                      disabled={!onOpenLibrary}
+                      onClick={() => onOpenLibrary?.(row.seg)}
+                      className={`w-full min-h-12 px-4 py-3 flex items-center justify-between gap-3 text-left border-t ${theme.divider} ${theme.rowPress} ${theme.focusRing}`}
+                    >
+                      <span className={`${textStyles.body} ${theme.textMuted}`}>{row.label}</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className={`tabular-nums ${textStyles.bodyBold} ${theme.text}`}>{row.value}</span>
+                        <ChevronRight className={`w-4 h-4 ${theme.textMuted}`} aria-hidden />
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>
@@ -211,6 +225,8 @@ export default function ProfileScreen({
         connectionError={connectionError}
         connectionFocusEpoch={connectionFocusEpoch}
         updateFocusEpoch={updateFocusEpoch}
+        active={isTabActive}
+        rootEpoch={rootEpoch}
       />
     </div>
   );

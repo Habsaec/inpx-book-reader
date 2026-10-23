@@ -19,6 +19,7 @@ import BookDetailsSheet from './components/catalog/BookDetailsSheet';
 import DownloadQueueSheet from './components/DownloadQueueSheet';
 import { CATALOG_BROWSE_ROOT } from './components/catalog/catalogTypes';
 import AppShell, { type AppTab } from './components/AppShell';
+import type { LibrarySeg } from './components/mybooks/LibraryCollections';
 import { MissingLocalBookFallback } from './components/MissingLocalBookFallback';
 import { isFolderLocalBookId } from './lib/importExternalBook';
 import { BRAND_LOCKUP_SRC } from './lib/brand';
@@ -163,6 +164,10 @@ export default function App() {
   const [homeRootEpoch, setHomeRootEpoch] = React.useState(0);
   /** Bumped on Library tab re-tap — close overlays / shelf / back to root segment. */
   const [libraryRootEpoch, setLibraryRootEpoch] = React.useState(0);
+  /** Bumped on Profile tab re-tap — back to the settings section list. */
+  const [profileRootEpoch, setProfileRootEpoch] = React.useState(0);
+  /** Profile stat tile → open this «Мои книги» collection. */
+  const [libraryOpenRequest, setLibraryOpenRequest] = React.useState<{ seg: LibrarySeg; n: number } | null>(null);
   /** Bumped when the header status icon opens connection settings. */
   const [connectionFocusEpoch, setConnectionFocusEpoch] = React.useState(0);
   /** Bumped by «Обновить» in the new-version snackbar — scroll Profile to the update block. */
@@ -245,6 +250,8 @@ export default function App() {
         setHomeRootEpoch((n) => n + 1);
       } else if (tab === 'library') {
         setLibraryRootEpoch((n) => n + 1);
+      } else if (tab === 'profile') {
+        setProfileRootEpoch((n) => n + 1);
       } else if (tab === 'catalog') {
         setCatalogPendingSearch(null);
         setCatalogReturnTo(null);
@@ -1269,6 +1276,7 @@ export default function App() {
               onUpdateReaderBookmark={handleUpdateReaderBookmark}
               isTabActive={activeTab === 'library' && !activeReader}
               libraryRootEpoch={libraryRootEpoch}
+              openRequest={libraryOpenRequest}
             />
           </TabScreenPanel>
 
@@ -1303,6 +1311,12 @@ export default function App() {
               localInProgressCount={localRecentReading.filter((b) => b.readProgress > 0 && b.readProgress < 99).length}
               connectionFocusEpoch={connectionFocusEpoch}
               updateFocusEpoch={updateFocusEpoch}
+              isTabActive={activeTab === 'profile' && !activeReader}
+              rootEpoch={profileRootEpoch}
+              onOpenLibrary={(seg) => {
+                handleTabChange('library');
+                setLibraryOpenRequest((prev) => ({ seg, n: (prev?.n ?? 0) + 1 }));
+              }}
             />
           </TabScreenPanel>
           <NextInSeriesSheet
@@ -1419,6 +1433,7 @@ export default function App() {
         isBookmarked={downloadPromptBook ? inpxServer.bookmarkIds?.has(downloadPromptBook.id) : false}
         onToggleBookmark={isOnline ? handleToggleBookBookmark : undefined}
         onOpenActions={(book) => openBookActions(book, { fromDetails: true })}
+        onToggleRead={handleToggleReadStatus}
       />
 
       <DownloadQueueSheet

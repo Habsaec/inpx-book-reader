@@ -13,7 +13,8 @@ import ShelfCard from './shelves/ShelfCard';
 import ShelfCreateField from './shelves/ShelfCreateField';
 import ViewModeToggle from '../ui/ViewModeToggle';
 import BookSortBar from './catalog/BookSortBar';
-import { LOCAL_BOOK_SORT_OPTIONS, sortBooksLocal, type LocalBookSort } from '../lib/localBookSort';
+import { LOCAL_BOOK_SORT_OPTIONS, filterBooksLocal, sortBooksLocal, type LocalBookSort } from '../lib/localBookSort';
+import LocalBookFilter from './mybooks/LocalBookFilter';
 import { BookGridSkeleton, BookListSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
 import { textStyles } from '../ui/tokens';
@@ -98,6 +99,8 @@ interface MyBooksTabProps {
   isTabActive?: boolean;
   /** Bumped when Library tab is re-selected — return to «Загрузки». */
   libraryRootEpoch?: number;
+  /** Open a collection from outside (Profile stat tiles); `n` makes repeats count. */
+  openRequest?: { seg: LibrarySeg; n: number } | null;
   onAuthExpired?: () => void;
 }
 
@@ -144,6 +147,7 @@ export default function MyBooksTab({
   onOpenQueue,
   isTabActive = true,
   libraryRootEpoch = 0,
+  openRequest = null,
   onAuthExpired,
 }: MyBooksTabProps) {
   const queueJobs = useDownloadQueue();
@@ -178,6 +182,7 @@ export default function MyBooksTab({
   /** What the server actually used for the smart shelf page (older servers always answer 24). */
   const [smartPageSize, setSmartPageSize] = React.useState(smartRequestedPageSize);
   const [bookSort, setBookSort] = React.useState<LocalBookSort>('recent');
+  const [bookQuery, setBookQuery] = React.useState('');
   const [sectionBySeg, setSectionBySeg] = React.useState<{ favorites: Book[]; read: Book[] }>({
     favorites: [],
     read: [],
@@ -244,6 +249,13 @@ export default function MyBooksTab({
     },
     [],
   );
+
+  const openRequestSeen = React.useRef(openRequest?.n ?? 0);
+  React.useEffect(() => {
+    if (!openRequest || openRequest.n === openRequestSeen.current) return;
+    openRequestSeen.current = openRequest.n;
+    openCollection(openRequest.seg);
+  }, [openRequest, openCollection]);
 
   const closeCollection = React.useCallback(() => {
     setCollectionOpen(false);
@@ -376,10 +388,26 @@ export default function MyBooksTab({
     return [];
   }, [seg, sectionBySeg, bookmarkIds, readIds, localReadBooks, localOfflineBooks, isOnline]);
   const sortedSectionBooks = React.useMemo(
-    () => sortBooksLocal(visibleSectionBooks, bookSort),
-    [visibleSectionBooks, bookSort],
+    () => filterBooksLocal(sortBooksLocal(visibleSectionBooks, bookSort), bookQuery),
+    [visibleSectionBooks, bookSort, bookQuery],
   );
-  const sortedShelfBooks = React.useMemo(() => sortBooksLocal(shelfBooks, bookSort), [shelfBooks, bookSort]);
+  // Smart shelves page on the server — a local filter would only search the visible page.
+  const shelfFilterable = activeShelf?.kind !== 'smart';
+  const sortedShelfBooks = React.useMemo(
+    () => (shelfFilterable ? filterBooksLocal(sortBooksLocal(shelfBooks, bookSort), bookQuery) : sortBooksLocal(shelfBooks, bookSort)),
+    [shelfBooks, bookSort, bookQuery, shelfFilterable],
+  );
+  React.useEffect(() => {
+    setBookQuery('');
+  }, [seg, activeShelfKey]);
+  const bookFilter = (count: number) => (count > 1 ? (
+    <div className="mb-3">
+      <LocalBookFilter value={bookQuery} onChange={setBookQuery} />
+    </div>
+  ) : null);
+  const noMatches = (shown: number) => (bookQuery.trim() && shown === 0 ? (
+    <p className={`py-8 text-center ${textStyles.body} ${theme.textMuted}`}>Ничего не найдено</p>
+  ) : null);
   const bookListTools = (
     <div className="flex items-center justify-end gap-1 min-w-0">
       <BookSortBar
@@ -695,7 +723,9 @@ export default function MyBooksTab({
                 ) : (
                   <div>
                     {wide ? <h2 className={`${textStyles.sectionLabel} ${theme.text} mb-3 truncate`}>{activeShelfName ?? '…'}</h2> : null}
+                    {shelfFilterable ? bookFilter(shelfBooks.length) : null}
                     {shelfBooks.length > 0 ? <div className="mb-3">{bookListTools}</div> : null}
+                    {noMatches(sortedShelfBooks.length)}
                     {sectionError && shelfBooks.length === 0 ? (
                       listError
                     ) : shelfBooks.length === 0 ? (
@@ -809,12 +839,14 @@ export default function MyBooksTab({
                     )}
                     {visibleSectionBooks.length > 0 && (
                       <div>
+                        {bookFilter(visibleSectionBooks.length)}
                         <div className="mb-3 flex items-center justify-between gap-2">
                           {seg === 'favorites' ? (
                             <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>Книги</h3>
                           ) : <span />}
                           {bookListTools}
                         </div>
+                        {noMatches(sortedSectionBooks.length)}
                         <CatalogBookList
                           books={sortedSectionBooks}
                           viewMode={viewMode}

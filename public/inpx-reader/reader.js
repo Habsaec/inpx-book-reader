@@ -4073,6 +4073,8 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       }
     }
     panelOverlay.classList.add('is-open');
+    // ☰ (and search / bookmarks / notes) is navigation; ⚙ is settings only — no shared tab row.
+    panelOverlay.dataset.panelMode = t === 'settings' ? 'settings' : 'nav';
     switchTab(t);
     syncPanelChrome(t);
     refreshTriggers();

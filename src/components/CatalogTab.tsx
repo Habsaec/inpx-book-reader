@@ -43,6 +43,7 @@ import {
 import { textStyles } from '../ui/tokens';
 import { useSnackbar } from '../ui/Snackbar';
 import { useOpenShellSearch } from '../ui/pageTitle';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { CatalogFilterDraft, CatalogGenreOption } from './catalog/CatalogFilterSheet';
 
@@ -887,6 +888,8 @@ export default function CatalogTab({
           ? genrePageLabel(selectedSubgenre, genres, genreOptions)
           : '';
 
+  const pullRefresh = usePullToRefresh(isServerConnected ? () => refreshCatalog() : undefined);
+
   // Search: Книги→Авторы→Серии. Browse lists: Авторы→Серии→Жанры. Landing does not swipe.
   const swipeTabs = searchMode ? CATALOG_SEARCH_TABS : CATALOG_BROWSE_TABS;
   const catalogSwipe = useHorizontalTabSwipe(swipeTabs, subTab, handleSubTabChange, {
@@ -901,8 +904,10 @@ export default function CatalogTab({
         style={{ ['--inpx-tool' as string]: `${catalogToolH}px` }}
         {...catalogSwipe}
       >
+      {pullRefresh.indicator}
       <div
         ref={catalogScrollRef}
+        {...pullRefresh.bind}
         className="absolute inset-0 overflow-y-auto inpx-page-scroll px-5 py-4 landscape:max-[500px]:px-4 landscape:max-[500px]:py-3 flex flex-col"
       >
       <CatalogSearchHeader

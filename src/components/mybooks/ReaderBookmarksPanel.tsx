@@ -64,7 +64,7 @@ export default function ReaderBookmarksPanel({
 
   return (
     <div className="relative flex-1 min-h-0" style={{ ['--inpx-tool' as string]: `${toolH}px` }}>
-      <ul className="absolute inset-0 overflow-y-auto inpx-page-scroll px-5 py-3 space-y-3">
+      <ul className="absolute inset-0 overflow-y-auto inpx-page-scroll px-[max(1.25rem,calc((100%_-_45rem)/2))] py-3 space-y-3">
         {filtered.map((bm) => (
           <li key={`${bm.bookId}-${bm.id}`} className={`${radii.lg} ${theme.card} ${elevation.card}`}>
             <div className="px-4 py-4">

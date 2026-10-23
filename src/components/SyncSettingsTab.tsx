@@ -7,6 +7,11 @@ import {
   ShieldCheck,
   LogOut,
   QrCode,
+  ChevronRight,
+  Server,
+  Palette,
+  FolderOpen,
+  Info,
 } from 'lucide-react';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
 import ViewModeToggle from '../ui/ViewModeToggle';
@@ -37,6 +42,7 @@ import AppUpdateSection from './AppUpdateSection';
 import ServerNetworkSettings, { canTestServerConnection } from './ServerNetworkSettings';
 import { textStyles, semantic, radii, motion } from '../ui/tokens';
 import { usePageTitle } from '../ui/pageTitle';
+import { useOverlayBackHandler } from '../hooks/useBackHandler';
 import Button from '../ui/Button';
 import { useDialog } from '../ui/Dialog';
 import { useSnackbar } from '../ui/Snackbar';
@@ -80,9 +86,22 @@ interface SyncSettingsTabProps {
   scrollHeader?: React.ReactNode;
   /** Bumped to scroll the connection block into view (header status icon). */
   connectionFocusEpoch?: number;
-  /** Bumped to scroll the app update block into view («Обновить» in the snackbar). */
+  /** Bumped to open «О приложении» («Обновить» in the snackbar). */
   updateFocusEpoch?: number;
+  /** Profile tab visible — the open section's title and Back belong to it only then. */
+  active?: boolean;
+  /** Bumped on a Profile tab re-tap: back to the section list. */
+  rootEpoch?: number;
 }
+
+export type SettingsSection = 'connection' | 'appearance' | 'storage' | 'about';
+
+const SECTION_TITLES: Record<SettingsSection, string> = {
+  connection: 'Подключение',
+  appearance: 'Внешний вид',
+  storage: 'Хранилище',
+  about: 'О приложении',
+};
 
 export default function SyncSettingsTab({
   storageDirectory,
@@ -105,8 +124,31 @@ export default function SyncSettingsTab({
   scrollHeader,
   connectionFocusEpoch = 0,
   updateFocusEpoch = 0,
+  active = true,
+  rootEpoch = 0,
 }: SyncSettingsTabProps) {
   usePageTitle('Настройки', undefined, !embedded);
+  // Embedded in Profile: a short list of sections, each opens as its own page.
+  // Standalone (no Profile header) keeps everything on one page.
+  const [section, setSection] = React.useState<SettingsSection | null>(null);
+  const shows = (id: SettingsSection) => !embedded || section === id;
+  const closeSection = React.useCallback(() => setSection(null), []);
+  const sectionOpen = embedded && active && section != null;
+  usePageTitle(section ? SECTION_TITLES[section] : '', closeSection, sectionOpen);
+  useOverlayBackHandler(sectionOpen, closeSection);
+  const rootEpochSeen = React.useRef(rootEpoch);
+  React.useEffect(() => {
+    if (rootEpochSeen.current === rootEpoch) return;
+    rootEpochSeen.current = rootEpoch;
+    setSection(null);
+  }, [rootEpoch]);
+  /** Connected users see who they are, not a login form; «Сменить» brings the form back. */
+  const [editingAccount, setEditingAccount] = React.useState(false);
+  const connected = serverConfig.connectionStatus === 'connected';
+  React.useEffect(() => {
+    if (connected) setEditingAccount(false);
+  }, [connected]);
+  const showAccountSummary = connected && !editingAccount;
   const [pickingFolder, setPickingFolder] = React.useState(false);
   const [forgetting, setForgetting] = React.useState(false);
   const [scanning, setScanning] = React.useState(false);
@@ -157,9 +199,9 @@ export default function SyncSettingsTab({
   const handleForgetServer = async () => {
     if (scanning) return;
     const accepted = await dialog.confirm({
-      title: 'Забыть сервер?',
-      message: 'Адрес и данные входа будут удалены с этого устройства.',
-      confirmLabel: 'Забыть',
+      title: 'Выйти?',
+      message: 'Адрес сервера и данные входа будут удалены с этого устройства. Скачанные книги останутся.',
+      confirmLabel: 'Выйти',
       cancelLabel: 'Отмена',
       destructive: true,
     });
@@ -242,14 +284,28 @@ export default function SyncSettingsTab({
   React.useLayoutEffect(() => {
     if (updateFocusEpoch === updateFocusSeen.current) return;
     updateFocusSeen.current = updateFocusEpoch;
+    if (embedded) {
+      setSection('about');
+      settingsScrollRef.current?.scrollTo({ top: 0 });
+      return;
+    }
     scrollSectionIntoView('settings-update');
-  }, [updateFocusEpoch, scrollSectionIntoView]);
+  }, [updateFocusEpoch, scrollSectionIntoView, embedded]);
 
   React.useLayoutEffect(() => {
     if (connectionFocusEpoch === connectionFocusSeen.current) return;
     connectionFocusSeen.current = connectionFocusEpoch;
+    if (embedded) {
+      setSection('connection');
+      settingsScrollRef.current?.scrollTo({ top: 0 });
+      return;
+    }
     scrollServerIntoView();
-  }, [connectionFocusEpoch, scrollServerIntoView]);
+  }, [connectionFocusEpoch, scrollServerIntoView, embedded]);
+
+  React.useLayoutEffect(() => {
+    settingsScrollRef.current?.scrollTo({ top: 0 });
+  }, [section]);
 
   const connecting = serverConfig.connectionStatus === 'testing';
   // Only an explicit «Подключить» moves the page. Background reconnect attempts run every
@@ -283,7 +339,55 @@ export default function SyncSettingsTab({
         data-large-title={embedded ? '' : undefined}
         className="flex-1 overflow-y-auto inpx-page-scroll px-[max(1.25rem,calc((100%_-_45rem)/2))] py-4 space-y-8"
       >
-        {scrollHeader}
+        {embedded && section == null ? (
+          <>
+            {scrollHeader}
+            <nav aria-label="Настройки" className={`border-t ${theme.divider}`}>
+              {([
+                {
+                  id: 'connection' as const,
+                  icon: Server,
+                  hint: connecting
+                    ? 'Проверка…'
+                    : connected
+                      ? `Подключён · ${serverHostLabel(serverConfig.url)}`
+                      : 'Отключён',
+                },
+                {
+                  id: 'appearance' as const,
+                  icon: Palette,
+                  hint: appearanceOptions.find((item) => item.id === appearance)?.label ?? '',
+                },
+                {
+                  id: 'storage' as const,
+                  icon: FolderOpen,
+                  hint: defaultLibraryFolder(libraryFolders)?.label || 'Папка не выбрана',
+                },
+                { id: 'about' as const, icon: Info, hint: 'Версия и обновления' },
+              ]).map(({ id, icon: Icon, hint }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setSection(id)}
+                  className={`w-full min-h-16 flex items-center gap-3.5 px-0.5 text-left border-b ${theme.divider} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+                >
+                  <Icon className={`w-5 h-5 shrink-0 ${themeTextMuted}`} aria-hidden />
+                  <span className="flex-1 min-w-0">
+                    <span className={`block ${textStyles.bodyBold} ${theme.text}`}>{SECTION_TITLES[id]}</span>
+                    {hint ? (
+                      <span className={`block truncate ${textStyles.caption} ${
+                        id === 'connection' && connected ? semantic.success : themeTextMuted
+                      }`}>{hint}</span>
+                    ) : null}
+                  </span>
+                  <ChevronRight className={`w-5 h-5 shrink-0 ${themeTextMuted}`} aria-hidden />
+                </button>
+              ))}
+            </nav>
+          </>
+        ) : null}
+
+        {shows('connection') ? (<>
         <section id="settings-server" className={sectionClass}>
           <div className="flex justify-between items-baseline gap-3 select-none">
             <h3 className={sectionTitle}>Сервер</h3>
@@ -306,6 +410,23 @@ export default function SyncSettingsTab({
             </p>
           )}
 
+          {showAccountSummary ? (
+            <div className="space-y-4">
+              <div className={`p-4 ${radii.lg} ${theme.card}`}>
+                <p className={`${textStyles.caption} ${themeTextMuted}`}>Вы вошли как</p>
+                <p className={`${textStyles.bodyBold} ${theme.text} truncate`}>{serverConfig.username || '—'}</p>
+                <p className={`mt-2 ${textStyles.caption} ${themeTextMuted}`}>Сервер</p>
+                <p className={`${textStyles.body} ${theme.text} break-all`}>{serverConfig.url}</p>
+              </div>
+              <Button fullWidth variant="secondary" onClick={() => setEditingAccount(true)}>
+                Сменить сервер или аккаунт
+              </Button>
+              <Button variant="ghost" fullWidth className="!text-[var(--app-danger)]" onClick={() => void handleForgetServer()} loading={forgetting} disabled={forgetting}>
+                <LogOut className="w-4 h-4 inline mr-1" aria-hidden />
+                Выйти
+              </Button>
+            </div>
+          ) : (
           <div className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="server-url" className={`${textStyles.caption} ${theme.textMuted}`}>Адрес сервера</label>
@@ -371,20 +492,29 @@ export default function SyncSettingsTab({
               {connecting ? 'Подключение…' : 'Подключить'}
             </Button>
 
+            {connected && editingAccount ? (
+              <Button variant="secondary" fullWidth onClick={() => setEditingAccount(false)}>
+                Отмена
+              </Button>
+            ) : null}
+
             <Button variant="ghost" fullWidth className="!text-[var(--app-danger)]" onClick={() => void handleForgetServer()} loading={forgetting} disabled={forgetting || scanning || connecting}>
               <LogOut className="w-4 h-4 inline mr-1" aria-hidden />
               Забыть сервер
             </Button>
           </div>
+          )}
         </section>
 
         <ServerNetworkSettings
           serverConfig={serverConfig}
           onChangeServerConfig={onChangeServerConfig}
         />
+        </>) : null}
 
+        {shows('appearance') ? (
         <section className={sectionClass}>
-          <h3 className={sectionTitle}>Внешний вид</h3>
+          {embedded ? null : <h3 className={sectionTitle}>Внешний вид</h3>}
           <div>
             <SettingsChoice
               label="Тема"
@@ -454,11 +584,31 @@ export default function SyncSettingsTab({
                 <ViewModeToggle value={group.value} onChange={group.onChange} />
               </div>
             ))}
+            <SettingsChoice
+              label="Новинки"
+              hint="Блок на главной"
+              options={([
+                ['on', 'Все'],
+                ['fav', 'Мои авторы'],
+                ['off', 'Скрыть'],
+              ] as const).map(([id, label]) => ({
+                id,
+                label,
+                selected: homeRecent === id,
+                onSelect: () => {
+                  setAppSettingRaw(APP_SETTING_KEYS.homeRecent, id satisfies HomeRecentMode);
+                  setHomeRecent(id);
+                  window.dispatchEvent(new Event('inpx-settings'));
+                },
+              }))}
+            />
           </div>
         </section>
+        ) : null}
 
+        {shows('storage') ? (<>
         <section className={sectionClass}>
-          <h3 className={sectionTitle}>Хранилище</h3>
+          <h3 className={sectionTitle}>Папки с книгами</h3>
           <div className="space-y-2 py-1">
             {libraryFolders.folders.map((folder) => {
               const isDefault = folder.id === libraryFolders.defaultId;
@@ -515,25 +665,7 @@ export default function SyncSettingsTab({
         </section>
 
         <section className={sectionClass}>
-          <h3 className={sectionTitle}>Главная и файлы</h3>
-          <SettingsChoice
-            label="Новинки"
-            hint="Блок на главной"
-            options={([
-              ['on', 'Все'],
-              ['fav', 'Мои авторы'],
-              ['off', 'Скрыть'],
-            ] as const).map(([id, label]) => ({
-              id,
-              label,
-              selected: homeRecent === id,
-              onSelect: () => {
-                setAppSettingRaw(APP_SETTING_KEYS.homeRecent, id satisfies HomeRecentMode);
-                setHomeRecent(id);
-                window.dispatchEvent(new Event('inpx-settings'));
-              },
-            }))}
-          />
+          <h3 className={sectionTitle}>Файлы и настройки</h3>
           <SettingsChoice
             label="Имена папок"
             hint="Как называть автора и серию на диске"
@@ -574,12 +706,25 @@ export default function SyncSettingsTab({
           </div>
         </section>
 
+        </>) : null}
+
+        {shows('about') ? (
         <div id="settings-update">
           <AppUpdateSection serverConfig={serverConfig} />
         </div>
+        ) : null}
       </div>
     </div>
   );
+}
+
+/** «library.example.com» for the section list; the full URL lives inside the section. */
+function serverHostLabel(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
 }
 
 const SETTINGS_BACKUP_PATH = '.inpx-reader/settings-backup.json';

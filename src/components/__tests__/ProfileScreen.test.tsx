@@ -70,12 +70,25 @@ afterEach(() => {
 });
 
 describe('ProfileScreen', () => {
-  it('keeps the server form visible while profile is still loading', () => {
+  it('lists settings sections and opens «Подключение» with who is signed in', () => {
     renderSettings();
+    const connection = screen.getByRole('button', { name: /Подключение/ });
+    expect(connection.textContent).toContain('Подключён · 192.168.1.30:3000');
+    fireEvent.click(connection);
     expect(screen.getByRole('heading', { name: 'Сервер' })).toBeTruthy();
-    expect(screen.getByLabelText('Адрес сервера')).toBeTruthy();
+    expect(screen.getByText('Вы вошли как')).toBeTruthy();
+    expect(screen.getByText('http://192.168.1.30:3000')).toBeTruthy();
+    expect(screen.queryByLabelText('Адрес сервера')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Сменить сервер или аккаунт' }));
     expect(screen.getByDisplayValue('http://192.168.1.30:3000')).toBeTruthy();
     expect(document.querySelectorAll('.inpx-skeleton-pulse')).toHaveLength(0);
+  });
+
+  it('shows the login form when not connected', () => {
+    renderSettings({ serverConfig: { ...serverConfig, connectionStatus: 'disconnected' } });
+    fireEvent.click(screen.getByRole('button', { name: /Подключение/ }));
+    expect(screen.getByLabelText('Адрес сервера')).toBeTruthy();
+    expect(screen.queryByText('Вы вошли как')).toBeNull();
   });
 
   it('does not insert a loading placeholder that pushes the form down during connect', () => {
@@ -85,6 +98,7 @@ describe('ProfileScreen', () => {
       serverConfig: { ...serverConfig, connectionStatus: 'testing' },
     });
     expect(screen.getByText('Подключение к серверу…')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Подключение/ }));
     expect(screen.getByRole('heading', { name: 'Сервер' })).toBeTruthy();
     expect(document.querySelectorAll('.inpx-skeleton-pulse')).toHaveLength(0);
   });
@@ -104,6 +118,13 @@ describe('ProfileScreen', () => {
     expect(screen.getByText('Закладки')).toBeTruthy();
   });
 
+  it('opens the matching «Мои книги» collection from a stat', () => {
+    const onOpenLibrary = vi.fn();
+    renderSettings({ profile, loading: false, onOpenLibrary });
+    fireEvent.click(screen.getByRole('button', { name: /34\s*Прочитано/ }));
+    expect(onOpenLibrary).toHaveBeenCalledWith('read');
+  });
+
   it('keeps a zero bookmark count visible', () => {
     renderSettings({
       profile: {
@@ -113,7 +134,7 @@ describe('ProfileScreen', () => {
       loading: false,
     });
     fireEvent.click(screen.getByRole('button', { name: 'Статистика' }));
-    const bookmarks = screen.getByRole('row', { name: /Закладки/ });
+    const bookmarks = screen.getByRole('button', { name: /Закладки/ });
     expect(bookmarks.textContent).toContain('0');
   });
 });

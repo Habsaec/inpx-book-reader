@@ -179,7 +179,7 @@ export default function BookActionsSheet({
             </ActionRow>
           )}
 
-          {onToggleRead && (
+          {onToggleRead && !fromDetails && (
             <ActionRow
               icon={<CheckCircle2 className="w-5 h-5 shrink-0" aria-hidden />}
               onClick={() => {

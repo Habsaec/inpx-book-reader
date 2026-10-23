@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, ChevronLeft, Download, FolderPlus, Heart, MoreHorizontal, Star } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronLeft, Download, FolderPlus, Heart, MoreHorizontal, Star } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles, semantic, radii, motion as motionTokens } from '../../ui/tokens';
 import Button from '../../ui/Button';
@@ -262,6 +262,8 @@ export interface BookDetailsSheetProps {
   isBookmarked?: boolean;
   onToggleBookmark?: (bookId: string) => void;
   onOpenActions?: (book: Book) => void;
+  /** «Прочитано» quick action (works offline too: it queues a sync op). */
+  onToggleRead?: (bookId: string) => void;
 }
 
 export default function BookDetailsSheet({
@@ -290,6 +292,7 @@ export default function BookDetailsSheet({
   isBookmarked = false,
   onToggleBookmark,
   onOpenActions,
+  onToggleRead,
 }: BookDetailsSheetProps) {
   const bookRef = React.useRef(liveBook);
   if (liveBook) bookRef.current = liveBook;
@@ -460,6 +463,9 @@ export default function BookDetailsSheet({
     ? Math.max(0, Math.min(100, Math.round(Number(readingProgressByBookId?.[book.id] ?? book.readProgress) || 0)))
     : 0;
   const finished = book ? isBookFinished(progress, readIds?.has(book.id)) : false;
+  const markedRead = Boolean(book && readIds?.has(book.id));
+  // «Ещё» now only holds «Удалить с устройства» — no menu for a book that is not on the device.
+  const hasMoreActions = Boolean(onOpenActions && book && downloadedBookIds.includes(book.id));
   const sizeLabel = formatBookSize(detail.size);
   const descLong = (description || '').replace(/<[^>]+>/g, '').length > 220;
   const fileLabel = [detail.ext ? detail.ext.toUpperCase() : null, sizeLabel].filter(Boolean).join(' · ');
@@ -598,7 +604,7 @@ export default function BookDetailsSheet({
                     </Button>
                   ) : null}
                 </div>
-                {onToggleBookmark || showShelf || onOpenActions ? (
+                {onToggleBookmark || showShelf || onToggleRead || hasMoreActions ? (
                   <div className={`!mt-3.5 flex border-y ${theme.divider}`}>
                     {onToggleBookmark ? (
                       <QuickAction
@@ -618,7 +624,16 @@ export default function BookDetailsSheet({
                         <FolderPlus className="w-5 h-5" aria-hidden />
                       </QuickAction>
                     ) : null}
-                    {onOpenActions ? (
+                    {onToggleRead ? (
+                      <QuickAction
+                        label={markedRead ? 'Прочитано' : 'В прочитанные'}
+                        pressed={markedRead}
+                        onClick={() => onToggleRead(book.id)}
+                      >
+                        <CheckCircle2 className="w-5 h-5" aria-hidden />
+                      </QuickAction>
+                    ) : null}
+                    {hasMoreActions && onOpenActions ? (
                       <QuickAction label="Ещё" onClick={() => onOpenActions(book)}>
                         <MoreHorizontal className="w-5 h-5" aria-hidden />
                       </QuickAction>

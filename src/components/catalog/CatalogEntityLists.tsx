@@ -116,7 +116,7 @@ export default function CatalogEntityLists({
 
   if (subTab === 'authors' && !selectedAuthor) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-3 w-full max-w-[45rem] mx-auto">
         {!isServerBrowse && (
           <EntitySortBar label="Сортировка авторов:" sortBy={authorSortBy} onChange={onAuthorSortChange} />
         )}
@@ -188,7 +188,7 @@ export default function CatalogEntityLists({
 
   if (subTab === 'series' && !selectedSeries) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-3 w-full max-w-[45rem] mx-auto">
         {!isServerBrowse && (
           <EntitySortBar label="Сортировка серий:" sortBy={seriesSortBy} onChange={onSeriesSortChange} />
         )}
@@ -259,7 +259,7 @@ export default function CatalogEntityLists({
   // (e.g. series opened from a book card inside a genre).
   if (subTab === 'genres' && !selectedSubgenre && !selectedSeries && !selectedAuthor) {
     return (
-      <div>
+      <div className="w-full max-w-[45rem] mx-auto">
         {genres.length === 0 ? (
           <EmptyState
             icon={Inbox}

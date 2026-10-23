@@ -18,12 +18,12 @@ import EmptyState from '../ui/EmptyState';
 import IconButton from '../ui/IconButton';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
 import { useDownloadQueue } from '../hooks/useDownloadQueue';
+import { useLongPress } from '../hooks/useLongPress';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { textStyles, motion, radii, spacing } from '../ui/tokens';
 import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, seriesVolumeLabel } from '../lib/seriesLabel';
 import { getHomeRecentMode } from '../lib/appSettings';
 import type { CatalogViewMode } from '../lib/catalogViewMode';
-
-const HERO_LONG_PRESS_MS = 420;
 
 function HomeSectionHeader({
   title,
@@ -57,41 +57,60 @@ function HeroActionIcon({ kind }: { kind: BookPrimaryKind }) {
   return <Play className="w-4 h-4 fill-current shrink-0" aria-hidden />;
 }
 
-function useHeroPressHandlers(onTap: () => void, onLongPress?: () => void) {
-  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fired = React.useRef(false);
+/** Wide Home (landscape tablets): two more books in progress sit beside «Продолжить чтение». */
+const WIDE_HERO_QUERY = '(min-width: 1000px)';
 
-  const clear = React.useCallback(() => {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
-  }, []);
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = React.useState(() => window.matchMedia(query).matches);
+  React.useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = () => setMatches(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [query]);
+  return matches;
+}
 
-  React.useEffect(() => () => clear(), [clear]);
-
-  return {
-    onClick: () => {
-      if (fired.current) {
-        fired.current = false;
-        return;
-      }
-      onTap();
-    },
-    onPointerDown: () => {
-      if (!onLongPress) return;
-      fired.current = false;
-      clear();
-      timer.current = setTimeout(() => {
-        fired.current = true;
-        onLongPress();
-      }, HERO_LONG_PRESS_MS);
-    },
-    onPointerUp: clear,
-    onPointerLeave: clear,
-    onPointerCancel: clear,
-    onContextMenu: (event: React.MouseEvent) => event.preventDefault(),
-  };
+function SideRecentBook({
+  book,
+  progress,
+  serverConfig,
+  storageDirectory,
+  onOpen,
+  onLongPress,
+}: {
+  book: Book;
+  progress: number;
+  serverConfig: ServerConfig;
+  storageDirectory?: StorageDirectory | null;
+  onOpen: () => void;
+  onLongPress?: () => void;
+}) {
+  const press = useLongPress(onOpen, onLongPress);
+  return (
+    <button
+      type="button"
+      {...press}
+      className={`w-full flex items-center gap-3.5 py-2 text-left select-none ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+    >
+      <span className="book-cover w-14 shrink-0">
+        <span className="book-cover-inner">
+          <BookCover
+            bookId={book.id}
+            serverConfig={serverConfig}
+            storageDirectory={storageDirectory}
+            title={book.title}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        </span>
+      </span>
+      <span className="flex-1 min-w-0 space-y-1">
+        <span className={`block ${textStyles.bodyBold} ${theme.text} line-clamp-2`}>{displayBookTitle(book)}</span>
+        {book.author ? <span className={`block ${textStyles.caption} ${theme.textMuted} truncate`}>{book.author}</span> : null}
+        <ReadProgressBar value={progress} showLabel className="w-full" />
+      </span>
+    </button>
+  );
 }
 
 function localRecentToBook(item: LocalRecentReadingItem, config: ServerConfig): Book {
@@ -335,10 +354,13 @@ export default function HomeTab({
     () => (hero ? localRecentToBook(hero, serverConfig) : null),
     [hero, serverConfig],
   );
-  const moreRecent = React.useMemo(
+  const wideHero = useMediaQuery(WIDE_HERO_QUERY);
+  const recentBooks = React.useMemo(
     () => mergedRecent.slice(1, 11).map((item) => localRecentToBook(item, serverConfig)),
     [mergedRecent, serverConfig],
   );
+  const sideRecent = wideHero ? recentBooks.slice(0, 2) : [];
+  const moreRecent = wideHero ? recentBooks.slice(2) : recentBooks;
   const heroDownloading = Boolean(
     hero && isBookDownloadInFlight(hero.id, downloadingId, queuedBookIds),
   );
@@ -365,7 +387,7 @@ export default function HomeTab({
   const handleHeroLongPress = React.useCallback(() => {
     if (heroBook) onBookLongPress?.(heroBook);
   }, [heroBook, onBookLongPress]);
-  const heroPress = useHeroPressHandlers(handleHeroTap, onBookLongPress ? handleHeroLongPress : undefined);
+  const heroPress = useLongPress(handleHeroTap, onBookLongPress ? handleHeroLongPress : undefined);
 
   React.useEffect(() => {
     if (!fetchSectionBooks || !isOnline) return;
@@ -464,6 +486,15 @@ export default function HomeTab({
     };
   }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, recentMode, onAuthExpired, onConnectionLost]);
 
+  const pullRefresh = usePullToRefresh(
+    isOnline
+      ? () => {
+          setSectionKey((k) => k + 1);
+          return onRefresh?.();
+        }
+      : undefined,
+  );
+
   const closeSectionView = React.useCallback(() => setSectionView(null), []);
   const closeShelf = React.useCallback(() => setOpenShelf(null), []);
 
@@ -534,6 +565,7 @@ export default function HomeTab({
 
   const scrollInner = (
     <>
+      <div className={sideRecent.length > 0 ? 'grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-10 items-start' : ''}>
       {hero && heroBook && heroAction ? (
         <section
           className="relative flex w-full min-w-0 max-w-full gap-[1.125rem] pt-3"
@@ -641,6 +673,23 @@ export default function HomeTab({
           actionVariant="primary"
         />
       )}
+      {sideRecent.length > 0 ? (
+        <section className="pt-3" aria-label="Также читаете">
+          <p className={`${textStyles.microBold} ${theme.textMuted} mb-1`}>Также читаете</p>
+          {sideRecent.map((book) => (
+            <SideRecentBook
+              key={book.id}
+              book={book}
+              progress={readingProgressByBookId[book.id] ?? book.readProgress ?? 0}
+              serverConfig={serverConfig}
+              storageDirectory={storageDirectory}
+              onOpen={() => onOpenBook(book)}
+              onLongPress={onBookLongPress ? () => onBookLongPress(book) : undefined}
+            />
+          ))}
+        </section>
+      ) : null}
+      </div>
 
       {moreRecent.length > 0 ? (
         <section className="space-y-4">
@@ -752,8 +801,9 @@ export default function HomeTab({
   );
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-5 min-[600px]:px-8">
+    <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+      {pullRefresh.indicator}
+      <div ref={scrollRef} {...pullRefresh.bind} className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-5 min-[600px]:px-8">
         <div className={`mx-auto w-full max-w-[60rem] ${spacing.shelfY}`}>{scrollInner}</div>
       </div>
     </div>

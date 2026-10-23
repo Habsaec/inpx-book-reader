@@ -135,7 +135,7 @@ export default function ReaderNotesPanel({
         </div>
       </div>
 
-      <ul className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-3 space-y-3">
+      <ul className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-[max(1.25rem,calc((100%_-_45rem)/2))] py-3 space-y-3">
         {filtered.length === 0 ? (
           <li className={`${textStyles.caption} ${theme.textMuted} text-center py-8`}>
             Нет заметок с выбранным цветом
