@@ -1,6 +1,16 @@
 const SESSION_ID = '756f1e';
 export const DEBUG_SESSION_STORAGE_KEY = 'debug_session_756f1e';
 const MAX_LOG_ENTRIES = 80;
+/** Opt-in: `localStorage.setItem('inpx_debug_log', '1')` in DevTools, then reopen the book. */
+export const DEBUG_LOG_FLAG_KEY = 'inpx_debug_log';
+
+export function isDebugLogEnabled(): boolean {
+  try {
+    return localStorage.getItem(DEBUG_LOG_FLAG_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 const SENSITIVE_KEY_RE =
   /password|passwd|token|secret|credential|authorization|auth|api[_-]?key|device[_-]?token/i;
@@ -78,6 +88,7 @@ export function debugSessionLog(
   message: string,
   data: Record<string, unknown> = {},
 ): void {
+  if (!isDebugLogEnabled()) return;
   const payload: DebugSessionEntry = {
     sessionId: SESSION_ID,
     hypothesisId,

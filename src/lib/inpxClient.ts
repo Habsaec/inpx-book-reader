@@ -294,9 +294,11 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
     return { ok: false, error: 'Укажите логин и пароль пользователя библиотеки' };
   }
 
+  let healthAnswered = false;
   try {
     // INPX Library Server: GET /health (не /api/health!)
     const healthRes = await apiFetchWithTimeout(config, '/health');
+    healthAnswered = true;
     if (!healthRes.ok) {
       return {
         ok: false,
@@ -325,6 +327,14 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
     return { ok: true };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    // The server answered /health but stalled on the next call (busy indexing, heavy SQLite):
+    // it is reachable, so «Нет связи» would send the user chasing the network.
+    if (healthAnswered && /timeout|abort/i.test(msg)) {
+      return {
+        ok: false,
+        error: `Сервер ${base} отвечает слишком медленно. Подождите немного и нажмите «Подключить» ещё раз.`,
+      };
+    }
     if (isUnreachableServerError(e)) {
       return {
         ok: false,
@@ -652,8 +662,10 @@ export async function fetchSmartShelfBooks(
   config: ServerConfig,
   shelfId: number,
   page = 1,
+  pageSize = 24,
 ): Promise<Paginated<InpxBookItem>> {
-  return apiJson(config, `/api/smart-shelves/${shelfId}/books?page=${page}`);
+  // Older servers ignore pageSize and answer with 24: callers page by the returned `pageSize`.
+  return apiJson(config, `/api/smart-shelves/${shelfId}/books?page=${page}&pageSize=${pageSize}`);
 }
 
 export async function addBookToServerShelf(config: ServerConfig, shelfId: number, bookId: string): Promise<void> {

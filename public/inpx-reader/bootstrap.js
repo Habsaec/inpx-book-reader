@@ -13,7 +13,13 @@ import {
 } from './reader-shared/pending-position-revision.js';
 import { positionsDiffer } from './reader-shared/position-revision.js';
 
+// Same opt-in flag as src/lib/debugSessionLog.ts — off in normal use (console + localStorage per event).
+const DEBUG_LOG_ENABLED = (() => {
+  try { return localStorage.getItem('inpx_debug_log') === '1'; } catch { return false; }
+})();
+
 function debugLog(hypothesisId, location, message, data) {
+    if (!DEBUG_LOG_ENABLED) return;
     const payload = {
       sessionId: '756f1e',
       hypothesisId,

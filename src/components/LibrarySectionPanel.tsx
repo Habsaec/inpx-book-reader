@@ -11,6 +11,7 @@ import CatalogActiveFilterChips from './catalog/CatalogActiveFilterChips';
 import BookSortBar from './catalog/BookSortBar';
 import CatalogBookList from './catalog/CatalogBookList';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
+import { useBookGridPageSize, useRepageOnSizeChange } from '../hooks/useBookGridPageSize';
 import ViewModeToggle from '../ui/ViewModeToggle';
 import type { CatalogFormatFilter, CatalogHasSeriesFilter } from './catalog/catalogTypes';
 import { BookGridSkeleton } from '../ui/Skeleton';
@@ -20,8 +21,6 @@ import { textStyles, touchMin, radii } from '../ui/tokens';
 import { usePageTitle } from '../ui/pageTitle';
 
 export type LibrarySectionView = 'recent' | 'recommended';
-
-const PAGE_SIZE = 24;
 
 type LibrarySort = 'recent' | 'relevance' | 'title' | 'rating';
 
@@ -127,6 +126,8 @@ export default function LibrarySectionPanel({
   const [genreOptions, setGenreOptions] = React.useState<CatalogGenreOption[]>([]);
   const [sortBy, setSortBy] = React.useState<LibrarySort>(DEFAULT_SORT[view]);
   const { viewMode, setViewMode } = useCatalogViewMode('books');
+  const pageSize = useBookGridPageSize(viewMode);
+  useRepageOnSizeChange(pageSize, setPage);
 
   useOverlayBackHandler(isTabActive, onClose);
   usePageTitle(meta.title, onClose, isTabActive);
@@ -199,7 +200,7 @@ export default function LibrarySectionPanel({
       setError(false);
       if (attempt === 0) setComputing(false);
       try {
-        const res = await fetchLibraryView(serverConfig, view, page, PAGE_SIZE, {
+        const res = await fetchLibraryView(serverConfig, view, page, pageSize, {
           genre: genreFilters,
           format: formatFilter === 'all' ? undefined : formatFilter,
           year: yearFilter > 0 ? yearFilter : undefined,
@@ -257,6 +258,7 @@ export default function LibrarySectionPanel({
     yearFilter,
     hasSeriesFilter,
     sortBy,
+    pageSize,
     onAuthExpired,
     onConnectionLost,
   ]);
@@ -390,7 +392,7 @@ export default function LibrarySectionPanel({
             />
             <CatalogPagination
               page={page}
-              pageSize={PAGE_SIZE}
+              pageSize={pageSize}
               total={total}
               onPageChange={handlePageChange}
               isAppDark={isAppDark}

@@ -38,11 +38,13 @@ export default function BookShelfGrid({
   onBookLongPress,
   emptyLabel,
 }: BookShelfGridProps) {
-  const gridRef = React.useRef<HTMLDivElement>(null);
+  // Callback ref: the grid is not rendered while the section is still empty, so a mount-only
+  // measurement would miss it and keep the 3-column default (stretched covers on tablets).
+  const [gridEl, setGridEl] = React.useState<HTMLDivElement | null>(null);
   const [cols, setCols] = React.useState(3);
 
   React.useLayoutEffect(() => {
-    const el = gridRef.current;
+    const el = gridEl;
     if (!el) return;
     const apply = (width: number) => {
       const next = coverGridColumnsForWidth(width);
@@ -53,7 +55,7 @@ export default function BookShelfGrid({
     const ro = new ResizeObserver((entries) => apply(entries[0]?.contentRect?.width ?? el.clientWidth));
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [gridEl]);
 
   if (books.length === 0 && !loading) {
     if (!emptyLabel) return null;
@@ -64,7 +66,7 @@ export default function BookShelfGrid({
 
   return (
     <div
-      ref={gridRef}
+      ref={setGridEl}
       className="grid gap-x-3 gap-y-5"
       style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
       role="list"

@@ -13,6 +13,7 @@ import {
 } from '../lib/inpxClient';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
+import { useBookGridPageSize, useRepageOnSizeChange } from '../hooks/useBookGridPageSize';
 import CatalogBookList from './catalog/CatalogBookList';
 import CatalogPagination from './catalog/CatalogPagination';
 import ViewModeToggle from '../ui/ViewModeToggle';
@@ -22,7 +23,6 @@ import { textStyles } from '../ui/tokens';
 import { usePageTitle } from '../ui/pageTitle';
 
 /** Server page size of `/api/smart-shelves/:id/books`; regular shelves come in one response. */
-const SMART_PAGE_SIZE = 24;
 
 export type HomeShelfRef = Pick<HomeShelf, 'id' | 'kind' | 'title'>;
 
@@ -68,6 +68,10 @@ export default function HomeShelfPanel({
   const [error, setError] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
   const { viewMode, setViewMode } = useCatalogViewMode('books');
+  const requestedPageSize = useBookGridPageSize(viewMode);
+  /** What the server actually used (older servers always answer 24). */
+  const [pageSize, setPageSize] = React.useState(requestedPageSize);
+  useRepageOnSizeChange(requestedPageSize, setPage);
 
   useOverlayBackHandler(isTabActive, onClose);
   usePageTitle(shelf.title, onClose, isTabActive);
@@ -81,10 +85,10 @@ export default function HomeShelfPanel({
     setLoading(true);
     setError(false);
     const request = shelf.kind === 'smart'
-      ? fetchSmartShelfBooks(serverConfig, shelf.id, page).then((res) => ({
-          items: res.items || [],
-          total: Number(res.total) || 0,
-        }))
+      ? fetchSmartShelfBooks(serverConfig, shelf.id, page, requestedPageSize).then((res) => {
+          setPageSize(Number(res.pageSize) || requestedPageSize);
+          return { items: res.items || [], total: Number(res.total) || 0 };
+        })
       : fetchShelfBooks(serverConfig, shelf.id).then((items) => ({ items, total: items.length }));
     request
       .then((res) => {
@@ -106,7 +110,7 @@ export default function HomeShelfPanel({
     return () => {
       cancelled = true;
     };
-  }, [serverConfig, shelf.id, shelf.kind, page, reloadKey, onAuthExpired, onConnectionLost]);
+  }, [serverConfig, shelf.id, shelf.kind, page, requestedPageSize, reloadKey, onAuthExpired, onConnectionLost]);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
@@ -167,7 +171,7 @@ export default function HomeShelfPanel({
             {shelf.kind === 'smart' && (
               <CatalogPagination
                 page={page}
-                pageSize={SMART_PAGE_SIZE}
+                pageSize={pageSize}
                 total={total}
                 onPageChange={setPage}
                 isAppDark={isAppDark}

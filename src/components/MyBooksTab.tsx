@@ -20,9 +20,8 @@ import { textStyles } from '../ui/tokens';
 import { usePageTitle } from '../ui/pageTitle';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
+import { useBookGridPageSize, useRepageOnSizeChange } from '../hooks/useBookGridPageSize';
 
-/** Server page size of `/api/smart-shelves/:id/books`. */
-const SMART_PAGE_SIZE = 24;
 import LibraryCollections, { LIBRARY_SEG_LABELS, type LibrarySeg } from './mybooks/LibraryCollections';
 import { isFolderLocalBookId } from '../lib/importExternalBook';
 import LocalFolderBrowser from './mybooks/LocalFolderBrowser';
@@ -175,6 +174,9 @@ export default function MyBooksTab({
     [localOfflineBooks],
   );
   const { viewMode, setViewMode } = useCatalogViewMode('books');
+  const smartRequestedPageSize = useBookGridPageSize(viewMode);
+  /** What the server actually used for the smart shelf page (older servers always answer 24). */
+  const [smartPageSize, setSmartPageSize] = React.useState(smartRequestedPageSize);
   const [bookSort, setBookSort] = React.useState<LocalBookSort>('recent');
   const [sectionBySeg, setSectionBySeg] = React.useState<{ favorites: Book[]; read: Book[] }>({
     favorites: [],
@@ -188,6 +190,7 @@ export default function MyBooksTab({
   const [activeShelfKey, setActiveShelfKey] = React.useState<string | null>(null);
   const [smartPage, setSmartPage] = React.useState(1);
   const [smartTotal, setSmartTotal] = React.useState(0);
+  useRepageOnSizeChange(smartRequestedPageSize, setSmartPage);
   const [newShelfOpen, setNewShelfOpen] = React.useState(false);
   const [newShelfName, setNewShelfName] = React.useState('');
   const [newShelfBusy, setNewShelfBusy] = React.useState(false);
@@ -401,14 +404,15 @@ export default function MyBooksTab({
       return;
     }
     const gen = ++shelfLoadGen.current;
-    const loadMark = smart ? `${activeShelfKey}@${smartPage}` : activeShelfKey;
+    const loadMark = smart ? `${activeShelfKey}@${smartPage}/${smartRequestedPageSize}` : activeShelfKey;
     const shelfChanged = lastShelfIdLoaded.current !== loadMark;
     if (shelfChanged) setSectionLoading(true);
     const request = smart
-      ? fetchSmartShelfBooks(serverConfig, Number(activeShelf.id), smartPage).then((res) => {
+      ? fetchSmartShelfBooks(serverConfig, Number(activeShelf.id), smartPage, smartRequestedPageSize).then((res) => {
           if (shelfLoadGen.current !== gen) return [];
           const total = Number(res.total) || 0;
           setSmartTotal(total);
+          setSmartPageSize(Number(res.pageSize) || smartRequestedPageSize);
           return (res.items || []).map((book) => mapServerBook(book, serverConfig));
         })
       : loadShelfBooks!(activeShelf.id);
@@ -433,7 +437,7 @@ export default function MyBooksTab({
     return () => {
       shelfLoadGen.current += 1;
     };
-  }, [seg, activeShelf, activeShelfKey, loadShelfBooks, shelfRevision, onAuthExpired, sectionRetry, smartPage, serverConfig]);
+  }, [seg, activeShelf, activeShelfKey, loadShelfBooks, shelfRevision, onAuthExpired, sectionRetry, smartPage, smartRequestedPageSize, serverConfig]);
 
   const drilledIn = isTabActive && !wide && collectionOpen;
   usePageTitle(inShelfDrilldown ? activeShelfName ?? 'Полка' : LIBRARY_SEG_LABELS[seg], closeCollection, drilledIn);
@@ -691,18 +695,7 @@ export default function MyBooksTab({
                 ) : (
                   <div>
                     {wide ? <h2 className={`${textStyles.sectionLabel} ${theme.text} mb-3 truncate`}>{activeShelfName ?? '…'}</h2> : null}
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      {onRemoveShelf ? (
-                        <button
-                          type="button"
-                          onClick={() => { void onRemoveShelf(String(activeShelf.id), activeShelf.kind === 'smart' ? 'smart' : 'shelf'); }}
-                          className={`shrink-0 min-h-12 ${textStyles.bodyBold} text-[var(--app-danger)] ${theme.focusRing}`}
-                        >
-                          Удалить полку
-                        </button>
-                      ) : <span />}
-                      {shelfBooks.length > 0 ? bookListTools : null}
-                    </div>
+                    {shelfBooks.length > 0 ? <div className="mb-3">{bookListTools}</div> : null}
                     {sectionError && shelfBooks.length === 0 ? (
                       listError
                     ) : shelfBooks.length === 0 ? (
@@ -744,7 +737,7 @@ export default function MyBooksTab({
                         {activeShelf.kind === 'smart' ? (
                           <CatalogPagination
                             page={smartPage}
-                            pageSize={SMART_PAGE_SIZE}
+                            pageSize={smartPageSize}
                             total={smartTotal}
                             onPageChange={setSmartPage}
                             isAppDark={isAppDark}

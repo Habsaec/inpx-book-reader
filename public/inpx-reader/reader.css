@@ -411,6 +411,19 @@ html.annotation-goto-flash foliate-view {
   pointer-events:auto;
 }
 .reader-restore-veil[hidden]{display:none !important}
+/* The veil covers #reader-loading, so it carries its own spinner. Shown after a beat:
+   a quick open stays a plain page, a slow one (cold start, big book) no longer looks frozen. */
+.reader-restore-veil::after{
+  content:"";
+  width:24px;height:24px;
+  border:2.5px solid var(--r-border);border-top-color:var(--r-accent);
+  border-radius:50%;
+  opacity:0;
+  animation:spin .7s linear infinite, reader-veil-spinner-in 0s linear .4s forwards;
+}
+@keyframes reader-veil-spinner-in{to{opacity:1}}
+/* Until the position is restored the footer would show a meaningless 0.0%. */
+html.is-restoring-position .reader-footer{visibility:hidden}
 
 /* ================================================================
    LOADING / ERROR
@@ -2265,6 +2278,11 @@ html[data-eink="1"] .rne-text {
   body{
     transition:none !important;
     animation:none !important;
+  }
+  /* Static ring instead of a spinning one; the delayed fade-in is an animation too. */
+  .reader-restore-veil::after{
+    animation:none !important;
+    opacity:1;
   }
   body.chrome-hidden .reader-toolbar,
   body.chrome-hidden .reader-footer,

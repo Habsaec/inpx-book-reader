@@ -24,6 +24,14 @@ interface BookCoverGridProps {
   renderTileExtra?: (book: Book) => React.ReactNode;
 }
 
+/** Columns of the grid below for a viewport width. Keep in sync with its `grid-cols-*` classes. */
+export function bookGridColumnsForViewport(width: number): number {
+  if (width >= 900) return 6;
+  if (width >= 640) return 5;
+  if (width >= 480) return 4;
+  return 3;
+}
+
 /**
  * Responsive cover grid — 3 columns on phone, more on wider screens.
  * Tiles fill equal-width tracks with rounded covers.
