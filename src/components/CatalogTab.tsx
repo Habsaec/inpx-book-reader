@@ -864,10 +864,23 @@ export default function CatalogTab({
   const browseTitle =
     subTab === 'authors' ? 'Авторы' : subTab === 'series' ? 'Серии' : subTab === 'genres' ? 'Жанры' : undefined;
 
+  // `selectedSeries` is the lowercase lookup key; the page's books carry the readable name.
+  const selectedSeriesDisplay = React.useMemo(() => {
+    if (!selectedSeries) return '';
+    return currentBooks.find((book) => book.series === selectedSeries && book.seriesDisplay?.trim())
+      ?.seriesDisplay?.trim() || '';
+  }, [currentBooks, selectedSeries]);
+
+  // Catalog landing «Недавние» shows the readable name once the series page has loaded it.
+  React.useEffect(() => {
+    if (!selectedSeries || !selectedSeriesDisplay) return;
+    pushRecentBrowse({ kind: 'series', name: selectedSeries, displayName: selectedSeriesDisplay });
+  }, [selectedSeries, selectedSeriesDisplay]);
+
   const entityTitle = authorOutsideSeries && selectedAuthor && !selectedSeries
     ? 'Вне серий'
     : selectedSeries
-      ? selectedSeries
+      ? selectedSeriesDisplay || selectedSeries
       : selectedAuthor
         ? displayAuthorName(authorGrouped?.authorName || selectedAuthor)
         : selectedSubgenre
@@ -1001,6 +1014,7 @@ export default function CatalogTab({
             <CatalogDrilldownPanel
               selectedAuthor={selectedAuthor}
               selectedSeries={selectedSeries}
+              selectedSeriesDisplay={selectedSeriesDisplay}
               selectedSubgenre={selectedSubgenre}
               authorOutsideSeries={authorOutsideSeries}
               authorGrouped={authorGrouped}

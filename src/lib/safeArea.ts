@@ -50,6 +50,38 @@ export async function getSafeAreaInsets(): Promise<SafeAreaInsets> {
   return readCssSafeAreaInsets();
 }
 
+/**
+ * Some Android WebViews (seen on Android 15) report `env(safe-area-inset-*)` as 0 while the
+ * activity draws edge-to-edge, so the header slides under the status bar and the tabs under the
+ * gesture bar. Publish the native insets as CSS vars; `--safe-*` in index.css takes the larger.
+ */
+export function installNativeSafeAreaVars(): void {
+  if (!Capacitor.isNativePlatform() || typeof document === 'undefined') return;
+  const root = document.documentElement;
+  let seq = 0;
+  const apply = async () => {
+    const id = ++seq;
+    try {
+      const native = await ReaderNative.getSafeAreaInsets();
+      if (id !== seq || !native) return;
+      for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+        root.style.setProperty(`--inpx-native-safe-${side}`, `${Math.max(0, Number(native[side]) || 0)}px`);
+      }
+    } catch {
+      // env() stays the only source
+    }
+  };
+  void apply();
+  // Rotation and split-screen change the bars; insets settle a moment after the resize.
+  let timer = 0;
+  const onResize = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => void apply(), 150);
+  };
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', onResize);
+}
+
 export function storeReaderSafeArea(insets: SafeAreaInsets) {
   setAppSettingJson(APP_SETTING_KEYS.safeArea, insets);
   // iframe bootstrap читает localStorage до postMessage; SQLite ему недоступен.

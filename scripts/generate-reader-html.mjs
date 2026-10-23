@@ -135,6 +135,10 @@ const replacements = [
   [/\$\{backHref\}/g, '#'],
   [/\$\{readerBackClick\}/g, ''],
   [/<script src="\/book-ref\.js[^"]*" defer><\/script>\s*/g, ''],
+  // Server serves UI strings as a script file; the app reader reads inline JSON and,
+  // when it is empty, loads public/inpx-reader/reader-i18n-ru.json itself.
+  [/<script src="\$\{clientI18nScriptUrl\(\)\}" defer><\/script>/,
+    '<script type="application/json" id="ui-i18n-json">{"locale":"ru","strings":{}}</script>'],
   [/<script>window\.__READER_BOOK_ID=[\s\S]*?<\/script>\s*<script type="module" src="\/reader\.js[^"]*"><\/script>/,
     `<script>window.__READER_APP=1;window.__READER_ASSET_V__=${JSON.stringify(version)};</script>\n<script type="module" src="/inpx-reader/bootstrap.js?v=${version}"></script>\n<script src="/inpx-reader/reader-native-bridge.js?v=${version}"></script>\n<script type="module" src="/inpx-reader/reader.js?v=${version}"></script>`],
   [/href="\/reader\.css/g, 'href="/inpx-reader/reader.css'],
@@ -614,6 +618,11 @@ if (!html.includes('id="reader-wallpaper"')) {
 
 // Strip any remaining template expressions
 html = html.replace(/\$\{[^}]+\}/g, '');
+
+// A stripped expression inside src/href leaves src="" — the WebView would load the page itself as a script.
+if (/\s(?:src|href)=""/.test(html)) {
+  throw new Error('Reader HTML has an empty src/href: a server template expression needs a replacement above');
+}
 
 const out = path.join(root, 'public/inpx-reader/index.html');
 fs.writeFileSync(out, html);

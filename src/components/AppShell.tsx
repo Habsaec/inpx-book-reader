@@ -154,28 +154,6 @@ function ShellFrame({
       }}
     >
       <div className="inpx-shell-body absolute inset-0 flex flex-col min-h-0">
-        {showOfflineBanner && (
-          <div
-            className={`inpx-shell-notice px-5 py-3 shrink-0 flex items-center gap-3 border-b border-[color:var(--app-border)] ${theme.header}`}
-            role="status"
-          >
-            <p className={`${textStyles.body} ${theme.textMuted} flex-1 min-w-0 leading-snug`}>
-              Нет связи — каталог и скачивание недоступны
-            </p>
-            {onOpenConnectionSettings ? (
-              <button
-                type="button"
-                onClick={onOpenConnectionSettings}
-                className={`${touchMin} shrink-0 px-3 ${textStyles.captionBold} ${theme.accentText} ${radii.button} ${theme.focusRing} ${motionTokens.press}`}
-              >
-                Подключить
-              </button>
-            ) : null}
-          </div>
-        )}
-
-        <DownloadQueueWidget onOpenQueue={onOpenQueue} />
-
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</div>
       </div>
 
@@ -272,13 +250,34 @@ function ShellFrame({
           />
         </div>
       ) : null}
+      {showOfflineBanner && (
+        <div
+          className={`inpx-shell-notice px-5 py-3 shrink-0 flex items-center gap-3 border-b border-[color:var(--app-border)] ${theme.header}`}
+          role="status"
+        >
+          <p className={`${textStyles.body} ${theme.textMuted} flex-1 min-w-0 leading-snug`}>
+            Нет связи — каталог и скачивание недоступны
+          </p>
+          {onOpenConnectionSettings ? (
+            <button
+              type="button"
+              onClick={onOpenConnectionSettings}
+              className={`${touchMin} shrink-0 px-3 ${textStyles.captionBold} ${theme.accentText} ${radii.button} ${theme.focusRing} ${motionTokens.press}`}
+            >
+              Подключить
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      <DownloadQueueWidget onOpenQueue={onOpenQueue} />
       </div>
 
       <div
         ref={tabRef}
         id="mobile-tab-navigation"
         className="inpx-chrome inpx-chrome-bottom absolute inset-x-0 bottom-0 z-30 px-2 pt-1.5 flex justify-around items-stretch select-none min-[600px]:justify-center min-[600px]:gap-4"
-        style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: 'max(0.5rem, var(--safe-bottom))' }}
       >
         {TABS.map((tab) => {
           const Icon = tab.icon;

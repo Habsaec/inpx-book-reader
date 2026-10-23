@@ -36,5 +36,5 @@ export const sheetPanelClass = `rounded-t-[var(--app-radius-lg)] rounded-b-none 
 export const sheetBackdropClass = 'fixed inset-0 z-[500] flex flex-col justify-end bg-black/50 overscroll-contain';
 
 export function sheetPanelStyle(): React.CSSProperties {
-  return { paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' };
+  return { paddingBottom: 'max(1.25rem, var(--safe-bottom))' };
 }

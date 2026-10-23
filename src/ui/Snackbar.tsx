@@ -13,7 +13,7 @@ type SnackbarVariant = 'default' | 'success' | 'error';
 
 const AUTO_HIDE_MS = 2200;
 const AUTO_HIDE_ACTION_MS = 4000;
-const ABOVE_TAB = 'max(var(--app-tab-bar-height), calc(env(safe-area-inset-bottom) + 3.5rem))';
+const ABOVE_TAB = 'max(var(--app-tab-bar-height), calc(var(--safe-bottom) + 3.5rem))';
 
 const SnackbarContext = React.createContext(false);
 

@@ -20,6 +20,7 @@ import DownloadQueueSheet from './components/DownloadQueueSheet';
 import { CATALOG_BROWSE_ROOT } from './components/catalog/catalogTypes';
 import AppShell, { type AppTab } from './components/AppShell';
 import { MissingLocalBookFallback } from './components/MissingLocalBookFallback';
+import { isFolderLocalBookId } from './lib/importExternalBook';
 import { BRAND_LOCKUP_SRC } from './lib/brand';
 import { useInpxServer } from './hooks/useInpxServer';
 import { useAppBackButton } from './hooks/useAppBackButton';
@@ -1298,7 +1299,7 @@ export default function App() {
               einkMode={einkModePref}
               onChangeEinkMode={setEinkModePref}
               einkDetected={einkDetected}
-              localBookCount={downloadedBooksWithFile.length}
+              localBookCount={downloadedBooksWithFile.filter((b) => !isFolderLocalBookId(b.id)).length}
               localInProgressCount={localRecentReading.filter((b) => b.readProgress > 0 && b.readProgress < 99).length}
               connectionFocusEpoch={connectionFocusEpoch}
               updateFocusEpoch={updateFocusEpoch}

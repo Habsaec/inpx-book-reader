@@ -14,6 +14,8 @@ import { textStyles, radii, elevation, motion as motionTokens } from '../../ui/t
 interface CatalogDrilldownPanelProps {
   selectedAuthor: string | null;
   selectedSeries: string | null;
+  /** Readable name of `selectedSeries` (the lookup key is lowercase). */
+  selectedSeriesDisplay?: string;
   selectedSubgenre: { parent: string; name: string } | null;
   authorOutsideSeries: boolean;
   authorGrouped: AuthorGroupedState | null;
@@ -189,6 +191,7 @@ export function CatalogAuthorGroupedList({
 export default function CatalogDrilldownPanel({
   selectedAuthor,
   selectedSeries,
+  selectedSeriesDisplay,
   selectedSubgenre,
   authorOutsideSeries,
   authorGrouped,
@@ -306,7 +309,7 @@ export default function CatalogDrilldownPanel({
               <div className="min-w-0 pt-0.5">
                 <p className={`${textStyles.caption} ${theme.textMuted}`}>Серия</p>
                 <h2 className={`text-[1.375rem] leading-7 font-extrabold tracking-[-0.02em] landscape:max-[500px]:text-base landscape:max-[500px]:leading-snug mt-0.5 ${theme.text}`}>
-                  {selectedSeries}
+                  {selectedSeriesDisplay || selectedSeries}
                 </h2>
                 <p className={`${textStyles.caption} mt-1 ${theme.textMuted}`}>
                   {selectedAuthor ? selectedAuthorLabel : null}

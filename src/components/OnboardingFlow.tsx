@@ -132,8 +132,8 @@ export default function OnboardingFlow({
   };
 
   return (
-    <div className={`flex-1 min-h-0 flex flex-col ${theme.bg} ${theme.text}`} style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-      <div className="px-[max(1.25rem,calc((100%_-_30rem)/2))] pb-4 shrink-0" style={{ paddingTop: 'max(2.5rem, env(safe-area-inset-top, 0px))' }}>
+    <div className={`flex-1 min-h-0 flex flex-col ${theme.bg} ${theme.text}`} style={{ paddingBottom: 'var(--safe-bottom)' }}>
+      <div className="px-[max(1.25rem,calc((100%_-_30rem)/2))] pb-4 shrink-0" style={{ paddingTop: 'max(2.5rem, var(--safe-top))' }}>
         <div className="flex gap-2 mb-3">
           {[1, 2, 3].map((n) => (
             <span

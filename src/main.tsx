@@ -6,8 +6,10 @@ import { UiProviders } from './ui/UiProviders';
 import AppErrorBoundary from './ui/AppErrorBoundary';
 import './index.css';
 import { installStablePress } from './lib/stablePress';
+import { installNativeSafeAreaVars } from './lib/safeArea';
 
 installStablePress();
+installNativeSafeAreaVars();
 
 /** Chrome 83 parses flex `gap` but lays out without it; the build adds margin fallbacks under this flag. */
 {

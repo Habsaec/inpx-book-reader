@@ -480,8 +480,8 @@ export default function BookDetailsSheet({
     <div
       className={`fixed inset-0 z-[450] flex flex-col overflow-hidden bg-[var(--app-bg)] ${theme.text}`}
       style={{
-        paddingTop: 'env(safe-area-inset-top, 0px)',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        paddingTop: 'var(--safe-top)',
+        paddingBottom: 'var(--safe-bottom)',
       }}
     >
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-clip">

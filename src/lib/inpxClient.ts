@@ -328,7 +328,7 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
     if (isUnreachableServerError(e)) {
       return {
         ok: false,
-        error: `Нет связи с ${base}. Проверьте: сервер запущен, домен открывается в браузере телефона, логин/пароль верны. Для crazeDNS — обновите запись DDNS на роутере.`,
+        error: `Нет связи с ${base}. Проверьте: сервер запущен, домен открывается в браузере телефона, логин/пароль верны. Если адрес через DDNS — проверьте, что запись на роутере актуальна.`,
       };
     }
     return { ok: false, error: msg || 'Не удалось подключиться' };

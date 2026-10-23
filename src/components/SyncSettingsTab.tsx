@@ -252,12 +252,14 @@ export default function SyncSettingsTab({
   }, [connectionFocusEpoch, scrollServerIntoView]);
 
   const connecting = serverConfig.connectionStatus === 'testing';
-  React.useLayoutEffect(() => {
-    if (!connecting) return;
+  // Only an explicit «Подключить» moves the page. Background reconnect attempts run every
+  // few seconds while the server is down and must not yank the scroll or steal focus.
+  const handleConnect = () => {
     const active = document.activeElement;
     if (active instanceof HTMLElement) active.blur();
     scrollServerIntoView();
-  }, [connecting, scrollServerIntoView]);
+    onTestConnection();
+  };
 
   const appearanceOptions: Array<{ id: AppAppearance; label: string; icon: typeof Sun }> = [
     { id: 'light', label: 'День', icon: Sun },
@@ -318,7 +320,6 @@ export default function SyncSettingsTab({
                 autoCorrect="off"
                 spellCheck={false}
                 autoComplete="url"
-                disabled={connecting}
                 className={inputClass}
               />
             </div>
@@ -336,7 +337,6 @@ export default function SyncSettingsTab({
                   value={serverConfig.username || ''}
                   onChange={(e) => onChangeServerConfig({ username: e.target.value })}
                   autoComplete="username"
-                  disabled={connecting}
                   className={inputClass}
                 />
               </div>
@@ -348,7 +348,6 @@ export default function SyncSettingsTab({
                   value={serverConfig.password || ''}
                   onChange={(e) => onChangeServerConfig({ password: e.target.value })}
                   autoComplete="current-password"
-                  disabled={connecting}
                   className={inputClass}
                 />
               </div>
@@ -368,7 +367,7 @@ export default function SyncSettingsTab({
               </Button>
             )}
 
-            <Button fullWidth onClick={onTestConnection} disabled={connecting || !canTestServerConnection(serverConfig)} loading={connecting}>
+            <Button fullWidth onClick={handleConnect} disabled={connecting || !canTestServerConnection(serverConfig)} loading={connecting}>
               {connecting ? 'Подключение…' : 'Подключить'}
             </Button>
 

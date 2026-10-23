@@ -91,7 +91,12 @@ body {
   --app-space-7: 2rem;
   --app-space-8: 2.5rem;
   --app-space-9: 3rem;
-  --app-tab-bar-height: calc(4.5rem + max(0.5rem, env(safe-area-inset-bottom)));
+  /* System bar insets: env() or the native value (installNativeSafeAreaVars), whichever is larger. */
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--inpx-native-safe-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--inpx-native-safe-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--inpx-native-safe-left, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--inpx-native-safe-right, 0px));
+  --app-tab-bar-height: calc(4.5rem + max(0.5rem, var(--safe-bottom)));
 }
 
 /* «Ночь»: warm dark paper, light ink. */
@@ -455,12 +460,6 @@ html[data-eink='1'] .cover-rating-wrapper {
 
 .inpx-shell-body {
   padding-top: 0;
-}
-.inpx-shell-notice {
-  margin-top: var(--app-header-offset, 4rem);
-}
-.inpx-shell-notice + .inpx-shell-notice {
-  margin-top: 0;
 }
 /* Clip the growing field sideways; suggestions hang below the bar. */
 .inpx-search-clip {

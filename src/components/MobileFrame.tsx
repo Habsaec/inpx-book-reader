@@ -11,9 +11,9 @@ export default function MobileFrame({ children }: MobileFrameProps) {
       id="app-viewport-container"
       className="fixed inset-0 flex flex-col overflow-hidden bg-[var(--app-shell-bg,var(--app-bg))] text-[var(--app-text)] font-sans"
       style={{
-        paddingTop: 'env(safe-area-inset-top)',
-        paddingLeft: 'env(safe-area-inset-left)',
-        paddingRight: 'env(safe-area-inset-right)',
+        paddingTop: 'var(--safe-top)',
+        paddingLeft: 'var(--safe-left)',
+        paddingRight: 'var(--safe-right)',
       }}
     >
       <div id="app-server-bg" aria-hidden />
