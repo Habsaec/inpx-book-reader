@@ -515,17 +515,6 @@ html[data-eink='1'] .cover-rating-wrapper {
   border-top: 1px solid var(--app-border);
 }
 
-/* Side rail (AppShell NAV_RAIL_QUERY): nothing sits under the content, so snackbars drop to the edge. */
-@media (min-width: 600px) {
-  :root {
-    --app-tab-bar-height: calc(1rem + env(safe-area-inset-bottom));
-  }
-  #mobile-tab-navigation.inpx-chrome-bottom {
-    border-top: 0;
-    border-right: 1px solid var(--app-border);
-  }
-}
-
 .inpx-chrome-bottom::before {
   display: none;
 }
@@ -824,10 +813,4 @@ html[data-eink="1"] .inpx-snackbar button {
   border: 2px solid #000 !important;
 }
 
-@media (min-width: 600px) {
-  html[data-eink="1"] #mobile-tab-navigation {
-    border-top: 0;
-    border-right: 2px solid var(--app-text);
-  }
-}
 

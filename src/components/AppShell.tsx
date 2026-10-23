@@ -21,9 +21,6 @@ const TABS = [
   { id: 'profile' as const, label: 'Профиль', icon: User },
 ] as const;
 
-/** Tablets, e-readers and landscape phones: tabs move to a side rail. Keep in sync with `min-[600px]:` below. */
-const NAV_RAIL_QUERY = '(min-width: 600px)';
-
 interface AppShellProps {
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
@@ -95,10 +92,9 @@ function ShellFrame({
 
   React.useLayoutEffect(() => {
     const measure = () => {
-      const rail = window.matchMedia(NAV_RAIL_QUERY).matches;
       setChrome({
         header: headerRef.current?.offsetHeight ?? 64,
-        tab: rail ? 0 : tabRef.current?.offsetHeight ?? 72,
+        tab: tabRef.current?.offsetHeight ?? 72,
       });
     };
     measure();
@@ -157,7 +153,7 @@ function ShellFrame({
         ['--app-tab-measured' as string]: `${chrome.tab}px`,
       }}
     >
-      <div className="inpx-shell-body absolute inset-0 min-[600px]:left-[5.5rem] flex flex-col min-h-0">
+      <div className="inpx-shell-body absolute inset-0 flex flex-col min-h-0">
         {showOfflineBanner && (
           <div
             className={`inpx-shell-notice px-5 py-3 shrink-0 flex items-center gap-3 border-b border-[color:var(--app-border)] ${theme.header}`}
@@ -186,7 +182,7 @@ function ShellFrame({
       <div
         ref={headerRef}
         id="dashboard-navbar"
-        className="inpx-chrome inpx-chrome-top absolute top-0 inset-x-0 min-[600px]:left-[5.5rem] z-30 flex flex-col select-none"
+        className="inpx-chrome inpx-chrome-top absolute top-0 inset-x-0 z-30 flex flex-col select-none"
       >
       <div className={`${onBack ? 'min-h-16' : 'min-h-[4.5rem]'} landscape:max-[500px]:min-h-12 flex items-center px-1`}>
         {onBack ? (
@@ -281,7 +277,7 @@ function ShellFrame({
       <div
         ref={tabRef}
         id="mobile-tab-navigation"
-        className="inpx-chrome inpx-chrome-bottom absolute inset-x-0 bottom-0 z-30 px-2 pt-1.5 flex justify-around items-stretch select-none min-[600px]:right-auto min-[600px]:top-0 min-[600px]:w-[5.5rem] min-[600px]:flex-col min-[600px]:justify-start min-[600px]:gap-2 min-[600px]:px-1 min-[600px]:pt-[max(1rem,env(safe-area-inset-top))]"
+        className="inpx-chrome inpx-chrome-bottom absolute inset-x-0 bottom-0 z-30 px-2 pt-1.5 flex justify-around items-stretch select-none min-[600px]:justify-center min-[600px]:gap-4"
         style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
       >
         {TABS.map((tab) => {
@@ -294,7 +290,7 @@ function ShellFrame({
               onClick={() => onTabChange(tab.id)}
               aria-label={tab.label}
               aria-current={isActive ? 'page' : undefined}
-              className={`relative flex flex-col items-center justify-center gap-0.5 min-w-0 flex-1 min-h-14 py-1 min-[600px]:flex-none min-[600px]:min-h-[4.5rem] ${theme.focusRing} ${motionTokens.press} ${
+              className={`relative flex flex-col items-center justify-center gap-0.5 min-w-0 flex-1 min-h-14 py-1 min-[600px]:flex-none min-[600px]:w-32 ${theme.focusRing} ${motionTokens.press} ${
                 isActive ? theme.tabActive : theme.tabInactive
               }`}
             >
