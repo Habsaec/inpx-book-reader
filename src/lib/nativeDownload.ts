@@ -3,7 +3,7 @@
  */
 import { Capacitor } from '@capacitor/core';
 import type { Book, ServerConfig } from '../types';
-import { ApiError, authHeader, bookContentUrl, isAuthError } from './inpxClient';
+import { ApiError, authHeader, bookContentUrl, isAuthError, withServerBusyRetry } from './inpxClient';
 import { bookStorageRelativePath } from './bookStorage';
 import { isNativeApp } from './platform';
 import type { StorageDirectory } from './storageDirectory';
@@ -123,17 +123,20 @@ export async function downloadBookToStorageNative(
       bytesWritten: number;
       digestSha256: string;
     };
-    try {
-      result = await BookStorage.downloadUrlToStorage({
-        url,
-        treeUri: directory.uri,
-        path: relativePath,
-        jobId,
-        headers,
-      });
-    } catch (err) {
-      rethrowNativeDownloadError(err);
-    }
+    const treeUri = directory.uri;
+    result = await withServerBusyRetry(async () => {
+      try {
+        return await BookStorage.downloadUrlToStorage({
+          url,
+          treeUri,
+          path: relativePath,
+          jobId,
+          headers,
+        });
+      } catch (err) {
+        rethrowNativeDownloadError(err);
+      }
+    }, signal);
     if (signal?.aborted) {
       throw new DOMException('Aborted', 'AbortError');
     }

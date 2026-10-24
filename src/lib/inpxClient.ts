@@ -203,6 +203,49 @@ export class ApiError extends Error {
   }
 }
 
+/** Same wording as the server's `errors.serverBusy` (503 SERVICE_UNAVAILABLE + Retry-After). */
+export const SERVER_BUSY_MESSAGE = 'Сервер сейчас готовит другие книги. Повторите через несколько секунд.';
+/** The server answers `Retry-After: 15` when its download / 7z queue is full. */
+const SERVER_BUSY_RETRY_MS = 15_000;
+const SERVER_BUSY_ATTEMPTS = 4;
+
+export function isServerBusyError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 503;
+}
+
+/**
+ * Book downloads: a 503 from INPX Library Server means its download queue is full for a moment
+ * (e.g. «Скачать серию»), not that the book is unavailable. Wait and retry a few times, then
+ * fail with the server's own message instead of «HTTP 503».
+ */
+export async function withServerBusyRetry<T>(run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (err) {
+      if (!isServerBusyError(err)) throw err;
+      if (attempt >= SERVER_BUSY_ATTEMPTS) throw new ApiError(SERVER_BUSY_MESSAGE, 503);
+      // A little jitter so a queued series does not come back as one wave.
+      const wait = SERVER_BUSY_RETRY_MS + Math.round(Math.random() * 3000);
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(new DOMException('Aborted', 'AbortError'));
+          return;
+        }
+        const timer = setTimeout(() => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve();
+        }, wait);
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(new DOMException('Aborted', 'AbortError'));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    }
+  }
+}
+
 export function isAuthError(err: unknown): boolean {
   if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return true;
   // Native download / Capacitor bridge often surfaces plain "HTTP 401" strings.
@@ -1469,6 +1512,15 @@ export async function fetchBookMeta(config: ServerConfig, bookId: string): Promi
 }
 
 export async function downloadBookBinary(
+  config: ServerConfig,
+  bookId: string,
+  onProgress?: (loaded: number, total: number) => void,
+  opts?: { signal?: AbortSignal },
+): Promise<ArrayBuffer> {
+  return withServerBusyRetry(() => downloadBookBinaryOnce(config, bookId, onProgress, opts), opts?.signal);
+}
+
+async function downloadBookBinaryOnce(
   config: ServerConfig,
   bookId: string,
   onProgress?: (loaded: number, total: number) => void,
