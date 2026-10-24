@@ -1,7 +1,7 @@
 {
   "name": "inpx-book-reader",
   "private": true,
-  "version": "1.7.0",
+  "version": "1.8.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -11,7 +11,7 @@
     "sync:reader": "node scripts/generate-reader-html.mjs",
     "sync:shared": "node scripts/sync-foliate-assets.mjs && node scripts/sync-shared-reader.mjs && node scripts/verify-position-sync.mjs && node scripts/verify-reader-position-shadow.mjs && node scripts/generate-reader-html.mjs",
     "verify:api-parity": "node scripts/verify-api-parity.mjs",
-    "build:android": "npm run build:app && npx cap sync android && cd android && gradlew.bat assembleDebug",
+    "build:android": "npm run build:app && npx cap sync android && cd android && .\\gradlew.bat assembleDebug",
     "verify:reader": "node scripts/verify-local-reader.mjs",
     "android:open": "npx cap open android",
     "android:sync": "npx cap sync android",
