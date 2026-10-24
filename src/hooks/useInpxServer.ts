@@ -12,6 +12,7 @@ import {
   fetchLibraryView,
   fetchShelves,
   toggleBookBookmark,
+  toggleWantToReadApi,
   toggleBookRead,
   ensureBookReadState,
   toggleFavoriteAuthorApi,
@@ -103,6 +104,8 @@ export function useInpxServer(
   const [profile, setProfile] = React.useState<InpxProfile | null>(null);
   const [bookmarkIds, setBookmarkIds] = React.useState<Set<string>>(() => new Set());
   const [readIds, setReadIds] = React.useState<Set<string>>(() => new Set());
+  /** «Хочу прочитать»; stays empty on servers without `/api/library/want`. */
+  const [wantIds, setWantIds] = React.useState<Set<string>>(() => new Set());
   /** True only after a successful bookmark/read id load. Empty sets before that must not filter lists. */
   const [collectionsReady, setCollectionsReady] = React.useState(false);
   const [readingProgress, setReadingProgress] = React.useState<Map<string, number>>(() => new Map());
@@ -189,16 +192,19 @@ export function useInpxServer(
     /** Slow path: full bookmark/read/progress ID maps (can be many pages). */
     const collectionsEpoch = collectionsMutationEpoch.current;
     try {
-      const [bmIds, rdIds, progressMap] = await Promise.all([
+      const [bmIds, rdIds, progressMap, wtIds] = await Promise.all([
         loadAllIds(config, (p) => fetchBookmarkedBooks(config, p, 24)),
         loadAllIds(config, (p) => fetchLibraryView(config, 'read', p, 24)),
         loadReadingProgressMap(config),
+        // Older servers have no «Хочу прочитать»: a 404 here must not fail the whole sync.
+        loadAllIds(config, (p) => fetchLibraryView(config, 'want', p, 24)).catch(() => null),
       ]);
       if (!isCurrent()) return;
 
       if (collectionsEpoch === collectionsMutationEpoch.current) {
         setBookmarkIds(bmIds);
         setReadIds(rdIds);
+        if (wtIds) setWantIds(wtIds);
         setCollectionsReady(true);
         const mergedProgress = new Map(progressMap);
         prof.recentBooks.forEach((book) => {
@@ -233,6 +239,7 @@ export function useInpxServer(
     accountKeyRef.current = accountKey;
     setBookmarkIds(new Set());
     setReadIds(new Set());
+    setWantIds(new Set());
     setCollectionsReady(false);
     setLastSynced(null);
   }, [accountKey]);
@@ -290,7 +297,42 @@ export function useInpxServer(
       else next.delete(bookId);
       return next;
     });
+    if (read) dropWantLocally(bookId);
     return read;
+  }, [config, online]);
+
+  /** Server drops «Хочу прочитать» on open / mark-read; mirror it locally. */
+  function dropWantLocally(bookId: string) {
+    setWantIds((prev) => {
+      if (!prev.has(bookId)) return prev;
+      const next = new Set(prev);
+      next.delete(bookId);
+      return next;
+    });
+  }
+
+  const toggleWant = React.useCallback(async (bookId: string) => {
+    if (!online) return false;
+    collectionsMutationEpoch.current += 1;
+    const want = await withAuthGuard(() => toggleWantToReadApi(config, bookId));
+    setWantIds((prev) => {
+      const next = new Set(prev);
+      if (want) next.add(bookId);
+      else next.delete(bookId);
+      return next;
+    });
+    setProfile((p) =>
+      p
+        ? {
+            ...p,
+            userStats: {
+              ...p.userStats,
+              wantCount: Math.max(0, (p.userStats.wantCount ?? 0) + (want ? 1 : -1)),
+            },
+          }
+        : p
+    );
+    return want;
   }, [config, online]);
 
   const toggleFavoriteAuthor = React.useCallback(async (name: string) => {
@@ -392,6 +434,7 @@ export function useInpxServer(
     async (bookId: string) => {
       if (!online) return;
       await withAuthGuard(() => recordReadingHistory(config, bookId));
+      dropWantLocally(bookId);
     },
     [config, online, withAuthGuard],
   );
@@ -604,7 +647,7 @@ export function useInpxServer(
   }, [config, online, withAuthGuard]);
 
   const fetchSectionBooks = React.useCallback(
-    async (section: 'bookmarks' | 'read' | 'continue' | 'recent' | 'recommended', page = 1): Promise<InpxBookItem[]> => {
+    async (section: 'bookmarks' | 'read' | 'continue' | 'recent' | 'recommended' | 'want' | 'following', page = 1): Promise<InpxBookItem[]> => {
       if (!online) return [];
       return withAuthGuard(async () => {
         if (section === 'bookmarks') {
@@ -623,6 +666,7 @@ export function useInpxServer(
     profile,
     bookmarkIds,
     readIds,
+    wantIds,
     collectionsReady,
     readingProgress,
     favoriteAuthors,
@@ -639,6 +683,7 @@ export function useInpxServer(
     refreshShelves,
     toggleBookmark,
     toggleRead,
+    toggleWant,
     toggleFavoriteAuthor,
     toggleFavoriteSeries,
     addShelf,

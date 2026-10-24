@@ -111,6 +111,35 @@ describe('BookDetailsSheet', () => {
     expect(screen.queryByText(/4 из 5/)).toBeNull();
   });
 
+  it('toggles «Хочу прочитать» and hides it for a read book', () => {
+    const onToggleWant = vi.fn();
+    const props = {
+      book,
+      onClose: vi.fn(),
+      serverConfig,
+      isServerConnected: true,
+      downloadedBookIds: [],
+      downloadingId: null,
+      downloadError: null,
+      onDownload: vi.fn(),
+      onOpenBook: vi.fn(),
+      isAppDark: false,
+      onOpenAuthor: vi.fn(),
+      onOpenSeries: vi.fn(),
+      onToggleWant,
+    };
+    const { rerender } = render(<BookDetailsSheet {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Хочу прочитать' }));
+    expect(onToggleWant).toHaveBeenCalledWith('deal');
+
+    rerender(<BookDetailsSheet {...props} isWant />);
+    expect(screen.getByRole('button', { name: 'Отложено' })).toBeTruthy();
+
+    rerender(<BookDetailsSheet {...props} isWant readIds={new Set(['deal'])} />);
+    expect(screen.queryByRole('button', { name: 'Отложено' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Хочу прочитать' })).toBeNull();
+  });
+
   it('opens the catalog genre from a genre chip', () => {
     const onOpenGenre = vi.fn();
     render(

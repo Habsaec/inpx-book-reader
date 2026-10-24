@@ -20,7 +20,8 @@ import EmptyState from '../ui/EmptyState';
 import { textStyles, touchMin, radii } from '../ui/tokens';
 import { usePageTitle } from '../ui/pageTitle';
 
-export type LibrarySectionView = 'recent' | 'recommended';
+/** `following` = «Новое у любимых»: newest first, no filters (the server applies profile languages only). */
+export type LibrarySectionView = 'recent' | 'recommended' | 'following';
 
 type LibrarySort = 'recent' | 'relevance' | 'title' | 'rating';
 
@@ -35,11 +36,13 @@ const SORT_OPTIONS: Record<LibrarySectionView, { id: LibrarySort; label: string 
     { id: 'title', label: 'А–Я' },
     { id: 'rating', label: 'Рейтинг' },
   ],
+  following: [{ id: 'recent', label: 'Новые' }],
 };
 
 const DEFAULT_SORT: Record<LibrarySectionView, LibrarySort> = {
   recent: 'recent',
   recommended: 'relevance',
+  following: 'recent',
 };
 
 const EMPTY_FILTERS: CatalogFilterDraft = {
@@ -64,6 +67,11 @@ const SECTION_META: Record<
     title: 'Рекомендации',
     subtitle: 'Подборка на основе избранных авторов, серий, истории и закладок',
     empty: 'Нет рекомендаций',
+  },
+  following: {
+    title: 'Новое у любимых',
+    subtitle: 'Новые книги избранных авторов и серий за три месяца',
+    empty: 'Пока ничего нового',
   },
 };
 
@@ -410,6 +418,7 @@ export default function LibrarySectionPanel({
           <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-2`}>{meta.subtitle}</p>
         ) : null}
         <div className="flex items-center justify-between gap-2">
+          {view === 'following' ? <span /> : (
           <button
             type="button"
             onClick={() => setFilterSheetOpen(true)}
@@ -420,12 +429,15 @@ export default function LibrarySectionPanel({
             <Filter className="w-4 h-4" aria-hidden />
             Фильтры{hasActiveFilters ? ' •' : ''}
           </button>
+          )}
           <div className="flex items-center gap-1 min-w-0">
-            <BookSortBar
-              value={sortBy}
-              options={SORT_OPTIONS[view]}
-              onChange={handleSortChange}
-            />
+            {SORT_OPTIONS[view].length > 1 ? (
+              <BookSortBar
+                value={sortBy}
+                options={SORT_OPTIONS[view]}
+                onChange={handleSortChange}
+              />
+            ) : null}
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
           </div>
         </div>

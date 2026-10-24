@@ -88,6 +88,11 @@ export function apiBookmarkPath(id: string): string {
   return apiActionPath('/api/bookmarks', id);
 }
 
+/** «Хочу прочитать» toggle (server: `/api/want/:id`, `/api/want/b64/<ref>`). */
+export function apiWantPath(id: string): string {
+  return apiActionPath('/api/want', id);
+}
+
 export function apiReadingHistoryPath(id: string): string {
   return apiActionPath('/api/reading-history', id);
 }

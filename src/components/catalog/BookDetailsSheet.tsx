@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, CheckCircle2, ChevronLeft, Download, FolderPlus, Heart, MoreHorizontal, Star } from 'lucide-react';
+import { BookOpen, Bookmark, CheckCircle2, ChevronLeft, Download, FolderPlus, Heart, MoreHorizontal, Star } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles, semantic, radii, motion as motionTokens } from '../../ui/tokens';
 import Button from '../../ui/Button';
@@ -264,6 +264,9 @@ export interface BookDetailsSheetProps {
   onOpenActions?: (book: Book) => void;
   /** «Прочитано» quick action (works offline too: it queues a sync op). */
   onToggleRead?: (bookId: string) => void;
+  /** «Хочу прочитать» (server list; hidden for read books, like the web book page). */
+  isWant?: boolean;
+  onToggleWant?: (bookId: string) => void;
 }
 
 export default function BookDetailsSheet({
@@ -293,6 +296,8 @@ export default function BookDetailsSheet({
   onToggleBookmark,
   onOpenActions,
   onToggleRead,
+  isWant = false,
+  onToggleWant,
 }: BookDetailsSheetProps) {
   const bookRef = React.useRef(liveBook);
   if (liveBook) bookRef.current = liveBook;
@@ -604,7 +609,7 @@ export default function BookDetailsSheet({
                     </Button>
                   ) : null}
                 </div>
-                {onToggleBookmark || showShelf || onToggleRead || hasMoreActions ? (
+                {onToggleBookmark || showShelf || onToggleRead || onToggleWant || hasMoreActions ? (
                   <div className={`!mt-3.5 flex border-y ${theme.divider}`}>
                     {onToggleBookmark ? (
                       <QuickAction
@@ -613,6 +618,15 @@ export default function BookDetailsSheet({
                         onClick={() => onToggleBookmark(book.id)}
                       >
                         <Heart className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} aria-hidden />
+                      </QuickAction>
+                    ) : null}
+                    {onToggleWant && !markedRead ? (
+                      <QuickAction
+                        label={isWant ? 'Отложено' : 'Хочу прочитать'}
+                        pressed={isWant}
+                        onClick={() => onToggleWant(book.id)}
+                      >
+                        <Bookmark className={`w-5 h-5 ${isWant ? 'fill-current' : ''}`} aria-hidden />
                       </QuickAction>
                     ) : null}
                     {showShelf ? (

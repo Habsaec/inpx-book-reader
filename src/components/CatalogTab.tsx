@@ -7,6 +7,9 @@ import {
   fetchGenres,
   fetchSearchGenres,
   fetchAllFacetBooks,
+  fetchSeriesProgress,
+  fetchBookMeta,
+  type SeriesReadingProgress,
   mapServerBook,
   displayCoverUrl,
   bookContentUrl,
@@ -692,6 +695,34 @@ export default function CatalogTab({
     onOpenDetails?.(book);
   };
 
+  /* «Прочитано N из M» on the series page (signed-in users; null on older servers / offline).
+     Refetched when read marks change so the counter follows «Прочитано» toggles. */
+  const [seriesProgress, setSeriesProgress] = React.useState<SeriesReadingProgress | null>(null);
+  const readCount = readIds?.size ?? 0;
+  React.useEffect(() => {
+    setSeriesProgress(null);
+    if (!selectedSeries || !isServerConnected) return;
+    let cancelled = false;
+    fetchSeriesProgress(serverConfig, selectedSeries)
+      .then((p) => { if (!cancelled) setSeriesProgress(p); })
+      .catch(() => { /* optional block: hide on any error */ });
+    return () => { cancelled = true; };
+  }, [selectedSeries, isServerConnected, serverConfig, readCount]);
+
+  const openSeriesNextBook = async (bookId: string) => {
+    const loaded = currentBooks.find((b) => b.id === bookId);
+    if (loaded) {
+      onOpenDetails?.(loaded);
+      return;
+    }
+    try {
+      const meta = await fetchBookMeta(serverConfig, bookId);
+      if (meta) onOpenDetails?.(mapServerBook(meta, serverConfig, { preferredSeries: selectedSeries || undefined }) as Book);
+    } catch (e) {
+      if (isAuthError(e)) return;
+    }
+  };
+
   const openAuthorPage = (authorName: string) => {
     onCloseDetails?.();
     setSelectedSeries(null);
@@ -1017,6 +1048,8 @@ export default function CatalogTab({
             ) : null}
 
             <CatalogDrilldownPanel
+              seriesProgress={selectedSeries ? seriesProgress : null}
+              onOpenSeriesNext={(bookId) => void openSeriesNextBook(bookId)}
               selectedAuthor={selectedAuthor}
               selectedSeries={selectedSeries}
               selectedSeriesDisplay={selectedSeriesDisplay}

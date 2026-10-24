@@ -1,8 +1,8 @@
 import React from 'react';
-import { ArrowLeft, Download, Heart, Layers3, PenLine, Star } from 'lucide-react';
+import { ArrowLeft, BookOpen, Download, Heart, Layers3, PenLine, Star } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { Book, ServerConfig } from '../../types';
-import { displayAuthorName } from '../../lib/inpxClient';
+import { displayAuthorName, type SeriesReadingProgress } from '../../lib/inpxClient';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
 import type { AuthorGroupedState } from '../../hooks/useCatalogData';
 import type { StorageDirectory } from '../../lib/storageDirectory';
@@ -32,6 +32,10 @@ interface CatalogDrilldownPanelProps {
   onToggleFavoriteSeries: (seriesName: string) => void;
   onDownloadSeries?: () => void;
   seriesDownloadBusy?: boolean;
+  /** «Прочитано N из M» for the open series (signed-in, newer server); null hides the block. */
+  seriesProgress?: SeriesReadingProgress | null;
+  /** Opens the details of the next unread volume. */
+  onOpenSeriesNext?: (bookId: string) => void;
 }
 
 export function CatalogAuthorSeriesShelf({
@@ -188,6 +192,52 @@ export function CatalogAuthorGroupedList({
   );
 }
 
+/** Same numbers as the web series page: editions of one volume count once, unnumbered volumes last. */
+function SeriesProgressBlock({
+  progress,
+  onOpenNext,
+}: {
+  progress: SeriesReadingProgress;
+  onOpenNext?: (bookId: string) => void;
+}) {
+  const pct = Math.round((progress.read / Math.max(1, progress.total)) * 100);
+  const next = progress.next;
+  const nextTitle = next ? `${next.seriesNo ? `${next.seriesNo}. ` : ''}${next.title}` : '';
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className={`${textStyles.captionBold} ${theme.text}`}>
+          Прочитано {progress.read} из {progress.total}
+        </p>
+        {!next ? (
+          <span className={`${textStyles.captionBold} text-[var(--app-success)]`}>Серия прочитана</span>
+        ) : null}
+      </div>
+      <div
+        className="h-1.5 rounded-full bg-[var(--app-progress-track,var(--app-border))] overflow-hidden"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`Прочитано ${progress.read} из ${progress.total}`}
+      >
+        <div className={`h-full rounded-full ${theme.progress}`} style={{ width: `${pct}%` }} />
+      </div>
+      {next && onOpenNext ? (
+        <button
+          type="button"
+          onClick={() => onOpenNext(next.id)}
+          className={`flex w-full min-h-12 items-center gap-2 px-4 ${radii.button} ${textStyles.captionBold} ${theme.accentBg} ${theme.focusRing} ${motionTokens.press}`}
+        >
+          <BookOpen className="w-4 h-4 shrink-0" aria-hidden />
+          <span className="shrink-0">{progress.read === 0 ? 'Начать читать' : 'Читать следующую'}</span>
+          <span className="min-w-0 truncate font-normal opacity-90">· {nextTitle}</span>
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function CatalogDrilldownPanel({
   selectedAuthor,
   selectedSeries,
@@ -208,6 +258,8 @@ export default function CatalogDrilldownPanel({
   onToggleFavoriteSeries,
   onDownloadSeries,
   seriesDownloadBusy = false,
+  seriesProgress = null,
+  onOpenSeriesNext,
 }: CatalogDrilldownPanelProps) {
   const hasDrilldown = Boolean(selectedAuthor || selectedSeries || selectedSubgenre);
   if (!hasDrilldown) return null;
@@ -331,6 +383,9 @@ export default function CatalogDrilldownPanel({
                 <Star className={`w-5 h-5 ${favoriteSeries.includes(selectedSeries) ? 'fill-[var(--app-warning)]' : ''}`} aria-hidden />
               </button>
             </div>
+            {seriesProgress && seriesProgress.total >= 2 ? (
+              <SeriesProgressBlock progress={seriesProgress} onOpenNext={onOpenSeriesNext} />
+            ) : null}
             {onDownloadSeries ? (
               <button
                 type="button"

@@ -601,6 +601,23 @@ export function useBookActions(opts: {
     [inpxServer, isOnline, snackbar],
   );
 
+  /** «Хочу прочитать»: server-only list (no offline queue), so it needs a connection. */
+  const handleToggleWant = React.useCallback(
+    async (bookId: string) => {
+      if (!isOnline) {
+        snackbar.show('«Хочу прочитать» работает при подключении к серверу');
+        return;
+      }
+      try {
+        const want = await inpxServer.toggleWant(bookId);
+        snackbar.show(want ? 'Добавлено в «Хочу прочитать»' : 'Убрано из «Хочу прочитать»');
+      } catch (e) {
+        if (!isAuthError(e)) snackbar.show('Не удалось обновить «Хочу прочитать»', undefined, 'error');
+      }
+    },
+    [inpxServer, isOnline, snackbar],
+  );
+
   const handleSetUserRating = React.useCallback(
     (bookId: string, rating: number) => {
       setDownloadedBooks((prev) => prev.map((b) => (b.id === bookId ? { ...b, userRating: rating } : b)));
@@ -1299,6 +1316,7 @@ export function useBookActions(opts: {
     handleToggleFavoriteAuthor,
     handleToggleFavoriteSeries,
     handleToggleBookBookmark,
+    handleToggleWant,
     handleSetUserRating,
     handleToggleReadStatus,
     handleAddBookmark,

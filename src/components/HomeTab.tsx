@@ -259,6 +259,8 @@ export default function HomeTab({
   onConnectionLost,
 }: HomeTabProps) {
   const [recommended, setRecommended] = React.useState<Book[]>([]);
+  /** «Новое у любимых»; stays empty on servers without `/api/library/following`. */
+  const [following, setFollowing] = React.useState<Book[]>([]);
   const [recLoading, setRecLoading] = React.useState(true);
   const [recError, setRecError] = React.useState(false);
   const [recentServer, setRecentServer] = React.useState<Book[]>([]);
@@ -434,6 +436,22 @@ export default function HomeTab({
       if (pollTimer) window.clearTimeout(pollTimer);
     };
   }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, onAuthExpired, onConnectionLost]);
+
+  React.useEffect(() => {
+    if (!fetchSectionBooks || !isOnline) return;
+    let cancelled = false;
+    fetchLibraryView(serverConfig, 'following', 1, 24)
+      .then((res) => {
+        if (!cancelled) setFollowing((res.items || []).slice(0, 8).map((b) => mapServerBook(b, serverConfig)));
+      })
+      .catch(() => {
+        // Older server (404) or no favorites yet: the section simply stays hidden, like on the web.
+        if (!cancelled) setFollowing([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, homeShelvesEpoch]);
 
   React.useEffect(() => {
     if (!fetchSectionBooks || !isOnline) return;
@@ -778,6 +796,23 @@ export default function HomeTab({
               emptyLabel="Пока нечего предложить — читайте и добавляйте в избранное"
             />
           )}
+        </section>
+      )}
+
+      {isOnline && following.length > 0 && (
+        <section className="space-y-4">
+          <HomeSectionHeader title="Новое у любимых" actionLabel="Все" onAction={() => setSectionView('following')} />
+          <HomeBookPreview
+            books={following}
+            viewMode={viewMode}
+            serverConfig={serverConfig}
+            storageDirectory={storageDirectory}
+            readingProgressByBookId={readingProgressByBookId}
+            downloadedBookIds={downloadedBookIds}
+            readIds={readIds}
+            onBookClick={handleCatalogBookTap}
+            onBookLongPress={onBookLongPress}
+          />
         </section>
       )}
 

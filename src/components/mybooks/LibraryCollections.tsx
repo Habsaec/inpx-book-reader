@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  BookMarked,
   Bookmark,
   CheckCircle2,
   ChevronRight,
@@ -17,12 +18,13 @@ import { motion, radii, textStyles } from '../../ui/tokens';
 import { shelfKey, type UiShelf } from '../../lib/inpxClient';
 import { useLongPress } from '../../hooks/useLongPress';
 
-export type LibrarySeg = 'downloaded' | 'local' | 'favorites' | 'shelves' | 'read' | 'bookmarks' | 'notes';
+export type LibrarySeg = 'downloaded' | 'local' | 'favorites' | 'want' | 'shelves' | 'read' | 'bookmarks' | 'notes';
 
 export const LIBRARY_SEG_LABELS: Record<LibrarySeg, string> = {
   downloaded: 'На устройстве',
   local: 'Папки',
   favorites: 'Избранное',
+  want: 'Хочу прочитать',
   shelves: 'Полки',
   read: 'Прочитано',
   bookmarks: 'Закладки',
@@ -33,6 +35,7 @@ const LIBRARY_GROUP: { seg: LibrarySeg; icon: LucideIcon }[] = [
   { seg: 'downloaded', icon: HardDrive },
   { seg: 'local', icon: FolderOpen },
   { seg: 'favorites', icon: Heart },
+  { seg: 'want', icon: BookMarked },
   { seg: 'read', icon: CheckCircle2 },
 ];
 

@@ -616,6 +616,7 @@ export default function App() {
     handleToggleFavoriteAuthor,
     handleToggleFavoriteSeries,
     handleToggleBookBookmark,
+    handleToggleWant,
     handleToggleReadStatus,
     handleRemoveBookFromShelf,
     handleRemoveShelfConfirmed,
@@ -1234,6 +1235,7 @@ export default function App() {
               readingProgressByBookId={readingProgressByBookId}
               readIds={inpxServer.collectionsReady ? inpxServer.readIds : undefined}
               bookmarkIds={inpxServer.collectionsReady ? inpxServer.bookmarkIds : undefined}
+              wantIds={inpxServer.collectionsReady ? inpxServer.wantIds : undefined}
               onAuthExpired={markAuthExpired}
               shelves={libraryShelves}
               favoriteAuthors={activeFavoriteAuthors}
@@ -1438,6 +1440,8 @@ export default function App() {
         onCreateShelf={handleAddShelf}
         isBookmarked={downloadPromptBook ? inpxServer.bookmarkIds?.has(downloadPromptBook.id) : false}
         onToggleBookmark={isOnline ? handleToggleBookBookmark : undefined}
+        isWant={downloadPromptBook ? inpxServer.wantIds?.has(downloadPromptBook.id) : false}
+        onToggleWant={isOnline ? handleToggleWant : undefined}
         onOpenActions={(book) => openBookActions(book, { fromDetails: true })}
         onToggleRead={handleToggleReadStatus}
       />

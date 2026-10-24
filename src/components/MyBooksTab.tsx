@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Folder, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Heart, Folder, CheckCircle2, AlertCircle, BookMarked } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
@@ -66,6 +66,8 @@ interface MyBooksTabProps {
   readingProgressByBookId?: Record<string, number>;
   readIds?: Set<string>;
   bookmarkIds?: Set<string>;
+  /** «Хочу прочитать» ids from the server (undefined before the first sync). */
+  wantIds?: Set<string>;
   shelves?: UiShelf[];
   favoriteAuthors?: string[];
   favoriteSeries?: string[];
@@ -117,6 +119,7 @@ export default function MyBooksTab({
   readingProgressByBookId = {},
   readIds,
   bookmarkIds,
+  wantIds,
   shelves = [],
   favoriteAuthors = [],
   favoriteSeries = [],
@@ -183,9 +186,10 @@ export default function MyBooksTab({
   const [smartPageSize, setSmartPageSize] = React.useState(smartRequestedPageSize);
   const [bookSort, setBookSort] = React.useState<LocalBookSort>('recent');
   const [bookQuery, setBookQuery] = React.useState('');
-  const [sectionBySeg, setSectionBySeg] = React.useState<{ favorites: Book[]; read: Book[] }>({
+  const [sectionBySeg, setSectionBySeg] = React.useState<{ favorites: Book[]; read: Book[]; want: Book[] }>({
     favorites: [],
     read: [],
+    want: [],
   });
   const [sectionLoading, setSectionLoading] = React.useState(false);
   const [sectionError, setSectionError] = React.useState(false);
@@ -265,7 +269,7 @@ export default function MyBooksTab({
   }, []);
 
   React.useEffect(() => {
-    if (seg !== 'favorites' && seg !== 'read') return;
+    if (seg !== 'favorites' && seg !== 'read' && seg !== 'want') return;
     if (!fetchSectionBooks || !isOnline) {
       setSectionLoading(false);
       return;
@@ -275,12 +279,13 @@ export default function MyBooksTab({
     setSectionLoading(true);
     setSectionError(false);
     const request = (async () => {
-      const pageSize = 48;
+      // /api/library/* pages are capped at 24 on the server; asking for 48 stopped after page 1.
+      const pageSize = key === 'favorites' ? 48 : 24;
       const items: InpxBookItem[] = [];
-      for (let page = 1; page <= 40; page += 1) {
+      for (let page = 1; page <= 80; page += 1) {
         const res = key === 'favorites'
           ? await fetchBookmarkedBooks(serverConfig, page, pageSize)
-          : await fetchLibraryView(serverConfig, 'read', page, pageSize);
+          : await fetchLibraryView(serverConfig, key, page, pageSize);
         items.push(...res.items);
         if (!res.items.length || items.length >= (res.total || items.length) || res.items.length < pageSize) break;
       }
@@ -371,6 +376,10 @@ export default function MyBooksTab({
       for (const book of serverBooks) byId.set(book.id, book);
       return [...byId.values()];
     }
+    if (seg === 'want') {
+      // Server-only list: opened / read books drop out on the server and in wantIds.
+      return wantIds ? sectionBySeg.want.filter((b) => wantIds.has(b.id)) : sectionBySeg.want;
+    }
     if (seg === 'read') {
       const serverBooks = readIds
         ? sectionBySeg.read.filter((b) => readIds.has(b.id))
@@ -386,7 +395,7 @@ export default function MyBooksTab({
       return [...byId.values()];
     }
     return [];
-  }, [seg, sectionBySeg, bookmarkIds, readIds, localReadBooks, localOfflineBooks, isOnline]);
+  }, [seg, sectionBySeg, bookmarkIds, readIds, wantIds, localReadBooks, localOfflineBooks, isOnline]);
   const sortedSectionBooks = React.useMemo(
     () => filterBooksLocal(sortBooksLocal(visibleSectionBooks, bookSort), bookQuery),
     [visibleSectionBooks, bookSort, bookQuery],
@@ -568,6 +577,7 @@ export default function MyBooksTab({
     downloaded: downloadedLibraryBooks.length,
     ...(bookmarkIds ? { favorites: bookmarkIds.size + authorRows.length + seriesRows.length } : {}),
     ...(readIds ? { read: readIds.size } : {}),
+    ...(wantIds ? { want: wantIds.size } : {}),
   };
 
   return (
@@ -779,8 +789,8 @@ export default function MyBooksTab({
                 )
               )}
 
-              {(seg === 'favorites' || seg === 'read') && (
-                sectionError && !sectionLoading && (seg === 'read' || (authorRows.length === 0 && seriesRows.length === 0 && visibleSectionBooks.length === 0)) ? (
+              {(seg === 'favorites' || seg === 'read' || seg === 'want') && (
+                sectionError && !sectionLoading && (seg !== 'favorites' || (authorRows.length === 0 && seriesRows.length === 0 && visibleSectionBooks.length === 0)) ? (
                   listError
                 ) : sectionLoading && visibleSectionBooks.length === 0 && (seg !== 'favorites' || (authorRows.length === 0 && seriesRows.length === 0)) ? (
                   <BookGridSkeleton count={6} />
@@ -790,6 +800,17 @@ export default function MyBooksTab({
                     title="Избранное пусто"
                     description="Добавляйте книги, авторов и серии из каталога."
                     actionLabel={onGoCatalog ? 'Каталог' : undefined}
+                    actionVariant="primary"
+                    onAction={onGoCatalog}
+                  />
+                ) : seg === 'want' && visibleSectionBooks.length === 0 ? (
+                  <EmptyState
+                    icon={BookMarked}
+                    title={isOnline ? 'Список пуст' : 'Нужно подключение к серверу'}
+                    description={isOnline
+                      ? 'Нажмите «Хочу прочитать» в карточке книги. Книга уйдёт отсюда, когда вы её откроете или отметите прочитанной.'
+                      : '«Хочу прочитать» хранится на сервере.'}
+                    actionLabel={isOnline && onGoCatalog ? 'Каталог' : undefined}
                     actionVariant="primary"
                     onAction={onGoCatalog}
                   />

@@ -15,6 +15,7 @@
 | **Чтение** | Только локальный файл после скачивания; сервер — каталог, метаданные, sync, не стриминг контента |
 | API-first | Метаданные и sync — только через `/api/*` сервера, не из FB2/локальных эвристик |
 | Парность изменений | Новый endpoint на сервере → `inpxClient.ts` + UI; новая фича в reader → endpoint на сервере |
+| **Паритет функций — всегда** | Любая новая пользовательская функция делается **в одной задаче** на сайте **и** в приложении (API + `inpxClient.ts` + экран + оба `AGENTS.md`). «Потом в приложение» не бывает; только админка и серверная внутрянка — веб-только, и это говорится явно |
 | Sync по `bookId` | Позиция, закладки, заметки синхронизируются; путь файла на диске — snapshot при скачивании |
 | Серия и путь | `GET /api/books/:id/meta` → `seriesList` из INPX-индекса → `bookStorage.ts`. `Book.series` — lookup-ключ (lowercase, для навигации/фасетов), `Book.seriesDisplay` — человекочитаемое имя из `seriesList[].displayName`; в UI выводить через `seriesLabel(book)` (`src/lib/seriesLabel.ts`) |
 | Перезапуск сервера | После новых routes в `inpx-library-server` |
@@ -72,7 +73,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 Приложение использует следующие endpoint'ы INPX Library Server:
 
 #### Аутентификация и профиль
-- `GET /api/profile` — данные профиля пользователя (`user.email` — email аккаунта, additive)
+- `GET /api/profile` — данные профиля пользователя (`user.email` — email аккаунта, additive; `userStats.wantCount` — «Хочу прочитать», additive)
 - `GET /api/account-email` / `POST /api/account-email` (`{ email }`, пусто = очистить) — email аккаунта `users.email`; 400 `PROFILE_INVALID_EMAIL`, 409 `PROFILE_EMAIL_TAKEN`. Отдельно от `GET/POST /api/ereader-email`
 - `POST /api/auth/device` — выдать device token (Android, после Basic Auth)
 - `DELETE /api/auth/device/:tokenId` — отозвать device token
@@ -87,6 +88,9 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/library/continue` — продолжить чтение
 - `GET /api/library/read` — прочитанные книги
 - `GET /api/library/recommended` — рекомендации; те же additive filters (`genre`, `format`, `year`, `minRate`, `hasSeries`) поверх персонального пула
+- `GET /api/library/want` — «Хочу прочитать» (как `read`; `sort=recent|title|author|rating`). Книга уходит из списка сама, когда её открыли (`POST /api/reading-history/:id`) или отметили прочитанной. В приложении: действие «Хочу прочитать / Отложено» в карточке книги (`BookDetailsSheet`, скрыто для прочитанной), сегмент «Хочу прочитать» в «Моих книгах», набор `wantIds` в `useInpxServer` (старый сервер без маршрута → набор пустой, синхронизация не падает)
+- `GET /api/library/following` — «Новое у любимых»: непрочитанные книги избранных авторов и серий за 90 дней по дате INPX, новые сверху, без фильтров. В приложении: секция на Главной после «Рекомендаций» (только если есть книги; 404 старого сервера = скрыта), «Все» → `LibrarySectionPanel view="following"` без фильтров
+- `GET /api/series-progress?name=` — `{ total, read, next: { id, title, seriesNo } | null }`: тома (издания одного тома считаются один раз), книги без номера в конце. В приложении: блок «Прочитано N из M» + «Начать читать / Читать следующую» на экране серии (`CatalogDrilldownPanel`), обновляется при изменении отметок «прочитано»; 404 → блок скрыт
 - `GET /api/catalog` — поиск/просмотр каталога (без `q` тоже отдаёт книги); additive filters: `genre` (CSV/repeated, OR — хотя бы один), `lang`, `format`, `year`, `minRate`, `hasSeries` (1/0)
 - `GET /api/search?q=` — totals разделов `{ books, authors, series, preferredField?, routeField: null }`; drilldown через `/api/catalog?field=`; веб Enter всегда открывает книги с чипами Авторы/Серии (без hub / smart redirect)
 - `GET /api/search/genres?q=` — жанры среди книг текущей выдачи (фасет для фильтра; опционально format/year/minRate/hasSeries)
@@ -111,6 +115,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 #### Закладки и прогресс
 - `GET /api/bookmarks` — список закладок
 - `POST /api/bookmarks/:id` — добавить/удалить закладку
+- `POST /api/want/:id` — переключить «Хочу прочитать» → `{ want }`; `DELETE /api/want/:id` — убрать (идемпотентно); id с NUL/control-символами — `/api/want/b64/<ref>` (`apiWantPath`)
 - `POST /api/read/:id` — переключить отметку «прочитано»
 - `POST /api/read/batch` — идемпотентно поставить «прочитано» (`ids`)
 - `DELETE /api/read/:id` — идемпотентно снять «прочитано» (нет отметки — тоже `{ read: false }`)

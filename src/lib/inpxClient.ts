@@ -16,6 +16,7 @@ import {
   apiBookPath,
   apiBookmarkPath,
   apiReadPath,
+  apiWantPath,
   apiReadingHistoryPath,
   bookIdNeedsSafeUrl,
   encodeBookRef,
@@ -32,6 +33,8 @@ export interface InpxProfile {
     shelvesCount: number;
     readerBookmarksCount: number;
     readerAnnotationsCount: number;
+    /** «Хочу прочитать» (additive; older servers omit it). */
+    wantCount?: number;
     createdAt: string | null;
   };
   recentBooks: Array<{
@@ -543,7 +546,8 @@ export async function fetchBookmarkedBooks(config: ServerConfig, page = 1, pageS
 
 export async function fetchLibraryView(
   config: ServerConfig,
-  view: 'recent' | 'continue' | 'read' | 'recommended',
+  /** `want` = «Хочу прочитать», `following` = «Новое у любимых» (newer servers; older ones answer 404). */
+  view: 'recent' | 'continue' | 'read' | 'recommended' | 'want' | 'following',
   page = 1,
   pageSize = 24,
   opts: {
@@ -585,6 +589,39 @@ export async function fetchLibraryView(
 export async function toggleBookBookmark(config: ServerConfig, bookId: string): Promise<boolean> {
   const data = await apiPostJson<{ bookmarked: boolean }>(config, apiBookmarkPath(bookId));
   return data.bookmarked;
+}
+
+/** Toggle «Хочу прочитать»; the server drops the entry itself once the book is opened or marked read. */
+export async function toggleWantToReadApi(config: ServerConfig, bookId: string): Promise<boolean> {
+  const data = await apiPostJson<{ want: boolean }>(config, apiWantPath(bookId));
+  return Boolean(data.want);
+}
+
+export interface SeriesReadingProgress {
+  /** Volumes (editions of one volume count once). */
+  total: number;
+  read: number;
+  next: { id: string; title: string; seriesNo: string } | null;
+}
+
+/** «Прочитано N из M» + the next unread volume; `null` when the server has no such route yet. */
+export async function fetchSeriesProgress(config: ServerConfig, seriesName: string): Promise<SeriesReadingProgress | null> {
+  try {
+    const data = await apiJson<Partial<SeriesReadingProgress>>(
+      config,
+      `/api/series-progress?name=${encodeURIComponent(seriesName)}`,
+    );
+    return {
+      total: Number(data.total) || 0,
+      read: Number(data.read) || 0,
+      next: data.next && data.next.id
+        ? { id: String(data.next.id), title: String(data.next.title ?? ''), seriesNo: String(data.next.seriesNo ?? '') }
+        : null,
+    };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
 }
 
 export async function toggleBookRead(config: ServerConfig, bookId: string): Promise<boolean> {
