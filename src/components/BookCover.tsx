@@ -2,8 +2,10 @@ import React from 'react';
 import { ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { peekCoverMemory, resolveCoverUrl } from '../lib/coverCache';
-/** Same asset as INPX Library Server `public/book-fallback.png` — bundled for APK. */
+/** Same assets as INPX Library Server `public/book-fallback.png` / `book-fallback-light.png`
+ *  (dark leather, light parchment) — bundled for the APK, picked by `html[data-theme]` in index.css. */
 import bookFallbackPng from '../assets/book-fallback.png';
+import bookFallbackLightPng from '../assets/book-fallback-light.png';
 
 function fillsParent(className: string): boolean {
   return (
@@ -52,26 +54,28 @@ function CoverFallback({
       style={{
         ...(fill ? undefined : { width: w, height: h }),
         containerType: 'size',
-        background: imgOk ? undefined : 'linear-gradient(180deg, #181410 0%, #100e0b 100%)',
+        background: imgOk ? undefined : 'var(--inpx-cover-fallback-bg)',
       }}
     >
       {imgOk && (
-        <img
-          src={bookFallbackPng}
-          alt=""
-          className="absolute inset-0 w-full h-full object-cover"
-          draggable={false}
-          onError={() => setImgOk(false)}
-        />
+        <>
+          <img
+            src={bookFallbackPng}
+            alt=""
+            className="inpx-cover-fallback-dark absolute inset-0 w-full h-full object-cover"
+            draggable={false}
+            onError={() => setImgOk(false)}
+          />
+          <img
+            src={bookFallbackLightPng}
+            alt=""
+            className="inpx-cover-fallback-light absolute inset-0 w-full h-full object-cover"
+            draggable={false}
+            onError={() => setImgOk(false)}
+          />
+        </>
       )}
-      <span
-        className="absolute inset-0"
-        style={{
-          background:
-            'linear-gradient(180deg, rgba(13, 13, 20, 0.18) 0%, rgba(13, 13, 20, 0.48) 100%)',
-        }}
-        aria-hidden
-      />
+      <span className="inpx-cover-fallback-overlay absolute inset-0" aria-hidden />
       {(title || author) && (
         <span
           className="absolute flex flex-col items-center justify-start gap-[0.35em] text-center overflow-hidden box-border z-[1]"
@@ -79,12 +83,11 @@ function CoverFallback({
         >
           {title ? (
             <span
-              className="w-full font-bold text-[#f6f1e6] line-clamp-6 [overflow-wrap:anywhere]"
+              className="inpx-cover-fallback-title w-full font-bold line-clamp-6 [overflow-wrap:anywhere]"
               style={{
                 fontSize: 'clamp(9px, 7cqi, 18px)',
                 lineHeight: 1.14,
                 letterSpacing: '0.015em',
-                textShadow: '0 1px 3px rgba(0,0,0,.65), 0 0 1px rgba(0,0,0,.4)',
               }}
             >
               {title}
@@ -92,12 +95,11 @@ function CoverFallback({
           ) : null}
           {author ? (
             <span
-              className="w-full italic text-[#f6f1e6]/80 line-clamp-2 [overflow-wrap:anywhere]"
+              className="inpx-cover-fallback-author w-full italic line-clamp-2 [overflow-wrap:anywhere]"
               style={{
                 fontSize: 'clamp(7px, 4.2cqi, 12px)',
                 lineHeight: 1.22,
                 letterSpacing: '0.02em',
-                textShadow: '0 1px 2px rgba(0,0,0,.55)',
               }}
             >
               {author}

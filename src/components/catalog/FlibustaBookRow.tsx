@@ -7,7 +7,8 @@ import { textStyles, motion } from '../../ui/tokens';
 import BookCover from '../BookCover';
 import ReadProgressBar from '../ReadProgressBar';
 import DownloadStatusLabel from '../DownloadStatusLabel';
-import { displayBookTitle, seriesLabel } from '../../lib/seriesLabel';
+import { bookTitleWithoutVolume, seriesLabel, seriesVolumeLabel } from '../../lib/seriesLabel';
+import { bookAuthorLabel } from '../../lib/importExternalBook';
 import { isBookFinished } from '../../lib/bookOpenPolicy';
 import ReadMark from '../ReadMark';
 
@@ -54,9 +55,11 @@ export default function FlibustaBookRow({
 
   React.useEffect(() => () => clearLongPress(), []);
 
-  const titleText = displayBookTitle(book);
+  const titleText = bookTitleWithoutVolume(book);
+  const authorText = bookAuthorLabel(book);
   const seriesName = seriesLabel(book);
-  const seriesText = seriesName ? `${seriesName}${book.seriesNo ? ` · ${book.seriesNo}` : ''}` : '';
+  const volume = seriesVolumeLabel(book);
+  const seriesText = seriesName ? `${seriesName}${volume ? ` · том ${volume}` : ''}` : volume ? `Том ${volume}` : '';
   const fileLine = [book.ext?.toUpperCase(), book.year ? String(book.year) : ''].filter(Boolean).join(' · ');
   const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));
   const progress = Math.max(0, Math.min(100, Math.round(readProgress || book.readProgress || 0)));
@@ -96,8 +99,8 @@ export default function FlibustaBookRow({
           <span className="book-cover-inner">
             <BookCover
               bookId={book.id}
-              title={book.title}
-              author={book.author}
+              title={titleText}
+              author={authorText}
               serverConfig={serverConfig}
               storageDirectory={storageDirectory}
               variant="thumb"
@@ -116,8 +119,8 @@ export default function FlibustaBookRow({
         </span>
         <span className="flex-1 min-w-0 flex flex-col justify-center gap-0.5 py-2">
           <span className={`${textStyles.bookTitle} text-[1.0625rem] leading-[1.375rem] line-clamp-2 ${theme.text}`}>{titleText}</span>
-          {book.author ? (
-            <span className={`${textStyles.caption} ${theme.textMuted} truncate`}>{book.author}</span>
+          {authorText ? (
+            <span className={`${textStyles.caption} ${theme.textMuted} truncate`}>{authorText}</span>
           ) : null}
           {seriesText ? (
             <span className={`${textStyles.micro} ${theme.textMuted} truncate`}>{seriesText}</span>

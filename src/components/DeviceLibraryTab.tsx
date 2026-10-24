@@ -23,7 +23,7 @@ import BookSortBar from './catalog/BookSortBar';
 type DeviceSort = 'recent' | 'title' | 'author' | 'volume' | 'rating';
 
 const DEVICE_SORT_OPTIONS: Array<{ id: DeviceSort; label: string }> = [
-  { id: 'recent', label: 'Недавно читал' },
+  { id: 'recent', label: 'Недавно открытые' },
   { id: 'title', label: 'Название' },
   { id: 'author', label: 'Автор' },
   { id: 'volume', label: 'Номер тома' },

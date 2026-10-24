@@ -4,7 +4,8 @@ import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { theme } from '../lib/appTheme';
 import { textStyles, motion } from '../ui/tokens';
-import { displayBookTitle, seriesLabel } from '../lib/seriesLabel';
+import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, volumeCaption } from '../lib/seriesLabel';
+import { bookAuthorLabel } from '../lib/importExternalBook';
 import { isBookFinished } from '../lib/bookOpenPolicy';
 import BookCover from './BookCover';
 import ReadMark from './ReadMark';
@@ -104,7 +105,9 @@ export default function BookCoverTile({
   const progress = Math.max(0, Math.min(100, Math.round(readProgress || book.readProgress || 0)));
   const finished = isBookFinished(progress, isRead);
   const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));
-  const titleText = displayBookTitle(book);
+  const titleText = bookTitleWithoutVolume(book);
+  const volumeText = volumeCaption(book);
+  const authorText = bookAuthorLabel(book);
   const extLabel = showFileExt && book.ext ? book.ext.toUpperCase() : '';
   const seriesText = showFileExt ? seriesLabel(book) : '';
   const fileLine = [extLabel, seriesText].filter(Boolean).join(' · ');
@@ -149,7 +152,7 @@ export default function BookCoverTile({
       onPointerUp={clearLongPress}
       onPointerLeave={clearLongPress}
       onPointerCancel={clearLongPress}
-      aria-label={`${selected ? 'Выбрано: ' : 'Открыть: '}${titleText}`}
+      aria-label={`${selected ? 'Выбрано: ' : 'Открыть: '}${displayBookTitle(book)}`}
       aria-pressed={selected || undefined}
       className={`text-left flex flex-col min-w-0 ${isShelf ? 'shrink-0' : 'w-full'} ${theme.focusRing} ${motion.bookPress} ${motion.colors} ${className}`}
       style={isShelf ? { width: shelfW } : undefined}
@@ -163,8 +166,8 @@ export default function BookCoverTile({
         <span className="book-cover-inner">
           <BookCover
             bookId={book.id}
-            title={book.title}
-            author={book.author}
+            title={titleText}
+            author={authorText}
             serverConfig={serverConfig}
             storageDirectory={storageDirectory}
             width={isShelf ? shelfW : undefined}
@@ -204,13 +207,19 @@ export default function BookCoverTile({
           <p className={`${textStyles.bookTitle} line-clamp-2`}>{titleText}</p>
           {showAuthor ? (
             <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-1`}>
-              {book.author || '\u00a0'}
+              {authorText || '\u00a0'}
             </p>
           ) : null}
-          {rating > 0 ? (
-            <p className={`${textStyles.microBold} ${theme.text} inline-flex items-center gap-1`} aria-label={`Рейтинг ${rating} из 5`}>
-              <Star className="w-3.5 h-3.5 fill-current text-[var(--app-star)]" aria-hidden />
-              <span className="tabular-nums">{rating}</span>
+          {rating > 0 || volumeText ? (
+            <p className={`${textStyles.micro} ${theme.textMuted} inline-flex items-center gap-1.5 min-w-0`}>
+              {rating > 0 ? (
+                <span className={`inline-flex items-center gap-1 font-semibold ${theme.text}`} aria-label={`Рейтинг ${rating} из 5`}>
+                  <Star className="w-3.5 h-3.5 fill-current text-[var(--app-star)]" aria-hidden />
+                  <span className="tabular-nums">{rating}</span>
+                </span>
+              ) : null}
+              {rating > 0 && volumeText ? <span aria-hidden>·</span> : null}
+              {volumeText ? <span className="truncate">{volumeText}</span> : null}
             </p>
           ) : null}
           {fileLine ? (

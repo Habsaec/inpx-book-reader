@@ -8,6 +8,7 @@ import BookCover from './BookCover';
 import ReadProgressBar from './ReadProgressBar';
 import DownloadStatusLabel from './DownloadStatusLabel';
 import BookMetaSummary from './BookMetaSummary';
+import { cleanFileLikeTitle } from '../lib/seriesLabel';
 
 interface LiteBookRowProps {
   book: Book;
@@ -129,7 +130,7 @@ export default function LiteBookRow({
 
         <span className="flex-1 min-w-0 block pointer-events-none text-left">
           <span className={`block line-clamp-2 ${textStyles.bookTitle} ${compact ? 'text-sm' : ''} ${titleColor}`}>
-            {book.title}
+            {cleanFileLikeTitle(book.title)}
           </span>
 
           <span className={`block text-xs leading-snug mt-1 truncate ${metaColor}`}>

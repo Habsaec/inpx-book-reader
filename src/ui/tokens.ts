@@ -21,9 +21,9 @@ export const textStyles = {
   title: 'font-serif text-[1.875rem] leading-[2.375rem] font-semibold tracking-[-0.01em]',
   display: 'font-serif text-[1.875rem] leading-[2.375rem] font-semibold tracking-[-0.01em]',
   /** Book title in tiles and rows — serif 15/20 */
-  bookTitle: 'font-serif text-[0.9375rem] leading-5 font-semibold min-w-0 max-w-full [overflow-wrap:break-word] hyphens-auto',
+  bookTitle: 'font-serif text-[0.9375rem] leading-5 font-semibold min-w-0 max-w-full [overflow-wrap:break-word] hyphens-manual',
   /** Book title on the hero card and book page — serif 25/31 */
-  bookTitleHero: 'font-serif text-[1.5625rem] leading-[1.9375rem] font-semibold min-w-0 max-w-full [overflow-wrap:break-word] hyphens-auto',
+  bookTitleHero: 'font-serif text-[1.5625rem] leading-[1.9375rem] font-semibold min-w-0 max-w-full [overflow-wrap:break-word] hyphens-manual',
   /** Section title — serif 21/28 */
   sectionLabel: 'font-serif text-[1.3125rem] leading-7 font-semibold',
   statNumber: 'font-serif text-[1.75rem] leading-8 font-semibold tabular-nums',

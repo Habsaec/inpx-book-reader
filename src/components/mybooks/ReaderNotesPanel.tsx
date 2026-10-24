@@ -1,4 +1,5 @@
 import React from 'react';
+import ChoicePicker from '../../ui/ChoicePicker';
 import { ClipboardCopy, Highlighter, Trash2 } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import type { LocalReaderAnnotationItem } from '../../lib/offlineReaderStore';
@@ -89,19 +90,13 @@ export default function ReaderNotesPanel({
         style={{ top: 'calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px))' }}
       >
         {bookOptions.length > 1 && (
-          <label className={`block ${textStyles.caption} ${theme.textMuted}`}>
-            Книга
-            <select
-              value={bookFilter}
-              onChange={(e) => setBookFilter(e.target.value as string | 'all')}
-              className={`mt-2 w-full ${radii.lg} border px-4 py-2.5 ${textStyles.caption} ${theme.input}`}
-            >
-              <option value="all">Все книги</option>
-              {bookOptions.map(([id, title]) => (
-                <option key={id} value={id}>{title}</option>
-              ))}
-            </select>
-          </label>
+          <ChoicePicker
+            title="Книга"
+            value={bookFilter}
+            onChange={setBookFilter}
+            options={[{ id: 'all', label: 'Все книги' }, ...bookOptions.map(([id, title]) => ({ id, label: title }))]}
+            className="max-w-full"
+          />
         )}
 
         <div className="flex flex-wrap items-center gap-2">

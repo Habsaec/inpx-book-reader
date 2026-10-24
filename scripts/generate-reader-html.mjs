@@ -500,17 +500,12 @@ function injectAlReaderChrome(source) {
   out = out.replace(/\s*<button type="button" class="ft-goto-btn" id="ft-goto"[^>]*>.*?<\/button>\s*/g, '\n  ');
   out = out.replace(/\s*<div class="reader-goto" id="reader-goto"[\s\S]*?<\/div>\s*<\/div>\s*/g, '\n');
 
-  if (!out.includes('id="ft-goto"')) {
-    out = out.replace(
-      /(<span class="ft-pct" id="ft-pct">)/,
-      '<button type="button" class="ft-goto-btn" id="ft-goto" title="Перейти к позиции" aria-label="Перейти к позиции">Перейти</button>\n  $1',
-    );
-  } else {
-    out = out.replace(
-      /<button type="button" class="ft-goto-btn" id="ft-goto"[^>]*>.*?<\/button>/,
-      '<button type="button" class="ft-goto-btn" id="ft-goto" title="Перейти к позиции" aria-label="Перейти к позиции">Перейти</button>',
-    );
-  }
+  // The percentage itself opens «Перейти к…» (as in AlReader / Moon+), instead of a separate
+  // «Перейти» word next to the seek bar that read like its caption.
+  out = out.replace(
+    /<span class="ft-pct" id="ft-pct">[^<]*<\/span>/,
+    '<button type="button" class="ft-goto-btn" id="ft-goto" title="Перейти к позиции" aria-label="Перейти к позиции"><span class="ft-pct" id="ft-pct">0%</span></button>',
+  );
 
   if (!out.includes('id="btn-overflow"')) {
     out = out.replace(
@@ -623,6 +618,9 @@ html = html.replace(/\$\{[^}]+\}/g, '');
 if (/\s(?:src|href)=""/.test(html)) {
   throw new Error('Reader HTML has an empty src/href: a server template expression needs a replacement above');
 }
+
+// The server template may be checked out with CRLF; keep the generated page LF-only.
+html = html.replace(/\r\n/g, '\n');
 
 const out = path.join(root, 'public/inpx-reader/index.html');
 fs.writeFileSync(out, html);

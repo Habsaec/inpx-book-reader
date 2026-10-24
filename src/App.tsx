@@ -1096,7 +1096,6 @@ export default function App() {
             alt="INPX Reader"
             className="h-10 w-auto max-w-[14rem] object-contain"
           />
-          <p className={`text-xs font-bold ${theme.textMuted}`}>Защищаем подключение…</p>
         </div>
       ) : showOnboarding ? (
         <TabScreenPanel active>

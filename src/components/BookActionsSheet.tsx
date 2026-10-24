@@ -15,7 +15,7 @@ import DragSheet from '../ui/DragSheet';
 import BookCover from './BookCover';
 import ShelfPicker from './ShelfPicker';
 import type { Book, ServerConfig } from '../types';
-import { displayBookTitle } from '../lib/seriesLabel';
+import { bookTitleWithoutVolume, displayBookTitle } from '../lib/seriesLabel';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { UiShelf } from '../lib/inpxClient';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
@@ -124,7 +124,7 @@ export default function BookActionsSheet({
               <span className="book-cover-inner">
                 <BookCover
                   bookId={book.id}
-                  title={book.title}
+                  title={bookTitleWithoutVolume(book)}
                   author={book.author}
                   serverConfig={serverConfig}
                   storageDirectory={storageDirectory}

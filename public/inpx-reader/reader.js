@@ -2144,7 +2144,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const f = normalizeFraction(fraction);
     if (!seekBarUserActive) {
       currentFraction = f;
-      const pctDisplay = fractionToProgress(f).toFixed(1).replace(/\.0$/, '');
+      const pctDisplay = String(Math.round(fractionToProgress(f)));
       if (seekBar) seekBar.value = f;
       updateSeekbar();
       if (pctLabel) pctLabel.textContent = pctDisplay + '%';
@@ -2222,7 +2222,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       rssChapter.title = chapterText;
     }
     if (rssPct) {
-      const pct = fractionToProgress(currentFraction).toFixed(1) + '%';
+      const pct = Math.round(fractionToProgress(currentFraction)) + '%';
       rssPct.hidden = !S.statusShowPct;
       rssPct.textContent = pct;
     }
@@ -2576,7 +2576,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
 
   seekBar?.addEventListener('input', () => {
     const f = parseFloat(seekBar.value);
-    if (pctLabel) pctLabel.textContent = fractionToProgress(f).toFixed(1) + '%';
+    if (pctLabel) pctLabel.textContent = Math.round(fractionToProgress(f)) + '%';
     seekBar.style.setProperty('--seek-pct', (f * 100).toFixed(4) + '%');
     scheduleChromeHide();
     clearTimeout(seekTimer);

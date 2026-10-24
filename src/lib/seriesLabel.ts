@@ -36,25 +36,55 @@ function titleWithoutHashVolume(title: string, volume: string): string {
   return title.replace(re, '').trim();
 }
 
+const BOOK_FILE_EXT = /\.(fb2\.zip|fb2|fbz|epub|zip|pdf|txt|djvu|mobi|azw3)$/i;
+/** Download-site tails people leave in file names: `Litmir.net_bid212581_8d7a7`, `(royallib.com)`… */
+const SITE_TAIL = /[\s_.-]*(?:\(?\s*(?:litmir|flibusta|royallib|rulit|libking|coollib|lib\.rus\.ec|bookz|twirpx)[^)\s]*\)?)(?:[\s_.-]*(?:bid)?\d+)?(?:[\s_.-]*[0-9a-f]{4,})?\s*$/i;
+
+/**
+ * A title that is really a file name (books opened from a folder before their metadata is read,
+ * or saved that way earlier) → something readable: no extension, no site tail, spaces for `_`.
+ * Real titles pass through unchanged.
+ */
+export function cleanFileLikeTitle(title: string): string {
+  const raw = (title || '').trim();
+  const looksLikeFile = BOOK_FILE_EXT.test(raw) || (raw.includes('_') && !/\s/.test(raw));
+  if (!looksLikeFile) return raw;
+  let name = raw.replace(BOOK_FILE_EXT, '');
+  name = name.replace(SITE_TAIL, '');
+  name = name.replace(/_+/g, ' ').replace(/\s*-\s*/g, ' — ').replace(/\s{2,}/g, ' ').trim();
+  name = name.replace(/^—\s*|\s*—$/g, '').trim();
+  return name || raw;
+}
+
 /** Book name on the details page: no volume prefix and no trailing `#N`. */
 export function bookTitleWithoutVolume(book: {
   title: string;
   seriesNo?: number | string | null;
   seriesNoLabel?: string | null;
 }): string {
+  const title = cleanFileLikeTitle(book.title);
   const volume = seriesVolumeLabel(book);
-  if (!volume) return book.title;
-  return titleWithoutHashVolume(book.title, volume) || book.title;
+  if (!volume) return title;
+  return titleWithoutHashVolume(title, volume) || title;
 }
 
-/** Title as shown in lists. Volume prefix is display-only; sort keys stay on `title`. */
+/** «Том 33» under a title in tiles and lists (the volume no longer sits in front of the name). */
+export function volumeCaption(book: { seriesNo?: number | string | null; seriesNoLabel?: string | null }): string {
+  const volume = seriesVolumeLabel(book);
+  return volume ? `Том ${volume}` : '';
+}
+
+/**
+ * One-line title for sheet headers, search suggestions and screen readers: «Кодекс Охотника, том 33».
+ * Tiles and rows show `bookTitleWithoutVolume` with `volumeCaption` on its own line instead.
+ */
 export function displayBookTitle(book: {
   title: string;
   seriesNo?: number | string | null;
   seriesNoLabel?: string | null;
 }): string {
   const volume = seriesVolumeLabel(book);
-  if (!volume) return book.title;
-  const name = titleWithoutHashVolume(book.title, volume);
-  return name ? `${volume}. ${name}` : volume;
+  const name = bookTitleWithoutVolume(book);
+  if (!volume) return name;
+  return name ? `${name}, том ${volume}` : `Том ${volume}`;
 }

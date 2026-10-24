@@ -99,7 +99,7 @@ function SideRecentBook({
             bookId={book.id}
             serverConfig={serverConfig}
             storageDirectory={storageDirectory}
-            title={book.title}
+            title={bookTitleWithoutVolume(book)}
             className="absolute inset-0 w-full h-full object-cover"
           />
         </span>
@@ -585,7 +585,7 @@ export default function HomeTab({
                   serverConfig={serverConfig}
                   storageDirectory={storageDirectory}
                   variant="full"
-                  title={hero.title}
+                  title={bookTitleWithoutVolume(hero)}
                   className="absolute inset-0 w-full h-full object-cover"
                 />
                 {heroFinished ? <ReadMark /> : null}
@@ -605,7 +605,7 @@ export default function HomeTab({
                 </IconButton>
               ) : null}
             </div>
-            <h3 className={`mt-1.5 font-serif text-[1.375rem] leading-7 font-semibold line-clamp-2 [overflow-wrap:break-word] hyphens-auto ${theme.text}`}>
+            <h3 className={`mt-1.5 font-serif text-[1.375rem] leading-7 font-semibold line-clamp-2 [overflow-wrap:break-word] hyphens-manual ${theme.text}`}>
               {bookTitleWithoutVolume(hero)}
             </h3>
             {hero.authorsDisplay ? (

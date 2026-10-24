@@ -2,6 +2,7 @@ import { Book } from '../types';
 import type { StorageDirectory } from './storageDirectory';
 import { BookStorage } from './bookStoragePlugin';
 import { fileNameFromLaunchUri } from './launchIntent';
+import { cleanFileLikeTitle } from './seriesLabel';
 
 function extFromFileName(name: string): string {
   const m = name.match(/\.([a-z0-9]+)$/i);
@@ -9,7 +10,7 @@ function extFromFileName(name: string): string {
 }
 
 function titleFromFileName(name: string): string {
-  return name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || 'Импортированная книга';
+  return cleanFileLikeTitle(name) || 'Импортированная книга';
 }
 
 function localImportBookId(relativePath: string): string {
@@ -39,7 +40,7 @@ export async function importExternalBookFromUri(
   return {
     id,
     title: titleFromFileName(fileName),
-    author: 'Импорт',
+    author: '',
     ext: extFromFileName(fileName),
     localFileName: relativePath,
     storageUri: directory.uri,
@@ -51,6 +52,18 @@ export async function importExternalBookFromUri(
 /** Локальная папка (`local:<sha256>`) или импорт (`local:import:…`) — нет серверного bookId. */
 export function isLocalOnlyBookId(id: string): boolean {
   return id.startsWith('local:');
+}
+
+/**
+ * Author for display. Books opened from a folder used to store the folder name as the author
+ * («Book», «Downloads») and imports stored «Импорт»; neither is a person, so show nothing.
+ */
+export function bookAuthorLabel(book: Pick<Book, 'id' | 'author' | 'localFileName'>): string {
+  const author = (book.author || '').trim();
+  if (!author || !isLocalOnlyBookId(book.id)) return author;
+  if (author === 'Импорт') return '';
+  const folder = (book.localFileName || '').split('/').slice(0, -1).pop() || '';
+  return folder && folder === author ? '' : author;
 }
 
 /** Книга из проводника «Папки» (`local:<sha256>`), не импорт и не скачивание с сервера. */

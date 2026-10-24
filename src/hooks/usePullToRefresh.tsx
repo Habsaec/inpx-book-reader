@@ -6,11 +6,15 @@ import { theme } from '../lib/appTheme';
 const TRIGGER_PX = 56;
 const MAX_PULL_PX = 110;
 const MIN_SPIN_MS = 600;
+/** Gap kept open under the header while the refresh runs; the spinner sits in it. */
+const REFRESH_GAP_PX = 56;
+const SPINNER_PX = 40;
 
 /**
  * Pull down at the top of a scroll container to refresh. Spread `bind` on the scrolling
- * element and render `indicator` inside its positioned parent. Only a vertical pull that
- * starts at scrollTop 0 counts, so sideways tab swipes and normal scrolling are untouched.
+ * element (it carries the style that moves the content down) and render `indicator` inside its
+ * positioned parent. The content slides down and the spinner appears in the gap, so it never
+ * covers text. Only a vertical pull that starts at scrollTop 0 counts.
  */
 export function usePullToRefresh(onRefresh?: () => void | Promise<unknown>) {
   const [pull, setPull] = React.useState(0);
@@ -66,12 +70,15 @@ export function usePullToRefresh(onRefresh?: () => void | Promise<unknown>) {
 
   const visible = refreshing || pull > 4;
   const progress = Math.min(1, pull / TRIGGER_PX);
+  const offset = refreshing ? REFRESH_GAP_PX : pull;
+  const pulling = pull > 0 && !refreshing;
   const indicator = visible ? (
     <div
       className="pointer-events-none absolute inset-x-0 z-20 flex justify-center"
       style={{
-        top: 'calc(var(--app-header-offset, 4rem) + 8px)',
-        transform: `translateY(${refreshing ? 8 : pull * 0.6}px)`,
+        top: 'var(--app-header-offset, 4rem)',
+        transform: `translateY(${Math.max(0, (offset - SPINNER_PX) / 2)}px)`,
+        transition: pulling ? 'none' : 'transform 200ms ease-out',
       }}
       role="status"
       aria-label={refreshing ? 'Обновление' : undefined}
@@ -86,5 +93,9 @@ export function usePullToRefresh(onRefresh?: () => void | Promise<unknown>) {
     </div>
   ) : null;
 
-  return { bind, indicator, refreshing };
+  const style: React.CSSProperties = offset > 0 || refreshing
+    ? { transform: `translateY(${offset}px)`, transition: pulling ? 'none' : 'transform 200ms ease-out' }
+    : { transition: 'transform 200ms ease-out' };
+
+  return { bind: { ...bind, style }, indicator, refreshing };
 }

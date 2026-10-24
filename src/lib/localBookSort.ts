@@ -5,7 +5,7 @@ import { seriesVolumeSortKey } from './seriesVolumeSort';
 export type LocalBookSort = 'recent' | 'title' | 'author' | 'volume' | 'rating';
 
 export const LOCAL_BOOK_SORT_OPTIONS: Array<{ id: LocalBookSort; label: string }> = [
-  { id: 'recent', label: 'Недавние' },
+  { id: 'recent', label: 'По дате добавления' },
   { id: 'title', label: 'Название' },
   { id: 'author', label: 'Автор' },
   { id: 'volume', label: 'Номер тома' },

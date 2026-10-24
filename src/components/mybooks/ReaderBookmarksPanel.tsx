@@ -1,4 +1,5 @@
 import React from 'react';
+import ChoicePicker from '../../ui/ChoicePicker';
 import { Bookmark, Trash2 } from 'lucide-react';
 import EmptyState from '../../ui/EmptyState';
 import { theme } from '../../lib/appTheme';
@@ -149,19 +150,13 @@ export default function ReaderBookmarksPanel({
           className="inpx-chrome inpx-chrome-top absolute inset-x-0 z-10 px-5 py-1"
           style={{ top: 'calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px))' }}
         >
-          <select
-            className={`w-full bg-transparent ${textStyles.body} ${theme.text} ${theme.focusRing} min-h-11`}
+          <ChoicePicker
+            title="Книга"
             value={bookFilter}
-            onChange={(e) => setBookFilter(e.target.value)}
-            aria-label="Книга"
-          >
-            <option value="all">Все книги</option>
-            {bookOptions.map(([id, title]) => (
-              <option key={id} value={id}>
-                {title}
-              </option>
-            ))}
-          </select>
+            onChange={setBookFilter}
+            options={[{ id: 'all', label: 'Все книги' }, ...bookOptions.map(([id, title]) => ({ id, label: title }))]}
+            className="max-w-full"
+          />
         </div>
       )}
     </div>

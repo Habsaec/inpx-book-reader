@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bookTitleWithoutVolume, displayBookTitle, seriesLabel } from '../seriesLabel';
+import { bookTitleWithoutVolume, cleanFileLikeTitle, displayBookTitle, seriesLabel, volumeCaption } from '../seriesLabel';
 
 describe('seriesLabel', () => {
   it('prefers seriesDisplay over the lookup key', () => {
@@ -16,12 +16,12 @@ describe('seriesLabel', () => {
 });
 
 describe('displayBookTitle', () => {
-  it('prefixes the volume without changing the stored title', () => {
-    expect(displayBookTitle({ title: 'Кодекс Охотника', seriesNo: 17 })).toBe('17. Кодекс Охотника');
+  it('adds the volume after the name without changing the stored title', () => {
+    expect(displayBookTitle({ title: 'Кодекс Охотника', seriesNo: 17 })).toBe('Кодекс Охотника, том 17');
   });
 
   it('prefers a non-numeric volume label', () => {
-    expect(displayBookTitle({ title: 'Сборник', seriesNoLabel: '1-2', seriesNo: 1 })).toBe('1-2. Сборник');
+    expect(displayBookTitle({ title: 'Сборник', seriesNoLabel: '1-2', seriesNo: 1 })).toBe('Сборник, том 1-2');
   });
 
   it('leaves a book without a volume unchanged', () => {
@@ -29,15 +29,15 @@ describe('displayBookTitle', () => {
   });
 
   it('accepts a volume stored as text', () => {
-    expect(displayBookTitle({ title: 'Кодекс Охотника', seriesNo: '17' })).toBe('17. Кодекс Охотника');
+    expect(displayBookTitle({ title: 'Кодекс Охотника', seriesNo: '17' })).toBe('Кодекс Охотника, том 17');
   });
 
   it('drops a trailing #volume that repeats the series number', () => {
-    expect(displayBookTitle({ title: 'Кодекс Охотника #39', seriesNo: 39 })).toBe('39. Кодекс Охотника');
+    expect(displayBookTitle({ title: 'Кодекс Охотника #39', seriesNo: 39 })).toBe('Кодекс Охотника, том 39');
   });
 
   it('keeps a different #number in the title', () => {
-    expect(displayBookTitle({ title: 'Кодекс Охотника #40', seriesNo: 39 })).toBe('39. Кодекс Охотника #40');
+    expect(displayBookTitle({ title: 'Кодекс Охотника #40', seriesNo: 39 })).toBe('Кодекс Охотника #40, том 39');
   });
 
   it('keeps #volume when the book has no series number', () => {
@@ -52,5 +52,25 @@ describe('bookTitleWithoutVolume', () => {
 
   it('returns the title when there is no volume', () => {
     expect(bookTitleWithoutVolume({ title: 'Сделка' })).toBe('Сделка');
+  });
+});
+
+describe('volumeCaption', () => {
+  it('names the volume for tiles and rows', () => {
+    expect(volumeCaption({ seriesNo: 33 })).toBe('Том 33');
+    expect(volumeCaption({})).toBe('');
+  });
+});
+
+describe('cleanFileLikeTitle', () => {
+  it('turns a file name into a readable title', () => {
+    expect(cleanFileLikeTitle('GKN_5_-_Mihajlov_Dem')).toBe('GKN 5 — Mihajlov Dem');
+    expect(cleanFileLikeTitle('Melnik_Sergei_CHuchie_igry_Litmir.net_bid212581_8d7a7')).toBe('Melnik Sergei CHuchie igry');
+    expect(cleanFileLikeTitle('Пикник на обочине.fb2')).toBe('Пикник на обочине');
+  });
+
+  it('leaves real titles alone', () => {
+    expect(cleanFileLikeTitle('Кодекс Охотника. Книга XXXIII')).toBe('Кодекс Охотника. Книга XXXIII');
+    expect(cleanFileLikeTitle("Assassin's Creed. Братство")).toBe("Assassin's Creed. Братство");
   });
 });

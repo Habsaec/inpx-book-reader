@@ -29,6 +29,7 @@ import {
 } from '../../lib/libraryFolders';
 import { safeBookIdFileKey } from '../../lib/bookRef';
 import { useOverlayBackHandler } from '../../hooks/useBackHandler';
+import { cleanFileLikeTitle } from '../../lib/seriesLabel';
 
 interface DirEntry {
   name: string;
@@ -59,7 +60,7 @@ function coverBlob(data: string): Blob {
 }
 
 function titleFromFile(name: string): string {
-  return name.replace(/\.(fb2\.zip|fb2|epub|fbz|zip|pdf|txt)$/i, '') || name;
+  return cleanFileLikeTitle(name) || name;
 }
 
 function extFromLocalName(name: string): string {
@@ -554,11 +555,11 @@ export default function LocalFolderBrowser({
   const dirs = entries.filter((e) => e.directory);
   const books: Book[] = entries.filter((entry) => !entry.directory).map((file) => {
     const saved = folder?.uri ? knownBookForFile(file.path, savedBooks, folder.uri) : undefined;
-    const parent = file.path.split('/').slice(0, -1).pop() || folder?.label || '';
     const base: Book = saved ?? {
       id: `pending:${folder?.id}:${file.path}`,
       title: titleFromFile(file.name),
-      author: parent,
+      // The folder name is not an author («Book», «Downloads»…); real metadata fills it in.
+      author: '',
       ext: extFromLocalName(file.name),
       localFileName: file.path,
       storageUri: folder?.uri,

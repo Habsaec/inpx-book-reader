@@ -51,6 +51,22 @@ const MEMBER_MONTHS = [
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
 ];
 
+/** Service logins read as a role, not as a name. */
+const SERVICE_LOGINS = new Set(['admin', 'administrator', 'root', 'user', 'guest']);
+
+function displayName(username: string, role?: string): string {
+  if (!username) return '';
+  if (SERVICE_LOGINS.has(username.toLowerCase())) return role === 'admin' ? 'Администратор' : 'Читатель';
+  return username;
+}
+
+/** One or two letters for the avatar: «Иван Петров» → «ИП», «habsaec» → «H». */
+function initialsOf(name: string): string {
+  const parts = name.split(/[\s._-]+/).filter(Boolean);
+  const letters = parts.length > 1 ? parts[0][0] + parts[1][0] : name.charAt(0);
+  return letters.toUpperCase();
+}
+
 function memberSince(createdAt: string | null | undefined): string {
   if (!createdAt) return '';
   const parsed = new Date(createdAt.includes('T') ? createdAt : createdAt.replace(' ', 'T'));
@@ -89,7 +105,9 @@ export default function ProfileScreen({
   onOpenLibrary,
 }: ProfileScreenProps) {
   const username = profile?.user?.username?.trim() || serverConfig.username?.trim() || '';
-  const initial = username ? username.charAt(0).toUpperCase() : '';
+  const name = displayName(username, profile?.user?.role);
+  const initial = name ? initialsOf(name) : '';
+  const nameIsRole = Boolean(name && name !== username);
   const stats = profile?.userStats;
   const since = memberSince(stats?.createdAt);
   const readingCount = stats ? stats.readingCount : localInProgressCount;
@@ -120,17 +138,19 @@ export default function ProfileScreen({
       <div className="flex items-center gap-4">
         {initial ? (
           <span
-            className={`w-16 h-16 shrink-0 rounded-full inline-flex items-center justify-center text-2xl font-extrabold ${theme.accentMuted}`}
+            className="w-16 h-16 shrink-0 rounded-full inline-flex items-center justify-center font-serif text-[1.625rem] font-semibold bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
             aria-hidden
           >
             {initial}
           </span>
         ) : null}
         <div className="min-w-0">
-          {username ? (
-            <p className={`font-serif text-[1.375rem] leading-7 font-semibold ${theme.text} truncate`}>{username}</p>
+          {name ? (
+            <p className={`font-serif text-[1.375rem] leading-7 font-semibold ${theme.text} truncate`}>{name}</p>
           ) : null}
-          {profile?.user?.role === 'admin' ? (
+          {nameIsRole ? (
+            <p className={`${textStyles.caption} ${theme.textMuted}`}>Логин {username}</p>
+          ) : profile?.user?.role === 'admin' ? (
             <p className={`${textStyles.caption} ${theme.textMuted}`}>Администратор</p>
           ) : null}
           {since ? (
@@ -141,7 +161,11 @@ export default function ProfileScreen({
           ) : null}
         </div>
       </div>
-      <ul className="mt-5 grid grid-cols-3 gap-3">
+      <ul
+        className="mt-5 grid gap-3"
+        // As many columns as tiles: two tiles (no server stats yet) must not leave a hole.
+        style={{ gridTemplateColumns: `repeat(${statTiles.length}, minmax(0, 1fr))` }}
+      >
         {statTiles.map((tile) => (
           <li key={tile.label}>
             <button

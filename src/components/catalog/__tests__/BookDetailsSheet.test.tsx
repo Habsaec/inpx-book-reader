@@ -95,7 +95,7 @@ describe('BookDetailsSheet', () => {
     expect(screen.getByText('О книге')).toBeTruthy();
     expect(screen.getByText('Короткое описание.')).toBeTruthy();
     expect(screen.getByText('2019')).toBeTruthy();
-    expect(screen.getByText(/^FB2 · .+$/)).toBeTruthy();
+    expect(screen.getByText(/^Файл: FB2 · .+$/)).toBeTruthy();
     expect(screen.getByText('Русский')).toBeTruthy();
     expect(screen.getByRole('img', { name: 'Рейтинг 4 из 5' })).toBeTruthy();
     expect(screen.getByText('Триллер')).toBeTruthy();

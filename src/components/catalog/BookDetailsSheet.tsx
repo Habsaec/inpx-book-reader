@@ -211,7 +211,7 @@ function SeriesVolumeCard({
             bookId={book.id}
             serverConfig={isServerConnected ? serverConfig : null}
             storageDirectory={storageDirectory}
-            title={book.title}
+            title={bookTitleWithoutVolume(book)}
             author={book.author}
             width={56}
             height={84}
@@ -470,9 +470,9 @@ export default function BookDetailsSheet({
   const descLong = (description || '').replace(/<[^>]+>/g, '').length > 220;
   const fileLabel = [detail.ext ? detail.ext.toUpperCase() : null, sizeLabel].filter(Boolean).join(' · ');
   const langLabel = formatLang(detail.lang);
+  // Format and size are technical: they sit at the end of «О книге», not next to the year.
   const facts = ([
     ['Год', detail.year ? String(detail.year) : ''],
-    ['Файл', fileLabel],
     ['Язык', langLabel ?? ''],
   ] as const).filter(([, value]) => Boolean(value));
   const genres = genreLinks(detail);
@@ -511,7 +511,7 @@ export default function BookDetailsSheet({
                       serverConfig={isServerConnected ? serverConfig : null}
                       storageDirectory={storageDirectory}
                       variant="full"
-                      title={book.title}
+                      title={bookTitleWithoutVolume(detail)}
                       author={book.author}
                       width={120}
                       height={180}
@@ -769,6 +769,9 @@ export default function BookDetailsSheet({
                           </li>
                         ))}
                       </ul>
+                    ) : null}
+                    {fileLabel ? (
+                      <p className={`pt-1 ${textStyles.caption} ${themeTextMuted}`}>Файл: {fileLabel}</p>
                     ) : null}
                   </section>
 

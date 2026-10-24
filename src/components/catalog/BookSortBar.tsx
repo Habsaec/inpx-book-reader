@@ -1,6 +1,5 @@
 import React from 'react';
-import { theme } from '../../lib/appTheme';
-import { textStyles, radii } from '../../ui/tokens';
+import ChoicePicker from '../../ui/ChoicePicker';
 
 export type BookSortOption = {
   id: string;
@@ -11,12 +10,12 @@ interface BookSortBarProps {
   value: string;
   options: BookSortOption[];
   onChange: (id: string) => void;
-  /** Visually hidden label for a11y */
+  /** Sheet heading and accessible name. */
   ariaLabel?: string;
   className?: string;
 }
 
-/** Compact sort dropdown for book / entity lists (fits narrow toolbars). */
+/** Compact sort control for book / entity lists: opens a bottom sheet, not a native dropdown. */
 export default function BookSortBar({
   value,
   options,
@@ -24,23 +23,13 @@ export default function BookSortBar({
   ariaLabel = 'Сортировка',
   className = '',
 }: BookSortBarProps) {
-  const selected = options.some((o) => o.id === value) ? value : options[0]?.id ?? value;
-
   return (
-    <label className={`inline-flex min-w-0 ${className || 'max-w-[10.5rem]'}`}>
-      <span className="sr-only">{ariaLabel}</span>
-      <select
-        value={selected}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={ariaLabel}
-        className={`w-full min-h-10 ${radii.sm} border px-3.5 py-2 ${textStyles.captionBold} ${theme.input} ${theme.inputFocus}`}
-      >
-        {options.map((opt) => (
-          <option key={opt.id} value={opt.id}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <ChoicePicker
+      value={value}
+      options={options}
+      onChange={onChange}
+      title={ariaLabel}
+      className={className || 'max-w-[11rem]'}
+    />
   );
 }
