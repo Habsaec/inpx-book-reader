@@ -217,13 +217,26 @@ export default function CatalogFilterSheet({
               </p>
             ) : activeGenreOptions.length > 0 ? (
               <div className="space-y-2">
-                <input
-                  type="search"
-                  value={genreQuery}
-                  onChange={(e) => setGenreQuery(e.target.value)}
-                  placeholder="Найти жанр…"
-                  className={`w-full ${radii.button} px-4 py-3 min-h-12 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
-                />
+                <div className="relative">
+                  <input
+                    type="search"
+                    value={genreQuery}
+                    onChange={(e) => setGenreQuery(e.target.value)}
+                    placeholder="Найти жанр…"
+                    aria-label="Найти жанр"
+                    className={`w-full ${radii.button} pl-4 pr-12 py-3 min-h-12 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
+                  />
+                  {genreQuery ? (
+                    <button
+                      type="button"
+                      aria-label="Очистить"
+                      onClick={() => setGenreQuery('')}
+                      className={`absolute right-0 top-0 h-full w-12 inline-flex items-center justify-center ${theme.textMuted} ${theme.focusRing}`}
+                    >
+                      <X className="w-4 h-4" aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
                 <div
                   className={`max-h-48 overflow-y-auto ${radii.lg} border border-[color:var(--app-border)] divide-y divide-[color:var(--app-border)] ${theme.cardSolid}`}
                   role="group"

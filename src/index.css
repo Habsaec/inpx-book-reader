@@ -523,6 +523,14 @@ html[data-eink='1'] .cover-rating-wrapper {
   overflow-x: clip;
 }
 
+/* Search fields draw their own clear (×) button; hide the WebView's one so there are not two. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
 /* Cover placeholder: dark leather / light parchment, as on INPX Library Server (styles.css .cover-fallback). */
 :root {
   --inpx-cover-fallback-bg: linear-gradient(180deg, #181410 0%, #100e0b 100%);
