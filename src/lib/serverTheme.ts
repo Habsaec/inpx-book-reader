@@ -1,4 +1,5 @@
 import type { ServerConfig } from '../types';
+import { coverFallbackStyleFromUi, type CoverFallbackStyle } from './coverFallbackStyle';
 import { APP_SETTING_KEYS, getAppSettingJson, setAppSettingJson } from './appSettings';
 import { fetchServerBranding } from './inpxClient';
 import { flattenColorMix } from './flattenColorMix';
@@ -26,6 +27,8 @@ export interface AppThemePalette {
 
 export interface ServerUiTheme {
   siteName: string;
+  /** Placeholder cover from the server admin; absent in caches written before 1.8.1. */
+  coverFallback?: CoverFallbackStyle | null;
   logoUrl: string | null;
   themeVersion: string;
   fontFamily: string;
@@ -288,6 +291,7 @@ export async function fetchServerUiTheme(config: ServerConfig): Promise<ServerUi
   try {
     const branding = await fetchServerBranding(config);
     const theme = parseServerUiTheme(branding.rawUi ?? {}, branding.siteName, branding.logoPath);
+    theme.coverFallback = coverFallbackStyleFromUi(branding.rawUi ?? {}, config.url);
     setAppSettingJson(CACHE_KEY, theme);
     return theme;
   } catch {

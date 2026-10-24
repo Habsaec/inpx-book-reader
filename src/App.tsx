@@ -61,6 +61,7 @@ import {
   resolveIsDark,
 } from './lib/serverTheme';
 import { fetchSystemPalettes, type SystemPalettes } from './lib/systemTheme';
+import { applyCoverFallbackStyle } from './lib/coverFallbackStyle';
 import { APP_SETTING_KEYS, getAppSettingString, setAppSettingRaw } from './lib/appSettings';
 import { maybeAutoCheckAppUpdate } from './lib/appUpdate';
 import { App as CapApp } from '@capacitor/app';
@@ -451,6 +452,11 @@ export default function App() {
       cancelled = true;
     };
   }, [serverConfig.connectionStatus, serverConfig.url]);
+
+  // The site's placeholder cover (image, title colour…) follows the library like its branding.
+  React.useEffect(() => {
+    applyCoverFallbackStyle(serverUiTheme?.coverFallback ?? null);
+  }, [serverUiTheme]);
 
   React.useEffect(() => {
     if (!libraryReady || !storageDirectoryReady) return;

@@ -531,13 +531,17 @@ html[data-eink='1'] .cover-rating-wrapper {
 .inpx-cover-fallback-overlay {
   background: linear-gradient(180deg, rgba(13, 13, 20, 0.18) 0%, rgba(13, 13, 20, 0.48) 100%);
 }
+/* --inpx-cover-title-* come from the server admin (coverFallbackStyle.ts); unset = app defaults. */
 .inpx-cover-fallback-title {
-  color: #f6f1e6;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65), 0 0 1px rgba(0, 0, 0, 0.4);
+  color: var(--inpx-cover-title-color, #f6f1e6);
+  text-shadow:
+    0 1px 3px rgb(0 0 0 / calc(0.65 * var(--inpx-cover-title-shadow, 100) / 100)),
+    0 0 1px rgb(0 0 0 / calc(0.4 * var(--inpx-cover-title-shadow, 100) / 100));
 }
 .inpx-cover-fallback-author {
-  color: rgb(246 241 230 / 0.8);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  color: rgb(246 241 230 / 0.8); /* old WebViews without color-mix */
+  color: color-mix(in srgb, var(--inpx-cover-title-color, #f6f1e6) 80%, transparent);
+  text-shadow: 0 1px 2px rgb(0 0 0 / calc(0.55 * var(--inpx-cover-title-shadow, 100) / 100));
 }
 html[data-theme="light"] {
   --inpx-cover-fallback-bg: linear-gradient(180deg, #efe4cf 0%, #e2d3b6 100%);
@@ -548,12 +552,15 @@ html[data-theme="light"] .inpx-cover-fallback-overlay {
   background: linear-gradient(180deg, rgba(255, 250, 242, 0.06) 0%, rgba(109, 79, 42, 0.18) 100%);
 }
 html[data-theme="light"] .inpx-cover-fallback-title {
-  color: #2a2014;
-  text-shadow: none;
+  color: var(--inpx-cover-title-color-light, #2a2014);
+  text-shadow:
+    0 1px 3px rgb(0 0 0 / calc(0.65 * var(--inpx-cover-title-shadow, 0) / 100)),
+    0 0 1px rgb(0 0 0 / calc(0.4 * var(--inpx-cover-title-shadow, 0) / 100));
 }
 html[data-theme="light"] .inpx-cover-fallback-author {
   color: rgb(42 32 20 / 0.78);
-  text-shadow: none;
+  color: color-mix(in srgb, var(--inpx-cover-title-color-light, #2a2014) 78%, transparent);
+  text-shadow: 0 1px 2px rgb(0 0 0 / calc(0.55 * var(--inpx-cover-title-shadow, 0) / 100));
 }
 
 /* AppShell slides the header and the bars pinned under it up while scrolling down. */

@@ -6,6 +6,7 @@ import { peekCoverMemory, resolveCoverUrl } from '../lib/coverCache';
  *  (dark leather, light parchment) — bundled for the APK, picked by `html[data-theme]` in index.css. */
 import bookFallbackPng from '../assets/book-fallback.png';
 import bookFallbackLightPng from '../assets/book-fallback-light.png';
+import { useCustomCoverFallbackUrl } from '../lib/coverFallbackStyle';
 
 function fillsParent(className: string): boolean {
   return (
@@ -47,6 +48,11 @@ function CoverFallback({
   const w = width ?? (variant === 'full' ? 180 : 72);
   const h = height ?? (variant === 'full' ? 270 : 108);
   const [imgOk, setImgOk] = React.useState(true);
+  // An image uploaded in the server admin replaces both bundled ones; offline or broken → bundled.
+  const customUrl = useCustomCoverFallbackUrl();
+  const [customFailed, setCustomFailed] = React.useState(false);
+  React.useEffect(() => setCustomFailed(false), [customUrl]);
+  const useCustom = Boolean(customUrl) && !customFailed;
 
   return (
     <div
@@ -57,7 +63,15 @@ function CoverFallback({
         background: imgOk ? undefined : 'var(--inpx-cover-fallback-bg)',
       }}
     >
-      {imgOk && (
+      {useCustom ? (
+        <img
+          src={customUrl!}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          draggable={false}
+          onError={() => setCustomFailed(true)}
+        />
+      ) : imgOk && (
         <>
           <img
             src={bookFallbackPng}
@@ -81,13 +95,18 @@ function CoverFallback({
           className="absolute flex flex-col items-center justify-start gap-[0.35em] text-center overflow-hidden box-border z-[1] [text-wrap:balance]"
           // The plain field between the ornaments of book-fallback*.png — same box as the server
           // (styles.css .cover-fallback-copy, COVER_TITLE_SAMPLE_BOX 19–89% × 21–70%).
-          style={{ inset: '21% 11% 30% 19%' }}
+          style={{
+            inset: '21% 11% 30% 19%',
+            // Server «Положение надписи»: x in 1cqi steps, y in 1.5cqi steps.
+            // `transform`, not the `translate` property: Chrome 83 WebViews ignore the latter.
+            transform: 'translate(calc(var(--inpx-cover-title-x, 0) * 1cqi), calc(var(--inpx-cover-title-y, 0) * 1.5cqi))',
+          }}
         >
           {title ? (
             <span
               className="inpx-cover-fallback-title w-full font-bold line-clamp-6 [overflow-wrap:anywhere]"
               style={{
-                fontSize: 'clamp(9px, 7cqi, 18px)',
+                fontSize: 'calc(clamp(9px, 7cqi, 18px) * var(--inpx-cover-title-scale, 1))',
                 lineHeight: 1.14,
                 letterSpacing: '0.015em',
               }}

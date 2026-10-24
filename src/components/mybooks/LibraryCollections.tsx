@@ -109,9 +109,10 @@ function ShelfRow({
 function Group({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section className="mt-7 first:mt-2">
-      <div className="mb-1.5 flex items-baseline justify-between gap-3">
+      <div className="mb-1.5">
         <h2 className={`${textStyles.captionBold} ${theme.textMuted}`}>{title}</h2>
-        {hint ? <span className={`${textStyles.caption} ${theme.textMuted} truncate`}>{hint}</span> : null}
+        {/* Own line: beside the title it was cut off in the narrow tablet column. */}
+        {hint ? <p className={`${textStyles.caption} ${theme.textMuted}`}>{hint}</p> : null}
       </div>
       <div className={`border-t ${theme.divider}`}>{children}</div>
     </section>
@@ -182,7 +183,7 @@ export default function LibraryCollections({
           />
         ))}
       </Group>
-      {regularShelves.length > 0 || onNewShelf ? <Group title="Полки" hint={regularShelves.length > 0 && onRemoveShelf ? 'удерживайте, чтобы удалить' : undefined}>
+      {regularShelves.length > 0 || onNewShelf ? <Group title="Полки" hint={regularShelves.length > 0 && onRemoveShelf ? 'Удерживайте полку, чтобы удалить' : undefined}>
         {regularShelves.map((shelf) => (
           <ShelfRow
             key={shelfKey(shelf)}
@@ -208,7 +209,7 @@ export default function LibraryCollections({
           )
         ) : null}
       </Group> : null}
-      {smartShelves.length > 0 ? <Group title="Умные полки" hint={regularShelves.length === 0 && onRemoveShelf ? 'удерживайте, чтобы удалить' : undefined}>
+      {smartShelves.length > 0 ? <Group title="Умные полки" hint={regularShelves.length === 0 && onRemoveShelf ? 'Удерживайте полку, чтобы удалить' : undefined}>
         {smartShelves.map((shelf) => (
           <ShelfRow
             key={shelfKey(shelf)}
