@@ -462,6 +462,16 @@ export async function resolveCoverUrl(options: {
       }
     }
 
+    // Books from the device's own folders (`local:…`, `pending:…`) are unknown to the server:
+    // their cover comes only from the file (LocalFolderBrowser), never from /api/books/:id/cover.
+    if (bookId.startsWith('local:') || bookId.startsWith('pending:')) {
+      if (variant === 'full') {
+        const thumb = await loadPersistedBlob(coverIdbKey(bookId, 'thumb'), appCoverPath(bookId, 'thumb'));
+        if (thumb) return urlFromBlob(memKey, thumb);
+      }
+      return null;
+    }
+
     const config = options.config;
     const online = Boolean(config?.url && config.connectionStatus === 'connected');
     if (!online) {
@@ -523,8 +533,60 @@ export async function cacheCoverFromServer(
 }
 
 /** Warm persistent cover cache for on-device / visible books. */
+const FILE_COVER_MISS_KEY = 'inpx_file_cover_miss_v1';
+
+function readFileCoverMisses(): Set<string> {
+  try {
+    const raw = localStorage.getItem(FILE_COVER_MISS_KEY);
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(list) ? list.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberFileCoverMiss(misses: Set<string>, bookId: string): void {
+  misses.add(bookId);
+  try {
+    localStorage.setItem(FILE_COVER_MISS_KEY, JSON.stringify([...misses].slice(-2000)));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Cover from the book file on the device (FB2 / EPUB embed one). Used when the server gave none:
+ * offline, another server, or a book it no longer has. Books without an embedded cover are
+ * remembered so their files are not reread on every launch.
+ */
+async function coverFromLocalFile(
+  book: { id: string; localFileName?: string; storageUri?: string },
+  directory: StorageDirectory | null | undefined,
+  misses: Set<string>,
+): Promise<boolean> {
+  const treeUri = book.storageUri?.trim() || directory?.uri;
+  const path = book.localFileName?.trim();
+  if (!isNativeApp() || !treeUri || !path || misses.has(book.id)) return false;
+  try {
+    const { data } = await BookStorage.extractBookCover({ treeUri, path });
+    const blob = data ? blobFromBase64(data) : null;
+    if (!blob) {
+      rememberFileCoverMiss(misses, book.id);
+      return false;
+    }
+    await saveCoverToDirectory({ uri: treeUri, label: '' }, book.id, blob, 'thumb');
+    window.dispatchEvent(new CustomEvent('inpx-local-cover', { detail: book.id }));
+    return true;
+  } catch {
+    // Unreadable right now (folder permission, file moved): try again on the next launch.
+    return false;
+  }
+}
+
 export async function warmCoverCache(options: {
   bookIds: string[];
+  /** Books on the device: when the server has no cover, it is taken from the file. */
+  localBooks?: Array<{ id: string; localFileName?: string; storageUri?: string }>;
   directory?: StorageDirectory | null;
   config?: ServerConfig | null;
   concurrency?: number;
@@ -533,18 +595,23 @@ export async function warmCoverCache(options: {
   const ids = [...new Set(options.bookIds.map((id) => String(id || '').trim()).filter(Boolean))];
   if (!ids.length) return;
   const concurrency = Math.max(1, Math.min(options.concurrency ?? 2, 4));
+  const localById = new Map((options.localBooks ?? []).map((book) => [book.id, book]));
+  const misses = readFileCoverMisses();
   let i = 0;
   async function worker() {
     while (i < ids.length) {
       if (options.shouldContinue && !options.shouldContinue()) return;
       const bookId = ids[i++]!;
       if (peekCoverMemory(bookId, 'thumb')) continue;
-      await resolveCoverUrl({
+      const url = await resolveCoverUrl({
         bookId,
         variant: 'thumb',
         directory: options.directory,
         config: options.config,
-      });
+      }).catch(() => null);
+      if (url) continue;
+      const local = localById.get(bookId);
+      if (local) await coverFromLocalFile(local, options.directory, misses);
     }
   }
   await Promise.all(Array.from({ length: concurrency }, () => worker()));

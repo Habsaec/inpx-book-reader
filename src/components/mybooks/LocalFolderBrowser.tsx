@@ -472,9 +472,11 @@ export default function LocalFolderBrowser({
           if (!file) return;
           const id = bookIdFor(folderId, file.path, savedBooksRef.current, folderUri);
           const remembered = localCoverIndex.get(id);
-          if (remembered === 'hit' || remembered === 'miss') continue;
+          if (remembered === 'miss') continue;
+          // «hit» lives in IndexedDB, the image in the app cache dir that Android may clear:
+          // trust the index only while the file is still there, otherwise extract again.
           if (await hasStoredCover(id)) {
-            rememberLocalCover(id, 'hit');
+            if (remembered !== 'hit') rememberLocalCover(id, 'hit');
             continue;
           }
           try {

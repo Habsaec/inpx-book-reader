@@ -474,6 +474,7 @@ export default function App() {
     let cancelled = false;
     void warmCoverCache({
       bookIds: downloadedCoverIds,
+      localBooks: downloadedBooks.filter((b) => b.localFileName?.trim()),
       directory: storageDirectory,
       config: isOnline ? serverConfig : null,
       concurrency: 2,

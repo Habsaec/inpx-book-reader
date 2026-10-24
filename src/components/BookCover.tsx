@@ -78,8 +78,10 @@ function CoverFallback({
       <span className="inpx-cover-fallback-overlay absolute inset-0" aria-hidden />
       {(title || author) && (
         <span
-          className="absolute flex flex-col items-center justify-start gap-[0.35em] text-center overflow-hidden box-border z-[1]"
-          style={{ inset: '11% 15% 28%' }}
+          className="absolute flex flex-col items-center justify-start gap-[0.35em] text-center overflow-hidden box-border z-[1] [text-wrap:balance]"
+          // The plain field between the ornaments of book-fallback*.png — same box as the server
+          // (styles.css .cover-fallback-copy, COVER_TITLE_SAMPLE_BOX 19–89% × 21–70%).
+          style={{ inset: '21% 11% 30% 19%' }}
         >
           {title ? (
             <span
