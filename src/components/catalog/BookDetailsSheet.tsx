@@ -8,7 +8,7 @@ import { BookCardSkeleton, TextBlockSkeleton } from '../../ui/Skeleton';
 import ReadProgressBar from '../ReadProgressBar';
 import { useOverlayBackHandler } from '../../hooks/useBackHandler';
 import { Book, ServerConfig } from '../../types';
-import { authorFacetNames, fetchBookDetails, fetchBookMeta, fetchBookReviewHtml, fetchFacetBooks, isAuthError, mapServerBook } from '../../lib/inpxClient';
+import { authorFacetNames, fetchBookDetails, fetchBookMeta, fetchBookRating, fetchBookReviewHtml, fetchFacetBooks, isAuthError, mapServerBook, setBookRatingApi } from '../../lib/inpxClient';
 import { parseBookReviews, reviewAvatarHue, reviewInitials } from '../../lib/bookReviews';
 import { looksLikeHtml, sanitizeHtml } from '../../lib/sanitizeHtml';
 import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, seriesVolumeLabel } from '../../lib/seriesLabel';
@@ -92,6 +92,34 @@ function RatingStars({ value }: { value: number }) {
         ))}
       </span>
       <span className={`${textStyles.bodyBold} tabular-nums ${theme.text}`} aria-hidden>{value}</span>
+    </div>
+  );
+}
+
+/** «Ваша оценка»: tap a star to rate, tap the current one again to clear (server «Мои оценки»). */
+function MyRatingPicker({ value, onChange }: { value: number; onChange: (next: number) => void }) {
+  return (
+    <div className="flex gap-0.5" role="group" aria-label="Ваша оценка">
+      {Array.from({ length: 5 }, (_, index) => {
+        const n = index + 1;
+        const on = n <= value;
+        return (
+          <button
+            key={n}
+            type="button"
+            aria-label={`${n} из 5`}
+            aria-pressed={on}
+            onClick={() => onChange(n === value ? 0 : n)}
+            className={`-m-1 p-1 ${radii.sm} ${theme.focusRing} ${motionTokens.press}`}
+          >
+            <Star
+              className={`w-5 h-5 ${on ? 'fill-[var(--app-star)] text-[var(--app-star)]' : 'text-[var(--app-placeholder)]'}`}
+              strokeWidth={on ? 0 : 1.5}
+              aria-hidden
+            />
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -336,6 +364,8 @@ export default function BookDetailsSheet({
   const [annotationLoading, setAnnotationLoading] = React.useState(false);
   const [bookReviewHtml, setBookReviewHtml] = React.useState('');
   const [bookReviewLoading, setBookReviewLoading] = React.useState(false);
+  /** Personal rating; null = unknown / server without the rating API (row hidden). */
+  const [myRating, setMyRating] = React.useState<number | null>(null);
   const bookReviews = React.useMemo(() => parseBookReviews(bookReviewHtml), [bookReviewHtml]);
   const [moreByAuthor, setMoreByAuthor] = React.useState<Book[]>([]);
   const [authorLoading, setAuthorLoading] = React.useState(false);
@@ -429,6 +459,26 @@ export default function BookDetailsSheet({
     })();
     return () => { cancelled = true; };
   }, [liveBook?.id, liveBook?.author, liveBook?.series, isServerConnected, serverConfig]);
+
+  React.useEffect(() => {
+    setMyRating(null);
+    if (!liveBook || !isServerConnected) return;
+    let cancelled = false;
+    fetchBookRating(serverConfig, liveBook.id)
+      .then((value) => { if (!cancelled) setMyRating(value); })
+      .catch(() => { if (!cancelled) setMyRating(null); });
+    return () => { cancelled = true; };
+  }, [liveBook?.id, isServerConnected, serverConfig]);
+
+  const changeMyRating = React.useCallback((next: number) => {
+    if (!liveBook) return;
+    const previous = myRating;
+    setMyRating(next);
+    setBookRatingApi(serverConfig, liveBook.id, next).catch((e) => {
+      setMyRating(previous);
+      if (isAuthError(e)) onAuthExpired?.();
+    });
+  }, [liveBook, myRating, serverConfig, onAuthExpired]);
 
   React.useEffect(() => {
     if (!liveBook || !isServerConnected) return;
@@ -553,12 +603,18 @@ export default function BookDetailsSheet({
                       {seriesLabel(detail)}{volume ? ` · том ${volume}` : ''}
                     </BookSheetMetaLink>
                   ) : null}
-                  {coverRating > 0 || facts.length ? (
+                  {coverRating > 0 || facts.length || myRating != null ? (
                     <dl className={`mt-3 grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1.5 ${textStyles.caption}`}>
                       {coverRating > 0 ? (
                         <>
                           <dt className={themeTextMuted}>Рейтинг</dt>
                           <dd><RatingStars value={coverRating} /></dd>
+                        </>
+                      ) : null}
+                      {myRating != null ? (
+                        <>
+                          <dt className={themeTextMuted}>Ваша оценка</dt>
+                          <dd><MyRatingPicker value={myRating} onChange={changeMyRating} /></dd>
                         </>
                       ) : null}
                       {facts.map(([label, value]) => (

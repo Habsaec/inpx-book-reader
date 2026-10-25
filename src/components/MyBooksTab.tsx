@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Folder, CheckCircle2, AlertCircle, BookMarked } from 'lucide-react';
+import { Heart, Folder, CheckCircle2, AlertCircle, BookMarked, Star } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
@@ -186,10 +186,11 @@ export default function MyBooksTab({
   const [smartPageSize, setSmartPageSize] = React.useState(smartRequestedPageSize);
   const [bookSort, setBookSort] = React.useState<LocalBookSort>('recent');
   const [bookQuery, setBookQuery] = React.useState('');
-  const [sectionBySeg, setSectionBySeg] = React.useState<{ favorites: Book[]; read: Book[]; want: Book[] }>({
+  const [sectionBySeg, setSectionBySeg] = React.useState<{ favorites: Book[]; read: Book[]; want: Book[]; rated: Book[] }>({
     favorites: [],
     read: [],
     want: [],
+    rated: [],
   });
   const [sectionLoading, setSectionLoading] = React.useState(false);
   const [sectionError, setSectionError] = React.useState(false);
@@ -269,7 +270,7 @@ export default function MyBooksTab({
   }, []);
 
   React.useEffect(() => {
-    if (seg !== 'favorites' && seg !== 'read' && seg !== 'want') return;
+    if (seg !== 'favorites' && seg !== 'read' && seg !== 'want' && seg !== 'rated') return;
     if (!fetchSectionBooks || !isOnline) {
       setSectionLoading(false);
       return;
@@ -294,7 +295,15 @@ export default function MyBooksTab({
     request
       .then((items) => {
         if (cancelled) return;
-        setSectionBySeg((prev) => ({ ...prev, [key]: items.map((b) => mapServerBook(b, serverConfig)) }));
+        setSectionBySeg((prev) => ({
+          ...prev,
+          // «Мои оценки»: the cover stars show the user's own rating.
+          [key]: items.map((b) => {
+            const book = mapServerBook(b, serverConfig);
+            const own = Number((b as InpxBookItem & { myRating?: number }).myRating) || 0;
+            return key === 'rated' && own ? { ...book, rating: own } : book;
+          }),
+        }));
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -376,6 +385,7 @@ export default function MyBooksTab({
       for (const book of serverBooks) byId.set(book.id, book);
       return [...byId.values()];
     }
+    if (seg === 'rated') return sectionBySeg.rated;
     if (seg === 'want') {
       // Server-only list: opened / read books drop out on the server and in wantIds.
       return wantIds ? sectionBySeg.want.filter((b) => wantIds.has(b.id)) : sectionBySeg.want;
@@ -789,7 +799,7 @@ export default function MyBooksTab({
                 )
               )}
 
-              {(seg === 'favorites' || seg === 'read' || seg === 'want') && (
+              {(seg === 'favorites' || seg === 'read' || seg === 'want' || seg === 'rated') && (
                 sectionError && !sectionLoading && (seg !== 'favorites' || (authorRows.length === 0 && seriesRows.length === 0 && visibleSectionBooks.length === 0)) ? (
                   listError
                 ) : sectionLoading && visibleSectionBooks.length === 0 && (seg !== 'favorites' || (authorRows.length === 0 && seriesRows.length === 0)) ? (
@@ -810,6 +820,17 @@ export default function MyBooksTab({
                     description={isOnline
                       ? 'Нажмите «Хочу прочитать» в карточке книги. Книга уйдёт отсюда, когда вы её откроете или отметите прочитанной.'
                       : '«Хочу прочитать» хранится на сервере.'}
+                    actionLabel={isOnline && onGoCatalog ? 'Каталог' : undefined}
+                    actionVariant="primary"
+                    onAction={onGoCatalog}
+                  />
+                ) : seg === 'rated' && visibleSectionBooks.length === 0 ? (
+                  <EmptyState
+                    icon={Star}
+                    title={isOnline ? 'Оценок пока нет' : 'Нужно подключение к серверу'}
+                    description={isOnline
+                      ? 'Поставьте звёзды в карточке книги («Ваша оценка») — оценённые книги соберутся здесь.'
+                      : 'Оценки хранятся на сервере.'}
                     actionLabel={isOnline && onGoCatalog ? 'Каталог' : undefined}
                     actionVariant="primary"
                     onAction={onGoCatalog}

@@ -36,6 +36,8 @@ interface CatalogDrilldownPanelProps {
   seriesProgress?: SeriesReadingProgress | null;
   /** Opens the details of the next unread volume. */
   onOpenSeriesNext?: (bookId: string) => void;
+  /** «Отметить прочитанными тома до N» (numbered volumes); resolves when the server saved it. */
+  onMarkSeriesReadUpTo?: (upTo: number) => Promise<void>;
 }
 
 export function CatalogAuthorSeriesShelf({
@@ -196,12 +198,20 @@ export function CatalogAuthorGroupedList({
 function SeriesProgressBlock({
   progress,
   onOpenNext,
+  onMarkUpTo,
 }: {
   progress: SeriesReadingProgress;
   onOpenNext?: (bookId: string) => void;
+  onMarkUpTo?: (upTo: number) => Promise<void>;
 }) {
   const pct = Math.round((progress.read / Math.max(1, progress.total)) * 100);
   const next = progress.next;
+  const numbers = progress.numbers ?? [];
+  const nextNo = Number(next?.seriesNo);
+  const [upTo, setUpTo] = React.useState<number | null>(null);
+  const [marking, setMarking] = React.useState(false);
+  const selectedUpTo = upTo ?? (Number.isFinite(nextNo) && numbers.includes(nextNo) ? nextNo : numbers[0]);
+  const canMarkUpTo = Boolean(onMarkUpTo && next && numbers.length >= 2);
   const nextTitle = next ? `${next.seriesNo ? `${next.seriesNo}. ` : ''}${next.title}` : '';
   return (
     <div className="mt-3 space-y-2">
@@ -234,6 +244,33 @@ function SeriesProgressBlock({
           <span className="min-w-0 truncate font-normal opacity-90">· {nextTitle}</span>
         </button>
       ) : null}
+      {canMarkUpTo ? (
+        <div className={`flex flex-wrap items-center gap-2 ${textStyles.caption} ${theme.textMuted}`}>
+          <label className="inline-flex items-center gap-2">
+            Прочитаны тома до
+            <select
+              value={String(selectedUpTo)}
+              onChange={(e) => setUpTo(Number(e.target.value))}
+              aria-label="Прочитаны тома до"
+              className={`min-h-10 px-2 ${radii.md} ${theme.input}`}
+            >
+              {numbers.map((n) => <option key={n} value={String(n)}>{n}</option>)}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={marking}
+            onClick={() => {
+              if (!onMarkUpTo || selectedUpTo == null) return;
+              setMarking(true);
+              void onMarkUpTo(selectedUpTo).finally(() => setMarking(false));
+            }}
+            className={`min-h-10 px-3 ${radii.button} ${textStyles.captionBold} ${theme.chip} ${theme.chipHover} ${theme.focusRing} ${motionTokens.press}`}
+          >
+            {marking ? 'Отмечаю…' : 'Отметить'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -260,6 +297,7 @@ export default function CatalogDrilldownPanel({
   seriesDownloadBusy = false,
   seriesProgress = null,
   onOpenSeriesNext,
+  onMarkSeriesReadUpTo,
 }: CatalogDrilldownPanelProps) {
   const hasDrilldown = Boolean(selectedAuthor || selectedSeries || selectedSubgenre);
   if (!hasDrilldown) return null;
@@ -384,7 +422,7 @@ export default function CatalogDrilldownPanel({
               </button>
             </div>
             {seriesProgress && seriesProgress.total >= 2 ? (
-              <SeriesProgressBlock progress={seriesProgress} onOpenNext={onOpenSeriesNext} />
+              <SeriesProgressBlock progress={seriesProgress} onOpenNext={onOpenSeriesNext} onMarkUpTo={onMarkSeriesReadUpTo} />
             ) : null}
             {onDownloadSeries ? (
               <button

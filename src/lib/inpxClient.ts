@@ -11,19 +11,29 @@
 import { ServerConfig } from '../types';
 import { arrayBufferToBase64 } from './bookStorage';
 import { isNativeApp } from './platform';
+import { appendHideReadParam } from './hideReadPreference';
 import { getDebugRequestId } from './debugSessionLog';
 import {
   apiBookPath,
   apiBookmarkPath,
   apiReadPath,
   apiWantPath,
+  apiRatingPath,
   apiReadingHistoryPath,
   bookIdNeedsSafeUrl,
   encodeBookRef,
 } from './bookRef';
 
+/** Per-account switches shared with the web UI (`GET/POST /api/preferences`). */
+export interface UserPreferences {
+  /** «Скрыть прочитанное»: the server leaves read books out of catalog / novinki / series / author lists. */
+  hideRead: boolean;
+  downloadFormat: string;
+  telegramDigest: boolean;
+}
+
 export interface InpxProfile {
-  user: { username: string; role: string; email?: string };
+  user: { username: string; role: string; email?: string; hideRead?: boolean; downloadFormat?: string; telegramDigest?: boolean };
   userStats: {
     readingCount: number;
     bookmarkCount: number;
@@ -35,6 +45,8 @@ export interface InpxProfile {
     readerAnnotationsCount: number;
     /** «Хочу прочитать» (additive; older servers omit it). */
     wantCount?: number;
+    /** «Мои оценки» (additive). */
+    ratedCount?: number;
     createdAt: string | null;
   };
   recentBooks: Array<{
@@ -546,8 +558,8 @@ export async function fetchBookmarkedBooks(config: ServerConfig, page = 1, pageS
 
 export async function fetchLibraryView(
   config: ServerConfig,
-  /** `want` = «Хочу прочитать», `following` = «Новое у любимых» (newer servers; older ones answer 404). */
-  view: 'recent' | 'continue' | 'read' | 'recommended' | 'want' | 'following',
+  /** `want` = «Хочу прочитать», `following` = «Новое у любимых», `rated` = «Мои оценки» (newer servers; older ones answer 404). */
+  view: 'recent' | 'continue' | 'read' | 'recommended' | 'want' | 'following' | 'rated',
   page = 1,
   pageSize = 24,
   opts: {
@@ -583,6 +595,7 @@ export async function fetchLibraryView(
   if (opts.minRate != null && opts.minRate >= 1) params.set('minRate', String(Math.floor(opts.minRate)));
   if (opts.hasSeries === true || opts.hasSeries === 1) params.set('hasSeries', '1');
   else if (opts.hasSeries === false || opts.hasSeries === 0) params.set('hasSeries', '0');
+  if (view === 'recent') appendHideReadParam(params);
   return apiJson(config, `/api/library/${view}?${params}`);
 }
 
@@ -602,6 +615,8 @@ export interface SeriesReadingProgress {
   total: number;
   read: number;
   next: { id: string; title: string; seriesNo: string } | null;
+  /** Numbered volumes, for «Отметить прочитанными тома до N» (additive; empty on older servers). */
+  numbers: number[];
 }
 
 /** «Прочитано N из M» + the next unread volume; `null` when the server has no such route yet. */
@@ -617,11 +632,123 @@ export async function fetchSeriesProgress(config: ServerConfig, seriesName: stri
       next: data.next && data.next.id
         ? { id: String(data.next.id), title: String(data.next.title ?? ''), seriesNo: String(data.next.seriesNo ?? '') }
         : null,
+      numbers: Array.isArray(data.numbers) ? data.numbers.map(Number).filter((n) => Number.isFinite(n)) : [],
     };
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
   }
+}
+
+/** Mark numbered volumes ≤ upTo read (one edition each). → updated progress. */
+export async function markSeriesReadUpTo(
+  config: ServerConfig,
+  seriesName: string,
+  upTo: number,
+): Promise<{ added: number; progress: SeriesReadingProgress | null }> {
+  const data = await apiPostJson<{ added?: number; progress?: Partial<SeriesReadingProgress> | null }>(
+    config,
+    '/api/series-read-up-to',
+    { name: seriesName, upTo },
+  );
+  const p = data.progress;
+  return {
+    added: Number(data.added) || 0,
+    progress: p
+      ? {
+        total: Number(p.total) || 0,
+        read: Number(p.read) || 0,
+        next: p.next && p.next.id
+          ? { id: String(p.next.id), title: String(p.next.title ?? ''), seriesNo: String(p.next.seriesNo ?? '') }
+          : null,
+        numbers: Array.isArray(p.numbers) ? p.numbers.map(Number).filter((n) => Number.isFinite(n)) : [],
+      }
+      : null,
+  };
+}
+
+/** Personal rating 1–5, 0 = none; `null` when the server has no rating API yet. */
+export async function fetchBookRating(config: ServerConfig, bookId: string): Promise<number | null> {
+  try {
+    const data = await apiJson<{ rating?: number }>(config, apiRatingPath(bookId));
+    return Math.max(0, Math.min(5, Math.floor(Number(data.rating) || 0)));
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** 1–5 sets the rating, 0 clears it. */
+export async function setBookRatingApi(config: ServerConfig, bookId: string, rating: number): Promise<number> {
+  if (rating >= 1 && rating <= 5) {
+    const data = await apiPostJson<{ rating: number }>(config, apiRatingPath(bookId), { rating });
+    return Number(data.rating) || 0;
+  }
+  await apiDelete(config, apiRatingPath(bookId));
+  return 0;
+}
+
+export async function fetchUserPreferences(config: ServerConfig): Promise<UserPreferences | null> {
+  try {
+    const data = await apiJson<Partial<UserPreferences>>(config, '/api/preferences');
+    return {
+      hideRead: Boolean(data.hideRead),
+      downloadFormat: String(data.downloadFormat ?? ''),
+      telegramDigest: Boolean(data.telegramDigest),
+    };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+export async function saveUserPreferences(config: ServerConfig, patch: Partial<UserPreferences>): Promise<UserPreferences> {
+  const data = await apiPostJson<Partial<UserPreferences>>(config, '/api/preferences', patch);
+  return {
+    hideRead: Boolean(data.hideRead),
+    downloadFormat: String(data.downloadFormat ?? ''),
+    telegramDigest: Boolean(data.telegramDigest),
+  };
+}
+
+export interface ReadingStats {
+  year: number;
+  /** Books per year; 0 = no goal. */
+  goal: number;
+  readThisYear: number;
+  /** 12 numbers, January first. */
+  byMonth: number[];
+  readByYear: Array<{ year: string; count: number }>;
+  topAuthors: Array<{ name: string; displayName?: string; count: number }>;
+  topGenres: Array<{ name: string; count: number }>;
+}
+
+function normalizeReadingStats(data: Partial<ReadingStats>): ReadingStats {
+  const byMonth = Array.isArray(data.byMonth) ? data.byMonth.map((n) => Number(n) || 0) : [];
+  return {
+    year: Number(data.year) || new Date().getFullYear(),
+    goal: Number(data.goal) || 0,
+    readThisYear: Number(data.readThisYear) || 0,
+    byMonth: byMonth.length === 12 ? byMonth : Array.from({ length: 12 }, (_, i) => byMonth[i] || 0),
+    readByYear: Array.isArray(data.readByYear) ? data.readByYear : [],
+    topAuthors: Array.isArray(data.topAuthors) ? data.topAuthors : [],
+    topGenres: Array.isArray(data.topGenres) ? data.topGenres : [],
+  };
+}
+
+/** Reading statistics + yearly goal; `null` on servers without the route. */
+export async function fetchReadingStats(config: ServerConfig): Promise<ReadingStats | null> {
+  try {
+    return normalizeReadingStats(await apiJson<Partial<ReadingStats>>(config, '/api/reading-stats'));
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** goal ≤ 0 removes it. */
+export async function saveReadingGoal(config: ServerConfig, goal: number, year?: number): Promise<ReadingStats> {
+  return normalizeReadingStats(await apiPostJson<Partial<ReadingStats>>(config, '/api/reading-goal', { goal, year }));
 }
 
 export async function toggleBookRead(config: ServerConfig, bookId: string): Promise<boolean> {
@@ -1230,6 +1357,7 @@ export async function searchCatalog(
     if (opts.minRate != null && opts.minRate >= 1) params.set('minRate', String(Math.floor(opts.minRate)));
     if (opts.hasSeries === true || opts.hasSeries === 1) params.set('hasSeries', '1');
     else if (opts.hasSeries === false || opts.hasSeries === 0) params.set('hasSeries', '0');
+    if (opts.field === 'books') appendHideReadParam(params);
     return params;
   };
 
@@ -1311,7 +1439,9 @@ export async function fetchRecentBooks(
   page = 1,
   sort: CatalogBookSort = 'recent'
 ): Promise<Paginated<InpxBookItem>> {
-  return apiJson(config, `/api/library/recent?page=${page}&pageSize=24&sort=${sort}`);
+  const params = new URLSearchParams({ page: String(page), pageSize: '24', sort });
+  appendHideReadParam(params);
+  return apiJson(config, `/api/library/recent?${params}`);
 }
 
 export async function searchBooks(
@@ -1389,9 +1519,13 @@ export async function fetchFacetBooks(
     lang?: string;
     /** Single code, CSV, or list — OR (at least one genre). */
     genre?: string | string[];
+    /** Whole-series download: every volume, whatever «Скрыть прочитанное» says. */
+    includeRead?: boolean;
   },
 ): Promise<Paginated<InpxBookItem>> {
   const params = new URLSearchParams({ facet, value, page: String(page), pageSize: '24' });
+  if (opts?.includeRead) params.set('hideRead', '0');
+  else appendHideReadParam(params);
   if (opts?.author) params.set('author', opts.author);
   if (opts?.sort) params.set('sort', opts.sort);
   if (opts?.lang) params.set('lang', opts.lang);
@@ -1422,7 +1556,7 @@ export async function fetchAllFacetBooks(
   const all: InpxBookItem[] = [];
   let page = 1;
   while (all.length < SERIES_DOWNLOAD_CAP && page <= 50) {
-    const data = await fetchFacetBooks(config, facet, value, page, opts);
+    const data = await fetchFacetBooks(config, facet, value, page, { ...opts, includeRead: true });
     const items = Array.isArray(data.items) ? data.items : [];
     all.push(...items);
     const pageSize = data.pageSize || 24;
@@ -1485,6 +1619,7 @@ export async function fetchAuthorGrouped(
   const params = new URLSearchParams({ sort });
   // Older servers only attached books[] when view=list; current servers always include them.
   params.set('view', 'list');
+  appendHideReadParam(params);
   return apiJson(
     config,
     `/api/browse/authors/${encodeURIComponent(authorName)}/grouped?${params}`,

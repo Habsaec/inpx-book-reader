@@ -8,6 +8,7 @@ import {
   fetchSearchGenres,
   fetchAllFacetBooks,
   fetchSeriesProgress,
+  markSeriesReadUpTo,
   fetchBookMeta,
   type SeriesReadingProgress,
   mapServerBook,
@@ -65,6 +66,8 @@ function genrePageLabel(
 
 interface CatalogTabProps {
   serverConfig: ServerConfig;
+  /** Server read marks changed outside the usual toggles (series «до тома N») — reload read ids. */
+  onReadMarksChanged?: () => void;
   onEnqueueDownload: (book: Book) => void | Promise<void>;
   downloadedBookIds: string[];
   downloadingId?: string | null;
@@ -110,6 +113,7 @@ interface CatalogTabProps {
 
 export default function CatalogTab({
   serverConfig,
+  onReadMarksChanged,
   onEnqueueDownload,
   downloadedBookIds,
   downloadingId = null,
@@ -709,6 +713,17 @@ export default function CatalogTab({
     return () => { cancelled = true; };
   }, [selectedSeries, isServerConnected, serverConfig, readCount]);
 
+  const markSeriesUpTo = async (upTo: number) => {
+    if (!selectedSeries) return;
+    try {
+      const res = await markSeriesReadUpTo(serverConfig, selectedSeries, upTo);
+      if (res.progress) setSeriesProgress(res.progress);
+      if (res.added > 0) onReadMarksChanged?.();
+    } catch (e) {
+      if (isAuthError(e)) return;
+    }
+  };
+
   const openSeriesNextBook = async (bookId: string) => {
     const loaded = currentBooks.find((b) => b.id === bookId);
     if (loaded) {
@@ -1050,6 +1065,7 @@ export default function CatalogTab({
             <CatalogDrilldownPanel
               seriesProgress={selectedSeries ? seriesProgress : null}
               onOpenSeriesNext={(bookId) => void openSeriesNextBook(bookId)}
+              onMarkSeriesReadUpTo={markSeriesUpTo}
               selectedAuthor={selectedAuthor}
               selectedSeries={selectedSeries}
               selectedSeriesDisplay={selectedSeriesDisplay}

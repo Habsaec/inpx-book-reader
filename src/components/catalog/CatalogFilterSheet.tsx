@@ -11,6 +11,9 @@ import type {
   DemoBookSort,
 } from './catalogTypes';
 import BookSortBar from './BookSortBar';
+import type { ServerConfig } from '../../types';
+import { getHideRead, setHideRead } from '../../lib/hideReadPreference';
+import { saveUserPreferences } from '../../lib/inpxClient';
 
 export interface CatalogGenreOption {
   name: string;
@@ -46,6 +49,11 @@ interface CatalogFilterSheetProps {
   showSort?: boolean;
   /** Hide genre multi-select (e.g. already inside a genre page). */
   showGenrePicker?: boolean;
+  /**
+   * When set (and the server knows the switch), shows «Прочитанные: показывать / скрыть» — the account
+   * switch shared with the web UI; applying it saves `/api/preferences` and lists re-fetch.
+   */
+  serverConfig?: ServerConfig;
 }
 
 const EMPTY_DRAFT: CatalogFilterDraft = {
@@ -84,8 +92,15 @@ export default function CatalogFilterSheet({
   resolveGenreOptions,
   showSort = true,
   showGenrePicker = true,
+  serverConfig,
 }: CatalogFilterSheetProps) {
   const closeRef = React.useRef<HTMLButtonElement>(null);
+  const savedHideRead = getHideRead();
+  const showHideRead = Boolean(serverConfig) && savedHideRead != null;
+  const [hideReadDraft, setHideReadDraft] = React.useState(Boolean(savedHideRead));
+  React.useEffect(() => {
+    if (open) setHideReadDraft(Boolean(getHideRead()));
+  }, [open]);
   const [genreQuery, setGenreQuery] = React.useState('');
   const [draft, setDraft] = React.useState<CatalogFilterDraft>(value);
   const [activeGenreOptions, setActiveGenreOptions] = React.useState<CatalogGenreOption[]>(genreOptions);
@@ -149,6 +164,12 @@ export default function CatalogFilterSheet({
   };
 
   const applyAndClose = () => {
+    if (showHideRead && serverConfig && hideReadDraft !== Boolean(getHideRead())) {
+      const next = hideReadDraft;
+      // Local switch first: lists re-fetch with an explicit hideRead, so the save cannot race them.
+      setHideRead(next);
+      void saveUserPreferences(serverConfig, { hideRead: next }).catch(() => setHideRead(!next));
+    }
     onApply(draft);
     onClose();
   };
@@ -308,6 +329,35 @@ export default function CatalogFilterSheet({
               className={`w-full ${radii.button} px-4 py-3 min-h-12 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
             />
           </div>
+
+          {showHideRead ? (
+            <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
+              <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
+                Прочитанные книги
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { id: false, label: 'Показывать' },
+                  { id: true, label: 'Скрыть' },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    aria-pressed={hideReadDraft === opt.id}
+                    onClick={() => setHideReadDraft(opt.id)}
+                    className={`min-h-11 px-4 ${radii.button} ${textStyles.captionBold} ${theme.interactive} ${motion.press} ${
+                      hideReadDraft === opt.id ? theme.accentActive : `${theme.chip} ${theme.chipHover}`
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className={`${textStyles.caption} ${theme.textMuted}`}>
+                Действует в каталоге, новинках, сериях и у авторов — и на сайте библиотеки.
+              </p>
+            </div>
+          ) : null}
 
           <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>

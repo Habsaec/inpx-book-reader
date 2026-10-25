@@ -42,6 +42,7 @@ import {
   isAuthError,
 } from '../lib/inpxClient';
 import { applyServerActivitySyncMeta } from '../lib/readerActivitySync';
+import { setHideRead } from '../lib/hideReadPreference';
 import { dropQueuedToggleReadOps, processSyncQueue } from '../lib/syncQueueProcessor';
 
 export function isServerOnline(config: ServerConfig): boolean {
@@ -156,6 +157,8 @@ export function useInpxServer(
 
       prof = profileRes;
       setProfile(prof);
+      // «Скрыть прочитанное»: account switch from the server (undefined on older servers → not sent).
+      setHideRead(typeof prof.user?.hideRead === 'boolean' ? prof.user.hideRead : null);
       setFavoriteAuthorItems(favs.authors);
       setFavoriteSeriesItems(favs.series);
       setFavoriteAuthors(favs.authors.map((a) => a.name));

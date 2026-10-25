@@ -1181,6 +1181,7 @@ export default function App() {
             <React.Suspense fallback={<div className="flex-1 px-5 py-4"><BookListSkeleton count={8} /></div>}>
               <CatalogTab
                 serverConfig={serverConfig}
+                onReadMarksChanged={isOnline ? () => { void inpxServer.refresh(); } : undefined}
                 onEnqueueDownload={handleDownloadBookFromUi}
                 downloadedBookIds={downloadedBookIdsWithFile}
                 downloadingId={downloadingId}
@@ -1294,6 +1295,7 @@ export default function App() {
           <TabScreenPanel active={activeTab === 'profile'}>
             <ProfileScreen
               profile={profile}
+              onAuthExpired={markAuthExpired}
               loading={profileLoading}
               error={profileError}
               isOnline={isOnline}

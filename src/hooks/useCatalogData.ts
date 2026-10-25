@@ -17,6 +17,7 @@ import {
   type CatalogSearchHints,
 } from '../lib/inpxClient';
 import type { Book, ServerConfig } from '../types';
+import { useHideReadEpoch } from '../lib/hideReadPreference';
 import type { CatalogSubTab } from '../components/catalog/catalogTypes';
 import { sortBooksBySeriesVolume } from '../lib/seriesVolumeSort';
 
@@ -115,6 +116,7 @@ export function useCatalogData({
   onAuthExpired,
   onConnectionLost,
 }: UseCatalogDataOptions) {
+  const hideReadEpoch = useHideReadEpoch();
   const onAuthExpiredRef = React.useRef(onAuthExpired);
   onAuthExpiredRef.current = onAuthExpired;
   const onConnectionLostRef = React.useRef(onConnectionLost);
@@ -395,6 +397,7 @@ export function useCatalogData({
     hasSeriesFilter,
     pauseListFetch,
     handleFetchError,
+    hideReadEpoch,
   ]);
 
   React.useEffect(() => {
@@ -534,6 +537,7 @@ export function useCatalogData({
     yearFilter,
     hasSeriesFilter,
     handleFetchError,
+    hideReadEpoch,
   ]);
 
   return {

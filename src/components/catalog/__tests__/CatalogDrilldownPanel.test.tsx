@@ -38,7 +38,7 @@ describe('CatalogDrilldownPanel series progress', () => {
   it('shows «Прочитано N из M» and opens the next unread volume', () => {
     const onOpenSeriesNext = vi.fn();
     renderSeries({
-      seriesProgress: { total: 15, read: 0, next: { id: '6:93307', title: 'Некромант', seriesNo: '1' } },
+      seriesProgress: { total: 15, read: 0, next: { id: '6:93307', title: 'Некромант', seriesNo: '1' }, numbers: [] },
       onOpenSeriesNext,
     });
     expect(screen.getByText('Прочитано 0 из 15')).toBeTruthy();
@@ -48,7 +48,7 @@ describe('CatalogDrilldownPanel series progress', () => {
 
   it('says «Читать следующую» mid-series and «Серия прочитана» when done', () => {
     const { rerender } = renderSeries({
-      seriesProgress: { total: 4, read: 2, next: { id: 'b3', title: 'Три', seriesNo: '3' } },
+      seriesProgress: { total: 4, read: 2, next: { id: 'b3', title: 'Три', seriesNo: '3' }, numbers: [] },
       onOpenSeriesNext: vi.fn(),
     });
     expect(screen.getByRole('button', { name: /Читать следующую.*3\. Три/ })).toBeTruthy();
@@ -70,7 +70,7 @@ describe('CatalogDrilldownPanel series progress', () => {
         showBackBar={false}
         onToggleFavoriteAuthor={vi.fn()}
         onToggleFavoriteSeries={vi.fn()}
-        seriesProgress={{ total: 4, read: 4, next: null }}
+        seriesProgress={{ total: 4, read: 4, next: null, numbers: [] }}
       />,
     );
     expect(screen.getByText('Серия прочитана')).toBeTruthy();
@@ -81,7 +81,21 @@ describe('CatalogDrilldownPanel series progress', () => {
     renderSeries({ seriesProgress: null });
     expect(screen.queryByText(/Прочитано/)).toBeNull();
     cleanup();
-    renderSeries({ seriesProgress: { total: 1, read: 0, next: { id: 'x', title: 'X', seriesNo: '' } } });
+    renderSeries({ seriesProgress: { total: 1, read: 0, next: { id: 'x', title: 'X', seriesNo: '' }, numbers: [] } });
     expect(screen.queryByText(/Прочитано/)).toBeNull();
+  });
+});
+
+describe('CatalogDrilldownPanel: mark read up to volume N', () => {
+  it('offers numbered volumes and sends the picked one', async () => {
+    const onMarkSeriesReadUpTo = vi.fn(() => Promise.resolve());
+    renderSeries({
+      seriesProgress: { total: 3, read: 0, next: { id: 'b1', title: 'Один', seriesNo: '1' }, numbers: [1, 2, 3] },
+      onOpenSeriesNext: vi.fn(),
+      onMarkSeriesReadUpTo,
+    });
+    fireEvent.change(screen.getByLabelText('Прочитаны тома до'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Отметить' }));
+    expect(onMarkSeriesReadUpTo).toHaveBeenCalledWith(2);
   });
 });

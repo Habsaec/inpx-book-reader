@@ -9,6 +9,7 @@ import type { EinkModePref } from '../lib/einkMode';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { textStyles, semantic, radii, motion } from '../ui/tokens';
 import type { LibrarySeg } from './mybooks/LibraryCollections';
+import ReadingGoalCard from './ReadingGoalCard';
 
 interface ProfileScreenProps {
   profile: InpxProfile | null;
@@ -44,6 +45,7 @@ interface ProfileScreenProps {
   rootEpoch?: number;
   /** Stat tiles open the matching «Мои книги» collection. */
   onOpenLibrary?: (seg: LibrarySeg) => void;
+  onAuthExpired?: () => void;
 }
 
 const MEMBER_MONTHS = [
@@ -103,6 +105,7 @@ export default function ProfileScreen({
   isTabActive = true,
   rootEpoch = 0,
   onOpenLibrary,
+  onAuthExpired,
 }: ProfileScreenProps) {
   const username = profile?.user?.username?.trim() || serverConfig.username?.trim() || '';
   const name = displayName(username, profile?.user?.role);
@@ -130,6 +133,7 @@ export default function ProfileScreen({
         { label: 'Полки', value: stats.shelvesCount, seg: 'shelves' },
         { label: 'Авторы', value: stats.favoriteAuthorsCount, seg: 'favorites' },
         { label: 'Серии', value: stats.favoriteSeriesCount, seg: 'favorites' },
+        ...(stats.ratedCount != null ? [{ label: 'Мои оценки', value: stats.ratedCount, seg: 'rated' as const }] : []),
       ]
     : [];
 
@@ -217,6 +221,14 @@ export default function ProfileScreen({
             </div>
           </div>
         </div>
+      ) : null}
+      {stats && isOnline ? (
+        <ReadingGoalCard
+          serverConfig={serverConfig}
+          isOnline={isOnline}
+          refreshKey={(isTabActive ? 1 : 0) + rootEpoch * 2 + (stats.readBooksCount || 0) * 1000}
+          onAuthExpired={onAuthExpired}
+        />
       ) : null}
       {error && isOnline && !loading ? (
         <p className={`mt-4 ${textStyles.caption} ${semantic.error}`} role="alert">

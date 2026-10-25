@@ -93,6 +93,11 @@ export function apiWantPath(id: string): string {
   return apiActionPath('/api/want', id);
 }
 
+/** Personal rating 1–5 (server: `/api/rating/:id`, `/api/rating/b64/<ref>`). */
+export function apiRatingPath(id: string): string {
+  return apiActionPath('/api/rating', id);
+}
+
 export function apiReadingHistoryPath(id: string): string {
   return apiActionPath('/api/reading-history', id);
 }

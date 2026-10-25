@@ -421,6 +421,7 @@ export default function CatalogBooksView({
           sortBy,
         }}
         onApply={onApplyFilters}
+        serverConfig={isServerConnected ? serverConfig : undefined}
         genreOptions={genreOptions}
         resolveGenreOptions={showGenrePicker ? resolveGenreOptions : undefined}
         showSort={!isServerBrowse}

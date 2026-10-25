@@ -7,6 +7,7 @@ import { fetchGenres, fetchLibraryView, isAuthError, isUnreachableServerError, m
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
 import CatalogPagination from './catalog/CatalogPagination';
 import CatalogFilterSheet, { type CatalogFilterDraft, type CatalogGenreOption } from './catalog/CatalogFilterSheet';
+import { useHideReadEpoch } from '../lib/hideReadPreference';
 import CatalogActiveFilterChips from './catalog/CatalogActiveFilterChips';
 import BookSortBar from './catalog/BookSortBar';
 import CatalogBookList from './catalog/CatalogBookList';
@@ -123,6 +124,7 @@ export default function LibrarySectionPanel({
   const [computing, setComputing] = React.useState(false);
   const [error, setError] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
+  const hideReadEpoch = useHideReadEpoch();
   const loadGen = React.useRef(0);
 
   const [minRating, setMinRating] = React.useState(0);
@@ -269,6 +271,7 @@ export default function LibrarySectionPanel({
     pageSize,
     onAuthExpired,
     onConnectionLost,
+    hideReadEpoch,
   ]);
 
   React.useEffect(() => {
@@ -457,6 +460,7 @@ export default function LibrarySectionPanel({
         onApply={applyFilters}
         genreOptions={genreOptions}
         showSort={false}
+        serverConfig={view === 'recent' ? serverConfig : undefined}
       />
     </div>
   );
