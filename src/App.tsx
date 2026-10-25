@@ -53,6 +53,7 @@ import {
   type AppColorSource,
   applyAccentVars,
   applyAppThemeMode,
+  applyServerPaletteVars,
   clearAccentVars,
   fetchServerUiTheme,
   readCachedServerUiTheme,
@@ -550,14 +551,16 @@ export default function App() {
       return;
     }
     applyAppThemeMode(isAppDark);
-    // Only the accent follows the library (server) or Material You (system); surfaces stay the app's own.
-    const palette = colorSource === 'library'
-      ? (isAppDark ? serverUiTheme?.paletteDark : serverUiTheme?.paletteLight)
-      : colorSource === 'system' && systemPalettes
-        ? (isAppDark ? systemPalettes.dark : systemPalettes.light)
-        : null;
-    if (palette) applyAccentVars(palette, isAppDark);
-    void syncAndroidStatusBar(isAppDark, { eink: false });
+    // «Сервер» takes the library's whole palette (as on the web); «Система» lends only the
+    // Material You accent; «Приложение» keeps index.css as is.
+    let statusBarBg: string | undefined;
+    if (colorSource === 'library') {
+      const palette = isAppDark ? serverUiTheme?.paletteDark : serverUiTheme?.paletteLight;
+      if (palette) statusBarBg = applyServerPaletteVars(palette, isAppDark) || undefined;
+    } else if (colorSource === 'system' && systemPalettes) {
+      applyAccentVars(isAppDark ? systemPalettes.dark : systemPalettes.light, isAppDark);
+    }
+    void syncAndroidStatusBar(isAppDark, { eink: false, bg: statusBarBg });
   }, [isAppDark, appearance, colorSource, serverUiTheme, einkActive, systemPalettes]);
 
   const { enqueueDownload, downloadingId, queuedBookIds } = useDownloadPipeline({

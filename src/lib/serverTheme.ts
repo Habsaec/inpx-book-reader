@@ -2,7 +2,7 @@ import type { ServerConfig } from '../types';
 import { coverFallbackStyleFromUi, type CoverFallbackStyle } from './coverFallbackStyle';
 import { APP_SETTING_KEYS, getAppSettingJson, setAppSettingJson } from './appSettings';
 import { fetchServerBranding } from './inpxClient';
-import { flattenColorMix } from './flattenColorMix';
+import { flattenColorMix, mixSolid, solidColorOver } from './flattenColorMix';
 
 /** Semantic palette aligned with server buildThemePalette → --app-* vars */
 export interface AppThemePalette {
@@ -317,18 +317,21 @@ const ACCENT_CSS_KEYS = [
   '--app-button-fg',
 ] as const;
 
-/** Surfaces, type, radii and shadows are the app's own; a palette only lends its accent. */
-export function applyAccentVars(palette: AppThemePalette, isDark: boolean): void {
+/**
+ * Accent only (Material You «Система»): surfaces, type, radii and shadows stay the app's own.
+ * `surface` is what the accent is read against; the app's own surface unless a full palette is applied.
+ */
+export function applyAccentVars(palette: AppThemePalette, isDark: boolean, surface?: string): void {
   // Library primary buttons are filled with --link, not --accent.
   const raw = (palette.link || palette.accent || '').trim();
   if (!raw) return;
-  // The accent also colors links and icons on the app's own surfaces, so keep it readable there
-  // (same 4.5:1 rule the server applies against the library surface).
-  const accent = ensureReadableOn(raw, isDark ? APP_SURFACE_DARK : APP_SURFACE_LIGHT);
+  const base = surface || (isDark ? APP_SURFACE_DARK : APP_SURFACE_LIGHT);
+  // The accent also colors links and icons, so keep it readable on the surface (4.5:1, as on the server).
+  const accent = ensureReadableOn(raw, base);
   const hover = accent === raw
     ? (palette.linkHover || palette.accentHover || accent).trim()
     : accent;
-  const soft = flattenColorMix(`color-mix(in srgb, ${accent} 16%, ${isDark ? APP_SURFACE_DARK : APP_SURFACE_LIGHT})`);
+  const soft = flattenColorMix(`color-mix(in srgb, ${accent} 16%, ${base})`);
   const root = document.documentElement;
   root.style.setProperty('--app-accent', accent);
   root.style.setProperty('--app-accent-hover', hover);
@@ -340,9 +343,80 @@ export function applyAccentVars(palette: AppThemePalette, isDark: boolean): void
   root.style.setProperty('--app-button-fg', contrastingInk(accent, isDark));
 }
 
+const PALETTE_CSS_KEYS = [
+  '--app-bg',
+  '--app-shell-bg',
+  '--app-shell',
+  '--app-surface',
+  '--app-surface-elevated',
+  '--app-surface-hover',
+  '--app-text',
+  '--app-muted',
+  '--app-text-secondary',
+  '--app-placeholder',
+  '--app-border',
+  '--app-border-strong',
+  '--app-field-bg',
+  '--app-card-bg',
+  '--app-card-bg-hover',
+  '--app-panel-soft',
+  '--app-topbar-bg',
+  '--app-topbar-border',
+  '--app-cover-border',
+  '--app-cover-bg',
+  '--app-progress-track',
+  '--app-frame-border',
+  '--app-frame-notch',
+] as const;
+
+/**
+ * «Цвет: Сервер» — the whole library palette (the same tokens the web UI uses): page, surfaces, text,
+ * secondary text, borders, links and accent. Translucent web tokens (glass mode) are composited onto
+ * the page color, since the app has no glass panels. Status colors (danger, success…), radii and
+ * shadows stay the app's own. Returns the page color for the Android status bar.
+ */
+export function applyServerPaletteVars(palette: AppThemePalette, isDark: boolean): string | null {
+  const bg = solidColorOver(palette.bg || palette.surface, isDark ? APP_BG_DARK : APP_BG_LIGHT, '');
+  const surface = solidColorOver(palette.surface, bg, '');
+  const text = solidColorOver(palette.text, surface, '');
+  if (!bg || !surface || !text) return null;
+  const muted = solidColorOver(palette.muted || text, surface, text);
+  const surfaceHover = solidColorOver(palette.surfaceHover || surface, surface, surface);
+  const border = solidColorOver(palette.border, surface, mixSolid(text, surface, 0.16));
+  const vars: Record<(typeof PALETTE_CSS_KEYS)[number], string> = {
+    '--app-bg': bg,
+    '--app-shell-bg': bg,
+    '--app-shell': bg,
+    '--app-surface': surface,
+    '--app-surface-elevated': isDark ? mixSolid(text, surface, 0.04) : surface,
+    '--app-surface-hover': surfaceHover,
+    '--app-text': text,
+    '--app-muted': muted,
+    '--app-text-secondary': muted,
+    '--app-placeholder': muted,
+    '--app-border': border,
+    '--app-border-strong': mixSolid(text, surface, 0.32),
+    '--app-field-bg': solidColorOver(palette.fieldBg, surface, surface),
+    '--app-card-bg': solidColorOver(palette.cardBg, bg, surface),
+    '--app-card-bg-hover': solidColorOver(palette.cardBgHover || palette.cardBg, bg, surfaceHover),
+    '--app-panel-soft': solidColorOver(palette.panelSoft, surface, surfaceHover),
+    '--app-topbar-bg': solidColorOver(palette.topbarBg || bg, bg, bg),
+    '--app-topbar-border': solidColorOver(palette.topbarBorder || palette.border, bg, border),
+    '--app-cover-border': solidColorOver(palette.coverBorder || palette.border, surface, border),
+    '--app-cover-bg': surfaceHover,
+    '--app-progress-track': border,
+    '--app-frame-border': border,
+    '--app-frame-notch': border,
+  };
+  const root = document.documentElement;
+  for (const [key, value] of Object.entries(vars)) root.style.setProperty(key, value);
+  applyAccentVars(palette, isDark, surface);
+  return bg;
+}
+
 export function clearAccentVars(): void {
   const root = document.documentElement;
-  for (const key of ACCENT_CSS_KEYS) {
+  for (const key of [...ACCENT_CSS_KEYS, ...PALETTE_CSS_KEYS]) {
     root.style.removeProperty(key);
   }
 }
@@ -363,6 +437,9 @@ function relativeLuminance(hex: string): number | null {
 
 const APP_SURFACE_DARK = '#111113';
 const APP_SURFACE_LIGHT = '#ffffff';
+/** index.css page colors: the base under a translucent server page color. */
+const APP_BG_DARK = '#14130f';
+const APP_BG_LIGHT = '#f4efe6';
 const MIN_ACCENT_CONTRAST = 4.5;
 
 export function contrastRatio(a: string, b: string): number | null {

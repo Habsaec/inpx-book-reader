@@ -88,6 +88,37 @@ export function flattenColorMix(value: string): string {
   return current;
 }
 
+function toHex(color: Rgba): string {
+  const ch = (v: number) => Math.min(255, Math.max(0, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${ch(color.r)}${ch(color.g)}${ch(color.b)}`;
+}
+
+/**
+ * Solid `#rrggbb` for a server color (hex, rgb[a], color-mix) painted over `base`.
+ * The web palette has translucent borders / cards for its glass mode; the app has no glass,
+ * so they are composited onto the page color once. Returns `fallback` when unparseable.
+ */
+export function solidColorOver(value: string, base: string, fallback = base): string {
+  const color = parseCssColor(flattenColorMix(String(value || '')));
+  const under = parseCssColor(base);
+  if (!color || !under) return fallback;
+  const a = Math.min(1, Math.max(0, color.a));
+  return toHex({
+    r: color.r * a + under.r * (1 - a),
+    g: color.g * a + under.g * (1 - a),
+    b: color.b * a + under.b * (1 - a),
+    a: 1,
+  });
+}
+
+/** Mix two solid colors: `weight` of `first`. */
+export function mixSolid(first: string, second: string, weight: number): string {
+  const a = parseCssColor(first);
+  const b = parseCssColor(second);
+  if (!a || !b) return first;
+  return toHex(mix({ ...a, a: 1 }, { ...b, a: 1 }, weight));
+}
+
 export function colorMixSupported(): boolean {
   return typeof CSS !== 'undefined' && typeof CSS.supports === 'function'
     && CSS.supports('color', 'color-mix(in srgb, red 50%, blue)');

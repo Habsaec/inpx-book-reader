@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { parseServerUiTheme, resolveIsDark, parseAppAppearance, parseAppColorSource, applyAccentVars, clearAccentVars, contrastingInk, contrastRatio, ensureReadableOn } from '../serverTheme';
+import { parseServerUiTheme, resolveIsDark, parseAppAppearance, parseAppColorSource, applyAccentVars, clearAccentVars, contrastingInk, contrastRatio, ensureReadableOn, applyServerPaletteVars } from '../serverTheme';
 
 describe('parseServerUiTheme', () => {
   it('maps appPalette from server API', () => {
@@ -173,5 +173,52 @@ describe('library accent readability', () => {
     const link = document.documentElement.style.getPropertyValue('--app-link');
     expect(contrastRatio(link, '#ffffff')!).toBeGreaterThanOrEqual(4.5);
     clearAccentVars();
+  });
+});
+
+describe('«Цвет: Сервер» applies the whole library palette', () => {
+  // Built-in web dark theme as /api/settings/ui sends it.
+  const webDark = {
+    bg: '#14110e', surface: '#1a1612', surfaceHover: '#241f19', text: '#f2ebe0', muted: '#a89884',
+    accent: '#c4a35a', link: '#d4b06a', linkHover: '#e8c984', accentHover: '#d4b56e',
+    border: 'rgba(196, 163, 90, 0.12)', fieldBg: 'rgba(196, 163, 90, 0.05)',
+    cardBg: 'rgba(196, 163, 90, 0.03)', cardBgHover: 'rgba(196, 163, 90, 0.07)',
+    panelSoft: 'rgba(196, 163, 90, 0.07)', topbarBg: 'rgba(18, 16, 13, 0.82)',
+    topbarBorder: 'rgba(196, 163, 90, 0.10)', coverBorder: 'rgba(196, 163, 90, 0.12)',
+  };
+  const css = (key: string) => document.documentElement.style.getPropertyValue(key);
+
+  it('sets page, surfaces, text, borders, links and accent from the server', () => {
+    const bg = applyServerPaletteVars(webDark, true);
+    expect(bg).toBe('#14110e');
+    expect(css('--app-bg')).toBe('#14110e');
+    expect(css('--app-surface')).toBe('#1a1612');
+    expect(css('--app-text')).toBe('#f2ebe0');
+    expect(css('--app-muted')).toBe('#a89884');
+    expect(css('--app-link')).toBe('#d4b06a');
+    // Translucent web tokens become solid colors over the page / surface.
+    expect(css('--app-border')).toMatch(/^#[0-9a-f]{6}$/);
+    expect(css('--app-border')).not.toBe('#1a1612');
+    expect(css('--app-topbar-bg')).toMatch(/^#[0-9a-f]{6}$/);
+    clearAccentVars();
+    expect(css('--app-bg')).toBe('');
+    expect(css('--app-link')).toBe('');
+  });
+
+  it('light server palette with color-mix borders resolves too', () => {
+    applyServerPaletteVars({
+      ...webDark, bg: '#f3ebe0', surface: '#fff9f0', surfaceHover: '#f5ebdc', text: '#1f1810', muted: '#6b5a48',
+      link: '#7a5218', accent: '#8a6230', border: 'color-mix(in srgb, #1f1810 14%, transparent)',
+      topbarBg: 'rgba(255, 249, 240, 0.78)',
+    }, false);
+    expect(css('--app-bg')).toBe('#f3ebe0');
+    expect(css('--app-border')).toMatch(/^#[0-9a-f]{6}$/);
+    expect(contrastRatio(css('--app-link'), css('--app-surface'))!).toBeGreaterThanOrEqual(4.5);
+    clearAccentVars();
+  });
+
+  it('ignores an unusable palette', () => {
+    expect(applyServerPaletteVars({ ...webDark, surface: 'nonsense', bg: 'nonsense' }, true)).toBeNull();
+    expect(css('--app-bg')).toBe('');
   });
 });
