@@ -614,9 +614,39 @@ export interface SeriesReadingProgress {
   /** Volumes (editions of one volume count once). */
   total: number;
   read: number;
-  next: { id: string; title: string; seriesNo: string } | null;
+  /** `prevRead`: the volume before it is read — only then «Читать следующую» (additive; false on older servers). */
+  next: { id: string; title: string; seriesNo: string; prevRead: boolean } | null;
   /** Numbered volumes, for «Отметить прочитанными тома до N» (additive; empty on older servers). */
   numbers: number[];
+  /** Some volume is in «Хочу прочитать» (additive; false on older servers). */
+  want: boolean;
+  /** Started, unread volume read most recently (additive; null on older servers). */
+  current: { id: string; title: string; seriesNo: string; progress: number } | null;
+}
+
+function normalizeSeriesProgress(data: Partial<SeriesReadingProgress>): SeriesReadingProgress {
+  return {
+    total: Number(data.total) || 0,
+    read: Number(data.read) || 0,
+    next: data.next && data.next.id
+      ? {
+        id: String(data.next.id),
+        title: String(data.next.title ?? ''),
+        seriesNo: String(data.next.seriesNo ?? ''),
+        prevRead: Boolean(data.next.prevRead),
+      }
+      : null,
+    numbers: Array.isArray(data.numbers) ? data.numbers.map(Number).filter((n) => Number.isFinite(n)) : [],
+    want: Boolean(data.want),
+    current: data.current && data.current.id
+      ? {
+        id: String(data.current.id),
+        title: String(data.current.title ?? ''),
+        seriesNo: String(data.current.seriesNo ?? ''),
+        progress: Number(data.current.progress) || 0,
+      }
+      : null,
+  };
 }
 
 /** «Прочитано N из M» + the next unread volume; `null` when the server has no such route yet. */
@@ -626,45 +656,47 @@ export async function fetchSeriesProgress(config: ServerConfig, seriesName: stri
       config,
       `/api/series-progress?name=${encodeURIComponent(seriesName)}`,
     );
-    return {
-      total: Number(data.total) || 0,
-      read: Number(data.read) || 0,
-      next: data.next && data.next.id
-        ? { id: String(data.next.id), title: String(data.next.title ?? ''), seriesNo: String(data.next.seriesNo ?? '') }
-        : null,
-      numbers: Array.isArray(data.numbers) ? data.numbers.map(Number).filter((n) => Number.isFinite(n)) : [],
-    };
+    return normalizeSeriesProgress(data);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
   }
 }
 
-/** Mark numbered volumes ≤ upTo read (one edition each). → updated progress. */
-export async function markSeriesReadUpTo(
+/** Series «Хочу прочитать»: adds one edition of every unread volume, or removes the series when some volume is listed. */
+export async function toggleSeriesWantApi(
   config: ServerConfig,
   seriesName: string,
-  upTo: number,
-): Promise<{ added: number; progress: SeriesReadingProgress | null }> {
-  const data = await apiPostJson<{ added?: number; progress?: Partial<SeriesReadingProgress> | null }>(
+): Promise<{ want: boolean; added: number; removed: number }> {
+  const data = await apiPostJson<{ want?: boolean; added?: number; removed?: number }>(
     config,
-    '/api/series-read-up-to',
-    { name: seriesName, upTo },
+    '/api/want/series',
+    { name: seriesName },
   );
-  const p = data.progress;
-  return {
-    added: Number(data.added) || 0,
-    progress: p
-      ? {
-        total: Number(p.total) || 0,
-        read: Number(p.read) || 0,
-        next: p.next && p.next.id
-          ? { id: String(p.next.id), title: String(p.next.title ?? ''), seriesNo: String(p.next.seriesNo ?? '') }
-          : null,
-        numbers: Array.isArray(p.numbers) ? p.numbers.map(Number).filter((n) => Number.isFinite(n)) : [],
-      }
-      : null,
-  };
+  return { want: Boolean(data.want), added: Number(data.added) || 0, removed: Number(data.removed) || 0 };
+}
+
+/** Series «Прочитано» toggle (same as the web series page): fully read → unmark all, otherwise mark all. */
+export async function toggleSeriesReadApi(
+  config: ServerConfig,
+  seriesName: string,
+): Promise<{ read: boolean; added: number; removed: number }> {
+  const data = await apiPostJson<{ action?: string; added?: number; removed?: number }>(
+    config,
+    '/api/read/batch',
+    { facet: 'series', value: seriesName },
+  );
+  return { read: data.action !== 'removed', added: Number(data.added) || 0, removed: Number(data.removed) || 0 };
+}
+
+/** «На полку» for a whole series; the server resolves the books. → number of added shelf entries. */
+export async function addSeriesToShelfApi(config: ServerConfig, shelfId: number, seriesName: string): Promise<number> {
+  const data = await apiPostJson<{ added?: number }>(
+    config,
+    '/api/shelves/batch-add-books',
+    { shelfIds: [shelfId], series: seriesName },
+  );
+  return Number(data.added) || 0;
 }
 
 /** Personal rating 1–5, 0 = none; `null` when the server has no rating API yet. */

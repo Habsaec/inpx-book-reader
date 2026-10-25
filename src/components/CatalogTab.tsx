@@ -8,7 +8,11 @@ import {
   fetchSearchGenres,
   fetchAllFacetBooks,
   fetchSeriesProgress,
-  markSeriesReadUpTo,
+  toggleSeriesWantApi,
+  toggleSeriesReadApi,
+  addSeriesToShelfApi,
+  createServerShelf,
+  type UiShelf,
   fetchBookMeta,
   type SeriesReadingProgress,
   mapServerBook,
@@ -109,11 +113,17 @@ interface CatalogTabProps {
   onCloseDetails?: () => void;
   onAuthExpired?: () => void;
   onConnectionLost?: () => void;
+  /** Server shelves for the series «На полку» action; omitted offline. */
+  shelves?: UiShelf[];
+  /** A series was added to a (possibly new) shelf — reload the shelf list. */
+  onShelvesChanged?: () => void;
 }
 
 export default function CatalogTab({
   serverConfig,
   onReadMarksChanged,
+  shelves,
+  onShelvesChanged,
   onEnqueueDownload,
   downloadedBookIds,
   downloadingId = null,
@@ -713,15 +723,57 @@ export default function CatalogTab({
     return () => { cancelled = true; };
   }, [selectedSeries, isServerConnected, serverConfig, readCount]);
 
-  const markSeriesUpTo = async (upTo: number) => {
-    if (!selectedSeries) return;
+  /* Series action row: хочу → прочитано → избранное → полка (same order as the book sheet and the web). */
+  const [seriesActionBusy, setSeriesActionBusy] = React.useState(false);
+  const runSeriesAction = async (action: (series: string) => Promise<void>) => {
+    if (!selectedSeries || seriesActionBusy) return;
+    setSeriesActionBusy(true);
     try {
-      const res = await markSeriesReadUpTo(serverConfig, selectedSeries, upTo);
-      if (res.progress) setSeriesProgress(res.progress);
-      if (res.added > 0) onReadMarksChanged?.();
+      await action(selectedSeries);
     } catch (e) {
-      if (isAuthError(e)) return;
+      if (isAuthError(e)) onAuthExpired?.();
+      else snackbar.show('Не удалось обновить серию', undefined, 'error');
+    } finally {
+      setSeriesActionBusy(false);
     }
+  };
+
+  const toggleSeriesWant = () => runSeriesAction(async (series) => {
+    const res = await toggleSeriesWantApi(serverConfig, series);
+    setSeriesProgress((p) => (p ? { ...p, want: res.want } : p));
+    snackbar.show(res.want
+      ? `В «Хочу прочитать»: ${res.added} кн.`
+      : res.removed > 0 ? 'Серия убрана из «Хочу прочитать»' : 'Непрочитанных книг в серии нет');
+    onReadMarksChanged?.();
+  });
+
+  const toggleSeriesRead = () => runSeriesAction(async (series) => {
+    const res = await toggleSeriesReadApi(serverConfig, series);
+    snackbar.show(res.read
+      ? (res.added > 0 ? `Отмечено прочитанными: ${res.added}` : 'Серия уже прочитана')
+      : `Снята отметка «Прочитано»: ${res.removed}`);
+    // readIds refresh re-fetches the progress (it keys on the read count).
+    onReadMarksChanged?.();
+    const p = await fetchSeriesProgress(serverConfig, series).catch(() => null);
+    if (p) setSeriesProgress(p);
+  });
+
+  const addSeriesToShelf = (shelfId: number | string) => runSeriesAction(async (series) => {
+    const added = await addSeriesToShelfApi(serverConfig, Number(shelfId), series);
+    snackbar.show(added > 0 ? `На полку добавлено: ${added}` : 'Книги серии уже на этой полке');
+    onShelvesChanged?.();
+  });
+
+  const createShelfForSeries = async (name: string): Promise<boolean> => {
+    let ok = false;
+    await runSeriesAction(async (series) => {
+      const id = await createServerShelf(serverConfig, name);
+      const added = await addSeriesToShelfApi(serverConfig, id, series);
+      snackbar.show(`Полка «${name}» создана, добавлено: ${added}`);
+      onShelvesChanged?.();
+      ok = true;
+    });
+    return ok;
   };
 
   const openSeriesNextBook = async (bookId: string) => {
@@ -1065,7 +1117,12 @@ export default function CatalogTab({
             <CatalogDrilldownPanel
               seriesProgress={selectedSeries ? seriesProgress : null}
               onOpenSeriesNext={(bookId) => void openSeriesNextBook(bookId)}
-              onMarkSeriesReadUpTo={markSeriesUpTo}
+              onToggleSeriesWant={isServerConnected ? () => void toggleSeriesWant() : undefined}
+              onToggleSeriesRead={isServerConnected ? () => void toggleSeriesRead() : undefined}
+              shelves={shelves}
+              onAddSeriesToShelf={isServerConnected && shelves ? addSeriesToShelf : undefined}
+              onCreateShelfForSeries={isServerConnected && shelves ? createShelfForSeries : undefined}
+              seriesActionBusy={seriesActionBusy}
               selectedAuthor={selectedAuthor}
               selectedSeries={selectedSeries}
               selectedSeriesDisplay={selectedSeriesDisplay}

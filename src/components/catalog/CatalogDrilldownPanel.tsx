@@ -1,14 +1,16 @@
 import React from 'react';
-import { ArrowLeft, BookOpen, Download, Heart, Layers3, PenLine, Star } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bookmark, CheckCircle2, Download, FolderPlus, Heart, Layers3, PenLine } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { Book, ServerConfig } from '../../types';
-import { displayAuthorName, type SeriesReadingProgress } from '../../lib/inpxClient';
+import { displayAuthorName, type SeriesReadingProgress, type UiShelf } from '../../lib/inpxClient';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
 import type { AuthorGroupedState } from '../../hooks/useCatalogData';
 import type { StorageDirectory } from '../../lib/storageDirectory';
 import AuthorPortrait from '../AuthorPortrait';
 import LiteEntityRow from '../LiteEntityRow';
 import FlibustaBookRow from './FlibustaBookRow';
+import QuickAction from './QuickAction';
+import ShelfPicker from '../ShelfPicker';
 import { textStyles, radii, elevation, motion as motionTokens } from '../../ui/tokens';
 
 interface CatalogDrilldownPanelProps {
@@ -36,8 +38,14 @@ interface CatalogDrilldownPanelProps {
   seriesProgress?: SeriesReadingProgress | null;
   /** Opens the details of the next unread volume. */
   onOpenSeriesNext?: (bookId: string) => void;
-  /** «Отметить прочитанными тома до N» (numbered volumes); resolves when the server saved it. */
-  onMarkSeriesReadUpTo?: (upTo: number) => Promise<void>;
+  /** Series action row (book sheet order: хочу → прочитано → избранное → полка); online only. */
+  onToggleSeriesWant?: () => void;
+  onToggleSeriesRead?: () => void;
+  /** Whole series to a server shelf; `shelves` are server shelves only. */
+  shelves?: UiShelf[];
+  onAddSeriesToShelf?: (shelfId: number | string) => void | Promise<void>;
+  onCreateShelfForSeries?: (name: string) => void | boolean | Promise<void | boolean>;
+  seriesActionBusy?: boolean;
 }
 
 export function CatalogAuthorSeriesShelf({
@@ -198,21 +206,15 @@ export function CatalogAuthorGroupedList({
 function SeriesProgressBlock({
   progress,
   onOpenNext,
-  onMarkUpTo,
 }: {
   progress: SeriesReadingProgress;
   onOpenNext?: (bookId: string) => void;
-  onMarkUpTo?: (upTo: number) => Promise<void>;
 }) {
   const pct = Math.round((progress.read / Math.max(1, progress.total)) * 100);
   const next = progress.next;
-  const numbers = progress.numbers ?? [];
-  const nextNo = Number(next?.seriesNo);
-  const [upTo, setUpTo] = React.useState<number | null>(null);
-  const [marking, setMarking] = React.useState(false);
-  const selectedUpTo = upTo ?? (Number.isFinite(nextNo) && numbers.includes(nextNo) ? nextNo : numbers[0]);
-  const canMarkUpTo = Boolean(onMarkUpTo && next && numbers.length >= 2);
   const nextTitle = next ? `${next.seriesNo ? `${next.seriesNo}. ` : ''}${next.title}` : '';
+  const current = progress.current ?? null;
+  const currentTitle = current ? `${current.seriesNo ? `${current.seriesNo}. ` : ''}${current.title}` : '';
   return (
     <div className="mt-3 space-y-2">
       <div className="flex items-baseline justify-between gap-2">
@@ -233,43 +235,29 @@ function SeriesProgressBlock({
       >
         <div className={`h-full rounded-full ${theme.progress}`} style={{ width: `${pct}%` }} />
       </div>
-      {next && onOpenNext ? (
+      {current && onOpenNext ? (
+        <button
+          type="button"
+          onClick={() => onOpenNext(current.id)}
+          className={`flex w-full min-h-12 items-center gap-2 px-4 ${radii.button} ${textStyles.captionBold} ${theme.accentBg} ${theme.focusRing} ${motionTokens.press}`}
+        >
+          <BookOpen className="w-4 h-4 shrink-0" aria-hidden />
+          <span className="shrink-0">Продолжить</span>
+          <span className="min-w-0 truncate font-normal opacity-90">· {currentTitle}</span>
+          <span className="ml-auto shrink-0 tabular-nums">{Math.round(current.progress)}%</span>
+        </button>
+      ) : null}
+      {/* One button: «Продолжить» for a started volume, otherwise «Читать следующую» right after a read volume. */}
+      {next && onOpenNext && !current && next.prevRead ? (
         <button
           type="button"
           onClick={() => onOpenNext(next.id)}
           className={`flex w-full min-h-12 items-center gap-2 px-4 ${radii.button} ${textStyles.captionBold} ${theme.accentBg} ${theme.focusRing} ${motionTokens.press}`}
         >
           <BookOpen className="w-4 h-4 shrink-0" aria-hidden />
-          <span className="shrink-0">{progress.read === 0 ? 'Начать читать' : 'Читать следующую'}</span>
+          <span className="shrink-0">Читать следующую</span>
           <span className="min-w-0 truncate font-normal opacity-90">· {nextTitle}</span>
         </button>
-      ) : null}
-      {canMarkUpTo ? (
-        <div className={`flex flex-wrap items-center gap-2 ${textStyles.caption} ${theme.textMuted}`}>
-          <label className="inline-flex items-center gap-2">
-            Прочитаны тома до
-            <select
-              value={String(selectedUpTo)}
-              onChange={(e) => setUpTo(Number(e.target.value))}
-              aria-label="Прочитаны тома до"
-              className={`min-h-10 px-2 ${radii.md} ${theme.input}`}
-            >
-              {numbers.map((n) => <option key={n} value={String(n)}>{n}</option>)}
-            </select>
-          </label>
-          <button
-            type="button"
-            disabled={marking}
-            onClick={() => {
-              if (!onMarkUpTo || selectedUpTo == null) return;
-              setMarking(true);
-              void onMarkUpTo(selectedUpTo).finally(() => setMarking(false));
-            }}
-            className={`min-h-10 px-3 ${radii.button} ${textStyles.captionBold} ${theme.chip} ${theme.chipHover} ${theme.focusRing} ${motionTokens.press}`}
-          >
-            {marking ? 'Отмечаю…' : 'Отметить'}
-          </button>
-        </div>
       ) : null}
     </div>
   );
@@ -297,8 +285,15 @@ export default function CatalogDrilldownPanel({
   seriesDownloadBusy = false,
   seriesProgress = null,
   onOpenSeriesNext,
-  onMarkSeriesReadUpTo,
+  onToggleSeriesWant,
+  onToggleSeriesRead,
+  shelves = [],
+  onAddSeriesToShelf,
+  onCreateShelfForSeries,
+  seriesActionBusy = false,
 }: CatalogDrilldownPanelProps) {
+  const [seriesShelfOpen, setSeriesShelfOpen] = React.useState(false);
+  React.useEffect(() => { setSeriesShelfOpen(false); }, [selectedSeries]);
   const hasDrilldown = Boolean(selectedAuthor || selectedSeries || selectedSubgenre);
   if (!hasDrilldown) return null;
 
@@ -408,21 +403,58 @@ export default function CatalogDrilldownPanel({
                 </p>
               </div>
             </div>
-              <button
-                type="button"
-                onClick={() => onToggleFavoriteSeries(selectedSeries)}
-                aria-label={favoriteSeries.includes(selectedSeries) ? 'Убрать серию из избранного' : 'В избранное'}
-                className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${motionTokens.press} ${
-                  favoriteSeries.includes(selectedSeries)
-                    ? 'text-[var(--app-warning)]'
-                    : theme.textMuted
-                }`}
-              >
-                <Star className={`w-5 h-5 ${favoriteSeries.includes(selectedSeries) ? 'fill-[var(--app-warning)]' : ''}`} aria-hidden />
-              </button>
             </div>
+            {(() => {
+              const favorite = favoriteSeries.includes(selectedSeries);
+              const fullyRead = Boolean(seriesProgress && seriesProgress.total > 0 && !seriesProgress.next);
+              const want = Boolean(seriesProgress?.want);
+              return (
+                <div className={`mt-3 flex border-y ${theme.divider} ${seriesActionBusy ? 'opacity-60 pointer-events-none' : ''}`}>
+                  {onToggleSeriesWant && seriesProgress && !fullyRead ? (
+                    <QuickAction label={want ? 'Отложено' : 'Хочу прочитать'} pressed={want} onClick={onToggleSeriesWant}>
+                      <Bookmark className={`w-5 h-5 ${want ? 'fill-current' : ''}`} aria-hidden />
+                    </QuickAction>
+                  ) : null}
+                  {onToggleSeriesRead && seriesProgress ? (
+                    <QuickAction label={fullyRead ? 'Прочитана' : 'В прочитанные'} pressed={fullyRead} onClick={onToggleSeriesRead}>
+                      <CheckCircle2 className="w-5 h-5" aria-hidden />
+                    </QuickAction>
+                  ) : null}
+                  <QuickAction
+                    label={favorite ? 'В избранном' : 'В избранное'}
+                    pressed={favorite}
+                    onClick={() => onToggleFavoriteSeries(selectedSeries)}
+                  >
+                    <Heart className={`w-5 h-5 ${favorite ? 'fill-current' : ''}`} aria-hidden />
+                  </QuickAction>
+                  {onAddSeriesToShelf ? (
+                    <QuickAction label="На полку" expanded={seriesShelfOpen} onClick={() => setSeriesShelfOpen((open) => !open)}>
+                      <FolderPlus className="w-5 h-5" aria-hidden />
+                    </QuickAction>
+                  ) : null}
+                </div>
+              );
+            })()}
+            {seriesShelfOpen && onAddSeriesToShelf ? (
+              <div className="mt-3">
+                <ShelfPicker
+                  shelves={shelves}
+                  busy={seriesActionBusy}
+                  onPick={(id) => {
+                    void Promise.resolve(onAddSeriesToShelf(id)).then(() => setSeriesShelfOpen(false));
+                  }}
+                  onCreate={onCreateShelfForSeries
+                    ? async (name) => {
+                      const created = await onCreateShelfForSeries(name);
+                      if (created !== false) setSeriesShelfOpen(false);
+                      return created;
+                    }
+                    : undefined}
+                />
+              </div>
+            ) : null}
             {seriesProgress && seriesProgress.total >= 2 ? (
-              <SeriesProgressBlock progress={seriesProgress} onOpenNext={onOpenSeriesNext} onMarkUpTo={onMarkSeriesReadUpTo} />
+              <SeriesProgressBlock progress={seriesProgress} onOpenNext={onOpenSeriesNext} />
             ) : null}
             {onDownloadSeries ? (
               <button

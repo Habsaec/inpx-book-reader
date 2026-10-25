@@ -35,20 +35,18 @@ afterEach(() => {
 });
 
 describe('CatalogDrilldownPanel series progress', () => {
-  it('shows «Прочитано N из M» and opens the next unread volume', () => {
-    const onOpenSeriesNext = vi.fn();
+  it('shows «Прочитано N из M» and no button before anything is read', () => {
     renderSeries({
-      seriesProgress: { total: 15, read: 0, next: { id: '6:93307', title: 'Некромант', seriesNo: '1' }, numbers: [] },
-      onOpenSeriesNext,
+      seriesProgress: { total: 15, read: 0, next: { id: '6:93307', title: 'Некромант', seriesNo: '1', prevRead: false }, numbers: [], want: false, current: null },
+      onOpenSeriesNext: vi.fn(),
     });
     expect(screen.getByText('Прочитано 0 из 15')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Начать читать/ }));
-    expect(onOpenSeriesNext).toHaveBeenCalledWith('6:93307');
+    expect(screen.queryByRole('button', { name: /Читать следующую|Продолжить/ })).toBeNull();
   });
 
   it('says «Читать следующую» mid-series and «Серия прочитана» when done', () => {
     const { rerender } = renderSeries({
-      seriesProgress: { total: 4, read: 2, next: { id: 'b3', title: 'Три', seriesNo: '3' }, numbers: [] },
+      seriesProgress: { total: 4, read: 2, next: { id: 'b3', title: 'Три', seriesNo: '3', prevRead: true }, numbers: [], want: false, current: null },
       onOpenSeriesNext: vi.fn(),
     });
     expect(screen.getByRole('button', { name: /Читать следующую.*3\. Три/ })).toBeTruthy();
@@ -70,7 +68,7 @@ describe('CatalogDrilldownPanel series progress', () => {
         showBackBar={false}
         onToggleFavoriteAuthor={vi.fn()}
         onToggleFavoriteSeries={vi.fn()}
-        seriesProgress={{ total: 4, read: 4, next: null, numbers: [] }}
+        seriesProgress={{ total: 4, read: 4, next: null, numbers: [], want: false, current: null }}
       />,
     );
     expect(screen.getByText('Серия прочитана')).toBeTruthy();
@@ -81,21 +79,60 @@ describe('CatalogDrilldownPanel series progress', () => {
     renderSeries({ seriesProgress: null });
     expect(screen.queryByText(/Прочитано/)).toBeNull();
     cleanup();
-    renderSeries({ seriesProgress: { total: 1, read: 0, next: { id: 'x', title: 'X', seriesNo: '' }, numbers: [] } });
+    renderSeries({ seriesProgress: { total: 1, read: 0, next: { id: 'x', title: 'X', seriesNo: '', prevRead: false }, numbers: [], want: false, current: null } });
     expect(screen.queryByText(/Прочитано/)).toBeNull();
   });
 });
 
-describe('CatalogDrilldownPanel: mark read up to volume N', () => {
-  it('offers numbered volumes and sends the picked one', async () => {
-    const onMarkSeriesReadUpTo = vi.fn(() => Promise.resolve());
+describe('CatalogDrilldownPanel: series actions', () => {
+  it('shows want → read → favorite → shelf in the book sheet order', () => {
+    const onToggleSeriesWant = vi.fn();
+    const onToggleSeriesRead = vi.fn();
+    const onToggleFavoriteSeries = vi.fn();
     renderSeries({
-      seriesProgress: { total: 3, read: 0, next: { id: 'b1', title: 'Один', seriesNo: '1' }, numbers: [1, 2, 3] },
-      onOpenSeriesNext: vi.fn(),
-      onMarkSeriesReadUpTo,
+      seriesProgress: { total: 3, read: 1, next: { id: 'b2', title: 'Два', seriesNo: '2', prevRead: false }, numbers: [], want: true, current: null },
+      onToggleSeriesWant,
+      onToggleSeriesRead,
+      onToggleFavoriteSeries,
+      onAddSeriesToShelf: vi.fn(),
+      shelves: [],
     });
-    fireEvent.change(screen.getByLabelText('Прочитаны тома до'), { target: { value: '2' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Отметить' }));
-    expect(onMarkSeriesReadUpTo).toHaveBeenCalledWith(2);
+    const labels = ['Отложено', 'В прочитанные', 'В избранное', 'На полку'];
+    const buttons = labels.map((name) => screen.getByRole('button', { name }));
+    for (let i = 1; i < buttons.length; i++) {
+      expect(buttons[i - 1].compareDocumentPosition(buttons[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+    fireEvent.click(buttons[2]);
+    expect(onToggleSeriesWant).toHaveBeenCalled();
+    expect(onToggleSeriesRead).toHaveBeenCalled();
+    expect(onToggleFavoriteSeries).toHaveBeenCalledWith('дорсай');
+  });
+
+  it('hides «Хочу прочитать» for a fully read series', () => {
+    renderSeries({
+      seriesProgress: { total: 2, read: 2, next: null, numbers: [], want: false, current: null },
+      onToggleSeriesWant: vi.fn(),
+      onToggleSeriesRead: vi.fn(),
+    });
+    expect(screen.queryByRole('button', { name: 'Хочу прочитать' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Прочитана' })).toBeTruthy();
+  });
+});
+
+describe('CatalogDrilldownPanel: started volume', () => {
+  it('offers «Продолжить» for the volume being read', () => {
+    const onOpenSeriesNext = vi.fn();
+    renderSeries({
+      seriesProgress: {
+        total: 18, read: 0, next: { id: 'v1', title: 'Один', seriesNo: '1', prevRead: false }, numbers: [], want: false,
+        current: { id: 'v4', title: 'Четыре', seriesNo: '4', progress: 8.03 },
+      },
+      onOpenSeriesNext,
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Продолжить.*4\. Четыре.*8%/ }));
+    expect(onOpenSeriesNext).toHaveBeenCalledWith('v4');
+    expect(screen.queryByRole('button', { name: /Читать следующую/ })).toBeNull();
   });
 });

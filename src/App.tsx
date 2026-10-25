@@ -1182,6 +1182,8 @@ export default function App() {
               <CatalogTab
                 serverConfig={serverConfig}
                 onReadMarksChanged={isOnline ? () => { void inpxServer.refresh(); } : undefined}
+                shelves={isOnline ? inpxServer.shelves : undefined}
+                onShelvesChanged={isOnline ? () => { void inpxServer.refreshShelves(); } : undefined}
                 onEnqueueDownload={handleDownloadBookFromUi}
                 downloadedBookIds={downloadedBookIdsWithFile}
                 downloadingId={downloadingId}

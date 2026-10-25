@@ -19,6 +19,7 @@ import type { StorageDirectory } from '../../lib/storageDirectory';
 import BookCover from '../BookCover';
 import BookShelfGrid from '../BookShelfGrid';
 import ShelfPicker from '../ShelfPicker';
+import QuickAction from './QuickAction';
 import type { UiShelf } from '../../lib/inpxClient';
 
 function formatBookSize(bytes?: number): string | null {
@@ -177,38 +178,6 @@ function BookSheetMetaLink({
       }`}
     >
       <span className="min-w-0">{children}</span>
-    </button>
-  );
-}
-
-function QuickAction({
-  label,
-  pressed,
-  expanded,
-  onClick,
-  children,
-}: {
-  label: string;
-  pressed?: boolean;
-  expanded?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      aria-expanded={expanded}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      className={`flex-1 min-w-0 min-h-16 py-3 px-1 flex flex-col items-center justify-center gap-1 ${textStyles.caption} ${
-        pressed ? `font-bold ${theme.accentText}` : `font-medium ${theme.text}`
-      } ${theme.rowPress} ${theme.focusRing} ${motionTokens.press}`}
-    >
-      {children}
-      <span className="max-w-full truncate">{label}</span>
     </button>
   );
 }
@@ -667,15 +636,6 @@ export default function BookDetailsSheet({
                 </div>
                 {onToggleBookmark || showShelf || onToggleRead || onToggleWant || hasMoreActions ? (
                   <div className={`!mt-3.5 flex border-y ${theme.divider}`}>
-                    {onToggleBookmark ? (
-                      <QuickAction
-                        label={isBookmarked ? 'В избранном' : 'В избранное'}
-                        pressed={isBookmarked}
-                        onClick={() => onToggleBookmark(book.id)}
-                      >
-                        <Heart className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} aria-hidden />
-                      </QuickAction>
-                    ) : null}
                     {onToggleWant && !markedRead ? (
                       <QuickAction
                         label={isWant ? 'Отложено' : 'Хочу прочитать'}
@@ -685,15 +645,6 @@ export default function BookDetailsSheet({
                         <Bookmark className={`w-5 h-5 ${isWant ? 'fill-current' : ''}`} aria-hidden />
                       </QuickAction>
                     ) : null}
-                    {showShelf ? (
-                      <QuickAction
-                        label="На полку"
-                        expanded={shelfPickerOpen}
-                        onClick={() => setShelfPickerOpen((open) => !open)}
-                      >
-                        <FolderPlus className="w-5 h-5" aria-hidden />
-                      </QuickAction>
-                    ) : null}
                     {onToggleRead ? (
                       <QuickAction
                         label={markedRead ? 'Прочитано' : 'В прочитанные'}
@@ -701,6 +652,24 @@ export default function BookDetailsSheet({
                         onClick={() => onToggleRead(book.id)}
                       >
                         <CheckCircle2 className="w-5 h-5" aria-hidden />
+                      </QuickAction>
+                    ) : null}
+                    {onToggleBookmark ? (
+                      <QuickAction
+                        label={isBookmarked ? 'В избранном' : 'В избранное'}
+                        pressed={isBookmarked}
+                        onClick={() => onToggleBookmark(book.id)}
+                      >
+                        <Heart className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} aria-hidden />
+                      </QuickAction>
+                    ) : null}
+                    {showShelf ? (
+                      <QuickAction
+                        label="На полку"
+                        expanded={shelfPickerOpen}
+                        onClick={() => setShelfPickerOpen((open) => !open)}
+                      >
+                        <FolderPlus className="w-5 h-5" aria-hidden />
                       </QuickAction>
                     ) : null}
                     {hasMoreActions && onOpenActions ? (
