@@ -23,6 +23,7 @@ import {
 import { bookHasPendingSync } from './syncStats';
 import { getPendingSyncOps } from './localDb';
 import { MAX_SYNC_OP_ATTEMPTS } from './syncQueueProcessor';
+import { activateServerBookAliases, resolveUnknownServerBooks } from './serverBookAliases';
 
 export type BackgroundSyncReason =
   | 'online'
@@ -210,8 +211,17 @@ async function executeCycle(req: BackgroundSyncRequest): Promise<BackgroundSyncR
   );
 
   await flushOfflineReaderStore();
+  activateServerBookAliases(serverConfig.url);
 
-  const index = await fetchReaderSyncIndex(serverConfig, bookIds);
+  let index = await fetchReaderSyncIndex(serverConfig, bookIds);
+  if (index?.unknownIds?.length) {
+    // Books from another server / an older source id: without a mapping every push is a 404.
+    const rebound = await resolveUnknownServerBooks(serverConfig, index.unknownIds).catch((e) => {
+      if (isAuthError(e)) throw e;
+      return 0;
+    });
+    if (rebound > 0) index = await fetchReaderSyncIndex(serverConfig, bookIds);
+  }
   // Null index with books = server error (500/timeout), not «old server without index».
   // Syncing every book would hammer the server during outages.
   if (bookIds.length > 0 && index === null) {

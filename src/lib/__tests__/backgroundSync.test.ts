@@ -40,6 +40,11 @@ vi.mock('../inpxClient', () => ({
   isAuthError: vi.fn(() => false),
 }));
 
+vi.mock('../serverBookAliases', () => ({
+  activateServerBookAliases: vi.fn(),
+  resolveUnknownServerBooks: vi.fn(async () => 0),
+}));
+
 vi.mock('../offlineSync', () => ({
   syncAllOfflineReaders: vi.fn(async () => {}),
   syncOfflineReaderForBook: vi.fn(async () => {}),
@@ -224,6 +229,24 @@ describe('backgroundSync', () => {
       serverConfig: config,
     });
     expect(r2.ok).toBe(true);
+  });
+
+  it('maps ids the server does not know and re-reads the index for them', async () => {
+    const { fetchReaderSyncIndex } = await import('../inpxClient');
+    const { resolveUnknownServerBooks } = await import('../serverBookAliases');
+    const base = await vi.mocked(fetchReaderSyncIndex).getMockImplementation()!(config, ['a']);
+    vi.mocked(fetchReaderSyncIndex).mockResolvedValueOnce({ ...base!, unknownIds: ['9:857614'] });
+    vi.mocked(resolveUnknownServerBooks).mockResolvedValueOnce(1);
+
+    const result = await requestBackgroundSync({
+      reason: 'manual',
+      bookIds: ['a', '9:857614'],
+      serverConfig: config,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(resolveUnknownServerBooks).toHaveBeenCalledWith(config, ['9:857614']);
+    expect(fetchReaderSyncIndex).toHaveBeenCalledTimes(2);
   });
 
   it('backs off when sync index fails instead of syncing every book', async () => {

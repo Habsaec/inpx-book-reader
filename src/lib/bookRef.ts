@@ -33,7 +33,37 @@ export function decodeBookRef(ref: string): string | null {
   }
 }
 
-function bookSegment(prefix: string, id: string, suffix = ''): string {
+/**
+ * Local book id → id on the active server. A book downloaded from another server (or before
+ * its source was added again under a new source id) keeps its old id on the device; the
+ * server knows it under another one (`POST /api/books/resolve`, see serverBookAliases.ts).
+ */
+const aliasToServer = new Map<string, string>();
+const aliasToLocal = new Map<string, string>();
+
+export function setServerBookAliases(aliases: Record<string, string>): void {
+  aliasToServer.clear();
+  aliasToLocal.clear();
+  for (const [localId, serverId] of Object.entries(aliases)) {
+    if (!localId || !serverId || localId === serverId) continue;
+    aliasToServer.set(localId, serverId);
+    aliasToLocal.set(serverId, localId);
+  }
+}
+
+export function toServerBookId(id: string): string {
+  const s = String(id ?? '');
+  return aliasToServer.get(s) ?? s;
+}
+
+/** Server id from a list / sync response → the id this device stores the book under. */
+export function toLocalBookId(id: string): string {
+  const s = String(id ?? '');
+  return aliasToLocal.get(s) ?? s;
+}
+
+function bookSegment(prefix: string, localId: string, suffix = ''): string {
+  const id = toServerBookId(localId);
   const tail = suffix ? (suffix.startsWith('/') ? suffix : `/${suffix}`) : '';
   if (bookIdNeedsSafeUrl(id)) {
     return `${prefix}/b64/${encodeBookRef(id)}${tail}`;
@@ -69,7 +99,8 @@ export function legacyStrippedBookIdFileKey(bookId: string): string {
     .slice(0, 180);
 }
 
-function apiActionPath(prefix: string, id: string): string {
+function apiActionPath(prefix: string, localId: string): string {
+  const id = toServerBookId(localId);
   return bookIdNeedsSafeUrl(id)
     ? `${prefix}/b64/${encodeBookRef(id)}`
     : `${prefix}/${encodeURIComponent(id)}`;

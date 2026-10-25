@@ -22,6 +22,8 @@ import {
   apiReadingHistoryPath,
   bookIdNeedsSafeUrl,
   encodeBookRef,
+  toLocalBookId,
+  toServerBookId,
 } from './bookRef';
 
 /** Per-account switches shared with the web UI (`GET/POST /api/preferences`). */
@@ -487,8 +489,34 @@ async function apiDelete(config: ServerConfig, path: string): Promise<void> {
   await apiJson(config, path, { method: 'DELETE' });
 }
 
+/**
+ * Server lists carry the server's book id; a book stored on the device under an older id
+ * (serverBookAliases.ts) must come back under the local one, or the Home hero / «Недавно
+ * читали» see two books and the server copy offers «Скачать» instead of the local file.
+ */
+function localizeBookIds<T extends object, K extends keyof T>(items: T[] | undefined, key: K): T[] {
+  if (!Array.isArray(items)) return items as unknown as T[];
+  return items.map((item) => {
+    const id = item?.[key];
+    if (typeof id !== 'string') return item;
+    const local = toLocalBookId(id);
+    return local === id ? item : { ...item, [key]: local };
+  });
+}
+
+function localizePaginated<T extends object, K extends keyof T>(page: Paginated<T>, key: K): Paginated<T> {
+  return page && Array.isArray(page.items) ? { ...page, items: localizeBookIds(page.items, key) } : page;
+}
+
 export async function fetchProfile(config: ServerConfig): Promise<InpxProfile> {
-  return apiJson(config, '/api/profile');
+  const profile = await apiJson<InpxProfile>(config, '/api/profile');
+  if (!profile || typeof profile !== 'object') return profile;
+  return {
+    ...profile,
+    recentBooks: localizeBookIds(profile.recentBooks, 'id'),
+    readerBookmarks: localizeBookIds(profile.readerBookmarks, 'bookId'),
+    readerAnnotations: localizeBookIds(profile.readerAnnotations, 'bookId'),
+  };
 }
 
 /** Email аккаунта (`users.email`); не путать с e-reader email для отправки книг. */
@@ -553,7 +581,10 @@ export async function fetchFavorites(config: ServerConfig): Promise<{
 }
 
 export async function fetchBookmarkedBooks(config: ServerConfig, page = 1, pageSize = 24): Promise<Paginated<InpxBookItem>> {
-  return apiJson(config, `/api/bookmarks?page=${page}&pageSize=${pageSize}&sort=date`);
+  return localizePaginated(
+    await apiJson<Paginated<InpxBookItem>>(config, `/api/bookmarks?page=${page}&pageSize=${pageSize}&sort=date`),
+    'id',
+  );
 }
 
 export async function fetchLibraryView(
@@ -596,7 +627,7 @@ export async function fetchLibraryView(
   if (opts.hasSeries === true || opts.hasSeries === 1) params.set('hasSeries', '1');
   else if (opts.hasSeries === false || opts.hasSeries === 0) params.set('hasSeries', '0');
   if (view === 'recent') appendHideReadParam(params);
-  return apiJson(config, `/api/library/${view}?${params}`);
+  return localizePaginated(await apiJson<Paginated<InpxBookItem>>(config, `/api/library/${view}?${params}`), 'id');
 }
 
 export async function toggleBookBookmark(config: ServerConfig, bookId: string): Promise<boolean> {
@@ -795,7 +826,7 @@ export async function ensureBookReadState(
   markRead: boolean,
 ): Promise<void> {
   if (markRead) {
-    await apiPostJson(config, '/api/read/batch', { ids: [bookId] });
+    await apiPostJson(config, '/api/read/batch', { ids: [toServerBookId(bookId)] });
     return;
   }
   await apiDelete(config, apiReadPath(bookId));
@@ -1037,6 +1068,8 @@ export interface ReaderSyncIndexBook extends ReaderBookSyncMeta {
 export interface ReaderSyncIndex {
   activity: ReaderActivitySyncMeta;
   books: ReaderSyncIndexBook[];
+  /** Ids the server's catalog does not have (newer servers); map them with resolveServerBookIds. */
+  unknownIds?: string[];
 }
 
 export async function fetchReaderActivitySyncMeta(
@@ -1057,8 +1090,14 @@ export async function fetchReaderSyncIndex(
 ): Promise<ReaderSyncIndex | null> {
   const ids = [...new Set(bookIds.map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 200);
   try {
-    const q = ids.length ? `?ids=${ids.map(encodeURIComponent).join(',')}` : '';
-    return await apiJson<ReaderSyncIndex>(config, `/api/reader-sync-index${q}`);
+    const q = ids.length ? `?ids=${ids.map((id) => encodeURIComponent(toServerBookId(id))).join(',')}` : '';
+    const index = await apiJson<ReaderSyncIndex>(config, `/api/reader-sync-index${q}`);
+    if (!index) return index;
+    return {
+      ...index,
+      books: (index.books || []).map((book) => ({ ...book, bookId: toLocalBookId(book.bookId) })),
+      unknownIds: Array.isArray(index.unknownIds) ? index.unknownIds.map(toLocalBookId) : undefined,
+    };
   } catch (e: unknown) {
     // Auth failures must not look like "no index" (that triggers a full sync storm).
     if (isAuthError(e)) throw e;
@@ -1132,10 +1171,76 @@ export async function saveReadingPosition(
   }
 }
 
+/**
+ * Reader closed: give up this open's hold on the server position, so the next open (new
+ * sessionId, here or on the web) can write at once instead of getting 409 for 4 minutes.
+ * Older servers answer 404 → ignored.
+ */
+export async function releaseReadingPositionSession(
+  config: ServerConfig,
+  bookId: string,
+  sessionId: string,
+): Promise<boolean> {
+  const id = String(sessionId || '').trim();
+  if (!id) return false;
+  try {
+    const data = await apiPostJson<{ released?: boolean }>(
+      config,
+      apiBookPath(bookId, 'position/release'),
+      { sessionId: id },
+    );
+    return Boolean(data?.released);
+  } catch (e: unknown) {
+    if (e instanceof ApiError && e.status === 404) return false;
+    throw e;
+  }
+}
+
 export async function recordReadingHistory(config: ServerConfig, bookId: string): Promise<void> {
-  await apiPostJson(config, apiReadingHistoryPath(bookId), {
-    lastOpenedAt: new Date().toISOString(),
-  });
+  await recordReadingHistoryAt(config, bookId, new Date().toISOString());
+}
+
+export async function recordReadingHistoryAt(
+  config: ServerConfig,
+  bookId: string,
+  lastOpenedAt: string,
+): Promise<void> {
+  await apiPostJson(config, apiReadingHistoryPath(bookId), { lastOpenedAt });
+}
+
+export interface ServerBookResolveRef {
+  id: string;
+  title: string;
+  authors: string[] | string;
+  ext: string;
+}
+
+export interface ServerBookResolveItem {
+  id: string;
+  bookId: string | null;
+  match: 'id' | 'libId' | 'title' | null;
+}
+
+/**
+ * Map local book ids onto the server's catalog (`POST /api/books/resolve`, max 200).
+ * Older servers answer 404 → no mapping.
+ */
+export async function resolveServerBookIds(
+  config: ServerConfig,
+  refs: ServerBookResolveRef[],
+): Promise<ServerBookResolveItem[]> {
+  if (refs.length === 0) return [];
+  try {
+    const data = await apiPostJson<{ items?: ServerBookResolveItem[] }>(
+      config,
+      '/api/books/resolve',
+      { books: refs.slice(0, 200) },
+    );
+    return Array.isArray(data?.items) ? data.items : [];
+  } catch (e: unknown) {
+    if (e instanceof ApiError && e.status === 404) return [];
+    throw e;
+  }
 }
 
 export async function deleteReadingHistoryApi(config: ServerConfig, bookId: string): Promise<void> {
@@ -1198,7 +1303,10 @@ export async function fetchReaderBookmarkList(
   page = 1,
   pageSize = 200,
 ): Promise<Paginated<ReaderBookmarkListItem>> {
-  return apiJson(config, `/api/reader-bookmarks?page=${page}&pageSize=${pageSize}`);
+  return localizePaginated(
+    await apiJson<Paginated<ReaderBookmarkListItem>>(config, `/api/reader-bookmarks?page=${page}&pageSize=${pageSize}`),
+    'bookId',
+  );
 }
 
 export async function fetchAllReaderBookmarkList(config: ServerConfig): Promise<ReaderBookmarkListItem[]> {
@@ -1266,7 +1374,10 @@ export async function fetchReaderAnnotationList(
   page = 1,
   pageSize = 200,
 ): Promise<Paginated<ReaderAnnotationListItem>> {
-  return apiJson(config, `/api/reader-annotations?page=${page}&pageSize=${pageSize}`);
+  return localizePaginated(
+    await apiJson<Paginated<ReaderAnnotationListItem>>(config, `/api/reader-annotations?page=${page}&pageSize=${pageSize}`),
+    'bookId',
+  );
 }
 
 export async function fetchAllReaderAnnotationList(config: ServerConfig): Promise<ReaderAnnotationListItem[]> {
@@ -2008,7 +2119,7 @@ export function mapServerBook(
   const { series, seriesDisplay, seriesNo, seriesNoLabel } = pickSeriesFromItem(item, opts?.preferredSeries);
   const rawRate = item.libRate ?? (item as { lib_rate?: unknown }).lib_rate;
   return {
-    id: item.id,
+    id: toLocalBookId(item.id),
     title: item.title,
     author,
     authors: authors.length ? authors : undefined,

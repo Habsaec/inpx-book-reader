@@ -386,3 +386,26 @@ describe('parsePairingQrPayload', () => {
     expect(() => parsePairingQrPayload(JSON.stringify({ type: 'wifi', url: 'http://x', code: '1' }))).toThrow();
   });
 });
+
+describe('releaseReadingPositionSession', () => {
+  it('posts the closing sessionId to /position/release and ignores 404 from older servers', async () => {
+    const { releaseReadingPositionSession } = await import('../inpxClient');
+    const calls: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: decodeURIComponent(String(input)), body: String(init?.body ?? '') });
+      return new Response(JSON.stringify({ ok: true, released: true }), { status: 200 });
+    }));
+    try {
+      await expect(releaseReadingPositionSession(baseConfig, '6:857614', 'open-1')).resolves.toBe(true);
+      expect(calls[0].url).toMatch(/\/api\/books\/6%3A857614\/position\/release$/);
+      expect(JSON.parse(calls[0].body)).toEqual({ sessionId: 'open-1' });
+      await expect(releaseReadingPositionSession(baseConfig, '6:857614', '')).resolves.toBe(false);
+      expect(calls).toHaveLength(1);
+
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })));
+      await expect(releaseReadingPositionSession(baseConfig, '6:857614', 'open-1')).resolves.toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

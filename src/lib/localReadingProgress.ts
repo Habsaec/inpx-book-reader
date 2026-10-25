@@ -11,9 +11,13 @@ export function localReaderProgressByBookId(bookIds: string[]): Record<string, n
   return out;
 }
 
+/** A stored lastRead this far past the device clock came from a clock that was ahead. */
+const FUTURE_SKEW_MS = 60 * 1000;
+
 export function upsertProgressFromLocalReader(
   progressList: ReadingProgress[],
   book: Book,
+  nowMs = Date.now(),
 ): ReadingProgress[] {
   const data = readOfflineReaderData(book.id);
   const pct = Math.round(data.progress);
@@ -32,14 +36,17 @@ export function upsertProgressFromLocalReader(
     return progressList.map((p) => {
       if (p.bookId !== book.id) return p;
       // LWW: процент/флаг перезаписываем только если локальное чтение не старше.
-      const localWins = lastRead >= p.lastRead;
+      // Метка «из будущего» (часы устройства потом ушли назад) иначе навсегда держала
+      // старый процент: книга после чтения показывала прежние 30%.
+      const storedInFuture = p.lastRead > nowMs + FUTURE_SKEW_MS;
+      const localWins = storedInFuture || lastRead >= p.lastRead;
       return {
         ...p,
         bookTitle: book.title || p.bookTitle,
         authorName: book.author || p.authorName,
         percentage: localWins ? pct : p.percentage,
         finished: localWins ? finished : p.finished,
-        lastRead: Math.max(p.lastRead, lastRead),
+        lastRead: storedInFuture ? lastRead : Math.max(p.lastRead, lastRead),
       };
     });
   }

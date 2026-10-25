@@ -45,6 +45,8 @@ import { applyServerActivitySyncMeta } from '../lib/readerActivitySync';
 import { sameSeriesName } from '../lib/seriesLabel';
 import { setHideRead } from '../lib/hideReadPreference';
 import { dropQueuedToggleReadOps, processSyncQueue } from '../lib/syncQueueProcessor';
+import { toLocalBookId } from '../lib/bookRef';
+import { activateServerBookAliases } from '../lib/serverBookAliases';
 
 export function isServerOnline(config: ServerConfig): boolean {
   return config.connectionStatus === 'connected' && Boolean(config.url);
@@ -59,7 +61,7 @@ async function loadAllIds(
   let total = Infinity;
   while ((page - 1) * 24 < total) {
     const res = await loader(page);
-    res.items.forEach((b) => ids.add(b.id));
+    res.items.forEach((b) => ids.add(toLocalBookId(b.id)));
     total = res.total;
     if (res.items.length === 0) break;
     page++;
@@ -75,7 +77,7 @@ async function loadReadingProgressMap(config: ServerConfig): Promise<Map<string,
     const res = await fetchLibraryView(config, 'continue', page, 50);
     for (const item of res.items) {
       const progress = Math.round(Number(item.readProgress) || 0);
-      if (progress > 0) map.set(item.id, progress);
+      if (progress > 0) map.set(toLocalBookId(item.id), progress);
     }
     total = res.total;
     if (res.items.length === 0) break;
@@ -90,6 +92,8 @@ export function useInpxServer(
   onAuthExpired?: () => void,
 ) {
   const online = isServerOnline(config);
+  // Before any per-book request of this render: book paths are mapped through these aliases.
+  activateServerBookAliases(config.url);
   const onConnectionLostRef = React.useRef(onConnectionLost);
   onConnectionLostRef.current = onConnectionLost;
   const onAuthExpiredRef = React.useRef(onAuthExpired);

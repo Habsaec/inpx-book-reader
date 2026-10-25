@@ -43,7 +43,7 @@ import {
   localReaderProgressByBookId,
   upsertProgressFromLocalReader,
 } from '../lib/localReadingProgress';
-import { fetchReaderActivitySyncMeta, isAuthError, isUnreachableServerError, recordReadingHistory, ensureBookReadState } from '../lib/inpxClient';
+import { fetchReaderActivitySyncMeta, isAuthError, isUnreachableServerError, recordReadingHistory, ensureBookReadState, releaseReadingPositionSession } from '../lib/inpxClient';
 import { downloadQueue } from '../lib/downloadQueue';
 import { enqueueSyncOp } from '../lib/localDb';
 import { dropQueuedFavoriteOps, dropQueuedShelfOps, readPersistedShelfIdMap } from '../lib/syncQueueProcessor';
@@ -819,6 +819,15 @@ export function useBookActions(opts: {
         const posResult = await finalizeReadingPositionSync(serverConfig, bookId, {
           canPushRead: activityOpts.shouldPushReadState !== false,
         });
+        // After the last push: without this the next open of the book got 409 until
+        // this closed session turned idle on the server (4 min) and the web kept the old %.
+        if (localBefore.positionSessionId) {
+          await releaseReadingPositionSession(serverConfig, bookId, localBefore.positionSessionId)
+            .catch((e: unknown) => {
+              if (isAuthError(e)) throw e;
+              return false;
+            });
+        }
         const local = readOfflineReaderData(bookId);
         debugSessionLog('P4', 'App:finalizeReaderSession', 'synced', {
           bookId,

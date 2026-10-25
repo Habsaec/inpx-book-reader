@@ -58,4 +58,16 @@ describe('upsertProgressFromLocalReader', () => {
     const [merged] = upsertProgressFromLocalReader([serverEntry()], book);
     expect(merged.finished).toBe(true);
   });
+  it('a stored lastRead ahead of the device clock does not pin the old percentage', () => {
+    // Emulator clock 19 Oct; the stored row came from 20 Oct → before the fix 30% stayed forever.
+    const now = Date.parse('2026-10-19T11:12:00Z');
+    readerData.set('b1', { position: 'x', progress: 34, positionChangedAt: '2026-10-19T11:11:45Z' });
+    const [merged] = upsertProgressFromLocalReader(
+      [serverEntry({ percentage: 30, lastRead: Date.parse('2026-10-20T21:24:54Z') })],
+      book,
+      now,
+    );
+    expect(merged.percentage).toBe(34);
+    expect(merged.lastRead).toBe(Date.parse('2026-10-19T11:11:45Z'));
+  });
 });
