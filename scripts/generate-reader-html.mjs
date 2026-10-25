@@ -467,15 +467,8 @@ function composeReaderSettingsPanel(html) {
       <section class="rs-section" data-rs-section="tts">
         <h3 class="rs-section-title">Озвучка</h3>
         <div class="rs-group">
-          <div class="rs-sublabel">Скорость</div>
-          <div class="rs-slider">
-            <input type="range" id="rs-tts-rate" name="readerTtsRate" min="0.5" max="2" step="0.05" aria-label="Скорость">
-            <span class="rs-val" id="rs-tts-rate-val">1.00</span>
-          </div>
-          <div class="rs-sublabel">Голос</div>
-          <select id="rs-tts-voice" name="readerTtsVoice" class="rs-select" aria-label="Голос">
-            <option value="">Системный</option>
-          </select>
+          <!-- Голос, скорость, тон, подсветка, паузы: reader-shared/reader-tts.js -->
+          <div id="rs-tts-mount"></div>
         </div>
       </section>
       </div>

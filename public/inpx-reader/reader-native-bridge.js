@@ -110,6 +110,7 @@
       this.onstart = null;
       this.onend = null;
       this.onerror = null;
+      this.onboundary = null;
       this._id = `u_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     }
   }
@@ -166,6 +167,8 @@
         text: utterance.text,
         utteranceId: utterance._id,
         rate: utterance.rate || 1,
+        pitch: utterance.pitch || 1,
+        lang: utterance.lang || '',
         voice: utterance.voice?.voiceURI || utterance.voice?.name || '',
       }).catch((err) => finishUtterance(err));
     },
@@ -218,6 +221,20 @@
     }
   });
 
+  /** UtteranceProgressListener.onRangeStart (Android 8+) → SpeechSynthesis «boundary» для подсветки слова. */
+  window.addEventListener('inpx-native-tts-range', (e) => {
+    const d = e.detail || {};
+    if (!currentUtterance || d.utteranceId !== currentUtterance._id) return;
+    const start = Number(d.start);
+    const end = Number(d.end);
+    if (!Number.isFinite(start) || typeof currentUtterance.onboundary !== 'function') return;
+    currentUtterance.onboundary({
+      name: 'word',
+      charIndex: start,
+      charLength: Number.isFinite(end) && end > start ? end - start : 0,
+    });
+  });
+
   window.addEventListener('inpx-native-tts-error', (e) => {
     if (currentUtterance && e.detail?.utteranceId === currentUtterance._id) {
       finishUtterance('native-tts-error');
@@ -231,6 +248,9 @@
     }
     if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsStart') {
       window.dispatchEvent(new CustomEvent('inpx-native-tts-start', { detail: e.data.data }));
+    }
+    if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsRange') {
+      window.dispatchEvent(new CustomEvent('inpx-native-tts-range', { detail: e.data.data }));
     }
     if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsError') {
       window.dispatchEvent(new CustomEvent('inpx-native-tts-error', { detail: e.data.data }));

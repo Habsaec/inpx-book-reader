@@ -6,7 +6,7 @@
 
 <title></title>
 
-<link rel="stylesheet" href="/inpx-reader/reader.css?v=4e6ff460b61c">
+<link rel="stylesheet" href="/inpx-reader/reader.css?v=9b286adbfd3a">
 <script>try{var _t=JSON.parse(localStorage.getItem('reader-settings')||'{}').theme||'sepia';document.documentElement.dataset.readerTheme=_t}catch(e){document.documentElement.dataset.readerTheme='sepia'}</script>
 </head>
 <body class="chrome-hidden">
@@ -82,21 +82,7 @@
 
 <div class="reader-hud-flash" id="reader-hud-flash" aria-hidden="true"></div>
 
-<div class="reader-tts-dock" id="reader-tts-dock" role="region" aria-hidden="true" aria-label="Озвучка">
-  <div class="reader-tts-dock-inner">
-    <div class="reader-tts-dock-row reader-tts-dock-transport">
-      <button type="button" class="reader-tts-dock-btn tb-btn js-tts-prev" id="btn-tts-dock-prev" disabled title="Назад" aria-label="Назад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6V5zm3.6 7L18 5v14L9.6 12z" fill="currentColor"/></svg></button>
-      <button type="button" class="reader-tts-dock-btn tb-btn reader-tts-dock-main" id="btn-tts-dock" title="Читать" aria-label=""><svg class="tts-main-icon" viewBox="0 0 24 24" aria-hidden="true"><path class="tts-main-path" fill="currentColor" d="M8 5v14l11-7z"/></svg></button>
-      <button type="button" class="reader-tts-dock-btn tb-btn js-tts-stop" id="btn-tts-dock-stop" hidden title="Стоп" aria-label="Стоп"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" fill="currentColor"/></svg></button>
-      <button type="button" class="reader-tts-dock-btn tb-btn js-tts-next" id="btn-tts-dock-next" disabled title="Вперёд" aria-label="Вперёд"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5h2v14h-2V5zm-2.4 7L8 5v14l7.6-7z" fill="currentColor"/></svg></button>
-    </div>
-    <div class="reader-tts-dock-row reader-tts-dock-rate-group">
-      <button type="button" class="reader-tts-dock-btn tb-btn" id="btn-tts-dock-slower" title="" aria-label=""><span class="reader-tts-dock-rate-sym" aria-hidden="true">−</span></button>
-      <span class="reader-tts-dock-rate" id="tts-dock-rate" aria-live="polite">1.00×</span>
-      <button type="button" class="reader-tts-dock-btn tb-btn" id="btn-tts-dock-faster" title="" aria-label=""><span class="reader-tts-dock-rate-sym" aria-hidden="true">+</span></button>
-    </div>
-  </div>
-</div>
+<div class="reader-tts-dock" id="reader-tts-dock" role="region" aria-hidden="true" aria-label="Озвучка"></div>
 
 <div class="reader-book-pages" id="reader-book-pages" aria-hidden="true">
   <span class="book-page-num" id="book-page-left"></span>
@@ -505,15 +491,8 @@
       <section class="rs-section" data-rs-section="tts">
         <h3 class="rs-section-title">Озвучка</h3>
         <div class="rs-group">
-          <div class="rs-sublabel">Скорость</div>
-          <div class="rs-slider">
-            <input type="range" id="rs-tts-rate" name="readerTtsRate" min="0.5" max="2" step="0.05" aria-label="Скорость">
-            <span class="rs-val" id="rs-tts-rate-val">1.00</span>
-          </div>
-          <div class="rs-sublabel">Голос</div>
-          <select id="rs-tts-voice" name="readerTtsVoice" class="rs-select" aria-label="Голос">
-            <option value="">Системный</option>
-          </select>
+          <!-- Голос, скорость, тон, подсветка, паузы: reader-shared/reader-tts.js -->
+          <div id="rs-tts-mount"></div>
         </div>
       </section>
       </div>
@@ -527,9 +506,9 @@
 
 <div class="reader-toast" id="reader-toast"></div>
 
-<script>window.__READER_APP=1;window.__READER_ASSET_V__="4e6ff460b61c";</script>
-<script type="module" src="/inpx-reader/bootstrap.js?v=4e6ff460b61c"></script>
-<script src="/inpx-reader/reader-native-bridge.js?v=4e6ff460b61c"></script>
-<script type="module" src="/inpx-reader/reader.js?v=4e6ff460b61c"></script>
+<script>window.__READER_APP=1;window.__READER_ASSET_V__="9b286adbfd3a";</script>
+<script type="module" src="/inpx-reader/bootstrap.js?v=9b286adbfd3a"></script>
+<script src="/inpx-reader/reader-native-bridge.js?v=9b286adbfd3a"></script>
+<script type="module" src="/inpx-reader/reader.js?v=9b286adbfd3a"></script>
 </body>
 </html>

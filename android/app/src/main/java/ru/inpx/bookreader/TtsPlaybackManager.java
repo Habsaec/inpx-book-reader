@@ -24,7 +24,8 @@ import java.util.Set;
 public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
 
     public interface UtteranceCallback {
-        void onEvent(String type, String utteranceId);
+        /** `start` / `end` — word range in the utterance text for "ttsRange", -1 otherwise. */
+        void onEvent(String type, String utteranceId, int start, int end);
     }
 
     private static TtsPlaybackManager instance;
@@ -38,7 +39,9 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
     private boolean speaking = false;
     private boolean paused = false;
     private float rate = 1f;
+    private float pitch = 1f;
     private String voiceName = "";
+    private String language = "";
     private String lastSpokenText = "";
     private String lastUtteranceId = "";
     private String boundEngine = "";
@@ -163,6 +166,15 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
                         });
                     }
 
+                    /** Android 8+: слово, которое движок начинает произносить (подсветка слова в читалке). */
+                    @Override
+                    public void onRangeStart(String utteranceId, int start, int end, int frame) {
+                        handler.post(() -> {
+                            if (!speaking || pauseRequested) return;
+                            emitEvent("ttsRange", utteranceId, start, end);
+                        });
+                    }
+
                     @Override
                     public void onError(String utteranceId) {
                         handler.post(() -> {
@@ -209,17 +221,23 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
         });
     }
 
-    public void speak(String text, String utteranceId, float speechRate, String voice) {
+    public void speak(String text, String utteranceId, float speechRate, float speechPitch, String voice, String lang) {
         if (text == null || text.trim().isEmpty()) return;
         cancelPendingStopService();
         startForegroundService();
         sessionActive = true;
 
         if (speechRate > 0) {
-            rate = Math.max(0.5f, Math.min(2f, speechRate));
+            rate = Math.max(0.5f, Math.min(3f, speechRate));
+        }
+        if (speechPitch > 0) {
+            pitch = Math.max(0.5f, Math.min(2f, speechPitch));
         }
         if (voice != null) {
             voiceName = voice;
+        }
+        if (lang != null) {
+            language = lang;
         }
 
         lastSpokenText = text;
@@ -231,6 +249,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
             if (!ready || tts == null) return;
             applyVoice();
             tts.setSpeechRate(rate);
+            tts.setPitch(pitch);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, lastUtteranceId);
             } else {
@@ -268,7 +287,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
 
     public void resume() {
         if (!paused || lastSpokenText == null || lastSpokenText.isEmpty()) return;
-        speak(lastSpokenText, lastUtteranceId, rate, voiceName);
+        speak(lastSpokenText, lastUtteranceId, rate, pitch, voiceName, language);
     }
 
     public void shutdown() {
@@ -373,9 +392,13 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
         return !name.contains(".") || !name.matches("^[a-zA-Z0-9_.]+[./-].*");
     }
 
+    /**
+     * Выбранный в читалке голос; без него («Авто») — язык книги, тогда движок берёт свой голос
+     * по умолчанию для этого языка (раньше всегда оставался ru-RU или последний выбранный голос).
+     */
     private void applyVoice() {
-        if (tts == null || voiceName == null || voiceName.isEmpty()) return;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        if (tts == null) return;
+        if (voiceName != null && !voiceName.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             List<Voice> voices = listVoices();
             for (Voice voice : voices) {
                 if (voiceName.equals(voice.getName())) {
@@ -384,11 +407,28 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
                 }
             }
         }
+        Locale locale = null;
+        if (language != null && !language.trim().isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                locale = Locale.forLanguageTag(language.trim().replace('_', '-'));
+            } catch (Exception ignored) { /* */ }
+        }
+        if (locale == null || locale.getLanguage().isEmpty()) locale = new Locale("ru", "RU");
+        try {
+            int res = tts.setLanguage(locale);
+            if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
+                tts.setLanguage(new Locale(locale.getLanguage()));
+            }
+        } catch (Exception ignored) { /* */ }
     }
 
     private void emitEvent(String type, String utteranceId) {
+        emitEvent(type, utteranceId, -1, -1);
+    }
+
+    private void emitEvent(String type, String utteranceId, int start, int end) {
         if (utteranceCallback == null) return;
-        utteranceCallback.onEvent(type, utteranceId);
+        utteranceCallback.onEvent(type, utteranceId, start, end);
     }
 
     private void startForegroundService() {

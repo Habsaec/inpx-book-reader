@@ -61,7 +61,8 @@ interface ReaderNativePlugin {
   refreshEinkScreen(): Promise<{ ok: boolean; supported: boolean; error?: string }>;
   getWarmth(): Promise<FrontLightState & { supported?: boolean }>;
   getVoices(): Promise<ReaderVoicesResult>;
-  speak(options: { text: string; utteranceId?: string; rate?: number; voice?: string }): Promise<void>;
+  /** `pitch` 0.5–2, `lang` BCP 47 (used when no voice is chosen); word ranges arrive as the `ttsRange` iframe event. */
+  speak(options: { text: string; utteranceId?: string; rate?: number; pitch?: number; lang?: string; voice?: string }): Promise<void>;
   stopTts(): Promise<void>;
   pauseTts(): Promise<void>;
   resumeTts(): Promise<void>;

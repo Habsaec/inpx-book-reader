@@ -66,7 +66,7 @@ public class ReaderNativePlugin extends Plugin {
         super.load();
         instance = this;
         ttsManager = TtsPlaybackManager.getInstance(getContext());
-        ttsManager.setUtteranceCallback((type, utteranceId) -> forwardTtsEventToReader(type, utteranceId));
+        ttsManager.setUtteranceCallback((type, utteranceId, start, end) -> forwardTtsEventToReader(type, utteranceId, start, end));
     }
 
     @Override
@@ -125,9 +125,10 @@ public class ReaderNativePlugin extends Plugin {
         call.resolve(ret);
     }
 
-    private void forwardTtsEventToReader(String type, String utteranceId) {
+    private void forwardTtsEventToReader(String type, String utteranceId, int start, int end) {
         JSObject data = new JSObject();
         data.put("utteranceId", utteranceId);
+        boolean range = "ttsRange".equals(type);
 
         if ("ttsStart".equals(type)) {
             notifyListeners("ttsStart", data);
@@ -146,7 +147,9 @@ public class ReaderNativePlugin extends Plugin {
                 + type
                 + "',data:{utteranceId:'"
                 + safeId
-                + "'}};"
+                + "'"
+                + (range ? ",start:" + start + ",end:" + end : "")
+                + "}};"
                 + "var iframe=document.querySelector('iframe[title]');"
                 + "if(iframe&&iframe.contentWindow){iframe.contentWindow.postMessage(payload,'*');}"
                 + "})();";
@@ -534,8 +537,10 @@ public class ReaderNativePlugin extends Plugin {
         }
         String utteranceId = call.getString("utteranceId", "u" + System.currentTimeMillis());
         Float rate = call.getFloat("rate", 1f);
+        Float pitch = call.getFloat("pitch", 1f);
         String voiceName = call.getString("voice", "");
-        ttsManager.speak(text, utteranceId, rate != null ? rate : 1f, voiceName);
+        String lang = call.getString("lang", "");
+        ttsManager.speak(text, utteranceId, rate != null ? rate : 1f, pitch != null ? pitch : 1f, voiceName, lang);
         call.resolve();
     }
 
