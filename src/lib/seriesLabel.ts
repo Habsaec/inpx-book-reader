@@ -12,6 +12,17 @@ export function seriesLabel(book: Pick<Book, 'series' | 'seriesDisplay'>): strin
   return raw ? raw.charAt(0).toLocaleUpperCase() + raw.slice(1) : '';
 }
 
+/**
+ * Same series? Books carry the INPX spelling («Адвокат империи»), favorites and catalog
+ * keys the lowercase `series_catalog.name` — compare case-, space- and ё-insensitively.
+ */
+export function sameSeriesName(a: string | null | undefined, b: string | null | undefined): boolean {
+  const norm = (v: string | null | undefined) =>
+    String(v ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru').replace(/ё/g, 'е');
+  const x = norm(a);
+  return Boolean(x) && x === norm(b);
+}
+
 /** Volume label for UI. Does not affect title sort. */
 export function seriesVolumeLabel(book: {
   seriesNo?: number | string | null;

@@ -76,7 +76,9 @@ export function usePullToRefresh(onRefresh?: () => void | Promise<unknown>) {
     <div
       className="pointer-events-none absolute inset-x-0 z-20 flex justify-center"
       style={{
-        top: 'var(--app-header-offset, 4rem)',
+        // Below everything pinned over the list (header + tool / filter bars), same as the
+        // scroll padding of `.inpx-page-scroll`; header-only put it under the catalog search bar.
+        top: 'calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px) + var(--inpx-tool, 0px))',
         transform: `translateY(${Math.max(0, (offset - SPINNER_PX) / 2)}px)`,
         transition: pulling ? 'none' : 'transform 200ms ease-out',
       }}

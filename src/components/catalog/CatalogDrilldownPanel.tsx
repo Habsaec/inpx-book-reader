@@ -3,6 +3,7 @@ import { ArrowLeft, BookOpen, Bookmark, CheckCircle2, Download, FolderPlus, Hear
 import { theme } from '../../lib/appTheme';
 import { Book, ServerConfig } from '../../types';
 import { displayAuthorName, type SeriesReadingProgress, type UiShelf } from '../../lib/inpxClient';
+import { sameSeriesName } from '../../lib/seriesLabel';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
 import type { AuthorGroupedState } from '../../hooks/useCatalogData';
 import type { StorageDirectory } from '../../lib/storageDirectory';
@@ -405,7 +406,7 @@ export default function CatalogDrilldownPanel({
             </div>
             </div>
             {(() => {
-              const favorite = favoriteSeries.includes(selectedSeries);
+              const favorite = favoriteSeries.some((name) => sameSeriesName(name, selectedSeries));
               const fullyRead = Boolean(seriesProgress && seriesProgress.total > 0 && !seriesProgress.next);
               const want = Boolean(seriesProgress?.want);
               return (

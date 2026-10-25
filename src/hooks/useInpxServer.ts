@@ -42,6 +42,7 @@ import {
   isAuthError,
 } from '../lib/inpxClient';
 import { applyServerActivitySyncMeta } from '../lib/readerActivitySync';
+import { sameSeriesName } from '../lib/seriesLabel';
 import { setHideRead } from '../lib/hideReadPreference';
 import { dropQueuedToggleReadOps, processSyncQueue } from '../lib/syncQueueProcessor';
 
@@ -355,12 +356,15 @@ export function useInpxServer(
   const toggleFavoriteSeries = React.useCallback(async (name: string) => {
     if (!online) return false;
     const favorite = await withAuthGuard(() => toggleFavoriteSeriesApi(config, name));
+    // `name` may be the book spelling («Адвокат империи») while the list holds catalog keys.
     setFavoriteSeries((prev) =>
-      favorite ? (prev.includes(name) ? prev : [...prev, name]) : prev.filter((s) => s !== name)
+      favorite
+        ? (prev.some((s) => sameSeriesName(s, name)) ? prev : [...prev, name])
+        : prev.filter((s) => !sameSeriesName(s, name))
     );
     setFavoriteSeriesItems((prev) => {
-      if (!favorite) return prev.filter((s) => s.name !== name);
-      if (prev.some((s) => s.name === name)) return prev;
+      if (!favorite) return prev.filter((s) => !sameSeriesName(s.name, name));
+      if (prev.some((s) => sameSeriesName(s.name, name))) return prev;
       return [...prev, { name, displayName: name }];
     });
     return favorite;

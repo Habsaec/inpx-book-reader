@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bookTitleWithoutVolume, cleanFileLikeTitle, displayBookTitle, seriesLabel, volumeCaption } from '../seriesLabel';
+import { bookTitleWithoutVolume, cleanFileLikeTitle, displayBookTitle, seriesLabel, volumeCaption, sameSeriesName } from '../seriesLabel';
 
 describe('seriesLabel', () => {
   it('prefers seriesDisplay over the lookup key', () => {
@@ -72,5 +72,14 @@ describe('cleanFileLikeTitle', () => {
   it('leaves real titles alone', () => {
     expect(cleanFileLikeTitle('Кодекс Охотника. Книга XXXIII')).toBe('Кодекс Охотника. Книга XXXIII');
     expect(cleanFileLikeTitle("Assassin's Creed. Братство")).toBe("Assassin's Creed. Братство");
+  });
+});
+
+describe('sameSeriesName', () => {
+  it('matches the book spelling against the lowercase catalog key', () => {
+    expect(sameSeriesName('Адвокат империи', 'адвокат империи')).toBe(true);
+    expect(sameSeriesName('Ёлки  Палки ', 'елки палки')).toBe(true);
+    expect(sameSeriesName('Адвокат империи', 'Адвокат')).toBe(false);
+    expect(sameSeriesName('', '')).toBe(false);
   });
 });
