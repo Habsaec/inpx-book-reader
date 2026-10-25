@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from 'vitest';
-import { parseServerUiTheme, resolveIsDark, parseAppAppearance, parseAppColorSource, applyAccentVars, clearAccentVars, contrastingInk } from '../serverTheme';
+import { parseServerUiTheme, resolveIsDark, parseAppAppearance, parseAppColorSource, applyAccentVars, clearAccentVars, contrastingInk, contrastRatio, ensureReadableOn } from '../serverTheme';
 
 describe('parseServerUiTheme', () => {
   it('maps appPalette from server API', () => {
@@ -154,3 +154,24 @@ describe('applyAccentVars', () => {
   });
 });
 
+
+describe('library accent readability', () => {
+  it('keeps a readable accent and fixes a pale one on the app surface', () => {
+    expect(ensureReadableOn('#000000', '#ffffff')).toBe('#000000');
+    const fixed = ensureReadableOn('#d9a706', '#ffffff');
+    expect(contrastRatio(fixed, '#ffffff')!).toBeGreaterThanOrEqual(4.5);
+    const dark = ensureReadableOn('#3b3b80', '#111113');
+    expect(contrastRatio(dark, '#111113')!).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('applyAccentVars uses the readable variant for links and buttons', () => {
+    applyAccentVars({
+      bg: '#fff9f0', surface: '#fff9f0', surfaceHover: '#fff9f0', text: '#1f1810', muted: '#6b5a48',
+      accent: '#f5c542', link: '#f5c542', linkHover: '#f0b400', accentHover: '#f0b400', border: '', fieldBg: '',
+      cardBg: '', cardBgHover: '', panelSoft: '', topbarBg: '', topbarBorder: '', coverBorder: '',
+    }, false);
+    const link = document.documentElement.style.getPropertyValue('--app-link');
+    expect(contrastRatio(link, '#ffffff')!).toBeGreaterThanOrEqual(4.5);
+    clearAccentVars();
+  });
+});

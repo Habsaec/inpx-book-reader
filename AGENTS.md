@@ -167,6 +167,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 
 #### Настройки сервера
 - `GET /api/settings/ui` — UI настройки библиотеки: название, логотип, палитра, **скругление** (`radius` / `radiusPreset`), **тени** (`shadows` / `shadowPreset`), **фон** (`backgroundUrl`, `bgBlur`, `bgOverlayStrength`, `bgSize`, `bgPosition`), **шапка** (`headerUrl`, `hasHeader`, `headerHeight`, `headerPosition`, `headerSize`), **панели** (`surfaceOpacity` 0–100, `surfaceBlur` 0–24px)
+- Палитра «Цвета библиотеки» по умолчанию совпадает со встроенной веб-темой (сервер отдаёт её токены в `appPaletteDark/Light`); `themeVersion` — непрозрачный хэш всего ответа. `applyAccentVars` берёт `link` (иначе `accent`) и доводит его до контраста 4.5:1 к фону приложения (`ensureReadableOn`, `#111113` / `#ffffff`) — то же правило, что сервер применяет к фону библиотеки
 - `GET /health` — проверка доступности сервера (Настройки → Сеть: домашняя Wi‑Fi + LAN, запасные адреса сверху вниз; смена URL не сбрасывает device token)
 
 ### Android UI (независимый от сервера)

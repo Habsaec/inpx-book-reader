@@ -320,10 +320,15 @@ const ACCENT_CSS_KEYS = [
 /** Surfaces, type, radii and shadows are the app's own; a palette only lends its accent. */
 export function applyAccentVars(palette: AppThemePalette, isDark: boolean): void {
   // Library primary buttons are filled with --link, not --accent.
-  const accent = (palette.link || palette.accent || '').trim();
-  if (!accent) return;
-  const hover = (palette.linkHover || palette.accentHover || accent).trim();
-  const soft = flattenColorMix(`color-mix(in srgb, ${accent} 16%, ${isDark ? '#111113' : '#ffffff'})`);
+  const raw = (palette.link || palette.accent || '').trim();
+  if (!raw) return;
+  // The accent also colors links and icons on the app's own surfaces, so keep it readable there
+  // (same 4.5:1 rule the server applies against the library surface).
+  const accent = ensureReadableOn(raw, isDark ? APP_SURFACE_DARK : APP_SURFACE_LIGHT);
+  const hover = accent === raw
+    ? (palette.linkHover || palette.accentHover || accent).trim()
+    : accent;
+  const soft = flattenColorMix(`color-mix(in srgb, ${accent} 16%, ${isDark ? APP_SURFACE_DARK : APP_SURFACE_LIGHT})`);
   const root = document.documentElement;
   root.style.setProperty('--app-accent', accent);
   root.style.setProperty('--app-accent-hover', hover);
@@ -354,6 +359,39 @@ function relativeLuminance(hex: string): number | null {
   const g = lin((n >> 8) & 255);
   const b = lin(n & 255);
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+const APP_SURFACE_DARK = '#111113';
+const APP_SURFACE_LIGHT = '#ffffff';
+const MIN_ACCENT_CONTRAST = 4.5;
+
+export function contrastRatio(a: string, b: string): number | null {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  if (la == null || lb == null) return null;
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+function mixToward(hex: string, target: number, weight: number): string {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const ch = (shift: number) => {
+    const c = (n >> shift) & 255;
+    return Math.round(c + (target - c) * weight).toString(16).padStart(2, '0');
+  };
+  return `#${ch(16)}${ch(8)}${ch(0)}`;
+}
+
+/** Lighten (dark surface) or darken (light surface) a color until it reaches 4.5:1 on `surface`. */
+export function ensureReadableOn(color: string, surface: string): string {
+  const hex = color.trim().toLowerCase();
+  const ratio = contrastRatio(hex, surface);
+  if (ratio == null || ratio >= MIN_ACCENT_CONTRAST) return color;
+  const target = (relativeLuminance(surface) ?? 0) < 0.45 ? 255 : 0;
+  for (let step = 1; step <= 20; step += 1) {
+    const next = mixToward(hex, target, step * 0.05);
+    if ((contrastRatio(next, surface) ?? 0) >= MIN_ACCENT_CONTRAST) return next;
+  }
+  return target === 255 ? '#ffffff' : '#000000';
 }
 
 /** Dark ink on a light fill, light ink on a dark fill. */
