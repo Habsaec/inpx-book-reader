@@ -614,8 +614,12 @@ public class ReaderNativePlugin extends Plugin {
         String coverBase64 = call.getString("coverBase64", null);
         String coverUrl = call.getString("coverUrl", null);
         String authHeader = call.getString("authHeader", null);
+        // Reader sleep timer end (epoch ms, 0 = off) for the remote widget countdown.
+        // getDouble() returns the default for a JSON long, so read it from the raw data.
+        long sleepEndsAt = call.getData().optLong("sleepEndsAt", 0L);
 
         TtsMediaState.update(title, artist, playing, active);
+        TtsMediaState.setSleepEndsAt(active ? sleepEndsAt : 0L);
 
         if (!active) {
             Intent stop = new Intent(getContext(), TtsForegroundService.class);
@@ -660,11 +664,16 @@ public class ReaderNativePlugin extends Plugin {
         call.resolve();
     }
 
+    private static long ttsMediaActionSeq = 0;
+
     static void emitTtsMediaAction(String action) {
         ReaderNativePlugin plugin = instance;
         if (plugin == null || action == null || action.isEmpty()) return;
+        // Delivered twice (listener → FoliateReader and the injected script); `seq` lets the reader act once.
+        long seq = ++ttsMediaActionSeq;
         JSObject data = new JSObject();
         data.put("action", action);
+        data.put("seq", seq);
         plugin.notifyListeners("ttsMediaAction", data);
         if (plugin.getBridge() == null || plugin.getBridge().getWebView() == null) return;
         String safe = action.replace("\\", "\\\\").replace("'", "\\'");
@@ -672,7 +681,9 @@ public class ReaderNativePlugin extends Plugin {
             "(function(){"
                 + "var payload={type:'inpx-native-event',event:'ttsMediaAction',data:{action:'"
                 + safe
-                + "'}};"
+                + "',seq:"
+                + seq
+                + "}};"
                 + "window.postMessage(payload,'*');"
                 + "var iframe=document.querySelector('iframe[title]');"
                 + "if(iframe&&iframe.contentWindow){iframe.contentWindow.postMessage(payload,'*');}"

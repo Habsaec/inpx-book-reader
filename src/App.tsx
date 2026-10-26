@@ -67,9 +67,21 @@ import { APP_SETTING_KEYS, getAppSettingString, setAppSettingRaw } from './lib/a
 import { maybeAutoCheckAppUpdate } from './lib/appUpdate';
 import { App as CapApp } from '@capacitor/app';
 import { resolveNextInSeries, type NextInSeriesResult } from './lib/seriesNavigation';
-import { syncContinueReadingWidget } from './lib/continueWidget';
+import {
+  FOLLOWING_WIDGET_MAX_BOOKS,
+  isFollowingWidgetPlaced,
+  syncContinueReadingWidget,
+  syncFollowingWidget,
+} from './lib/continueWidget';
 import { useSnackbar } from './ui/Snackbar';
-import { authHeader, bookContentUrl, coverUrl, displayCoverUrl } from './lib/inpxClient';
+import {
+  authHeader,
+  bookContentUrl,
+  coverUrl,
+  displayCoverUrl,
+  fetchLibraryView,
+  mapServerBook,
+} from './lib/inpxClient';
 import { warmCoverCache } from './lib/coverCache';
 import { isBookDownloadInFlight, resolveBookPrimaryAction } from './lib/bookOpenPolicy';
 import type { Book, Shelf } from './types';
@@ -234,6 +246,9 @@ export default function App() {
     setCatalogNavEpoch((n) => n + 1);
     setActiveTab('catalog');
   }, [activeTab, clearCatalogDrilldown]);
+
+  /** Read-aloud widget: start read-aloud in this book once the reader shows it. */
+  const [ttsAutostart, setTtsAutostart] = React.useState<{ bookId: string; token: number } | null>(null);
 
   const handleTabChange = React.useCallback((tab: AppTab) => {
     // Leaving Catalog abandons drill-down/return stack so re-entry is a clean root.
@@ -644,6 +659,23 @@ export default function App() {
     onOpenBook: handleOpenBookCard,
     onRegisterImportedBook: registerDownloadedBook,
     onTabChange: handleTabChange,
+    // Widget taps that lead elsewhere leave an open book first.
+    onOpenScreen: (tab) => {
+      if (activeReaderRef.current) void handleCloseReader();
+      handleTabChange(tab);
+    },
+    onOpenBookDetails: (book) => {
+      if (activeReaderRef.current) void handleCloseReader();
+      openBookDetailsExclusive({
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        ext: book.ext || 'fb2',
+        coverUrl: displayCoverUrl(serverConfig, book.id),
+        contentUrl: bookContentUrl(serverConfig, book.id),
+      });
+    },
+    onRequestTtsAutostart: (bookId) => setTtsAutostart({ bookId, token: Date.now() }),
   });
 
   const handleDownloadBookFromUi = React.useCallback(
@@ -967,6 +999,38 @@ export default function App() {
         : null,
     );
   }, [localRecentReading, downloadedBooksWithFile]);
+
+  // «Новое у любимых» widget: only when one is placed; on start, on return to the app and when read marks change.
+  const readCount = inpxServer.readIds?.size ?? 0;
+  React.useEffect(() => {
+    if (!isOnline || !isAndroid()) return;
+    let cancelled = false;
+    const refresh = async () => {
+      if (cancelled || !(await isFollowingWidgetPlaced())) return;
+      try {
+        const res = await fetchLibraryView(serverConfig, 'following', 1, FOLLOWING_WIDGET_MAX_BOOKS);
+        const items = (res.items || []).map((item) => mapServerBook(item, serverConfig));
+        await warmCoverCache({
+          bookIds: items.map((b) => b.id),
+          config: serverConfig,
+          shouldContinue: () => !cancelled,
+        });
+        if (cancelled) return;
+        await syncFollowingWidget(items.map((b) => ({ id: b.id, title: b.title, author: b.author, ext: b.ext })));
+      } catch {
+        /* older server (404) or offline: keep the widget's last covers */
+      }
+    };
+    const timer = window.setTimeout(() => void refresh(), 3000);
+    const resume = CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) void refresh();
+    });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      void resume.then((h) => h.remove()).catch(() => {});
+    };
+  }, [isOnline, serverConfig, readCount]);
 
   React.useEffect(() => {
     if (!activeReader || !isOnline) {
@@ -1375,6 +1439,7 @@ export default function App() {
                 offline={!isOnline}
                 serverConfig={isOnline ? serverConfig : null}
                 nextInSeries={readerNextInSeries}
+                autoStartTtsToken={ttsAutostart?.bookId === activeReader.bookId ? ttsAutostart.token : 0}
                 onClose={() => { void handleCloseReader(); }}
                 onStoreSynced={bumpReaderLocal}
                 onOpenNextInSeries={handleOpenNextInSeriesFromReader}

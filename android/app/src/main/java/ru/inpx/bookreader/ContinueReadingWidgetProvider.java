@@ -15,6 +15,7 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -29,10 +30,17 @@ public class ContinueReadingWidgetProvider extends AppWidgetProvider {
     public static final String KEY_COVER_PATH = "coverPath";
     public static final String KEY_PROGRESS = "progress";
     public static final String KEY_RATING = "rating";
+    /** Library name + logo shown at the top of every widget (`ContinueWidget.updateLibrary`). */
+    public static final String LIBRARY_PREFS = "inpx_library_widget";
+    public static final String KEY_LIBRARY_NAME = "name";
+    public static final String KEY_LIBRARY_LOGO = "logoPath";
+    private static final int LOGO_MAX_PX = 128;
     private static final int COVER_MAX_PX = 256;
     private static final int BACKDROP_SRC = 48;
     private static final int BACKDROP_OUT = 240;
     private static final int BLUR_RADIUS = 6;
+    /** Longer side of a full-bleed cover; RGB_565 keeps it near 250 KB. */
+    private static final int FILL_MAX_PX = 420;
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -57,86 +65,187 @@ public class ContinueReadingWidgetProvider extends AppWidgetProvider {
         String title = prefs.getString(KEY_TITLE, "");
         String author = prefs.getString(KEY_AUTHOR, "");
         String coverPath = prefs.getString(KEY_COVER_PATH, "");
-        int progress = prefs.getInt(KEY_PROGRESS, 0);
-        int rating = prefs.getInt(KEY_RATING, 0);
+        int progress = Math.max(0, Math.min(100, prefs.getInt(KEY_PROGRESS, 0)));
 
-        RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_continue_reading);
+        int[] size = portraitSizePx(context, appWidgetManager, appWidgetId);
+        boolean wide = isWide(size);
+        RemoteViews views = new RemoteViews(
+            context.getPackageName(),
+            wide ? R.layout.widget_continue_reading : R.layout.widget_continue_compact
+        );
         boolean empty = title == null || title.trim().isEmpty();
-        if (empty) {
-            views.setTextViewText(R.id.widget_title, context.getString(R.string.widget_continue_empty));
-            views.setTextViewText(R.id.widget_author, "");
-            views.setViewVisibility(R.id.widget_progress, View.GONE);
-            views.setViewVisibility(R.id.widget_rating, View.GONE);
-        } else {
-            views.setTextViewText(R.id.widget_title, title);
-            views.setTextViewText(R.id.widget_author, author != null ? author : "");
-            if (rating > 0) {
-                StringBuilder stars = new StringBuilder();
-                for (int i = 0; i < rating; i++) stars.append('★');
-                views.setTextViewText(R.id.widget_rating, stars.toString());
-                views.setViewVisibility(R.id.widget_rating, View.VISIBLE);
-            } else {
-                views.setViewVisibility(R.id.widget_rating, View.GONE);
-            }
-            if (progress > 0) {
-                views.setViewVisibility(R.id.widget_progress, View.VISIBLE);
-                views.setProgressBar(R.id.widget_progress, 100, Math.min(100, progress), false);
-            } else {
-                views.setViewVisibility(R.id.widget_progress, View.GONE);
-            }
-        }
-
-        Bitmap cover = decodeCover(findCoverFile(context, bookId, coverPath));
-        int[] size = widgetSizePx(context, appWidgetManager, appWidgetId);
-        views.setImageViewBitmap(R.id.widget_backdrop, widgetBackdrop(cover, size[0], size[1]));
-        views.setViewVisibility(R.id.widget_backdrop, View.VISIBLE);
-        views.setViewVisibility(R.id.widget_scrim, View.GONE);
-        if (cover != null) {
-            float coverRadius = 6f * context.getResources().getDisplayMetrics().density;
-            views.setImageViewBitmap(R.id.widget_cover, roundedCover(cover, coverRadius));
-        } else {
-            views.setImageViewResource(R.id.widget_cover, R.drawable.widget_cover_placeholder);
-        }
+        File coverFile = findCoverFile(context, bookId, coverPath, !wide);
+        bindCover(views, coverFile, size, wide);
+        views.setTextViewText(R.id.widget_title, empty ? context.getString(R.string.widget_continue_empty) : title);
+        views.setTextViewText(R.id.widget_author, empty || author == null ? "" : author);
+        views.setViewVisibility(R.id.widget_author, empty || author == null || author.isEmpty() ? View.GONE : View.VISIBLE);
+        boolean showProgress = !empty && progress > 0;
+        views.setViewVisibility(R.id.widget_progress_row, showProgress ? View.VISIBLE : View.GONE);
+        views.setProgressBar(R.id.widget_progress, 100, progress, false);
+        views.setTextViewText(R.id.widget_percent, context.getString(R.string.widget_continue_percent, progress));
         if (Build.VERSION.SDK_INT >= 31) {
             views.setBoolean(R.id.widget_root, "setClipToOutline", true);
         }
 
-        Intent intent = new Intent(context, MainActivity.class);
-        intent.setAction(LaunchIntentPlugin.ACTION_CONTINUE);
-        if (bookId != null && !bookId.isEmpty()) {
-            intent.putExtra(KEY_BOOK_ID, bookId);
-        }
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent pending = PendingIntent.getActivity(
-            context,
-            appWidgetId,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
-        views.setOnClickPendingIntent(R.id.widget_root, pending);
+        bindLibrary(context, views, !wide);
+        views.setOnClickPendingIntent(R.id.widget_root, continueIntent(context, bookId, appWidgetId));
 
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }
 
+    /** Library name and logo row (`widget_lib_*`); hidden until the app has reported a name. */
+    static void bindLibrary(Context context, RemoteViews views, boolean overCover) {
+        SharedPreferences prefs = context.getSharedPreferences(LIBRARY_PREFS, Context.MODE_PRIVATE);
+        String name = prefs.getString(KEY_LIBRARY_NAME, "");
+        boolean show = name != null && !name.trim().isEmpty();
+        views.setViewVisibility(R.id.widget_lib_row, show ? View.VISIBLE : View.GONE);
+        if (overCover) views.setViewVisibility(R.id.widget_lib_scrim, show ? View.VISIBLE : View.GONE);
+        if (!show) return;
+        views.setTextViewText(R.id.widget_lib_name, name);
+        String logoPath = prefs.getString(KEY_LIBRARY_LOGO, "");
+        // An SVG logo does not decode: the name stays alone.
+        Bitmap logo = logoPath == null || logoPath.isEmpty() ? null : decodeCover(new File(logoPath), LOGO_MAX_PX);
+        if (logo != null) views.setImageViewBitmap(R.id.widget_lib_logo, logo);
+        views.setViewVisibility(R.id.widget_lib_logo, logo != null ? View.VISIBLE : View.GONE);
+    }
+
+    /** Wide cells put the cover on the left; square and tall ones fill the widget with it. */
+    static boolean isWide(int[] size) {
+        return size[0] >= size[1] * 1.3f;
+    }
+
+    /**
+     * Cover-first: `widget_cover` fills the widget (tall) or its full height (wide, next to a blurred
+     * `widget_backdrop`). Bitmaps stay small: one RemoteViews update goes through a ~1 MB binder call.
+     */
+    static void bindCover(RemoteViews views, File coverFile, int[] size, boolean wide) {
+        if (wide) {
+            Bitmap cover = decodeCover(coverFile, COVER_MAX_PX);
+            views.setImageViewBitmap(R.id.widget_backdrop, widgetBackdrop(cover, size[0], size[1]));
+            if (cover != null) views.setImageViewBitmap(R.id.widget_cover, cover);
+            else views.setImageViewResource(R.id.widget_cover, R.drawable.widget_cover_placeholder);
+            return;
+        }
+        Bitmap cover = decodeCover(coverFile, FILL_MAX_PX);
+        Bitmap fill = cover != null ? coverFill(cover, size[0], size[1], FILL_MAX_PX) : null;
+        if (fill != null) views.setImageViewBitmap(R.id.widget_cover, fill);
+        else views.setImageViewResource(R.id.widget_cover, R.drawable.widget_cover_fill_placeholder);
+    }
+
+    /** Crop to the widget's aspect (keeping the top, where titles and faces usually are), RGB_565. */
+    static Bitmap coverFill(Bitmap src, int width, int height, int maxSide) {
+        float target = width / (float) Math.max(1, height);
+        int sw = src.getWidth();
+        int sh = src.getHeight();
+        int cw = sw;
+        int ch = Math.round(sw / target);
+        if (ch > sh) {
+            ch = sh;
+            cw = Math.round(sh * target);
+        }
+        int x = (sw - cw) / 2;
+        int y = Math.round((sh - ch) * 0.25f);
+        float scale = Math.min(1f, maxSide / (float) Math.max(cw, ch));
+        int ow = Math.max(1, Math.round(cw * scale));
+        int oh = Math.max(1, Math.round(ch * scale));
+        Bitmap out = Bitmap.createBitmap(ow, oh, Bitmap.Config.RGB_565);
+        Canvas canvas = new Canvas(out);
+        Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
+        canvas.drawBitmap(src, new android.graphics.Rect(x, y, x + cw, y + ch), new RectF(0, 0, ow, oh), paint);
+        return out;
+    }
+
+    /** Portrait launchers report the real width as the min width and the real height as the max height. */
+    static int[] portraitSizePx(Context context, AppWidgetManager manager, int appWidgetId) {
+        float density = context.getResources().getDisplayMetrics().density;
+        int wDp = 250;
+        int hDp = 110;
+        Bundle options = manager.getAppWidgetOptions(appWidgetId);
+        if (options != null) {
+            int minW = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
+            int maxH = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0);
+            if (maxH <= 0) maxH = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0);
+            if (minW > 0) wDp = minW;
+            if (maxH > 0) hDp = maxH;
+        }
+        return new int[] {
+            Math.max(1, Math.round(wDp * density)),
+            Math.max(1, Math.round(hDp * density)),
+        };
+    }
+
     public static void refreshAll(Context context) {
+        refreshProvider(context, ContinueReadingWidgetProvider.class);
+    }
+
+    /** Re-renders every placed instance of a widget provider. */
+    static void refreshProvider(Context context, Class<?> provider) {
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
-        ComponentName component = new ComponentName(context, ContinueReadingWidgetProvider.class);
+        ComponentName component = new ComponentName(context, provider);
         int[] ids = manager.getAppWidgetIds(component);
         if (ids == null || ids.length == 0) return;
-        Intent intent = new Intent(context, ContinueReadingWidgetProvider.class);
+        Intent intent = new Intent(context, provider);
         intent.setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE);
         intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids);
         context.sendBroadcast(intent);
     }
 
+    /** Opens a book in the reader (empty id = the newest book the app knows). */
+    static PendingIntent continueIntent(Context context, String bookId, int requestCode) {
+        return continueIntent(context, bookId, requestCode, false);
+    }
+
+    /** `startTts`: the reader starts read-aloud once the book is open (TTS remote widget). */
+    static PendingIntent continueIntent(Context context, String bookId, int requestCode, boolean startTts) {
+        Intent intent = new Intent(context, MainActivity.class);
+        intent.setAction(LaunchIntentPlugin.ACTION_CONTINUE);
+        if (bookId != null && !bookId.isEmpty()) {
+            intent.putExtra(KEY_BOOK_ID, bookId);
+        }
+        if (startTts) intent.putExtra(LaunchIntentPlugin.EXTRA_START_TTS, true);
+        // Distinct data keeps one PendingIntent per book and mode (extras alone do not make them distinct).
+        intent.setData(Uri.parse("inpx-widget://book/" + Uri.encode(bookId != null ? bookId : "") + (startTts ? "?tts=1" : "")));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        return PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
+    /** Opens an app screen: home, catalog, library, profile or search. */
+    static PendingIntent openIntent(Context context, String target, int requestCode) {
+        Intent intent = new Intent(context, MainActivity.class);
+        intent.setAction(LaunchIntentPlugin.ACTION_OPEN);
+        intent.putExtra(LaunchIntentPlugin.EXTRA_TARGET, target);
+        intent.setData(Uri.parse("inpx-widget://open/" + target));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        return PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
     static File findCoverFile(Context context, String bookId, String coverPath) {
+        return findCoverFile(context, bookId, coverPath, false);
+    }
+
+    /** `preferFull`: a cover that fills the widget looks soft when upscaled from the thumb. */
+    static File findCoverFile(Context context, String bookId, String coverPath, boolean preferFull) {
+        File dir = new File(context.getFilesDir(), "image-cache" + File.separator + "covers");
+        String key = bookId != null && !bookId.isEmpty() ? safeFileKey(bookId) : null;
+        if (preferFull && key != null) {
+            File full = new File(dir, key + "_full.jpg");
+            if (full.isFile()) return full;
+        }
         if (coverPath != null && !coverPath.isEmpty()) {
             File direct = new File(coverPath);
             if (direct.isFile()) return direct;
         }
-        if (bookId == null || bookId.isEmpty()) return null;
-        File dir = new File(context.getFilesDir(), "image-cache" + File.separator + "covers");
-        String key = safeFileKey(bookId);
+        if (key == null) return null;
         File thumb = new File(dir, key + "_thumb.jpg");
         if (thumb.isFile()) return thumb;
         File full = new File(dir, key + "_full.jpg");
@@ -158,6 +267,10 @@ public class ContinueReadingWidgetProvider extends AppWidgetProvider {
     }
 
     static Bitmap decodeCover(File file) {
+        return decodeCover(file, COVER_MAX_PX);
+    }
+
+    static Bitmap decodeCover(File file, int maxPx) {
         if (file == null || !file.isFile()) return null;
         String path = file.getAbsolutePath();
         BitmapFactory.Options bounds = new BitmapFactory.Options();
@@ -166,7 +279,7 @@ public class ContinueReadingWidgetProvider extends AppWidgetProvider {
         int largest = Math.max(bounds.outWidth, bounds.outHeight);
         if (largest <= 0) return null;
         int sample = 1;
-        while (largest / sample > COVER_MAX_PX) {
+        while (largest / sample > maxPx) {
             sample *= 2;
         }
         BitmapFactory.Options opts = new BitmapFactory.Options();
@@ -174,24 +287,10 @@ public class ContinueReadingWidgetProvider extends AppWidgetProvider {
         return BitmapFactory.decodeFile(path, opts);
     }
 
-    static int[] widgetSizePx(Context context, AppWidgetManager manager, int appWidgetId) {
-        float density = context.getResources().getDisplayMetrics().density;
-        int wDp = 250;
-        int hDp = 110;
-        Bundle options = manager.getAppWidgetOptions(appWidgetId);
-        if (options != null) {
-            int minW = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0);
-            int minH = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0);
-            if (minW > 0) wDp = minW;
-            if (minH > 0) hDp = minH;
-        }
-        return new int[] {
-            Math.max(1, Math.round(wDp * density)),
-            Math.max(1, Math.round(hDp * density)),
-        };
-    }
-
-    static Bitmap widgetBackdrop(Bitmap cover, int width, int height) {
+    static Bitmap widgetBackdrop(Bitmap cover, int widthPx, int heightPx) {
+        // Blurred and stretched with fitXY anyway: a quarter of the widget size is plenty.
+        int width = Math.max(1, widthPx / 4);
+        int height = Math.max(1, heightPx / 4);
         Bitmap out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(out);
         canvas.drawColor(0xFF1E1A16);
@@ -203,7 +302,7 @@ public class ContinueReadingWidgetProvider extends AppWidgetProvider {
         paint.setShader(shader);
         canvas.drawRect(0, 0, width, height, paint);
         paint.setShader(null);
-        paint.setColor(0x801E1A16);
+        paint.setColor(0xB31E1A16);
         canvas.drawRect(0, 0, width, height, paint);
         return out;
     }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { ServerConfig } from '../types';
 import { fetchServerBranding, fetchServerLogoBlob } from '../lib/inpxClient';
+import { syncLibraryWidget } from '../lib/continueWidget';
 
 const APP_FALLBACK_NAME = 'INPX Reader';
 
@@ -28,7 +29,10 @@ export function useServerBranding(serverConfig: ServerConfig) {
         document.title = branding.siteName;
 
         const blob = await fetchServerLogoBlob(serverConfig, branding.logoPath);
-        if (cancelled || !blob) return;
+        if (cancelled) return;
+        // Widgets: library name + logo unless Admin → Appearance hides the logo.
+        void syncLibraryWidget(branding.siteName, branding.rawUi.showLogo === false ? null : blob);
+        if (!blob) return;
 
         const nextUrl = URL.createObjectURL(blob);
         if (cancelled) {

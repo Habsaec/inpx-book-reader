@@ -75,6 +75,8 @@ export interface FoliateReaderConfig {
   offline?: boolean;
   serverConfig?: ServerConfig | null;
   nextInSeries?: { bookId: string; title: string } | null;
+  /** Read-aloud widget: a new non-zero value asks the reader to start read-aloud once the book is shown. */
+  autoStartTtsToken?: number;
 }
 
 interface FoliateReaderProps extends FoliateReaderConfig {
@@ -128,6 +130,7 @@ export default function FoliateReader({
   offline = false,
   serverConfig = null,
   nextInSeries = null,
+  autoStartTtsToken = 0,
   onClose,
   onStoreSynced,
   onOpenNextInSeries,
@@ -409,6 +412,19 @@ export default function FoliateReader({
     }, '*');
   }, [bookId]);
 
+  // The reader waits until the book is shown and ignores a token it has already handled.
+  const autoStartTtsRef = React.useRef(autoStartTtsToken);
+  autoStartTtsRef.current = autoStartTtsToken;
+  const postAutoStartTts = React.useCallback((win: Window | null) => {
+    const token = autoStartTtsRef.current;
+    if (!win || !token) return;
+    win.postMessage({ type: 'inpx-reader-autostart-tts', token }, '*');
+  }, []);
+
+  React.useEffect(() => {
+    if (autoStartTtsToken) postAutoStartTts(iframeRef.current?.contentWindow ?? null);
+  }, [autoStartTtsToken, postAutoStartTts]);
+
   const postOpenSyncDone = React.useCallback((win: Window | null) => {
     if (!win || !bookId) return;
     win.postMessage({ type: 'inpx-reader-open-sync-done', bookId }, '*');
@@ -679,6 +695,7 @@ export default function FoliateReader({
         type: 'inpx-native-ready',
         ready: Capacitor.isNativePlatform(),
       }, '*');
+      postAutoStartTts(win);
       // Open-sync may have finished before the iframe listener was ready.
       if (offline || peekRecentBookOpenSyncDone(bookId)) {
         postReaderSeed(win);
@@ -696,7 +713,7 @@ export default function FoliateReader({
       /* cross-origin / not ready */
     }
     return () => iframe.removeEventListener('load', onLoad);
-  }, [iframeSrc, bookId, offline, postReaderChromeInsets, postReaderSeed, postOpenSyncDone]);
+  }, [iframeSrc, bookId, offline, postAutoStartTts, postReaderChromeInsets, postReaderSeed, postOpenSyncDone]);
 
   React.useEffect(() => {
     const onSyncDone = (event: Event) => {

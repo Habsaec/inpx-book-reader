@@ -13,4 +13,5 @@
     <color name="widget_muted">#a89884</color>
     <color name="widget_accent">#d4ac5c</color>
     <color name="widget_progress_track">#33ffffff</color>
+    <color name="widget_on_accent">#1e1a16</color>
 </resources>

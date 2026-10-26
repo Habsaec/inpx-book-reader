@@ -73,6 +73,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
 
     private TtsPlaybackManager(Context context) {
         appContext = context.getApplicationContext();
+        TtsMediaState.attach(appContext);
         recreateWithSystemDefault();
     }
 

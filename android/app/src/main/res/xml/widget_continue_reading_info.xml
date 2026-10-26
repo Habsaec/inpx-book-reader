@@ -4,11 +4,12 @@
     android:initialLayout="@layout/widget_continue_reading"
     android:minWidth="180dp"
     android:minHeight="80dp"
-    android:minResizeWidth="110dp"
-    android:minResizeHeight="80dp"
+    android:minResizeWidth="50dp"
+    android:minResizeHeight="50dp"
     android:previewImage="@drawable/widget_continue_preview"
+    android:previewLayout="@layout/widget_continue_compact"
     android:resizeMode="horizontal|vertical"
     android:targetCellHeight="2"
     android:targetCellWidth="3"
     android:updatePeriodMillis="0"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen|keyguard" />

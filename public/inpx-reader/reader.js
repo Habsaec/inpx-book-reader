@@ -266,6 +266,13 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
   let ttsPausedByUser = false;
   /** Озвучка (reader-shared/reader-tts.js); ttsChainActive / ttsPausedByUser зеркалятся из onStateChange. */
   let readerTts = null;
+  /** Last `relocate` of the book view (0 = nothing shown yet); read-aloud widget autostart waits for it to settle. */
+  let lastRelocateAt = 0;
+  /** Sleep timer end (epoch ms, 0 = off) for the Android read-aloud widget countdown. */
+  let ttsSleepEndsAt = 0;
+  let ttsSleepSentAt = 0;
+  let ttsAutostartToken = 0;
+  let lastTtsMediaActionSeq = 0;
   const ttsNav = {
     skipBack: () => readerTts?.prevSentence(),
     skipForward: () => readerTts?.nextSentence(),
@@ -488,6 +495,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       artist: artist || '',
       playing: ttsChainActive && !ttsPausedByUser,
       active: ttsChainActive,
+      sleepEndsAt: ttsChainActive ? ttsSleepEndsAt : 0,
     };
     if (ttsChainActive && coverB64) payload.coverBase64 = coverB64;
     if (ttsChainActive && !coverB64 && coverUrl) {
@@ -518,13 +526,55 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       if (ttsChainActive) ttsNav.skipBack();
     } else if (a === 'next') {
       if (ttsChainActive) ttsNav.skipForward();
+    } else if (a === 'sleep') {
+      if (ttsChainActive) readerTts?.cycleSleep();
     }
+  }
+
+  /**
+   * Read-aloud widget «▶» while read-aloud was off: the app opens the book and posts
+   * `inpx-reader-autostart-tts`. Start once the book is shown and the saved position has settled
+   * (no `relocate` for a moment), so reading does not begin on the first page before the jump.
+   */
+  window.addEventListener('message', (e) => {
+    if (e.data?.type !== 'inpx-reader-autostart-tts') return;
+    const token = Number(e.data.token) || 0;
+    if (!token || token === ttsAutostartToken) return;
+    ttsAutostartToken = token;
+    const deadline = Date.now() + 30000;
+    const tryStart = () => {
+      if (token !== ttsAutostartToken || ttsChainActive) return;
+      if (lastRelocateAt && Date.now() - lastRelocateAt > 1200) {
+        void startReaderTts();
+        return;
+      }
+      if (Date.now() < deadline) setTimeout(tryStart, 300);
+    };
+    tryStart();
+  });
+
+  function onTtsSleepChange(endsAt) {
+    const value = Number(endsAt) || 0;
+    const prev = ttsSleepEndsAt;
+    ttsSleepEndsAt = value;
+    // Re-armed every couple of seconds while the phone moves: tell the widget at most every 20 s.
+    const toggled = (value === 0) !== (prev === 0);
+    if (!toggled && Math.abs(value - prev) < 1000) return;
+    if (!toggled && Date.now() - ttsSleepSentAt < 20000) return;
+    ttsSleepSentAt = Date.now();
+    void syncNativeTtsMediaSession();
   }
 
   function initReaderMediaSessionHandlers() {
     if (!ttsNativeMediaActionBound) {
       ttsNativeMediaActionBound = true;
       window.addEventListener('inpx-native-tts-media-action', (e) => {
+        // The same press arrives twice (plugin listener + injected script): act on each `seq` once.
+        const seq = Number(e.detail?.seq) || 0;
+        if (seq) {
+          if (seq === lastTtsMediaActionSeq) return;
+          lastTtsMediaActionSeq = seq;
+        }
         handleNativeTtsMediaAction(e.detail?.action);
       });
     }
@@ -5107,6 +5157,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
         setTimeout(resolve, 400);
       })),
     voiceHint: 'Голоса — из системного синтеза речи Android (Настройки → Специальные возможности → Синтез речи).',
+    onSleepChange: onTtsSleepChange,
     onStateChange: ({ active, paused }) => {
       ttsChainActive = active;
       ttsPausedByUser = paused;
@@ -7774,6 +7825,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       wireFootnotes();
 
       view.addEventListener('relocate', ({ detail }) => {
+        lastRelocateAt = Date.now();
         const loc = view.lastLocation || detail;
         const payload = readerPositionFromLocation(loc);
         if (!seekBarUserActive) {

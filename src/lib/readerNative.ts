@@ -77,6 +77,8 @@ interface ReaderNativePlugin {
     authHeader?: string;
     playing: boolean;
     active: boolean;
+    /** Reader sleep timer end, epoch ms (0 = off) — the read-aloud widget counts it down. */
+    sleepEndsAt?: number;
   }): Promise<void>;
   setSystemTextSelectionMenuEnabled(options: { enabled: boolean }): Promise<void>;
   setOrientationLock(options: { mode: 'auto' | 'portrait' | 'landscape' }): Promise<void>;
@@ -86,7 +88,7 @@ interface ReaderNativePlugin {
   ): Promise<{ remove: () => void }>;
   addListener(
     event: 'ttsMediaAction',
-    handler: (data: { action: 'play' | 'pause' | 'stop' | 'prev' | 'next' }) => void,
+    handler: (data: { action: 'play' | 'pause' | 'stop' | 'prev' | 'next' | 'sleep'; seq?: number }) => void,
   ): Promise<{ remove: () => void }>;
 }
 

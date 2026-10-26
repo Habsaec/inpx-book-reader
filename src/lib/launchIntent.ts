@@ -1,13 +1,21 @@
 /**
- * Android launch intents — shortcut «Продолжить» и VIEW fb2/epub.
+ * Android launch intents — shortcut / widgets «Продолжить» (+ озвучка), карточка книги и экраны из виджетов, VIEW fb2/epub.
  * @see LaunchIntentPlugin.java
  */
 
 import { registerPlugin } from '@capacitor/core';
 import { Book } from '../types';
 
+export type LaunchOpenTarget = 'home' | 'catalog' | 'library' | 'profile';
+
+const OPEN_TARGETS: readonly string[] = ['home', 'catalog', 'library', 'profile'];
+
 export type LaunchIntentPayload =
-  | { action: 'continue'; bookId?: string }
+  /** `startTts`: the read-aloud widget's play button — start read-aloud once the book is open. */
+  | { action: 'continue'; bookId?: string; startTts?: boolean }
+  | { action: 'open'; target: LaunchOpenTarget }
+  /** «Новое у любимых» widget: the book's page. */
+  | { action: 'book'; bookId: string; title?: string; author?: string; ext?: string }
   | { action: 'view'; uri: string; mimeType?: string };
 
 interface LaunchIntentPlugin {
@@ -26,6 +34,14 @@ export function isLaunchPayload(value: unknown): value is LaunchIntentPayload {
   if (action === 'continue') {
     const bookId = (value as { bookId?: unknown }).bookId;
     return bookId === undefined || typeof bookId === 'string';
+  }
+  if (action === 'book') {
+    const bookId = (value as { bookId?: unknown }).bookId;
+    return typeof bookId === 'string' && bookId.length > 0;
+  }
+  if (action === 'open') {
+    const target = (value as { target?: unknown }).target;
+    return typeof target === 'string' && OPEN_TARGETS.includes(target);
   }
   if (action === 'view') {
     return typeof (value as { uri?: unknown }).uri === 'string';

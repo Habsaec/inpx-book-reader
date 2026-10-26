@@ -27,6 +27,8 @@ public class TtsForegroundService extends Service {
     public static final String ACTION_STOP = "ru.inpx.bookreader.tts.STOP";
     public static final String ACTION_PREV = "ru.inpx.bookreader.tts.PREV";
     public static final String ACTION_NEXT = "ru.inpx.bookreader.tts.NEXT";
+    /** Remote widget: next sleep timer step (off → 15 → 30 → 60 → off), applied by the reader. */
+    public static final String ACTION_SLEEP = "ru.inpx.bookreader.tts.SLEEP";
 
     private PowerManager.WakeLock wakeLock;
     private MediaSessionCompat mediaSession;
@@ -85,7 +87,8 @@ public class TtsForegroundService extends Service {
             || ACTION_PAUSE.equals(action)
             || ACTION_STOP.equals(action)
             || ACTION_PREV.equals(action)
-            || ACTION_NEXT.equals(action)) {
+            || ACTION_NEXT.equals(action)
+            || ACTION_SLEEP.equals(action)) {
             handleAction(action);
             return START_NOT_STICKY;
         }
@@ -138,6 +141,8 @@ public class TtsForegroundService extends Service {
             ReaderNativePlugin.emitTtsMediaAction("prev");
         } else if (ACTION_NEXT.equals(action)) {
             ReaderNativePlugin.emitTtsMediaAction("next");
+        } else if (ACTION_SLEEP.equals(action)) {
+            ReaderNativePlugin.emitTtsMediaAction("sleep");
         }
 
         TtsMediaState.Snapshot snap = TtsMediaState.snapshot();

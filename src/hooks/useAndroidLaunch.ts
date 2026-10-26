@@ -1,5 +1,5 @@
 /**
- * Обработка Android shortcut «Продолжить» и VIEW intent для fb2/epub.
+ * Обработка Android shortcut / виджетов («Продолжить», экраны приложения) и VIEW intent для fb2/epub.
  */
 
 import React from 'react';
@@ -44,6 +44,12 @@ interface UseAndroidLaunchOptions {
   onOpenBook: (book: Book) => void;
   onRegisterImportedBook: (book: Book) => void;
   onTabChange: (tab: AppTab) => void;
+  /** Widget «open» targets; closes the reader when one is open. */
+  onOpenScreen: (tab: AppTab) => void;
+  /** «Новое у любимых» widget: a book's page. */
+  onOpenBookDetails: (book: { id: string; title: string; author: string; ext: string }) => void;
+  /** Read-aloud widget: start read-aloud in this book once the reader has it open. */
+  onRequestTtsAutostart: (bookId: string) => void;
 }
 
 export function useAndroidLaunch({
@@ -56,6 +62,9 @@ export function useAndroidLaunch({
   onOpenBook,
   onRegisterImportedBook,
   onTabChange,
+  onOpenScreen,
+  onOpenBookDetails,
+  onRequestTtsAutostart,
 }: UseAndroidLaunchOptions) {
   const snackbar = useSnackbar();
   const handledRef = React.useRef(new Set<string>());
@@ -71,6 +80,9 @@ export function useAndroidLaunch({
   const onOpenBookRef = React.useRef(onOpenBook);
   const onRegisterImportedBookRef = React.useRef(onRegisterImportedBook);
   const onTabChangeRef = React.useRef(onTabChange);
+  const onOpenScreenRef = React.useRef(onOpenScreen);
+  const onOpenBookDetailsRef = React.useRef(onOpenBookDetails);
+  const onRequestTtsAutostartRef = React.useRef(onRequestTtsAutostart);
   const snackbarRef = React.useRef(snackbar);
 
   serverConfigRef.current = serverConfig;
@@ -81,6 +93,9 @@ export function useAndroidLaunch({
   onOpenBookRef.current = onOpenBook;
   onRegisterImportedBookRef.current = onRegisterImportedBook;
   onTabChangeRef.current = onTabChange;
+  onOpenScreenRef.current = onOpenScreen;
+  onOpenBookDetailsRef.current = onOpenBookDetails;
+  onRequestTtsAutostartRef.current = onRequestTtsAutostart;
   snackbarRef.current = snackbar;
 
   const dispatch = React.useCallback(
@@ -99,6 +114,7 @@ export function useAndroidLaunch({
             (b) => b.id === wantedId && Boolean(b.localFileName?.trim()),
           );
           if (fromDownloaded) {
+            if (payload.startTts) onRequestTtsAutostartRef.current(fromDownloaded.id);
             onContinueBookRef.current(fromDownloaded);
             return;
           }
@@ -127,7 +143,23 @@ export function useAndroidLaunch({
           onTabChangeRef.current('library');
           return;
         }
+        if (payload.startTts) onRequestTtsAutostartRef.current(recentOnDisk.id);
         onContinueBookRef.current(recentOnDisk);
+        return;
+      }
+
+      // Widget taps fire again and again — like «continue», never remembered as handled.
+      if (payload.action === 'open') {
+        onOpenScreenRef.current(payload.target);
+        return;
+      }
+      if (payload.action === 'book') {
+        onOpenBookDetailsRef.current({
+          id: payload.bookId,
+          title: payload.title || '',
+          author: payload.author || '',
+          ext: payload.ext || '',
+        });
         return;
       }
 

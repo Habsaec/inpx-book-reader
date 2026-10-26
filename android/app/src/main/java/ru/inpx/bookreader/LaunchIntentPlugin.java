@@ -14,6 +14,14 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 public class LaunchIntentPlugin extends Plugin {
 
     public static final String ACTION_CONTINUE = "ru.inpx.bookreader.action.CONTINUE_READING";
+    /** Widgets: open a screen of the app; extra {@link #EXTRA_TARGET}. */
+    public static final String ACTION_OPEN = "ru.inpx.bookreader.action.OPEN";
+    public static final String EXTRA_TARGET = "target";
+    private static final String OPEN_TARGETS = "|home|catalog|library|profile|";
+    /** With {@link #ACTION_CONTINUE}: start read-aloud once the book is open. */
+    public static final String EXTRA_START_TTS = "startTts";
+    /** Widgets: open a book's page; extras bookId, title, author, ext. */
+    public static final String ACTION_BOOK = "ru.inpx.bookreader.action.BOOK";
 
     private static JSObject pending;
 
@@ -41,6 +49,22 @@ public class LaunchIntentPlugin extends Plugin {
             if (bookId != null && !bookId.isEmpty()) {
                 obj.put("bookId", bookId);
             }
+            if (intent.getBooleanExtra(EXTRA_START_TTS, false)) {
+                obj.put("startTts", true);
+            }
+        } else if (ACTION_BOOK.equals(action)) {
+            String bookId = intent.getStringExtra(ContinueReadingWidgetProvider.KEY_BOOK_ID);
+            if (bookId == null || bookId.isEmpty()) return;
+            obj.put("action", "book");
+            obj.put("bookId", bookId);
+            obj.put("title", stringExtra(intent, "title"));
+            obj.put("author", stringExtra(intent, "author"));
+            obj.put("ext", stringExtra(intent, "ext"));
+        } else if (ACTION_OPEN.equals(action)) {
+            String target = intent.getStringExtra(EXTRA_TARGET);
+            if (target == null || !OPEN_TARGETS.contains("|" + target + "|")) return;
+            obj.put("action", "open");
+            obj.put("target", target);
         } else if (Intent.ACTION_VIEW.equals(action) && data != null) {
             String scheme = data.getScheme();
             if ("inpx".equals(scheme)) {
@@ -74,6 +98,11 @@ public class LaunchIntentPlugin extends Plugin {
         }
 
         pending = obj;
+    }
+
+    private static String stringExtra(Intent intent, String key) {
+        String value = intent.getStringExtra(key);
+        return value != null ? value : "";
     }
 
     /**

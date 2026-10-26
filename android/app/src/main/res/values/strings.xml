@@ -9,6 +9,21 @@
     <string name="widget_continue_label">Продолжить чтение</string>
     <string name="widget_continue_empty">Откройте книгу в приложении</string>
     <string name="widget_continue_description">Виджет продолжения чтения</string>
+    <string name="widget_continue_percent">%1$d%%</string>
+    <string name="widget_tts_label">Озвучка</string>
+    <string name="widget_tts_description">Пульт озвучки: пауза, вперёд, назад и таймер сна</string>
+    <string name="widget_tts_idle">Слушать книгу</string>
+    <string name="widget_tts_playing">Читаю вслух</string>
+    <string name="widget_tts_paused">Пауза</string>
+    <string name="widget_tts_prev">Назад</string>
+    <string name="widget_tts_play">Слушать</string>
+    <string name="widget_tts_pause">Пауза</string>
+    <string name="widget_tts_next">Дальше</string>
+    <string name="widget_tts_sleep">Таймер сна: 15, 30, 60 минут или выключен</string>
+    <string name="widget_tts_stop">Остановить озвучку</string>
+    <string name="widget_following_label">Новое у любимых</string>
+    <string name="widget_following_description">Новые книги любимых авторов и серий</string>
+    <string name="widget_following_empty">Здесь появятся новые книги любимых авторов и серий</string>
     <string name="light_hud_brightness">Подсветка %1$d/%2$d</string>
     <string name="light_hud_warmth">Температура %1$d/%2$d</string>
 </resources>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileNameFromLaunchUri, findBookByLaunchUri } from '../launchIntent';
+import { fileNameFromLaunchUri, findBookByLaunchUri, isLaunchPayload } from '../launchIntent';
 import type { Book } from '../../types';
 
 const books: Book[] = [
@@ -24,6 +24,18 @@ const books: Book[] = [
 ];
 
 describe('launchIntent', () => {
+  it('accepts widget open targets and rejects unknown ones', () => {
+    expect(isLaunchPayload({ action: 'open', target: 'home' })).toBe(true);
+    expect(isLaunchPayload({ action: 'open', target: 'settings' })).toBe(false);
+    expect(isLaunchPayload({ action: 'open' })).toBe(false);
+  });
+
+  it('accepts a widget book page only with a book id', () => {
+    expect(isLaunchPayload({ action: 'book', bookId: '1:42', title: 'T' })).toBe(true);
+    expect(isLaunchPayload({ action: 'book', bookId: '' })).toBe(false);
+    expect(isLaunchPayload({ action: 'continue', bookId: '1:42', startTts: true })).toBe(true);
+  });
+
   it('extracts file name from content uri', () => {
     expect(fileNameFromLaunchUri('content://media/external/file/document/test%20book.fb2')).toBe('test book.fb2');
   });
