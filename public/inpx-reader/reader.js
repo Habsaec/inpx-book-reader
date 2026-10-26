@@ -1101,7 +1101,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const night = isNightReaderTheme();
     btn.title = night ? rt('readerJs.dayModeBtn') : rt('readerJs.nightModeBtn');
     btn.setAttribute('aria-label', night ? rt('readerJs.enableDayMode') : rt('readerJs.enableNightMode'));
-    btn.innerHTML = night ? svgSun : svgMoon;
+    (btn.querySelector('.rq-ico') || btn).innerHTML = night ? svgSun : svgMoon;
   }
 
   /**
@@ -1765,22 +1765,6 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     setChromeVisible(true);
   }
 
-  function closeOverflowMenu() {
-    const menu = $('tb-overflow-menu');
-    const btn = $('btn-overflow');
-    if (!menu?.classList.contains('is-open')) {
-      btn?.setAttribute('aria-expanded', 'false');
-      return;
-    }
-    const gen = ++popGen;
-    void dismissCard(menu).then((ok) => {
-      if (!ok || gen !== popGen) return;
-      menu.classList.remove('is-open');
-      menu.setAttribute('aria-hidden', 'true');
-      btn?.setAttribute('aria-expanded', 'false');
-    });
-  }
-
   const motionReduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function readTranslateY(el) {
@@ -1894,7 +1878,6 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const hideChrome = !(show || (panelOpen && !settingsPreview));
     document.body.classList.toggle('chrome-hidden', hideChrome);
     springChrome(!hideChrome);
-    if (hideChrome) closeOverflowMenu();
   }
 
   function postReaderHaptic(kind) {
@@ -4082,7 +4065,12 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
   function closePanel() {
     if (!panelOverlay.classList.contains('is-open')) return;
     closePanelDirect();
-    if (panelHistoryPushed) { panelHistoryPushed = false; history.back(); }
+    if (panelHistoryPushed) {
+      const steps = settingsPageHistory ? 2 : 1;
+      panelHistoryPushed = false;
+      settingsPageHistory = false;
+      history.go(-steps);
+    }
   }
   function switchTab(tab) {
     activePanelTab = tab;
@@ -4094,10 +4082,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     if (panelTitleEl) panelTitleEl.textContent = pm.title;
     refreshTriggers();
     syncPanelChrome(tab);
-    if (tab === 'settings') {
-      document.querySelectorAll('.panel-body input[type="range"]').forEach(guardRangeSliderTouchScroll);
-      readerTts?.onSettingsOpen();
-    }
+    if (tab === 'settings') showSettingsPage('', { push: false });
     if (tab === 'notes') renderNotesTab();
     if (tab === 'toc') scrollTocToCurrent();
     if (tab === 'search') {
@@ -4173,8 +4158,109 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     syncPanelChrome();
   });
 
-  /* Back gesture / back button closes panel instead of leaving */
+  /* ===== Settings sheet: list of sections → one section page (AlReader-style, same as the web) =====
+   * The root lists sections with their current values; a section opens as its own page with a back
+   * arrow in the panel header and a history entry, so Back returns to the list instead of closing
+   * the sheet. Sliders get − / + buttons (enhanceRangeSteppers); on E-Ink only those are shown. */
+  const settingsRoot = $('rs-root');
+  const settingsPages = document.querySelectorAll('.rs-page');
+  const panelBackBtn = $('panel-back');
+  let settingsPage = '';
+  let settingsPageHistory = false;
+
+  function showSettingsPage(name, { push = true } = {}) {
+    const page = name ? document.querySelector(`.rs-page[data-rs-page="${name}"]`) : null;
+    settingsPage = page ? name : '';
+    if (settingsRoot) settingsRoot.hidden = Boolean(page);
+    settingsPages.forEach((p) => { p.hidden = p !== page; });
+    if (panelBackBtn) panelBackBtn.hidden = !page;
+    if (panelTitleEl && activePanelTab === 'settings') {
+      panelTitleEl.textContent = page ? page.dataset.rsTitle : getPanelMeta('settings').title;
+    }
+    if (page) {
+      enhanceRangeSteppers(page);
+      page.querySelectorAll('input[type="range"]').forEach(guardRangeSliderTouchScroll);
+      if (name === 'tts') readerTts?.onSettingsOpen();
+      if (push && panelHistoryPushed && !settingsPageHistory) {
+        history.pushState({ readerSettingsPage: true }, '');
+        settingsPageHistory = true;
+      }
+    } else {
+      refreshSettingsSummaries();
+    }
+    const body = (page || settingsRoot)?.closest('.panel-body');
+    if (body) body.scrollTop = 0;
+    requestEinkPanelRefresh();
+  }
+  function settingsBack() {
+    if (settingsPageHistory) { history.back(); return; }
+    showSettingsPage('');
+  }
+  function openSettingsPage(name) {
+    if (!panelOverlay.classList.contains('is-open') || activePanelTab !== 'settings') openPanel('settings', { toggle: false });
+    showSettingsPage(name);
+  }
+  document.querySelectorAll('[data-rs-open]').forEach((b) => b.addEventListener('click', () => showSettingsPage(b.dataset.rsOpen)));
+  panelBackBtn?.addEventListener('click', settingsBack);
+  document.querySelectorAll('[data-quick-tab]').forEach((b) => b.addEventListener('click', () => openPanel(b.dataset.quickTab)));
+
+  /** − / + around every settings slider: exact steps without dragging (essential on e-ink, where ranges are hidden). */
+  function stepRange(slider, dir) {
+    if (slider.disabled) return;
+    const step = Number(slider.step) || 1;
+    const decimals = (String(slider.step).split('.')[1] || '').length;
+    const next = Math.min(Number(slider.max), Math.max(Number(slider.min), Number(slider.value) + dir * step));
+    slider.value = next.toFixed(decimals);
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function enhanceRangeSteppers(root) {
+    root.querySelectorAll('input[type="range"]').forEach((slider) => {
+      if (slider.dataset.stepper) return;
+      slider.dataset.stepper = '1';
+      const label = slider.getAttribute('aria-label') || '';
+      const make = (dir) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'rs-step-btn';
+        b.textContent = dir < 0 ? '−' : '+';
+        b.setAttribute('aria-label', `${label} ${dir < 0 ? '−' : '+'}`.trim());
+        b.addEventListener('click', () => stepRange(slider, dir));
+        return b;
+      };
+      slider.before(make(-1));
+      const val = slider.nextElementSibling?.classList.contains('rs-val') ? slider.nextElementSibling : slider;
+      val.after(make(1));
+    });
+  }
+
+  function tapZonesCustomized() {
+    return JSON.stringify(S.tapZonesShort) !== JSON.stringify(defaultTapZonesShort())
+      || JSON.stringify(S.tapZonesLong) !== JSON.stringify(defaultTapZonesLong());
+  }
+  function refreshSettingsSummaries() {
+    const set = (key, text) => {
+      const el = document.querySelector(`[data-rs-summary="${key}"]`);
+      if (el) el.textContent = text;
+    };
+    const fontLabel = S.usePublisherFont ? 'Шрифт из книги' : ($('rs-font-family')?.selectedOptions?.[0]?.textContent || '');
+    set('text', [fontLabel, S.fontSize].filter(Boolean).join(', '));
+    set('look', { light: 'Светлая', sepia: 'Сепия', dark: 'Тёмная', night: 'Ночь', eink: 'E-Ink' }[S.theme] || '');
+    set('page', { paginated: 'Страницы', dual: 'Разворот', scrolled: 'Прокрутка' }[S.layout] || '');
+    set('status', { withChrome: 'С меню', always: 'Всегда', hidden: 'Скрыта' }[S.statusMode] || '');
+    set('controls', tapZonesCustomized() ? 'Свои зоны' : 'Зоны по умолчанию');
+    set('tts', `${Number(S.ttsRate || 1).toFixed(2).replace(/0$/, '')}×`);
+  }
+
+  /* Back gesture / back button: section page → settings list; otherwise closes the panel */
   window.addEventListener('popstate', () => {
+    if (settingsPageHistory) {
+      settingsPageHistory = false;
+      if (panelOverlay.classList.contains('is-open') && activePanelTab === 'settings') {
+        showSettingsPage('', { push: false });
+        return;
+      }
+    }
     if (panelOverlay.classList.contains('is-open')) {
       panelHistoryPushed = false;
       closePanelDirect();
@@ -4205,7 +4291,8 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       return true;
     }
     if (panelOverlay.classList.contains('is-open')) {
-      closePanel();
+      if (settingsPage && activePanelTab === 'settings') settingsBack();
+      else closePanel();
       return true;
     }
     const noteEd = $('reader-note-editor');
@@ -4598,34 +4685,16 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       });
     }
     document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
-    const paneOrder = ['text', 'look', 'controls', 'more'];
-    function showSettingsPane(name) {
-      const pane = paneOrder.includes(name) ? name : 'text';
-      document.querySelectorAll('.rs-nav-btn').forEach((b) => {
-        const on = b.dataset.rsPane === pane;
-        b.classList.toggle('is-active', on);
-        b.setAttribute('aria-selected', on ? 'true' : 'false');
-        b.tabIndex = on ? 0 : -1;
-      });
-      document.querySelectorAll('.rs-pane').forEach((p) => {
-        p.hidden = p.dataset.rsPane !== pane;
-      });
+    /* Tile menu: A− / A+ and theme dots under the tiles (theme dots share bindSeg below). */
+    $('rq-font-dec')?.addEventListener('click', () => { bumpFontSize(-1); scheduleChromeHide(); });
+    $('rq-font-inc')?.addEventListener('click', () => { bumpFontSize(1); scheduleChromeHide(); });
+    document.querySelectorAll('.rq-theme-dot').forEach((b) => b.addEventListener('click', () => scheduleChromeHide()));
+    const quickEl = $('reader-quick');
+    if (quickEl && 'ResizeObserver' in window) {
+      new ResizeObserver(() => {
+        document.documentElement.style.setProperty('--r-quick-h', `${quickEl.offsetHeight}px`);
+      }).observe(quickEl);
     }
-    document.querySelectorAll('.rs-nav-btn').forEach((btn) => {
-      btn.addEventListener('click', () => showSettingsPane(btn.dataset.rsPane));
-    });
-    $('rs-subtabs')?.addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      const buttons = [...document.querySelectorAll('.rs-nav-btn')];
-      const i = buttons.findIndex((b) => b.classList.contains('is-active'));
-      if (i < 0) return;
-      const next = e.key === 'ArrowRight'
-        ? buttons[(i + 1) % buttons.length]
-        : buttons[(i - 1 + buttons.length) % buttons.length];
-      showSettingsPane(next.dataset.rsPane);
-      next.focus();
-      e.preventDefault();
-    });
     $('reader-reset-settings')?.addEventListener('click', resetSettings);
 
     const textColorInput = $('rs-text-color');
@@ -4688,9 +4757,9 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       const next = Math.min(32, Math.max(12, (Number(sl.value) || 18) + delta));
       sl.value = String(next);
       sl.dispatchEvent(new Event('input', { bubbles: true }));
+      const quickVal = $('rq-font-val');
+      if (quickVal) quickVal.textContent = String(next);
     };
-    $('rs-font-dec')?.addEventListener('click', () => bumpFontSize(-1));
-    $('rs-font-inc')?.addEventListener('click', () => bumpFontSize(1));
     wire('rs-line-height', 'rs-line-height-val', 'lineHeight', v => Number(v).toFixed(1));
     wire('rs-page-margin', 'rs-page-margin-val', 'pageMargin', v => `${Math.round(v)} px`);
     wire('rs-vertical-margin', 'rs-vertical-margin-val', 'verticalMargin', v => `${Math.round(v)} px`);
@@ -4816,7 +4885,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
   }
 
   function ensurePdfModeSettingsUi() {
-    const section = document.querySelector('[data-rs-section="layout"]');
+    const section = document.querySelector('.rs-page[data-rs-page="page"]');
     if (section && !$('rs-pdf-mode')) {
       const block = document.createElement('div');
       block.className = 'rs-group';
@@ -4837,16 +4906,17 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       btn.dataset.boundPdfMode = '1';
       btn.addEventListener('click', () => { void reopenPdfMode(btn.dataset.setPdfMode); });
     });
-    const menu = $('tb-overflow-menu');
-    if (menu && !$('tb-overflow-pdf-mode')) {
+    const tiles = document.querySelector('#reader-quick .rq-tiles');
+    if (tiles && !$('rq-pdf-mode')) {
+      const svg = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>';
       const item = document.createElement('button');
       item.type = 'button';
-      item.id = 'tb-overflow-pdf-mode';
-      item.setAttribute('role', 'menuitem');
-      item.dataset.overflow = 'pdf-mode';
+      item.id = 'rq-pdf-mode';
+      item.className = 'rq-tile';
       item.hidden = true;
-      item.textContent = 'PDF: Reflow';
-      menu.appendChild(item);
+      item.innerHTML = `<span class="rq-ico">${svg}</span><span class="rq-label">PDF: Reflow</span>`;
+      item.addEventListener('click', () => { void reopenPdfMode(S.pdfMode === 'reflow' ? 'page' : 'reflow'); });
+      tiles.appendChild(item);
     }
   }
 
@@ -4857,10 +4927,11 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     if (pdfModeGroup) pdfModeGroup.hidden = !pdf;
     const ebookLayout = $('rs-ebook-layout');
     if (ebookLayout) ebookLayout.hidden = pdf && S.pdfMode !== 'reflow';
-    const overflow = $('tb-overflow-pdf-mode');
-    if (overflow) {
-      overflow.hidden = !pdf;
-      overflow.textContent = S.pdfMode === 'reflow' ? 'PDF: страница' : 'PDF: Reflow';
+    const pdfTile = $('rq-pdf-mode');
+    if (pdfTile) {
+      pdfTile.hidden = !pdf;
+      const label = pdfTile.querySelector('.rq-label');
+      if (label) label.textContent = S.pdfMode === 'reflow' ? 'PDF: страница' : 'PDF: Reflow';
     }
   }
 
@@ -4870,6 +4941,9 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     toggle('[data-set-layout]', 'setLayout', S.layout);
     toggle('[data-set-pdf-mode]', 'setPdfMode', S.pdfMode);
     syncPdfModeChrome();
+    const rqFont = $('rq-font-val');
+    if (rqFont) rqFont.textContent = String(S.fontSize);
+    refreshSettingsSummaries();
     toggle('[data-set-volume-keys]', 'setVolumeKeys', S.volumeKeys);
     populateFontSelect();
     const fs = $('rs-font-family');
@@ -5049,7 +5123,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       if (active) syncTtsMediaMetadata();
       notifyParentTtsState();
     },
-    openSettings: () => openPanel('settings', { toggle: false }),
+    openSettings: () => openSettingsPage('tts'),
     afterControl: () => scheduleChromeHide(),
   });
 
@@ -5097,7 +5171,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
   function updateFullscreenIcon() {
     if (!btnFullscreen) return;
     const isFs = isFullscreenActive();
-    btnFullscreen.innerHTML = isFs
+    (btnFullscreen.querySelector('.rq-ico') || btnFullscreen).innerHTML = isFs
       ? '<svg viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/></svg>'
       : '<svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>';
     btnFullscreen.title = isFs ? rt('readerJs.fullscreenExit') : rt('readerJs.fullscreenEnter');
@@ -5116,37 +5190,6 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
   $('btn-toc')?.addEventListener('click', () => openPanel('toc'));
   $('btn-search')?.addEventListener('click', () => openPanel('search'));
   $('btn-bookmark-add')?.addEventListener('click', addBookmark);
-
-  const overflowBtn = $('btn-overflow');
-  const overflowMenu = $('tb-overflow-menu');
-  overflowBtn?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const open = !overflowMenu?.classList.contains('is-open');
-    if (!open) { closeOverflowMenu(); return; }
-    popGen += 1;
-    overflowMenu.classList.add('is-open');
-    overflowMenu.setAttribute('aria-hidden', 'false');
-    overflowBtn.setAttribute('aria-expanded', 'true');
-    popCard(overflowMenu, overflowBtn);
-  });
-  overflowMenu?.addEventListener('click', (e) => {
-    const item = e.target?.closest?.('[data-overflow]');
-    if (!item) return;
-    if (item.dataset.overflow === 'pdf-mode') {
-      void reopenPdfMode(S.pdfMode === 'reflow' ? 'page' : 'reflow');
-      closeOverflowMenu();
-      return;
-    }
-    const map = { search: 'btn-search', bookmark: 'btn-bookmark-add', tts: 'btn-tts' };
-    const id = map[item.dataset.overflow];
-    if (id) $(id)?.click();
-    closeOverflowMenu();
-  });
-  document.addEventListener('pointerdown', (e) => {
-    if (!overflowMenu?.classList.contains('is-open')) return;
-    if (overflowMenu.contains(e.target) || overflowBtn?.contains(e.target)) return;
-    closeOverflowMenu();
-  }, true);
 
   applyNextSeriesMeta(window.__READER_NEXT_SERIES);
   {

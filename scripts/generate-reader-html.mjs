@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const serverRoot = path.resolve(root, '../inpx-library-server');
 
 function readerAssetVersion() {
   const hash = createHash('sha256');
@@ -24,173 +25,116 @@ function readerAssetVersion() {
 }
 
 const version = readerAssetVersion();
-const libPath = path.resolve(root, '../inpx-library-server/src/templates/library.js');
-const lib = fs.readFileSync(libPath, 'utf8');
-const marker = 'export function renderReader';
-const fnStart = lib.indexOf(marker);
-const retStart = lib.indexOf('return `<!DOCTYPE html>', fnStart);
-const retEnd = lib.indexOf('</html>`;', retStart);
-if (retStart < 0 || retEnd < 0) throw new Error('renderReader HTML not found');
 
-let html = lib.slice(retStart + 8, retEnd + 7);
+/*
+ * The page is the server's renderReader() (src/templates/library.js), evaluated here with stubs
+ * and the server's Russian strings: toolbar, tile menu, panels and the settings list come from
+ * one template. Its helpers live in src/templates/reader-chrome.js, which has no imports, so this
+ * script never loads the server (DB, config). The app then swaps in its own settings sections
+ * (more options than the web) and adds its extra chrome below.
+ */
+const { LOCALE_BUNDLES } = await import(pathToFileURL(path.join(serverRoot, 'src/locale-bundles.js')).href);
+const readerChrome = await import(pathToFileURL(path.join(serverRoot, 'src/templates/reader-chrome.js')).href);
+const ru = LOCALE_BUNDLES.ru;
 
-const replacements = [
-  [/\$\{htmlLang\}/g, 'ru'],
-  [/\$\{htmlAttrs\}/g, ''],
-  [/\$\{csrfToken \? `[\s\S]*?` : ''\}/g, ''],
-  [/\$\{escapeHtml\(siteTitleForDisplay\(\)\)\} \\u2014 \$\{escapeHtml\(title\)\}/g, 'Читалка'],
-  [/\$\{renderFaviconLinks\(\)\}/g, ''],
-  [/\$\{fontPreconnect\}/g, ''],
-  [/\$\{STATIC_ASSET_VERSION\}/g, version],
-  [/\$\{themeBoot\}/g, "try{var _t=JSON.parse(localStorage.getItem('reader-settings')||'{}').theme||'sepia';document.documentElement.dataset.readerTheme=_t}catch(e){document.documentElement.dataset.readerTheme='sepia'}"],
-  [/\$\{lite \? ' reader-lite' : ''\}/g, ''],
-  [/\$\{serializeClientI18n\(\)\}/g, '{"locale":"ru","strings":{}}'],
-  [/\$\{liteBoot\}/g, ''],
-  [/\$\{themeSettingsBlock\}/g, `<div class="rs-group">
-        <div class="rs-label">Тема</div>
-        <div class="rs-themes">
-          <button class="rs-theme-dot" type="button" data-set-theme="dark"><span class="rs-dot-label">Тёмная</span></button>
-          <button class="rs-theme-dot" type="button" data-set-theme="light"><span class="rs-dot-label">Светлая</span></button>
-          <button class="rs-theme-dot" type="button" data-set-theme="sepia"><span class="rs-dot-label">Сепия</span></button>
-          <button class="rs-theme-dot" type="button" data-set-theme="night"><span class="rs-dot-label">Ночь</span></button>
-        </div>
-      </div>`],
-  [/\$\{ttsStopSvg\}/g, '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" fill="currentColor"/></svg>'],
-  [/\$\{escapeHtml\(t\('reader\.back'\)\)\}/g, 'Назад'],
-  [/\$\{escapeHtml\(t\('reader\.backToBook'\)\)\}/g, 'Назад'],
-  [/\$\{escapeHtml\(t\('reader\.reading'\)\)\}/g, 'Чтение'],
-  [/\$\{escapeHtml\(title\)\}/g, ''],
-  [/\$\{escapeHtml\(t\('reader\.loading'\)\)\}/g, 'Загрузка…'],
-  [/\$\{escapeHtml\(t\('reader\.loadingBook'\)\)\}/g, 'Загрузка книги…'],
-  [/\$\{escapeHtml\(t\('reader\.ttsBar'\)\)\}/g, 'Озвучка'],
-  [/\$\{escapeHtml\(t\('reader\.ttsPrev'\)\)\}/g, 'Назад'],
-  [/\$\{escapeHtml\(t\('reader\.ttsPlay'\)\)\}/g, 'Читать'],
-  [/\$\{escapeHtml\(t\('reader\.ttsStop'\)\)\}/g, 'Стоп'],
-  [/\$\{escapeHtml\(t\('reader\.ttsNext'\)\)\}/g, 'Вперёд'],
-  [/\$\{escapeHtml\(t\('reader\.fullscreen'\)\)\}/g, 'Полный экран'],
-  [/\$\{escapeHtml\(t\('reader\.nightMode'\)\)\}/g, 'Ночь'],
-  [/\$\{escapeHtml\(t\('reader\.dayModeToggle'\)\)\}/g, 'День/ночь'],
-  [/\$\{escapeHtml\(t\('reader\.bookmark'\)\)\}/g, 'Закладка'],
-  [/\$\{escapeHtml\(t\('reader\.addBookmark'\)\)\}/g, 'Добавить закладку'],
-  [/\$\{escapeHtml\(t\('reader\.search'\)\)\}/g, 'Поиск'],
-  [/\$\{escapeHtml\(t\('reader\.searchBook'\)\)\}/g, 'Поиск по книге'],
-  [/\$\{escapeHtml\(t\('reader\.toc'\)\)\}/g, 'Оглавление'],
-  [/\$\{escapeHtml\(t\('reader\.tocNav'\)\)\}/g, 'Оглавление'],
-  [/\$\{escapeHtml\(t\('reader\.settings'\)\)\}/g, 'Настройки'],
-  [/\$\{escapeHtml\(t\('reader\.settingsReading'\)\)\}/g, 'Настройки чтения'],
-  [/\$\{escapeHtml\(t\('readerJs\.highlight'\)\)\}/g, 'Выделить'],
-  [/\$\{escapeHtml\(t\('readerJs\.addNote'\)\)\}/g, 'Заметка'],
-  [/\$\{escapeHtml\(t\('readerJs\.copy'\)\)\}/g, 'Копировать'],
-  [/\$\{escapeHtml\(t\('readerJs\.remove'\)\)\}/g, 'Удалить'],
-  [/\$\{escapeHtml\(t\('readerJs\.notePlaceholder'\)\)\}/g, 'Ваша заметка…'],
-  [/\$\{escapeHtml\(t\('readerJs\.cancel'\)\)\}/g, 'Отмена'],
-  [/\$\{escapeHtml\(t\('readerJs\.save'\)\)\}/g, 'Сохранить'],
-  [/\$\{escapeHtml\(t\('reader\.closePanel'\)\)\}/g, 'Закрыть'],
-  [/\$\{escapeHtml\(t\('readerJs\.panelTocKicker'\)\)\}/g, 'Навигация'],
-  [/\$\{escapeHtml\(t\('readerJs\.panelTocTitle'\)\)\}/g, 'Оглавление'],
-  [/\$\{escapeHtml\(t\('reader\.close'\)\)\}/g, 'Закрыть'],
-  [/\$\{escapeHtml\(t\('reader\.panelToc'\)\)\}/g, 'Оглавление'],
-  [/\$\{escapeHtml\(t\('reader\.panelSearch'\)\)\}/g, 'Поиск'],
-  [/\$\{escapeHtml\(t\('reader\.panelBookmarks'\)\)\}/g, 'Закладки'],
-  [/\$\{escapeHtml\(t\('reader\.panelNotes'\)\)\}/g, 'Заметки'],
-  [/\$\{escapeHtml\(t\('reader\.panelSettings'\)\)\}/g, 'Настройки'],
-  [/\$\{escapeHtml\(t\('reader\.findChapter'\)\)\}/g, 'Найти главу'],
-  [/\$\{escapeHtml\(t\('reader\.prevChapter'\)\)\}/g, 'Пред. глава'],
-  [/\$\{escapeHtml\(t\('reader\.nextChapter'\)\)\}/g, 'След. глава'],
-  [/\$\{escapeHtml\(t\('readerJs\.searchPlaceholder'\)\)\}/g, 'Поиск по тексту'],
-  [/\$\{escapeHtml\(t\('readerJs\.searchHint'\)\)\}/g, 'Введите запрос'],
-  [/\$\{escapeHtml\(t\('reader\.presets'\)\)\}/g, 'Пресеты'],
-  [/\$\{escapeHtml\(t\('reader\.presetCompact'\)\)\}/g, 'Компакт'],
-  [/\$\{escapeHtml\(t\('reader\.presetBalanced'\)\)\}/g, 'Баланс'],
-  [/\$\{escapeHtml\(t\('reader\.presetRelaxed'\)\)\}/g, 'Простор'],
-  [/\$\{escapeHtml\(t\('reader\.font'\)\)\}/g, 'Шрифт'],
-  [/\$\{escapeHtml\(t\('reader\.fontFaceAria'\)\)\}/g, 'Шрифт'],
-  [/\$\{escapeHtml\(t\('reader\.color'\)\)\}/g, 'Цвет'],
-  [/\$\{escapeHtml\(t\('reader\.textColor'\)\)\}/g, 'Текст'],
-  [/\$\{escapeHtml\(t\('reader\.customTextColorTitle'\)\)\}/g, 'Цвет текста'],
-  [/\$\{escapeHtml\(t\('reader\.fromTheme'\)\)\}/g, 'Из темы'],
-  [/\$\{escapeHtml\(t\('reader\.bgColor'\)\)\}/g, 'Фон'],
-  [/\$\{escapeHtml\(t\('reader\.customBgColorTitle'\)\)\}/g, 'Цвет фона'],
-  [/\$\{escapeHtml\(t\('reader\.fontSize'\)\)\}/g, 'Размер'],
-  [/\$\{escapeHtml\(t\('reader\.lineHeight'\)\)\}/g, 'Интервал'],
-  [/\$\{escapeHtml\(t\('reader\.pageMargin'\)\)\}/g, 'Поля'],
-  [/\$\{escapeHtml\(t\('reader\.pageMarginHint'\)\)\}/g, ''],
-  [/\$\{escapeHtml\(t\('reader\.layoutMode'\)\)\}/g, 'Режим'],
-  [/\$\{escapeHtml\(t\('reader\.layoutPaginated'\)\)\}/g, 'Страницы'],
-  [/\$\{escapeHtml\(t\('reader\.layoutDual'\)\)\}/g, 'Разворот'],
-  [/\$\{escapeHtml\(t\('reader\.columnWidth'\)\)\}/g, 'Ширина'],
-  [/\$\{escapeHtml\(t\('reader\.fullWidth'\)\)\}/g, 'На всю ширину'],
-  [/\$\{escapeHtml\(t\('reader\.columnGap'\)\)\}/g, 'Зазор'],
-  [/\$\{escapeHtml\(t\('reader\.columnGapHint'\)\)\}/g, ''],
-  [/\$\{escapeHtml\(t\('reader\.ttsSettings'\)\)\}/g, 'Озвучка'],
-  [/\$\{escapeHtml\(t\('reader\.ttsRate'\)\)\}/g, 'Скорость'],
-  [/\$\{escapeHtml\(t\('reader\.ttsVoice'\)\)\}/g, 'Голос'],
-  [/\$\{escapeHtml\(t\('reader\.ttsVoiceDefault'\)\)\}/g, 'Системный'],
-  [/\$\{escapeHtml\(t\('reader\.reset'\)\)\}/g, 'Сброс'],
-  [/\$\{escapeHtml\(t\('reader\.theme'\)\)\}/g, 'Тема'],
-  [/\$\{escapeHtml\(t\('reader\.themeDark'\)\)\}/g, 'Тёмная'],
-  [/\$\{escapeHtml\(t\('reader\.themeLight'\)\)\}/g, 'Светлая'],
-  [/\$\{escapeHtml\(t\('reader\.themeSepia'\)\)\}/g, 'Сепия'],
-  [/\$\{escapeHtml\(t\('reader\.themeNight'\)\)\}/g, 'Ночь'],
-  [/\$\{backHref\}/g, '#'],
-  [/\$\{readerBackClick\}/g, ''],
-  [/<script src="\/book-ref\.js[^"]*" defer><\/script>\s*/g, ''],
-  // Server serves UI strings as a script file; the app reader reads inline JSON and,
-  // when it is empty, loads public/inpx-reader/reader-i18n-ru.json itself.
-  [/<script src="\$\{clientI18nScriptUrl\(\)\}" defer><\/script>/,
-    '<script type="application/json" id="ui-i18n-json">{"locale":"ru","strings":{}}</script>'],
-  [/<script>window\.__READER_BOOK_ID=[\s\S]*?<\/script>\s*<script type="module" src="\/reader\.js[^"]*"><\/script>/,
-    `<script>window.__READER_APP=1;window.__READER_ASSET_V__=${JSON.stringify(version)};</script>\n<script type="module" src="/inpx-reader/bootstrap.js?v=${version}"></script>\n<script src="/inpx-reader/reader-native-bridge.js?v=${version}"></script>\n<script type="module" src="/inpx-reader/reader.js?v=${version}"></script>`],
-  [/href="\/reader\.css/g, 'href="/inpx-reader/reader.css'],
-  [/<a href="#" class="tb-btn"([^>]*)><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"\/><\/svg><\/a>/,
-    '<button type="button" class="tb-btn" id="btn-app-back"$1 aria-label="Назад"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>'],
-];
+const escapeHtml = (value = '') => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+const t = (key) => {
+  if (!(key in ru)) throw new Error(`Reader template uses a key missing from the server ru bundle: ${key}`);
+  return ru[key];
+};
+const I18N_SCRIPT_STUB = '/__reader-i18n__.js';
 
-for (const [pattern, value] of replacements) {
+const lib = fs.readFileSync(path.join(serverRoot, 'src/templates/library.js'), 'utf8').replace(/\r\n/g, '\n');
+const fnStart = lib.indexOf('export function renderReader');
+const fnEnd = lib.indexOf('</html>`;\n}', fnStart);
+if (fnStart < 0 || fnEnd < 0) throw new Error('renderReader not found in the server template');
+const fnSource = lib.slice(fnStart, fnEnd + '</html>`;\n}'.length).replace(/^export /, '');
+
+const stubs = {
+  t,
+  escapeHtml,
+  getLocale: () => 'ru',
+  formatAuthorLabel: () => '',
+  bookPagePath: () => '#',
+  liteBookPagePath: () => '#',
+  renderFaviconLinks: () => '',
+  clientI18nScriptUrl: () => I18N_SCRIPT_STUB,
+  STATIC_ASSET_VERSION: version,
+  READER_ICONS: readerChrome.READER_ICONS,
+  READER_THEMES: readerChrome.READER_THEMES,
+  READER_EINK_UA_RE: readerChrome.READER_EINK_UA_RE,
+  readerQuickTile: readerChrome.readerQuickTile,
+  readerSettingsRow: readerChrome.readerSettingsRow,
+};
+// eslint-disable-next-line no-new-func
+const renderReader = new Function(...Object.keys(stubs), `return ${fnSource}`)(...Object.values(stubs));
+// The app fills the title at runtime (reader.js), so the template gets a placeholder that is cut out.
+let html = renderReader({ book: { id: '', ext: 'fb2' }, details: { title: '__READER_TITLE__' }, user: null, lite: false })
+  .replace(/__READER_TITLE__/g, '');
+
+function replaceOnce(pattern, value, what) {
+  if (!pattern.test(html)) throw new Error(`generate-reader-html: ${what} not found in the server template`);
   html = html.replace(pattern, value);
 }
 
-function composeReaderSettingsPanel(html) {
-  const inner = `
-      <div class="rs-nav" id="rs-subtabs" role="tablist" aria-label="Настройки чтения">
-        <button type="button" class="rs-nav-btn is-active" role="tab" id="rs-tab-text" aria-selected="true" aria-controls="rs-pane-text" data-rs-pane="text">Текст</button>
-        <button type="button" class="rs-nav-btn" role="tab" id="rs-tab-look" aria-selected="false" aria-controls="rs-pane-look" tabindex="-1" data-rs-pane="look">Вид</button>
-        <button type="button" class="rs-nav-btn" role="tab" id="rs-tab-controls" aria-selected="false" aria-controls="rs-pane-controls" tabindex="-1" data-rs-pane="controls">Жесты</button>
-        <button type="button" class="rs-nav-btn" role="tab" id="rs-tab-more" aria-selected="false" aria-controls="rs-pane-more" tabindex="-1" data-rs-pane="more">Ещё</button>
-      </div>
+replaceOnce(/<title>[^<]*<\/title>/, '<title></title>', 'title');
+// Web titles carry keyboard shortcuts («Оглавление (T)»); a phone has no keyboard.
+html = html.replace(/ \([A-Z]\)"/g, '"');
+// The app sets data-eink itself (useEinkMode → device / app setting), not from the browser UA.
+replaceOnce(/<script>try\{var _s=JSON\.parse\(localStorage\.getItem\('reader-settings'\)[\s\S]*?<\/script>/,
+  "<script>try{var _t=JSON.parse(localStorage.getItem('reader-settings')||'{}').theme||'sepia';document.documentElement.dataset.readerTheme=_t}catch(e){document.documentElement.dataset.readerTheme='sepia'}</script>",
+  'theme boot script');
+// Server serves UI strings as a script file; the app reader reads inline JSON and,
+// when it is empty, loads public/inpx-reader/reader-i18n-ru.json itself.
+replaceOnce(new RegExp(`<script src="${I18N_SCRIPT_STUB.replace(/[.]/g, '\\.')}" defer></script>`),
+  '<script type="application/json" id="ui-i18n-json">{"locale":"ru","strings":{}}</script>', 'i18n script');
+replaceOnce(/<script src="\/book-ref\.js[^"]*" defer><\/script>\s*/, '', 'book-ref script');
+replaceOnce(/<script>window\.__READER_BOOK_ID=[\s\S]*?<\/script>\s*<script type="module" src="\/reader\.js[^"]*"><\/script>/,
+  `<script>window.__READER_APP=1;window.__READER_ASSET_V__=${JSON.stringify(version)};</script>\n<script type="module" src="/inpx-reader/bootstrap.js?v=${version}"></script>\n<script src="/inpx-reader/reader-native-bridge.js?v=${version}"></script>\n<script type="module" src="/inpx-reader/reader.js?v=${version}"></script>`,
+  'reader scripts');
+replaceOnce(/href="\/reader\.css/, 'href="/inpx-reader/reader.css', 'reader.css link');
+replaceOnce(/<a href="#" class="tb-btn"([^>]*)><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"\/><\/svg><\/a>/,
+  '<button type="button" class="tb-btn" id="btn-app-back"$1><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>',
+  'back link');
 
-      <div class="rs-pane" id="rs-pane-text" data-rs-pane="text" role="tabpanel" aria-labelledby="rs-tab-text">
-      <section class="rs-section" data-rs-section="font">
-        <h3 class="rs-section-title">Размер</h3>
+/* Settings sheet: the same section list as the web, with the app's own options in each section. */
+const settingsRow = readerChrome.readerSettingsRow;
+const resetIcon = readerChrome.READER_ICONS.reset;
+const androidSettings = `
+      <nav class="rs-root" id="rs-root" aria-label="Настройки">
+        ${settingsRow('text', 'text', 'Текст')}
+        ${settingsRow('look', 'palette', 'Цвета и тема')}
+        ${settingsRow('page', 'page', 'Страница')}
+        ${settingsRow('status', 'status', 'Строка состояния')}
+        ${settingsRow('controls', 'hand', 'Управление')}
+        ${settingsRow('tts', 'tts', 'Озвучка')}
+        ${settingsRow('more', 'more', 'Прочее')}
+        <button type="button" class="rs-root-row rs-root-reset" id="reader-reset-settings"><span class="rs-root-ico" aria-hidden="true">${resetIcon}</span><span class="rs-root-label">Сбросить</span></button>
+      </nav>
+
+      <section class="rs-page" data-rs-page="text" data-rs-title="Текст" hidden>
         <div class="rs-group">
-          <div class="rs-stepper">
-            <button type="button" class="rs-stepper-btn" id="rs-font-dec" aria-label="Мельче">A−</button>
-            <span class="rs-stepper-val" id="rs-font-size-val">18</span>
-            <button type="button" class="rs-stepper-btn" id="rs-font-inc" aria-label="Крупнее">A+</button>
-          </div>
+          <div class="rs-label">Размер шрифта</div>
           <div class="rs-slider">
-            <span class="rs-icon">A</span>
             <input type="range" id="rs-font-size" name="readerFontSize" min="12" max="32" step="1" aria-label="Размер шрифта">
-            <span class="rs-icon rs-icon-lg">A</span>
+            <span class="rs-val" id="rs-font-size-val">18</span>
           </div>
         </div>
-      </section>
-
-      <section class="rs-section" data-rs-section="presets">
-        <h3 class="rs-section-title">Пресеты</h3>
         <div class="rs-group">
+          <div class="rs-label">Пресеты</div>
           <div class="rs-seg rs-preset-seg">
             <button type="button" data-preset="compact">Компакт</button>
             <button type="button" data-preset="balanced">Баланс</button>
             <button type="button" data-preset="relaxed">Простор</button>
           </div>
         </div>
-      </section>
-
-      <section class="rs-section" data-rs-section="font-face">
-        <h3 class="rs-section-title">Шрифт</h3>
         <div class="rs-group">
-          <div class="rs-label">Гарнитура</div>
+          <div class="rs-label">Шрифт</div>
           <select id="rs-font-family" name="readerFontFamily" class="rs-select" aria-label="Шрифт"></select>
           <label class="rs-check">
             <span>Шрифт из книги</span>
@@ -209,18 +153,12 @@ function composeReaderSettingsPanel(html) {
         <div class="rs-group">
           <div class="rs-label">Высота строки</div>
           <div class="rs-slider">
-            <span class="rs-icon">&equiv;</span>
-            <input type="range" id="rs-line-height" name="readerLineHeight" min="1.2" max="2.4" step="0.1">
+            <input type="range" id="rs-line-height" name="readerLineHeight" min="1.2" max="2.4" step="0.1" aria-label="Высота строки">
             <span class="rs-val" id="rs-line-height-val">1.6</span>
           </div>
         </div>
-      </section>
-
-      <details class="rs-details">
-        <summary>Дополнительно</summary>
-      <section class="rs-section" data-rs-section="typography">
-        <h3 class="rs-section-title">Абзац</h3>
         <div class="rs-group">
+          <div class="rs-label">Абзац</div>
           <label class="rs-check">
             <span>По ширине</span>
             <input type="checkbox" id="rs-justify" name="readerJustify" checked>
@@ -231,11 +169,6 @@ function composeReaderSettingsPanel(html) {
           </label>
         </div>
         <div class="rs-group">
-          <div class="rs-sublabel">Межбуквенный</div>
-          <div class="rs-slider">
-            <input type="range" id="rs-letter-spacing" name="readerLetterSpacing" min="-0.05" max="0.2" step="0.01" aria-label="Межбуквенный интервал">
-            <span class="rs-val" id="rs-letter-spacing-val">0.00</span>
-          </div>
           <div class="rs-sublabel">Между абзацами</div>
           <div class="rs-slider">
             <input type="range" id="rs-paragraph-spacing" name="readerParagraphSpacing" min="0" max="1.5" step="0.05" aria-label="Межабзацный интервал">
@@ -246,26 +179,28 @@ function composeReaderSettingsPanel(html) {
             <input type="range" id="rs-text-indent" name="readerTextIndent" min="0" max="3" step="0.1" aria-label="Красная строка">
             <span class="rs-val" id="rs-text-indent-val">0.0 em</span>
           </div>
+          <div class="rs-sublabel">Межбуквенный</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-letter-spacing" name="readerLetterSpacing" min="-0.05" max="0.2" step="0.01" aria-label="Межбуквенный интервал">
+            <span class="rs-val" id="rs-letter-spacing-val">0.00</span>
+          </div>
         </div>
       </section>
-      </details>
-      </div>
 
-      <div class="rs-pane" id="rs-pane-look" data-rs-pane="look" role="tabpanel" aria-labelledby="rs-tab-look" hidden>
-      <section class="rs-section" data-rs-section="appearance">
-        <h3 class="rs-section-title">Тема</h3>
+      <section class="rs-page" data-rs-page="look" data-rs-title="Цвета и тема" hidden>
         <div class="rs-group">
+          <div class="rs-label">Тема</div>
           <div class="rs-themes">
-            <button class="rs-theme-dot" type="button" data-set-theme="dark"><span class="rs-dot-label">Тёмная</span></button>
             <button class="rs-theme-dot" type="button" data-set-theme="light"><span class="rs-dot-label">Светлая</span></button>
             <button class="rs-theme-dot" type="button" data-set-theme="sepia"><span class="rs-dot-label">Сепия</span></button>
+            <button class="rs-theme-dot" type="button" data-set-theme="dark"><span class="rs-dot-label">Тёмная</span></button>
             <button class="rs-theme-dot" type="button" data-set-theme="night"><span class="rs-dot-label">Ночь</span></button>
             <button class="rs-theme-dot" type="button" data-set-theme="eink"><span class="rs-dot-label">E-Ink</span></button>
           </div>
         </div>
-        <details class="rs-details">
-          <summary>Дополнительно</summary>
+        <div id="rs-brightness-slot"></div>
         <div class="rs-group">
+          <div class="rs-label">Цвет</div>
           <div class="rs-color-stack">
             <div class="rs-color-line">
               <div class="rs-color-sub">Текст</div>
@@ -322,12 +257,9 @@ function composeReaderSettingsPanel(html) {
             <input type="checkbox" id="rs-invert" name="readerInvert">
           </label>
         </div>
-        <div id="rs-brightness-slot"></div>
-        </details>
       </section>
 
-      <section class="rs-section" data-rs-section="layout">
-        <h3 class="rs-section-title">Страница</h3>
+      <section class="rs-page" data-rs-page="page" data-rs-title="Страница" hidden>
         <div class="rs-group">
           <div class="rs-label">Режим</div>
           <div class="rs-seg">
@@ -336,8 +268,6 @@ function composeReaderSettingsPanel(html) {
             <button type="button" data-set-layout="scrolled">Прокрутка</button>
           </div>
         </div>
-        <details class="rs-details">
-          <summary>Дополнительно</summary>
         <div class="rs-group" id="rs-layout-paginated">
           <div class="rs-label">Ширина колонки</div>
           <div class="rs-slider">
@@ -368,74 +298,22 @@ function composeReaderSettingsPanel(html) {
           <div class="rs-label">Поля</div>
           <div class="rs-sublabel">Боковые</div>
           <div class="rs-slider">
-            <span class="rs-icon" aria-hidden="true">|</span>
             <input type="range" id="rs-page-margin" name="readerPageMargin" min="0" max="72" step="4" aria-label="Боковые поля">
             <span class="rs-val" id="rs-page-margin-val">32 px</span>
-            <span class="rs-icon" aria-hidden="true">|&nbsp;|</span>
           </div>
           <div class="rs-sublabel">Вертикальные</div>
           <div class="rs-slider">
-            <span class="rs-icon" aria-hidden="true">—</span>
             <input type="range" id="rs-vertical-margin" name="readerVerticalMargin" min="0" max="96" step="4" aria-label="Вертикальные поля">
             <span class="rs-val" id="rs-vertical-margin-val">32 px</span>
-            <span class="rs-icon" aria-hidden="true">≡</span>
           </div>
         </div>
-        </details>
       </section>
-      </div>
 
-      <div class="rs-pane" id="rs-pane-controls" data-rs-pane="controls" role="tabpanel" aria-labelledby="rs-tab-controls" hidden>
-      <section class="rs-section" data-rs-section="controls">
-        <h3 class="rs-section-title">Листание</h3>
-        <div class="rs-group">
-          <div class="rs-label">Автолист</div>
-          <div class="rs-slider">
-            <input type="range" id="rs-auto-flip" name="readerAutoFlip" min="0" max="30" step="1" aria-label="Интервал автоперелистывания">
-            <span class="rs-val" id="rs-auto-flip-val">Выкл</span>
-          </div>
-          <div class="rs-hint">0 — выкл. Только страницы.</div>
-        </div>
-        <div class="rs-group">
-          <label class="rs-check"><span>Вибрация при листании</span><input type="checkbox" id="rs-page-haptic" name="readerPageHaptic"></label>
-        </div>
-        <div class="rs-group" id="rs-eink-refresh-group" hidden>
-          <div class="rs-label">Полная перерисовка</div>
-          <div class="rs-seg">
-            <button type="button" data-set-eink-refresh="1">Каждый раз</button>
-            <button type="button" data-set-eink-refresh="3">Каждые 3</button>
-            <button type="button" data-set-eink-refresh="5">Каждые 5</button>
-          </div>
-          <div class="rs-hint">E-Ink: полный refresh против шлейфа.</div>
-        </div>
-        <div class="rs-group" id="rs-eink-volume-hint" hidden>
-          <div class="rs-hint">E-Ink: громкость листает страницы. Яркость — левый край, температура — правый.</div>
-        </div>
-        <div id="rs-volume-keys-slot"></div>
-        <details class="rs-details">
-          <summary>Дополнительно — зоны экрана</summary>
-        <div class="rs-group">
-          <div class="rs-label">Зоны экрана</div>
-          <div class="rs-seg rs-tap-mode-seg">
-            <button type="button" data-tap-edit="short" class="is-active">Короткий тап</button>
-            <button type="button" data-tap-edit="long">Долгий тап</button>
-          </div>
-          <div class="rs-tap-grid" id="rs-tap-grid" role="group" aria-label="Зоны экрана"></div>
-          <select id="rs-tap-action" class="rs-select" aria-label="Действие зоны" hidden></select>
-          <div class="rs-hint" id="rs-tap-hint">Клетка, затем действие</div>
-          <button type="button" class="rs-tap-reset" id="rs-tap-reset">Сброс зон</button>
-        </div>
-        </details>
-      </section>
-      </div>
-
-      <div class="rs-pane" id="rs-pane-more" data-rs-pane="more" role="tabpanel" aria-labelledby="rs-tab-more" hidden>
-      <section class="rs-section" data-rs-section="status">
-        <h3 class="rs-section-title">Строка состояния</h3>
+      <section class="rs-page" data-rs-page="status" data-rs-title="Строка состояния" hidden>
         <div class="rs-group">
           <div class="rs-label">Видимость</div>
           <div class="rs-seg">
-            <button type="button" data-set-status-mode="withChrome">С панелью</button>
+            <button type="button" data-set-status-mode="withChrome">С меню</button>
             <button type="button" data-set-status-mode="always">Всегда</button>
             <button type="button" data-set-status-mode="hidden">Скрыта</button>
           </div>
@@ -449,8 +327,52 @@ function composeReaderSettingsPanel(html) {
         </div>
       </section>
 
-      <section class="rs-section" data-rs-section="extra">
-        <h3 class="rs-section-title">Прочее</h3>
+      <section class="rs-page" data-rs-page="controls" data-rs-title="Управление" hidden>
+        <div class="rs-group" id="rs-eink-refresh-group" hidden>
+          <div class="rs-label">Полная перерисовка E-Ink</div>
+          <div class="rs-seg">
+            <button type="button" data-set-eink-refresh="1">Каждый раз</button>
+            <button type="button" data-set-eink-refresh="3">Каждые 3</button>
+            <button type="button" data-set-eink-refresh="5">Каждые 5</button>
+          </div>
+          <div class="rs-hint">Полная перерисовка убирает шлейф от прошлых страниц.</div>
+        </div>
+        <div class="rs-group" id="rs-eink-volume-hint" hidden>
+          <div class="rs-hint">E-Ink: громкость листает страницы. Яркость — левый край, температура — правый.</div>
+        </div>
+        <div id="rs-volume-keys-slot"></div>
+        <div class="rs-group">
+          <div class="rs-label">Автолистание, сек</div>
+          <div class="rs-slider">
+            <input type="range" id="rs-auto-flip" name="readerAutoFlip" min="0" max="30" step="1" aria-label="Интервал автоперелистывания">
+            <span class="rs-val" id="rs-auto-flip-val">Выкл</span>
+          </div>
+          <div class="rs-hint">0 — выкл. Только в режиме страниц.</div>
+        </div>
+        <div class="rs-group">
+          <label class="rs-check"><span>Вибрация при листании</span><input type="checkbox" id="rs-page-haptic" name="readerPageHaptic"></label>
+        </div>
+        <div class="rs-group">
+          <div class="rs-label">Зоны экрана</div>
+          <div class="rs-seg rs-tap-mode-seg">
+            <button type="button" data-tap-edit="short" class="is-active">Короткий тап</button>
+            <button type="button" data-tap-edit="long">Долгий тап</button>
+          </div>
+          <div class="rs-tap-grid" id="rs-tap-grid" role="group" aria-label="Зоны экрана"></div>
+          <select id="rs-tap-action" class="rs-select" aria-label="Действие зоны" hidden></select>
+          <div class="rs-hint" id="rs-tap-hint">Клетка, затем действие</div>
+          <button type="button" class="rs-tap-reset" id="rs-tap-reset">Сброс зон</button>
+        </div>
+      </section>
+
+      <section class="rs-page" data-rs-page="tts" data-rs-title="Озвучка" hidden>
+        <div class="rs-group">
+          <!-- Голос, скорость, тон, подсветка, паузы: reader-shared/reader-tts.js -->
+          <div id="rs-tts-mount"></div>
+        </div>
+      </section>
+
+      <section class="rs-page" data-rs-page="more" data-rs-title="Прочее" hidden>
         <div class="rs-group">
           <label class="rs-check">
             <span>Всплывающие сноски</span>
@@ -462,36 +384,14 @@ function composeReaderSettingsPanel(html) {
           <textarea id="rs-custom-css" class="rs-custom-css" name="readerCustomCss" rows="5" spellcheck="false" placeholder="/* Дополнительные стили для текста книги */"></textarea>
           <button type="button" class="rs-custom-css-clear" id="rs-custom-css-clear">Очистить CSS</button>
         </div>
-      </section>
+      </section>`;
 
-      <section class="rs-section" data-rs-section="tts">
-        <h3 class="rs-section-title">Озвучка</h3>
-        <div class="rs-group">
-          <!-- Голос, скорость, тон, подсветка, паузы: reader-shared/reader-tts.js -->
-          <div id="rs-tts-mount"></div>
-        </div>
-      </section>
-      </div>
-`;
-
-  return html.replace(
-    /<div class="panel-body" data-panel-tab="settings" hidden>[\s\S]*?<div class="rs-actions">/,
-    `<div class="panel-body" data-panel-tab="settings" data-settings-layout="v2" hidden>${inner}\n      <div class="rs-actions">`,
-  );
-}
-
-function extendReaderSettingsHtml(source) {
-  return composeReaderSettingsPanel(source);
-}
+replaceOnce(/(<div class="panel-body rs-body" data-panel-tab="settings" hidden>)[\s\S]*?(\n {4}<\/div>\n {2}<\/div>\n<\/div>\n)/,
+  `$1${androidSettings}$2`, 'settings panel');
 
 /** AlReaderX-пакет: статус, goto, chrome footer — вне settings panel. */
 function injectAlReaderChrome(source) {
   let out = source;
-
-  // Idempotent cleanup if a previous broken inject left junk inside footer.
-  out = out.replace(/\s*<div class="reader-status-strip"[\s\S]*?<\/div>\s*<div class="reader-autoflip-hud"[\s\S]*?<\/div>\s*/g, '\n');
-  out = out.replace(/\s*<button type="button" class="ft-goto-btn" id="ft-goto"[^>]*>.*?<\/button>\s*/g, '\n  ');
-  out = out.replace(/\s*<div class="reader-goto" id="reader-goto"[\s\S]*?<\/div>\s*<\/div>\s*/g, '\n');
 
   // The percentage itself opens «Перейти к…» (as in AlReader / Moon+), instead of a separate
   // «Перейти» word next to the seek bar that read like its caption.
@@ -500,32 +400,14 @@ function injectAlReaderChrome(source) {
     '<button type="button" class="ft-goto-btn" id="ft-goto" title="Перейти к позиции" aria-label="Перейти к позиции"><span class="ft-pct" id="ft-pct">0%</span></button>',
   );
 
-  if (!out.includes('id="btn-overflow"')) {
-    out = out.replace(
-      /(<button class="tb-btn" type="button" id="btn-settings"[\s\S]*?<\/button>)\s*<\/div>\s*<\/div>/,
-      `$1
-    <button class="tb-btn tb-overflow-btn" type="button" id="btn-overflow" title="Ещё" aria-label="Ещё" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="18" r="1.7" fill="currentColor" stroke="none"/></svg></button>
-  </div>
-</div>
-<div class="tb-overflow-menu" id="tb-overflow-menu" role="menu" aria-hidden="true">
-  <button type="button" role="menuitem" data-overflow="search">Поиск</button>
-  <button type="button" role="menuitem" data-overflow="bookmark">Закладка</button>
-  <button type="button" role="menuitem" data-overflow="tts">Озвучка</button>
-</div>`,
-    );
-  }
+  out = out.replace(
+    /<button type="button" class="rsm-btn" id="rsm-note"[^>]*>([^<]*)<\/button>/,
+    '<button type="button" class="rsm-btn" id="rsm-note">$1</button>\n  <button type="button" class="rsm-btn" id="rsm-bookmark">Закладка</button>',
+  );
 
-  if (!out.includes('id="rsm-bookmark"')) {
-    out = out.replace(
-      /<button type="button" class="rsm-btn" id="rsm-note"[^>]*>Заметка<\/button>/,
-      '<button type="button" class="rsm-btn" id="rsm-note">Заметка</button>\n  <button type="button" class="rsm-btn" id="rsm-bookmark">Закладка</button>',
-    );
-  }
-
-  if (!out.includes('id="reader-status-strip"')) {
-    out = out.replace(
-      /(<\/div>\s*\n)(<div class="reader-tts-dock")/,
-      `$1
+  out = out.replace(
+    /(<\/div>\s*\n)(<div class="reader-tts-dock")/,
+    `$1
 <div class="reader-status-strip" id="reader-status-strip" aria-hidden="true">
   <div class="rss-side rss-left">
     <span class="rss-item rss-chapter" id="rss-chapter" hidden></span>
@@ -542,21 +424,14 @@ function injectAlReaderChrome(source) {
 
 <div class="reader-autoflip-hud" id="reader-autoflip-hud" hidden aria-hidden="true">Авто</div>
 
+<div class="reader-hud-flash" id="reader-hud-flash" aria-hidden="true"></div>
+
 $2`,
-    );
-  }
+  );
 
-  if (!out.includes('id="reader-hud-flash"')) {
-    out = out.replace(
-      /(<div class="reader-autoflip-hud" id="reader-autoflip-hud"[^>]*>[\s\S]*?<\/div>)/,
-      `$1\n\n<div class="reader-hud-flash" id="reader-hud-flash" aria-hidden="true"></div>`,
-    );
-  }
-
-  if (!out.includes('id="reader-goto"')) {
-    out = out.replace(
-      /(<div class="reader-note-editor" id="reader-note-editor" aria-hidden="true">\s*<div class="rne-card">[\s\S]*?<\/div>\s*<\/div>\s*)(\n*<div class="panel-overlay")/,
-      `$1
+  out = out.replace(
+    /(<div class="reader-note-editor" id="reader-note-editor" aria-hidden="true">\s*<div class="rne-card">[\s\S]*?<\/div>\s*<\/div>\s*)(\n*<div class="panel-overlay")/,
+    `$1
 <div class="reader-goto" id="reader-goto" aria-hidden="true">
   <div class="rg-card">
     <div class="rg-title">Перейти к…</div>
@@ -579,40 +454,30 @@ $2`,
   </div>
 </div>
 $2`,
-    );
-  }
+  );
 
   return out;
 }
 
-html = extendReaderSettingsHtml(html);
 html = injectAlReaderChrome(html);
 
-if (!html.includes('id="reader-restore-veil"')) {
-  html = html.replace(
-    /<div id="reader-body">/,
-    `<div class="reader-restore-veil" id="reader-restore-veil" hidden></div>
+html = html.replace(
+  /<div id="reader-body">/,
+  `<div class="reader-restore-veil" id="reader-restore-veil" hidden></div>
 <div id="reader-body">`,
-  );
-}
+);
 
 // Полноэкранный wallpaper underlay (Android WebView; создаётся и из reader.js)
-if (!html.includes('id="reader-wallpaper"')) {
-  html = html.replace(
-    /<body([^>]*)>/i,
-    '<body$1>\n<div id="reader-wallpaper" aria-hidden="true"></div>',
-  );
-}
+html = html.replace(
+  /<body([^>]*)>/i,
+  '<body$1>\n<div id="reader-wallpaper" aria-hidden="true"></div>',
+);
 
-// Strip any remaining template expressions
-html = html.replace(/\$\{[^}]+\}/g, '');
-
-// A stripped expression inside src/href leaves src="" — the WebView would load the page itself as a script.
+// A template value the stubs above did not cover would leave src="" / href="" — the WebView would load the page itself as a script.
 if (/\s(?:src|href)=""/.test(html)) {
-  throw new Error('Reader HTML has an empty src/href: a server template expression needs a replacement above');
+  throw new Error('Reader HTML has an empty src/href: a server template value needs a stub above');
 }
 
-// The server template may be checked out with CRLF; keep the generated page LF-only.
 html = html.replace(/\r\n/g, '\n');
 
 const out = path.join(root, 'public/inpx-reader/index.html');
@@ -631,7 +496,9 @@ if (veilMarkup && veilMarkup[0].includes('Загрузка книги')) {
   console.error('Restore veil must not repeat the Foliate loading message');
   process.exit(1);
 }
-if (!html.includes('id="rs-tap-grid"') || !html.includes('id="reader-goto"') || !html.includes('id="ft-goto"')) {
-  console.error('AlReaderX chrome markup missing after generate-reader-html');
-  process.exit(1);
+for (const id of ['rs-tap-grid', 'reader-goto', 'ft-goto', 'reader-quick', 'rs-root', 'rs-tts-mount', 'reader-status-strip', 'rsm-bookmark', 'btn-app-back']) {
+  if (!html.includes(`id="${id}"`)) {
+    console.error(`Reader markup #${id} missing after generate-reader-html`);
+    process.exit(1);
+  }
 }
