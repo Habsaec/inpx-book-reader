@@ -64,7 +64,7 @@ interface ReaderNativePlugin {
   /** `pitch` 0.5–2, `lang` BCP 47 (used when no voice is chosen); word ranges arrive as the `ttsRange` iframe event. */
   speak(options: { text: string; utteranceId?: string; rate?: number; pitch?: number; lang?: string; voice?: string; volume?: number; queue?: boolean }): Promise<void>;
   /** Sleep timer: accelerometer while enabled; movement arrives in the reader iframe as the `ttsMotion` event. */
-  setMotionWatch(options: { enabled: boolean }): Promise<{ active: boolean }>;
+  setMotionWatch(options: { enabled: boolean; threshold?: number; spanMs?: number }): Promise<{ active: boolean }>;
   stopTts(): Promise<void>;
   pauseTts(): Promise<void>;
   resumeTts(): Promise<void>;

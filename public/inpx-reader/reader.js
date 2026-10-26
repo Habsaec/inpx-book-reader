@@ -5014,10 +5014,10 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     /* Таймер сна: нативный акселерометр работает и при выключенном экране (WebView devicemotion — нет). */
     get watchMotion() {
       if (!window.__INPX_USE_NATIVE_TTS || !window.__INPX_NATIVE?.setMotionWatch) return undefined;
-      return (onMove) => {
+      return (onMove, level) => {
         const handler = () => onMove();
         window.addEventListener('inpx-native-motion', handler);
-        void window.__INPX_NATIVE.setMotionWatch(true).catch(() => {});
+        void window.__INPX_NATIVE.setMotionWatch(true, level).catch(() => {});
         return () => {
           window.removeEventListener('inpx-native-motion', handler);
           void window.__INPX_NATIVE?.setMotionWatch(false).catch(() => {});

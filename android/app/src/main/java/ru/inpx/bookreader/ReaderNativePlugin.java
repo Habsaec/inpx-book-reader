@@ -558,6 +558,9 @@ public class ReaderNativePlugin extends Plugin {
         if (motionWatcher == null) {
             motionWatcher = new TtsMotionWatcher(getContext(), () -> forwardTtsEventToReader("ttsMotion", "", -1, -1));
         }
+        Float threshold = call.getFloat("threshold", -1f);
+        Integer spanMs = call.getInt("spanMs", -1);
+        motionWatcher.configure(threshold != null ? threshold : -1f, spanMs != null ? spanMs : -1);
         boolean active;
         if (enabled) {
             active = motionWatcher.start();

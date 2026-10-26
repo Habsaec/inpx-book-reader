@@ -81,8 +81,12 @@
     updateTtsMediaSession(opts) {
       return postNative('updateTtsMediaSession', opts || {});
     },
-    setMotionWatch(enabled) {
-      return postNative('setMotionWatch', { enabled: Boolean(enabled) });
+    /** level = { threshold, spanMs } из TTS_MOTION_LEVELS (чувствительность таймера сна). */
+    setMotionWatch(enabled, level) {
+      const data = { enabled: Boolean(enabled) };
+      if (level && Number.isFinite(Number(level.threshold))) data.threshold = Number(level.threshold);
+      if (level && Number.isFinite(Number(level.spanMs))) data.spanMs = Math.round(Number(level.spanMs));
+      return postNative('setMotionWatch', data);
     },
   };
 
