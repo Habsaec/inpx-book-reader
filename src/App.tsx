@@ -80,8 +80,11 @@ import {
   coverUrl,
   displayCoverUrl,
   fetchLibraryView,
+  fetchReaderActivitySyncMeta,
   mapServerBook,
 } from './lib/inpxClient';
+import { recentRemovedOnServer, withoutFinishedReading } from './lib/localReadingProgress';
+import { clearOfflineReadingHistory } from './lib/offlineReaderStore';
 import { warmCoverCache } from './lib/coverCache';
 import { isBookDownloadInFlight, resolveBookPrimaryAction } from './lib/bookOpenPolicy';
 import type { Book, Shelf } from './types';
@@ -627,6 +630,7 @@ export default function App() {
     handleContinueBook,
     handleOpenBookAtPosition,
     handleRemoveBook,
+    handleRemoveReadingHistory,
     handleRemoveBooks,
     handleAddShelf,
     handleAddBookToShelf,
@@ -747,7 +751,7 @@ export default function App() {
 
   const openBookActions = React.useCallback((
     book: Book,
-    context?: { shelfId?: number | string; shelfName?: string; fromDetails?: boolean },
+    context?: { shelfId?: number | string; shelfName?: string; fromDetails?: boolean; fromReading?: boolean },
   ) => {
     // From the book page the sheet opens on top of it; closing returns to the page.
     if (!context?.fromDetails) {
@@ -760,6 +764,7 @@ export default function App() {
       shelfId: context?.shelfId,
       shelfName: context?.shelfName,
       fromDetails: context?.fromDetails,
+      fromReading: context?.fromReading,
     });
   }, [setDownloadPromptBook, setDownloadPromptError]);
 
@@ -983,7 +988,7 @@ export default function App() {
   );
 
   React.useEffect(() => {
-    const hero = localRecentReading[0];
+    const hero = withoutFinishedReading(localRecentReading, inpxServer.readIds, readingProgressByBookId)[0];
     const onDisk = hero
       ? downloadedBooksWithFile.some((b) => b.id === hero.id && Boolean(b.localFileName?.trim()))
       : false;
@@ -998,7 +1003,46 @@ export default function App() {
           }
         : null,
     );
-  }, [localRecentReading, downloadedBooksWithFile]);
+  }, [localRecentReading, downloadedBooksWithFile, inpxServer.readIds, readingProgressByBookId]);
+
+  // Web «Убрать» from «Читаю» deletes the server history row, but a downloaded book with local
+  // progress kept coming back here. When the server history changes, hide those books locally.
+  const reconciledHistoryRevRef = React.useRef<string | null>(null);
+  const localRecentReadingRef = React.useRef(localRecentReading);
+  localRecentReadingRef.current = localRecentReading;
+  const readIdsRef = React.useRef(inpxServer.readIds);
+  readIdsRef.current = inpxServer.readIds;
+  // Runs when the profile reloads (start, return to the app, server activity change).
+  React.useEffect(() => {
+    if (!isOnline || !inpxServer.profile) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const meta = await fetchReaderActivitySyncMeta(serverConfig);
+        const rev = meta?.readingHistoryRev || null;
+        if (cancelled || !rev || rev === reconciledHistoryRevRef.current) return;
+        const candidates = recentRemovedOnServer(localRecentReadingRef.current, new Set(), rev, readIdsRef.current);
+        if (candidates.length > 0) {
+          const serverIds = new Set<string>();
+          for (let page = 1; page <= 20; page += 1) {
+            const res = await fetchLibraryView(serverConfig, 'continue', page, 24);
+            for (const item of res.items) serverIds.add(String(item.id));
+            if (res.items.length < 24 || serverIds.size >= (res.total || 0)) break;
+          }
+          if (cancelled) return;
+          const removed = recentRemovedOnServer(localRecentReadingRef.current, serverIds, rev, readIdsRef.current);
+          for (const id of removed) clearOfflineReadingHistory(id);
+          if (removed.length > 0) bumpReaderLocal();
+        }
+        reconciledHistoryRevRef.current = rev;
+      } catch {
+        /* next profile refresh retries */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, inpxServer.profile, serverConfig, bumpReaderLocal]);
 
   // «Новое у любимых» widget: only when one is placed; on start, on return to the app and when read marks change.
   const readCount = inpxServer.readIds?.size ?? 0;
@@ -1299,6 +1343,7 @@ export default function App() {
               canDownloadOnline={canReadOnline}
               downloadedBookIds={downloadedBookIdsWithFile}
               localOfflineBooks={downloadedBooksWithFile}
+              localRecentReading={localRecentReading}
               storageDirectory={storageDirectory}
               storageDirectoryReady={storageDirectoryReady}
               downloadingId={downloadingId}
@@ -1542,6 +1587,9 @@ export default function App() {
         onToggleBookmark={isOnline ? handleToggleBookBookmark : undefined}
         onRemoveFromShelf={(bookId, shelfId) => {
           void handleRemoveBookFromShelf(bookId, String(shelfId));
+        }}
+        onRemoveFromReading={(bookId) => {
+          void handleRemoveReadingHistory(bookId);
         }}
         shelves={uiShelves}
         onAddToShelf={handleAddBookToShelfFromUi}

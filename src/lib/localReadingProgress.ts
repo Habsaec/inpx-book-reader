@@ -137,3 +137,41 @@ export function mergeRecentReadingLists(
 
   return [...byId.values()].sort((a, b) => parseSyncTs(b.lastOpenedAt) - parseSyncTs(a.lastOpenedAt));
 }
+
+/**
+ * «Читаю» lists books in progress only (like the web: reading history minus read books):
+ * marked read on the server or finished here (≥ 99%) drop out.
+ */
+export function withoutFinishedReading<T extends { id: string; readProgress?: number }>(
+  items: T[],
+  readIds?: Set<string> | null,
+  progressByBookId?: Record<string, number> | null,
+): T[] {
+  return items.filter((item) => {
+    if (readIds?.has(item.id)) return false;
+    const pct = Math.round(Number(progressByBookId?.[item.id] ?? item.readProgress) || 0);
+    return pct < 99;
+  });
+}
+
+/**
+ * Books of the local «недавно читали» that the server's «Читаю» no longer has although they were
+ * last read before the server's history last changed: removed there (web «Убрать»), so hide them
+ * here too. A book read after that change is kept — its history may not have reached the server.
+ */
+export function recentRemovedOnServer(
+  local: LocalRecentReadingItem[],
+  serverIds: Set<string>,
+  serverHistoryRev: string | null | undefined,
+  readIds?: Set<string> | null,
+): string[] {
+  const revTs = parseSyncTs(serverHistoryRev);
+  if (!revTs) return [];
+  return local
+    .filter((item) => {
+      if (serverIds.has(item.id) || readIds?.has(item.id)) return false;
+      const ts = parseSyncTs(item.lastOpenedAt);
+      return ts > 0 && ts < revTs;
+    })
+    .map((item) => item.id);
+}

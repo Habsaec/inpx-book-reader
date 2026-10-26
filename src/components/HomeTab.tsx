@@ -1,10 +1,11 @@
 import React from 'react';
 import { BookOpen, AlertCircle, ChevronRight, Download, MoreVertical, Play, Loader2 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
-import { InpxProfile, mapServerBook, starsFromLibRate, fetchLibraryView, fetchHomeShelves, isAuthError, isUnreachableServerError, bookContentUrl, displayCoverUrl } from '../lib/inpxClient';
+import { InpxProfile, mapServerBook, fetchLibraryView, fetchHomeShelves, isAuthError, isUnreachableServerError } from '../lib/inpxClient';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
-import { mergeRecentReadingLists, type LocalRecentReadingItem } from '../lib/localReadingProgress';
+import { mergeRecentReadingLists, withoutFinishedReading, type LocalRecentReadingItem } from '../lib/localReadingProgress';
+import { isRecentHiddenLocally, recentItemToBook, serverRecentItem } from '../lib/recentReadingBooks';
 import { isBookDownloadInFlight, isBookFinished, resolveBookPrimaryAction, type BookPrimaryKind } from '../lib/bookOpenPolicy';
 import ReadMark from './ReadMark';
 import BookCover from './BookCover';
@@ -113,21 +114,6 @@ function SideRecentBook({
   );
 }
 
-function localRecentToBook(item: LocalRecentReadingItem, config: ServerConfig): Book {
-  return {
-    id: item.id,
-    title: item.title,
-    author: item.authorsDisplay,
-    ext: item.ext,
-    series: item.series,
-    seriesNo: item.seriesNo,
-    contentUrl: bookContentUrl(config, item.id),
-    coverUrl: displayCoverUrl(config, item.id, 'thumb'),
-    readProgress: item.readProgress,
-    ...(item.rating && item.rating > 0 ? { rating: item.rating } : {}),
-  };
-}
-
 function HomeBookPreview({
   books,
   viewMode,
@@ -217,7 +203,8 @@ interface HomeTabProps {
   onSearchAuthor?: (name: string) => void;
   onSearchSeries?: (name: string) => void;
   onSearchBook?: (book: { id: string; title: string; authors?: string; authorsDisplay?: string }) => void;
-  onBookLongPress?: (book: Book) => void;
+  /** `fromReading`: the book is in «Читаю» — the sheet offers «Убрать из «Читаю»». */
+  onBookLongPress?: (book: Book, context?: { fromReading?: boolean }) => void;
   /** Shelf tap → storefront card (same as catalog). */
   onOpenDetails?: (book: Book) => void;
   isTabActive?: boolean;
@@ -310,23 +297,15 @@ export default function HomeTab({
   );
 
   const mergedRecent = React.useMemo(() => {
-    const fromProfile = profile?.recentBooks?.map((b) => {
-      const rating = starsFromLibRate(b.libRate);
-      const item: LocalRecentReadingItem = {
-        id: b.id,
-        title: b.title,
-        authorsDisplay: b.authorsDisplay || '',
-        ext: (b.ext || 'fb2').replace(/^\./, ''),
-        readProgress: b.readProgress != null ? Math.round(Number(b.readProgress)) : 0,
-        lastOpenedAt: b.lastOpenedAt || new Date(0).toISOString(),
-        series: b.series?.trim() || undefined,
-        seriesNo: b.seriesNo != null ? Number(b.seriesNo) : undefined,
-        ...(rating ? { rating } : {}),
-      };
-      return item;
-    }) ?? [];
-    return mergeRecentReadingLists(fromProfile, localRecentReading);
-  }, [profile, localRecentReading]);
+    const fromProfile = (profile?.recentBooks ?? [])
+      .map((b) => serverRecentItem(b))
+      .filter((item) => !isRecentHiddenLocally(item));
+    return withoutFinishedReading(
+      mergeRecentReadingLists(fromProfile, localRecentReading),
+      readIds,
+      readingProgressByBookId,
+    );
+  }, [profile, localRecentReading, readIds, readingProgressByBookId]);
 
   const readAuthorKeys = React.useMemo(() => {
     const set = new Set<string>();
@@ -353,12 +332,12 @@ export default function HomeTab({
   const heroProgress = hero ? (readingProgressByBookId[hero.id] ?? hero.readProgress ?? 0) : 0;
   const heroFinished = hero ? isBookFinished(heroProgress, readIds?.has(hero.id)) : false;
   const heroBook = React.useMemo(
-    () => (hero ? localRecentToBook(hero, serverConfig) : null),
+    () => (hero ? recentItemToBook(hero, serverConfig) : null),
     [hero, serverConfig],
   );
   const wideHero = useMediaQuery(WIDE_HERO_QUERY);
   const recentBooks = React.useMemo(
-    () => mergedRecent.slice(1, 11).map((item) => localRecentToBook(item, serverConfig)),
+    () => mergedRecent.slice(1, 11).map((item) => recentItemToBook(item, serverConfig)),
     [mergedRecent, serverConfig],
   );
   const sideRecent = wideHero ? recentBooks.slice(0, 2) : [];
@@ -387,7 +366,7 @@ export default function HomeTab({
     onOpenBook(heroBook);
   }, [heroBook, heroAction?.disabled, onOpenBook]);
   const handleHeroLongPress = React.useCallback(() => {
-    if (heroBook) onBookLongPress?.(heroBook);
+    if (heroBook) onBookLongPress?.(heroBook, { fromReading: true });
   }, [heroBook, onBookLongPress]);
   const heroPress = useLongPress(handleHeroTap, onBookLongPress ? handleHeroLongPress : undefined);
 
@@ -617,7 +596,7 @@ export default function HomeTab({
                 <IconButton
                   label="Ещё действия"
                   className="-my-3 -mr-3 shrink-0"
-                  onClick={() => onBookLongPress(heroBook)}
+                  onClick={() => onBookLongPress(heroBook, { fromReading: true })}
                 >
                   <MoreVertical className="w-5 h-5" aria-hidden />
                 </IconButton>
@@ -702,7 +681,7 @@ export default function HomeTab({
               serverConfig={serverConfig}
               storageDirectory={storageDirectory}
               onOpen={() => onOpenBook(book)}
-              onLongPress={onBookLongPress ? () => onBookLongPress(book) : undefined}
+              onLongPress={onBookLongPress ? () => onBookLongPress(book, { fromReading: true }) : undefined}
             />
           ))}
         </section>
@@ -722,7 +701,7 @@ export default function HomeTab({
             downloadedBookIds={downloadedBookIds}
             readIds={readIds}
             onBookClick={onOpenBook}
-            onBookLongPress={onBookLongPress}
+            onBookLongPress={onBookLongPress ? (book) => onBookLongPress(book, { fromReading: true }) : undefined}
           />
         </section>
       ) : null}

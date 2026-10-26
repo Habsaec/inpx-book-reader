@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Folder, CheckCircle2, AlertCircle, BookMarked, Star } from 'lucide-react';
+import { Heart, Folder, CheckCircle2, AlertCircle, BookMarked, Star, BookOpen } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
@@ -24,6 +24,8 @@ import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
 import { useBookGridPageSize, useRepageOnSizeChange } from '../hooks/useBookGridPageSize';
 
 import LibraryCollections, { LIBRARY_SEG_LABELS, type LibrarySeg } from './mybooks/LibraryCollections';
+import { mergeRecentReadingLists, withoutFinishedReading, type LocalRecentReadingItem } from '../lib/localReadingProgress';
+import { isRecentHiddenLocally, recentItemToBook, serverRecentItem } from '../lib/recentReadingBooks';
 import { isFolderLocalBookId } from '../lib/importExternalBook';
 import LocalFolderBrowser from './mybooks/LocalFolderBrowser';
 import ReaderNotesPanel from './mybooks/ReaderNotesPanel';
@@ -80,7 +82,9 @@ interface MyBooksTabProps {
   onRegisterBook?: (book: Book) => void;
   /** Book row tap → details on every shelf, including downloaded. */
   onOpenDetails?: (book: Book) => void;
-  onBookLongPress?: (book: Book, context?: { shelfId?: number | string; shelfName?: string }) => void;
+  onBookLongPress?: (book: Book, context?: { shelfId?: number | string; shelfName?: string; fromReading?: boolean }) => void;
+  /** «Читаю» on this device (books with local progress); merged with the server's `/api/library/continue`. */
+  localRecentReading?: LocalRecentReadingItem[];
   onRemoveBooks?: (bookIds: string[]) => void | Promise<void>;
   onAddBooksToShelf?: (shelfId: number | string, bookIds: string[]) => void | Promise<void>;
   onAddShelf?: (name: string) => Promise<number | string | null>;
@@ -106,6 +110,8 @@ interface MyBooksTabProps {
   onAuthExpired?: () => void;
 }
 
+const EMPTY_RECENT: LocalRecentReadingItem[] = [];
+
 export default function MyBooksTab({
   serverConfig,
   isAppDark,
@@ -117,6 +123,7 @@ export default function MyBooksTab({
   storageDirectoryReady,
   downloadingId,
   readingProgressByBookId = {},
+  localRecentReading = EMPTY_RECENT,
   readIds,
   bookmarkIds,
   wantIds,
@@ -192,6 +199,8 @@ export default function MyBooksTab({
     want: [],
     rated: [],
   });
+  /** `/api/library/continue` as recent rows; null until loaded. */
+  const [readingServer, setReadingServer] = React.useState<LocalRecentReadingItem[] | null>(null);
   const [sectionLoading, setSectionLoading] = React.useState(false);
   const [sectionError, setSectionError] = React.useState(false);
   const [sectionRetry, setSectionRetry] = React.useState(0);
@@ -270,7 +279,7 @@ export default function MyBooksTab({
   }, []);
 
   React.useEffect(() => {
-    if (seg !== 'favorites' && seg !== 'read' && seg !== 'want' && seg !== 'rated') return;
+    if (seg !== 'favorites' && seg !== 'read' && seg !== 'want' && seg !== 'rated' && seg !== 'reading') return;
     if (!fetchSectionBooks || !isOnline) {
       setSectionLoading(false);
       return;
@@ -286,7 +295,7 @@ export default function MyBooksTab({
       for (let page = 1; page <= 80; page += 1) {
         const res = key === 'favorites'
           ? await fetchBookmarkedBooks(serverConfig, page, pageSize)
-          : await fetchLibraryView(serverConfig, key, page, pageSize);
+          : await fetchLibraryView(serverConfig, key === 'reading' ? 'continue' : key, page, pageSize);
         items.push(...res.items);
         if (!res.items.length || items.length >= (res.total || items.length) || res.items.length < pageSize) break;
       }
@@ -295,6 +304,10 @@ export default function MyBooksTab({
     request
       .then((items) => {
         if (cancelled) return;
+        if (key === 'reading') {
+          setReadingServer(items.map((b) => serverRecentItem(b as InpxBookItem & { lastOpenedAt?: string })));
+          return;
+        }
         setSectionBySeg((prev) => ({
           ...prev,
           // «Мои оценки»: the cover stars show the user's own rating.
@@ -372,7 +385,17 @@ export default function MyBooksTab({
     [localOfflineBooks, readingProgressByBookId],
   );
 
+  // «Читаю»: the server list plus books read here that it does not have yet; read books drop out.
+  const readingBooks = React.useMemo(() => {
+    const server = isOnline && readingServer
+      ? readingServer.filter((item) => !isRecentHiddenLocally(item))
+      : [];
+    return withoutFinishedReading(mergeRecentReadingLists(server, localRecentReading), readIds, readingProgressByBookId)
+      .map((item) => recentItemToBook(item, serverConfig));
+  }, [isOnline, readingServer, localRecentReading, readIds, readingProgressByBookId, serverConfig]);
+
   const visibleSectionBooks = React.useMemo(() => {
+    if (seg === 'reading') return readingBooks;
     if (seg === 'favorites') {
       const serverBooks = bookmarkIds
         ? sectionBySeg.favorites.filter((b) => bookmarkIds.has(b.id))
@@ -405,7 +428,7 @@ export default function MyBooksTab({
       return [...byId.values()];
     }
     return [];
-  }, [seg, sectionBySeg, bookmarkIds, readIds, wantIds, localReadBooks, localOfflineBooks, isOnline]);
+  }, [seg, sectionBySeg, bookmarkIds, readIds, wantIds, localReadBooks, localOfflineBooks, isOnline, readingBooks]);
   const sortedSectionBooks = React.useMemo(
     () => filterBooksLocal(sortBooksLocal(visibleSectionBooks, bookSort), bookQuery),
     [visibleSectionBooks, bookSort, bookQuery],
@@ -584,6 +607,7 @@ export default function MyBooksTab({
     );
 
   const collectionCounts: Partial<Record<LibrarySeg, number>> = {
+    ...(readingServer || !isOnline ? { reading: readingBooks.length } : {}),
     downloaded: downloadedLibraryBooks.length,
     ...(bookmarkIds ? { favorites: bookmarkIds.size + authorRows.length + seriesRows.length } : {}),
     ...(readIds ? { read: readIds.size } : {}),
@@ -799,7 +823,7 @@ export default function MyBooksTab({
                 )
               )}
 
-              {(seg === 'favorites' || seg === 'read' || seg === 'want' || seg === 'rated') && (
+              {(seg === 'favorites' || seg === 'read' || seg === 'want' || seg === 'rated' || seg === 'reading') && (
                 sectionError && !sectionLoading && (seg !== 'favorites' || (authorRows.length === 0 && seriesRows.length === 0 && visibleSectionBooks.length === 0)) ? (
                   listError
                 ) : sectionLoading && visibleSectionBooks.length === 0 && (seg !== 'favorites' || (authorRows.length === 0 && seriesRows.length === 0)) ? (
@@ -809,6 +833,15 @@ export default function MyBooksTab({
                     icon={Heart}
                     title="Избранное пусто"
                     description="Добавляйте книги, авторов и серии из каталога."
+                    actionLabel={onGoCatalog ? 'Каталог' : undefined}
+                    actionVariant="primary"
+                    onAction={onGoCatalog}
+                  />
+                ) : seg === 'reading' && visibleSectionBooks.length === 0 ? (
+                  <EmptyState
+                    icon={BookOpen}
+                    title="Сейчас ничего не читаете"
+                    description="Открытые книги появятся здесь, пока вы их не дочитаете. Список общий с сайтом."
                     actionLabel={onGoCatalog ? 'Каталог' : undefined}
                     actionVariant="primary"
                     onAction={onGoCatalog}
@@ -899,7 +932,11 @@ export default function MyBooksTab({
                           readIds={readIds}
                           virtualizeList={false}
                           onBookClick={handleBookTap}
-                          onBookLongPress={onBookLongPress}
+                          onBookLongPress={
+                            onBookLongPress && seg === 'reading'
+                              ? (book) => onBookLongPress(book, { fromReading: true })
+                              : onBookLongPress
+                          }
                         />
                       </div>
                     )}

@@ -7,6 +7,7 @@ import {
   Heart,
   FolderMinus,
   FolderPlus,
+  BookX,
 } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, elevation, radii, motion } from '../ui/tokens';
@@ -27,6 +28,8 @@ export type BookActionsTarget = {
   shelfName?: string;
   /** Opened from «Ещё» on the book page — skip actions that page already has. */
   fromDetails?: boolean;
+  /** Opened from «Читаю» (home recents, Мои книги → Читаю) — enables «Убрать из «Читаю»». */
+  fromReading?: boolean;
 };
 
 interface BookActionsSheetProps {
@@ -41,6 +44,8 @@ interface BookActionsSheetProps {
   onToggleRead?: (bookId: string) => void;
   onToggleBookmark?: (bookId: string) => void;
   onRemoveFromShelf?: (bookId: string, shelfId: number | string) => void;
+  /** Reading history only: position, bookmarks and the file stay. */
+  onRemoveFromReading?: (bookId: string) => void;
   onRemove?: (bookId: string) => void;
   onOpenDetails?: (book: Book) => void;
   shelves?: UiShelf[];
@@ -87,6 +92,7 @@ export default function BookActionsSheet({
   onToggleRead,
   onToggleBookmark,
   onRemoveFromShelf,
+  onRemoveFromReading,
   onRemove,
   onOpenDetails,
   shelves = [],
@@ -106,7 +112,7 @@ export default function BookActionsSheet({
   }, [open]);
 
   if (!shown) return null;
-  const { book, shelfId, shelfName, fromDetails = false } = shown;
+  const { book, shelfId, shelfName, fromDetails = false, fromReading = false } = shown;
   const showRemoveFromShelf = shelfId != null && Boolean(onRemoveFromShelf);
 
   return (
@@ -188,6 +194,18 @@ export default function BookActionsSheet({
               }}
             >
               {isRead ? 'Снять «прочитано»' : 'Отметить прочитанной'}
+            </ActionRow>
+          )}
+
+          {fromReading && onRemoveFromReading && (
+            <ActionRow
+              icon={<BookX className="w-5 h-5 shrink-0" aria-hidden />}
+              onClick={() => {
+                onRemoveFromReading(book.id);
+                onClose();
+              }}
+            >
+              Убрать из «Читаю»
             </ActionRow>
           )}
 

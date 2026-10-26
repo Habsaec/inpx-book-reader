@@ -8,7 +8,12 @@ vi.mock('../offlineReaderStore', () => ({
     readerData.get(id) ?? { positionVersion: 4, position: '', progress: 0 },
 }));
 
-import { upsertProgressFromLocalReader } from '../localReadingProgress';
+import {
+  recentRemovedOnServer,
+  upsertProgressFromLocalReader,
+  withoutFinishedReading,
+  type LocalRecentReadingItem,
+} from '../localReadingProgress';
 
 const book: Book = { id: 'b1', title: 'T', author: 'A', ext: 'fb2' };
 
@@ -69,5 +74,40 @@ describe('upsertProgressFromLocalReader', () => {
     );
     expect(merged.percentage).toBe(34);
     expect(merged.lastRead).toBe(Date.parse('2026-10-19T11:11:45Z'));
+  });
+});
+
+function recent(id: string, lastOpenedAt: string, readProgress = 40): LocalRecentReadingItem {
+  return { id, title: id, authorsDisplay: '', ext: 'fb2', readProgress, lastOpenedAt };
+}
+
+describe('withoutFinishedReading', () => {
+  it('drops books read on the server or finished here', () => {
+    const items = [recent('a', '2026-10-20T10:00:00Z'), recent('b', '2026-10-20T10:00:00Z'), recent('c', '2026-10-20T10:00:00Z', 99)];
+    expect(withoutFinishedReading(items, new Set(['b'])).map((i) => i.id)).toEqual(['a']);
+  });
+
+  it('prefers the live progress map over the stored item progress', () => {
+    const items = [recent('a', '2026-10-20T10:00:00Z', 40)];
+    expect(withoutFinishedReading(items, null, { a: 100 })).toEqual([]);
+  });
+});
+
+describe('recentRemovedOnServer', () => {
+  const rev = '2026-10-21T12:00:00Z';
+
+  it('hides books read before the server history changed and missing there', () => {
+    const local = [recent('gone', '2026-10-20T10:00:00Z'), recent('kept', '2026-10-20T10:00:00Z')];
+    expect(recentRemovedOnServer(local, new Set(['kept']), rev)).toEqual(['gone']);
+  });
+
+  it('keeps books read after the change (history may not have reached the server yet)', () => {
+    expect(recentRemovedOnServer([recent('new', '2026-10-22T08:00:00Z')], new Set(), rev)).toEqual([]);
+  });
+
+  it('leaves read books to the read filter and does nothing without a server revision', () => {
+    const local = [recent('read', '2026-10-20T10:00:00Z')];
+    expect(recentRemovedOnServer(local, new Set(), rev, new Set(['read']))).toEqual([]);
+    expect(recentRemovedOnServer(local, new Set(), null)).toEqual([]);
   });
 });
