@@ -306,7 +306,11 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
    */
   function createSilentWavKeepaliveUrl() {
     const sampleRate = 8000;
-    const numSamples = Math.floor(sampleRate * 1);
+    /* 4 с вместо 1 с и плавное нарастание/затухание по краям: на стыке повтора браузер вставляет
+       короткий разрыв, и обрыв тона слышался щелчком раз в секунду поверх голоса. */
+    const seconds = 4;
+    const fadeSamples = Math.floor(sampleRate * 0.5);
+    const numSamples = Math.floor(sampleRate * seconds);
     const dataSize = numSamples * 2;
     const buffer = new ArrayBuffer(44 + dataSize);
     const v = new DataView(buffer);
@@ -340,7 +344,9 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const amplitude = 500;
     const freqHz = 30;
     for (let i = 0; i < numSamples; i++) {
-      const sample = Math.round(amplitude * Math.sin((2 * Math.PI * freqHz * i) / sampleRate));
+      const edge = Math.min(i, numSamples - 1 - i);
+      const env = edge >= fadeSamples ? 1 : 0.5 - 0.5 * Math.cos((Math.PI * edge) / fadeSamples);
+      const sample = Math.round(env * amplitude * Math.sin((2 * Math.PI * freqHz * i) / sampleRate));
       v.setInt16(o, sample, true);
       o += 2;
     }
@@ -372,6 +378,8 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
 
   async function startTtsKeepalivePlayback() {
     if (!ttsChainActive || ttsPausedByUser) return;
+    // Нативный TTS держит foreground-сервис сам; лишний поток в WebView только добавлял щелчки.
+    if (window.__INPX_USE_NATIVE_TTS) return;
     try {
       const a = ensureTtsKeepaliveEl();
       await a.play();
