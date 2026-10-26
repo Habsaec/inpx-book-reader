@@ -322,6 +322,7 @@ npm run lint
 ### Чтение вслух (TTS)
 - Плеер, подсветка и настройки — общий модуль сервера `reader-shared/reader-tts.js` (`npm run sync:shared`), тот же, что на сайте: `reader.js` только создаёт контроллер (`createReaderTts`) и держит wake lock, keep-alive, Media Session, уведомление (`syncNativeTtsMediaSession`) и `inpx-reader-tts-state` для родителя. Разметка: пустой `#reader-tts-dock` и `#rs-tts-mount` в секции «Озвучка» (вкладка «Ещё», `generate-reader-html.mjs`)
 - `reader-native-bridge.js` подменяет `speechSynthesis` нативным `TtsPlaybackManager`: `speak({ text, utteranceId, rate, pitch, lang, voice })`; без выбранного голоса («Авто») движок берёт `setLanguage(lang)` книги. `onRangeStart` (Android 8+) → iframe-событие `ttsRange` `{ utteranceId, start, end }` → `boundary` для подсветки слова
+- Таймер сна «продлевать, пока телефон в руках»: `host.watchMotion` в `reader.js` → `ReaderNative.setMotionWatch({ enabled })` (`TtsMotionWatcher`: акселерометр, порог 0,3 м/с² к медленному среднему, событие не чаще раза в 1,5 с) → iframe-событие `ttsMotion` → отсчёт заново. Датчик включён, только пока идёт озвучка с таймером в минутах; `FoliateReader` выключает его при закрытии. Затухание в последнюю минуту — `speak({ volume })` → `KEY_PARAM_VOLUME`. При нативном TTS WebView keep-alive звук не играет (foreground-сервис держит речь сам)
 - Пауза — нативная (`host.nativePause`): уведомление и foreground-сервис остаются; кнопки уведомления приходят как `ttsMediaAction` и вызывают `pause/resume({ external: true })`
 
 ### Безопасность

@@ -5011,6 +5011,19 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     canAdvance: ttsCanAdvanceAfterUtterance,
     /* Нативный движок: пауза = TtsPlaybackManager.pause() (уведомление и foreground-сервис живут). */
     get nativePause() { return Boolean(window.__INPX_USE_NATIVE_TTS); },
+    /* Таймер сна: нативный акселерометр работает и при выключенном экране (WebView devicemotion — нет). */
+    get watchMotion() {
+      if (!window.__INPX_USE_NATIVE_TTS || !window.__INPX_NATIVE?.setMotionWatch) return undefined;
+      return (onMove) => {
+        const handler = () => onMove();
+        window.addEventListener('inpx-native-motion', handler);
+        void window.__INPX_NATIVE.setMotionWatch(true).catch(() => {});
+        return () => {
+          window.removeEventListener('inpx-native-motion', handler);
+          void window.__INPX_NATIVE?.setMotionWatch(false).catch(() => {});
+        };
+      };
+    },
     // Всегда перезапросить голоса: системный TTS могли сменить в настройках телефона.
     ensureVoices: () => (window.__INPX_USE_NATIVE_TTS && typeof window.__INPX_RELOAD_TTS_VOICES === 'function'
       ? window.__INPX_RELOAD_TTS_VOICES().then(() => {})

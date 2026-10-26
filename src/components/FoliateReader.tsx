@@ -393,6 +393,7 @@ export default function FoliateReader({
         /* ignore */
       }
       void ReaderNative.stopTts().catch(() => {});
+      void ReaderNative.setMotionWatch({ enabled: false }).catch(() => {});
       void ReaderNative.updateTtsMediaSession({ active: false, playing: false }).catch(() => {});
       onClose();
     });
@@ -576,6 +577,7 @@ export default function FoliateReader({
           /* ignore */
         }
         void ReaderNative.stopTts().catch(() => {});
+        void ReaderNative.setMotionWatch({ enabled: false }).catch(() => {});
         void ReaderNative.updateTtsMediaSession({ active: false, playing: false }).catch(() => {});
         if (iframeRef.current) iframeRef.current.src = 'about:blank';
         if (mountedRef.current) setIframeSrc(null);
@@ -944,6 +946,7 @@ export default function FoliateReader({
       void ttsStart.then((h) => h.remove());
       void ttsMediaAction.then((h) => h.remove());
       void ReaderNative.stopTts().catch(() => {});
+      void ReaderNative.setMotionWatch({ enabled: false }).catch(() => {});
       void ReaderNative.updateTtsMediaSession({ active: false, playing: false }).catch(() => {});
     };
   }, []);

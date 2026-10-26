@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.AudioAttributes;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
@@ -40,6 +41,8 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
     private boolean paused = false;
     private float rate = 1f;
     private float pitch = 1f;
+    /** Громкость фразы 0..1: таймер сна плавно приглушает голос в последнюю минуту. */
+    private float volume = 1f;
     private String voiceName = "";
     private String language = "";
     private String lastSpokenText = "";
@@ -221,7 +224,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
         });
     }
 
-    public void speak(String text, String utteranceId, float speechRate, float speechPitch, String voice, String lang) {
+    public void speak(String text, String utteranceId, float speechRate, float speechPitch, String voice, String lang, float speechVolume) {
         if (text == null || text.trim().isEmpty()) return;
         cancelPendingStopService();
         startForegroundService();
@@ -232,6 +235,9 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
         }
         if (speechPitch > 0) {
             pitch = Math.max(0.5f, Math.min(2f, speechPitch));
+        }
+        if (speechVolume >= 0) {
+            volume = Math.max(0f, Math.min(1f, speechVolume));
         }
         if (voice != null) {
             voiceName = voice;
@@ -251,7 +257,9 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
             tts.setSpeechRate(rate);
             tts.setPitch(pitch);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, lastUtteranceId);
+                Bundle params = new Bundle();
+                params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume);
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, lastUtteranceId);
             } else {
                 tts.speak(text, TextToSpeech.QUEUE_ADD, null);
             }
@@ -287,7 +295,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
 
     public void resume() {
         if (!paused || lastSpokenText == null || lastSpokenText.isEmpty()) return;
-        speak(lastSpokenText, lastUtteranceId, rate, pitch, voiceName, language);
+        speak(lastSpokenText, lastUtteranceId, rate, pitch, voiceName, language, volume);
     }
 
     public void shutdown() {

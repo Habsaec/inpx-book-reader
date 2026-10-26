@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 public class ReaderNativePlugin extends Plugin {
 
     private TtsPlaybackManager ttsManager;
+    private TtsMotionWatcher motionWatcher;
     private static ReaderNativePlugin instance;
     private static volatile boolean volumeKeysCaptureEnabled = false;
 
@@ -72,6 +73,7 @@ public class ReaderNativePlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         volumeKeysCaptureEnabled = false;
+        if (motionWatcher != null) motionWatcher.stop();
         FrontLightSwipe.setEnabled(false);
         coverExecutor.shutdownNow();
         if (instance == this) instance = null;
@@ -540,8 +542,31 @@ public class ReaderNativePlugin extends Plugin {
         Float pitch = call.getFloat("pitch", 1f);
         String voiceName = call.getString("voice", "");
         String lang = call.getString("lang", "");
-        ttsManager.speak(text, utteranceId, rate != null ? rate : 1f, pitch != null ? pitch : 1f, voiceName, lang);
+        Float volume = call.getFloat("volume", 1f);
+        ttsManager.speak(text, utteranceId, rate != null ? rate : 1f, pitch != null ? pitch : 1f, voiceName, lang, volume != null ? volume : 1f);
         call.resolve();
+    }
+
+    /**
+     * Таймер сна озвучки: акселерометр, пока `enabled`. Движение → iframe-событие `ttsMotion`
+     * (не чаще раза в 1,5 с), читалка начинает отсчёт заново.
+     */
+    @PluginMethod
+    public void setMotionWatch(PluginCall call) {
+        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", Boolean.FALSE));
+        if (motionWatcher == null) {
+            motionWatcher = new TtsMotionWatcher(getContext(), () -> forwardTtsEventToReader("ttsMotion", "", -1, -1));
+        }
+        boolean active;
+        if (enabled) {
+            active = motionWatcher.start();
+        } else {
+            motionWatcher.stop();
+            active = false;
+        }
+        JSObject ret = new JSObject();
+        ret.put("active", active);
+        call.resolve(ret);
     }
 
     @PluginMethod

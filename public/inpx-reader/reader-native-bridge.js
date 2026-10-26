@@ -81,6 +81,9 @@
     updateTtsMediaSession(opts) {
       return postNative('updateTtsMediaSession', opts || {});
     },
+    setMotionWatch(enabled) {
+      return postNative('setMotionWatch', { enabled: Boolean(enabled) });
+    },
   };
 
   function installNativeBridge() {
@@ -169,6 +172,7 @@
         rate: utterance.rate || 1,
         pitch: utterance.pitch || 1,
         lang: utterance.lang || '',
+        volume: Number.isFinite(Number(utterance.volume)) ? Number(utterance.volume) : 1,
         voice: utterance.voice?.voiceURI || utterance.voice?.name || '',
       }).catch((err) => finishUtterance(err));
     },
@@ -248,6 +252,9 @@
     }
     if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsStart') {
       window.dispatchEvent(new CustomEvent('inpx-native-tts-start', { detail: e.data.data }));
+    }
+    if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsMotion') {
+      window.dispatchEvent(new CustomEvent('inpx-native-motion'));
     }
     if (e.data?.type === 'inpx-native-event' && e.data.event === 'ttsRange') {
       window.dispatchEvent(new CustomEvent('inpx-native-tts-range', { detail: e.data.data }));
