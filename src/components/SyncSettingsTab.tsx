@@ -623,7 +623,7 @@ export default function SyncSettingsTab({
                       onChangeStorageDirectory({ label: folder.label, uri: folder.uri });
                     }}
                   >
-                    <p className={`${textStyles.body} ${theme.text}`}>{folder.label}</p>
+                    <p className={`${textStyles.body} ${theme.text} break-all`}>{folder.label}</p>
                     <p className={`${textStyles.caption} ${themeTextMuted}`}>
                       {isDefault
                         ? (libraryFolders.hideDefaultInLocal ? 'Папка по умолчанию · скрыта в разделе «Папки»' : 'Папка по умолчанию')
@@ -798,7 +798,7 @@ function SettingsChoice({
       <div
         role="radiogroup"
         aria-label={label}
-        className={`flex p-1 ${radii.button} bg-[var(--app-panel-soft)] ${disabled ? 'opacity-40' : ''}`}
+        className={`inpx-segment flex p-1 ${radii.button} bg-[var(--app-panel-soft)] ${disabled ? 'opacity-40' : ''}`}
       >
         {options.map((item) => (
           <button

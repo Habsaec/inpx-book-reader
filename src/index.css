@@ -753,6 +753,50 @@ html[data-eink="1"] button[aria-selected="true"] span {
   color: inherit !important;
 }
 
+/* Segmented choice (settings «Тема», «Цвет», «E-Ink», «Новинки»): the normal look is a white chip on a
+   light-gray track — the same gray on e-paper. Same convention as above: the chosen option gets the
+   bold black outline and heavy type, the others no outline. Every option keeps a 3px border so the
+   row does not jump; the sliding Motion chip is hidden. */
+html[data-eink="1"] .inpx-segment {
+  background: var(--app-surface) !important;
+  border: 1px solid var(--app-border);
+}
+html[data-eink="1"] .inpx-segment > [role="radio"] {
+  background: transparent !important;
+  color: var(--app-text) !important;
+  border: 3px solid transparent !important;
+  font-weight: 500;
+}
+html[data-eink="1"] .inpx-segment > [role="radio"][aria-checked="true"] {
+  background: var(--app-surface) !important;
+  border-color: var(--app-text) !important;
+  font-weight: 900;
+}
+html[data-eink="1"] .inpx-segment > [role="radio"] > span.absolute {
+  display: none;
+}
+
+/* Primary button: white field, bold black outline, black type (the theme's --app-button-fg is dark
+   for a gold accent and vanished on the e-ink black). Badges on the black accent keep white type. */
+html[data-eink="1"] {
+  --app-button-bg: #000000;
+  --app-button-bg-hover: #000000;
+  --app-button-fg: #ffffff;
+}
+html[data-eink="1"] button.inpx-btn-primary {
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
+  border: 3px solid var(--app-text) !important;
+  font-weight: 800;
+}
+
+/* Grid / list toggle: the icon is the view a tap switches to, not a pressed state. */
+html[data-eink="1"] button.inpx-view-toggle[aria-pressed] {
+  background: var(--app-surface) !important;
+  border: 2px solid var(--app-text) !important;
+  font-weight: inherit;
+}
+
 html[data-eink="1"] label,
 html[data-eink="1"] p,
 html[data-eink="1"] h1,

@@ -20,7 +20,7 @@ export default function ViewModeToggle({
       label={label}
       aria-pressed={value === 'list'}
       onClick={() => onChange(next)}
-      className={theme.text}
+      className={`inpx-view-toggle ${theme.text}`}
     >
       <Icon className="w-5 h-5" aria-hidden />
     </IconButton>
