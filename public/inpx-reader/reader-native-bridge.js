@@ -118,9 +118,13 @@
     }
   }
 
-  let speaking = false;
+  /**
+   * Utterances handed to the native engine, in order (SpeechSynthesis queue semantics): the reader
+   * queues the next sentence while the current one plays (`queue: true` → TextToSpeech.QUEUE_ADD),
+   * so the engine starts it without a gap. Events are matched by utteranceId.
+   */
+  const queue = new Map();
   let paused = false;
-  let currentUtterance = null;
   let voicesCache = [];
 
   /** Заново спросить натив: подтянет системный TTS, если его сменили в настройках телефона. */
@@ -141,12 +145,11 @@
 
   window.__INPX_RELOAD_TTS_VOICES = loadVoices;
 
-  function finishUtterance(err) {
-    const u = currentUtterance;
-    speaking = false;
-    paused = false;
-    currentUtterance = null;
+  function finishUtterance(id, err) {
+    const u = queue.get(id);
     if (!u) return;
+    queue.delete(id);
+    if (!queue.size) paused = false;
     if (err) {
       if (typeof u.onerror === 'function') u.onerror({ error: err });
     } else if (typeof u.onend === 'function') {
@@ -156,16 +159,19 @@
 
   const nativeSynth = {
     get speaking() {
-      return speaking;
+      return queue.size > 0;
     },
     get pending() {
-      return false;
+      return queue.size > 1;
+    },
+    get paused() {
+      return paused;
     },
     speak(utterance) {
       if (!utterance || !utterance.text) return;
-      currentUtterance = utterance;
-      speaking = true;
-      paused = false;
+      const add = queue.size > 0;
+      queue.set(utterance._id, utterance);
+      if (!add) paused = false;
       nativeApi.speak({
         text: utterance.text,
         utteranceId: utterance._id,
@@ -174,21 +180,22 @@
         lang: utterance.lang || '',
         volume: Number.isFinite(Number(utterance.volume)) ? Number(utterance.volume) : 1,
         voice: utterance.voice?.voiceURI || utterance.voice?.name || '',
-      }).catch((err) => finishUtterance(err));
+        queue: add,
+      }).catch((err) => finishUtterance(utterance._id, err));
     },
     cancel() {
-      speaking = false;
+      queue.clear();
       paused = false;
-      currentUtterance = null;
       nativeApi.stopTts().catch(() => {});
     },
+    /** TtsPlaybackManager pauses the whole queue and replays it on resume. */
     pause() {
-      if (!speaking) return;
+      if (!queue.size) return;
       paused = true;
       nativeApi.pauseTts().catch(() => {});
     },
     resume() {
-      if (!speaking) return;
+      if (!queue.size) return;
       paused = false;
       nativeApi.resumeTts().catch(() => {});
     },
@@ -212,27 +219,25 @@
   }
 
   window.addEventListener('inpx-native-tts-start', (e) => {
-    if (currentUtterance && e.detail?.utteranceId === currentUtterance._id) {
-      speaking = true;
-      paused = false;
-      if (typeof currentUtterance.onstart === 'function') currentUtterance.onstart();
-    }
+    const u = queue.get(e.detail?.utteranceId);
+    if (!u) return;
+    paused = false;
+    if (typeof u.onstart === 'function') u.onstart();
   });
 
   window.addEventListener('inpx-native-tts-end', (e) => {
-    if (currentUtterance && e.detail?.utteranceId === currentUtterance._id) {
-      finishUtterance(null);
-    }
+    finishUtterance(e.detail?.utteranceId, null);
   });
 
   /** UtteranceProgressListener.onRangeStart (Android 8+) → SpeechSynthesis «boundary» для подсветки слова. */
   window.addEventListener('inpx-native-tts-range', (e) => {
     const d = e.detail || {};
-    if (!currentUtterance || d.utteranceId !== currentUtterance._id) return;
+    const u = queue.get(d.utteranceId);
+    if (!u) return;
     const start = Number(d.start);
     const end = Number(d.end);
-    if (!Number.isFinite(start) || typeof currentUtterance.onboundary !== 'function') return;
-    currentUtterance.onboundary({
+    if (!Number.isFinite(start) || typeof u.onboundary !== 'function') return;
+    u.onboundary({
       name: 'word',
       charIndex: start,
       charLength: Number.isFinite(end) && end > start ? end - start : 0,
@@ -240,9 +245,7 @@
   });
 
   window.addEventListener('inpx-native-tts-error', (e) => {
-    if (currentUtterance && e.detail?.utteranceId === currentUtterance._id) {
-      finishUtterance('native-tts-error');
-    }
+    finishUtterance(e.detail?.utteranceId, 'native-tts-error');
   });
 
   window.addEventListener('message', (e) => {

@@ -543,7 +543,8 @@ public class ReaderNativePlugin extends Plugin {
         String voiceName = call.getString("voice", "");
         String lang = call.getString("lang", "");
         Float volume = call.getFloat("volume", 1f);
-        ttsManager.speak(text, utteranceId, rate != null ? rate : 1f, pitch != null ? pitch : 1f, voiceName, lang, volume != null ? volume : 1f);
+        boolean queue = Boolean.TRUE.equals(call.getBoolean("queue", Boolean.FALSE));
+        ttsManager.speak(text, utteranceId, rate != null ? rate : 1f, pitch != null ? pitch : 1f, voiceName, lang, volume != null ? volume : 1f, queue);
         call.resolve();
     }
 

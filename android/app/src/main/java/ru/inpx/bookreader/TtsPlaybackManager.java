@@ -12,7 +12,9 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 
@@ -35,18 +37,34 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextToSpeech tts;
     private boolean ready = false;
-    private boolean sessionActive = false;
-    private boolean pauseRequested = false;
-    private boolean speaking = false;
-    private boolean paused = false;
+    private volatile boolean sessionActive = false;
+    private volatile boolean speaking = false;
+    /** Пауза: tts.stop() сбрасывает очередь движка, события остановки игнорируются, resume() проигрывает `pending` заново. */
+    private volatile boolean paused = false;
     private float rate = 1f;
     private float pitch = 1f;
     /** Громкость фразы 0..1: таймер сна плавно приглушает голос в последнюю минуту. */
     private float volume = 1f;
     private String voiceName = "";
     private String language = "";
-    private String lastSpokenText = "";
-    private String lastUtteranceId = "";
+    /** Голос и язык, уже выставленные движку: setVoice / setLanguage перед каждой фразой давали паузу между фразами. */
+    private String appliedVoiceKey = "";
+
+    private static final class Pending {
+        final String text;
+        final float volume;
+
+        Pending(String text, float volume) {
+            this.text = text;
+            this.volume = volume;
+        }
+    }
+
+    /**
+     * Фразы, отданные движку и ещё не закончившиеся, по порядку: читалка ставит следующую фразу
+     * в очередь (QUEUE_ADD), пока звучит текущая, — движок готовит её заранее и начинает без паузы.
+     */
+    private final LinkedHashMap<String, Pending> pending = new LinkedHashMap<>();
     private String boundEngine = "";
     private Runnable pendingStopService;
     private UtteranceCallback utteranceCallback;
@@ -147,69 +165,34 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
                     @Override
                     public void onStart(String utteranceId) {
                         handler.post(() -> {
+                            if (paused) return;
                             speaking = true;
-                            paused = false;
                             emitEvent("ttsStart", utteranceId);
                         });
                     }
 
                     @Override
                     public void onDone(String utteranceId) {
-                        handler.post(() -> {
-                            if (pauseRequested) {
-                                pauseRequested = false;
-                                speaking = false;
-                                paused = true;
-                                return;
-                            }
-                            speaking = false;
-                            paused = false;
-                            emitEvent("ttsEnd", utteranceId);
-                            scheduleStopService();
-                        });
+                        handler.post(() -> finishUtterance(utteranceId, "ttsEnd"));
                     }
 
                     /** Android 8+: слово, которое движок начинает произносить (подсветка слова в читалке). */
                     @Override
                     public void onRangeStart(String utteranceId, int start, int end, int frame) {
                         handler.post(() -> {
-                            if (!speaking || pauseRequested) return;
+                            if (paused) return;
                             emitEvent("ttsRange", utteranceId, start, end);
                         });
                     }
 
                     @Override
                     public void onError(String utteranceId) {
-                        handler.post(() -> {
-                            if (pauseRequested) {
-                                pauseRequested = false;
-                                speaking = false;
-                                paused = true;
-                                return;
-                            }
-                            speaking = false;
-                            paused = false;
-                            emitEvent("ttsError", utteranceId);
-                            scheduleStopService();
-                        });
+                        handler.post(() -> finishUtterance(utteranceId, "ttsError"));
                     }
 
                     @Override
                     public void onStop(String utteranceId, boolean interrupted) {
-                        handler.post(() -> {
-                            if (pauseRequested) {
-                                pauseRequested = false;
-                                speaking = false;
-                                paused = true;
-                                return;
-                            }
-                            speaking = false;
-                            paused = false;
-                            if (interrupted) {
-                                emitEvent("ttsEnd", utteranceId);
-                            }
-                            scheduleStopService();
-                        });
+                        handler.post(() -> finishUtterance(utteranceId, interrupted ? "ttsEnd" : null));
                     }
                 });
             }
@@ -224,7 +207,21 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
         });
     }
 
-    public void speak(String text, String utteranceId, float speechRate, float speechPitch, String voice, String lang, float speechVolume) {
+    /** Остановка во время паузы — наш же tts.stop(): очередь сохранена в `pending`. */
+    private void finishUtterance(String utteranceId, String event) {
+        if (paused) return;
+        boolean empty;
+        synchronized (pending) {
+            pending.remove(utteranceId);
+            empty = pending.isEmpty();
+        }
+        speaking = !empty;
+        if (event != null) emitEvent(event, utteranceId);
+        if (empty) scheduleStopService();
+    }
+
+    /** @param queueAdd true — после уже отданных фраз (QUEUE_ADD), false — вместо них (QUEUE_FLUSH) */
+    public void speak(String text, String utteranceId, float speechRate, float speechPitch, String voice, String lang, float speechVolume, boolean queueAdd) {
         if (text == null || text.trim().isEmpty()) return;
         cancelPendingStopService();
         startForegroundService();
@@ -236,9 +233,8 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
         if (speechPitch > 0) {
             pitch = Math.max(0.5f, Math.min(2f, speechPitch));
         }
-        if (speechVolume >= 0) {
-            volume = Math.max(0f, Math.min(1f, speechVolume));
-        }
+        final float itemVolume = speechVolume >= 0 ? Math.max(0f, Math.min(1f, speechVolume)) : volume;
+        volume = itemVolume;
         if (voice != null) {
             voiceName = voice;
         }
@@ -246,9 +242,11 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
             language = lang;
         }
 
-        lastSpokenText = text;
-        lastUtteranceId = utteranceId != null ? utteranceId : ("u" + System.currentTimeMillis());
-        pauseRequested = false;
+        final String id = utteranceId != null ? utteranceId : ("u" + System.currentTimeMillis());
+        synchronized (pending) {
+            if (!queueAdd) pending.clear();
+            pending.put(id, new Pending(text, itemVolume));
+        }
         paused = false;
 
         ensureSystemDefault(() -> {
@@ -256,23 +254,28 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
             applyVoice();
             tts.setSpeechRate(rate);
             tts.setPitch(pitch);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                Bundle params = new Bundle();
-                params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume);
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, lastUtteranceId);
-            } else {
-                tts.speak(text, TextToSpeech.QUEUE_ADD, null);
-            }
+            speakNow(text, id, itemVolume, queueAdd);
         });
+    }
+
+    private void speakNow(String text, String id, float itemVolume, boolean queueAdd) {
+        int mode = queueAdd ? TextToSpeech.QUEUE_ADD : TextToSpeech.QUEUE_FLUSH;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            Bundle params = new Bundle();
+            params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, itemVolume);
+            tts.speak(text, mode, params, id);
+        } else {
+            tts.speak(text, mode, null);
+        }
     }
 
     public void stop() {
         sessionActive = false;
-        pauseRequested = false;
         paused = false;
         speaking = false;
-        lastSpokenText = "";
-        lastUtteranceId = "";
+        synchronized (pending) {
+            pending.clear();
+        }
         handler.post(() -> {
             if (tts != null) {
                 tts.stop();
@@ -282,20 +285,42 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
     }
 
     public void pause() {
-        if (!speaking || tts == null) return;
-        pauseRequested = true;
+        if (tts == null || paused) return;
+        synchronized (pending) {
+            if (pending.isEmpty()) return;
+        }
+        paused = true;
+        speaking = false;
         handler.post(() -> {
             if (tts != null) {
                 tts.stop();
             }
-            speaking = false;
-            paused = true;
         });
     }
 
+    /** Проиграть очередь заново с прерванной фразы: она — первая в `pending`. */
     public void resume() {
-        if (!paused || lastSpokenText == null || lastSpokenText.isEmpty()) return;
-        speak(lastSpokenText, lastUtteranceId, rate, pitch, voiceName, language, volume);
+        if (!paused) return;
+        final List<Map.Entry<String, Pending>> items;
+        synchronized (pending) {
+            if (pending.isEmpty()) return;
+            items = new ArrayList<>(pending.entrySet());
+        }
+        paused = false;
+        cancelPendingStopService();
+        startForegroundService();
+        sessionActive = true;
+        ensureSystemDefault(() -> {
+            if (!ready || tts == null || paused) return;
+            applyVoice();
+            tts.setSpeechRate(rate);
+            tts.setPitch(pitch);
+            boolean first = true;
+            for (Map.Entry<String, Pending> e : items) {
+                speakNow(e.getValue().text, e.getKey(), e.getValue().volume, !first);
+                first = false;
+            }
+        });
     }
 
     public void shutdown() {
@@ -358,6 +383,7 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
             tts = null;
         }
         ready = false;
+        appliedVoiceKey = "";
         String preferred = resolvePreferredEngine();
         boundEngine = preferred;
         if (!preferred.isEmpty()) {
@@ -406,6 +432,9 @@ public final class TtsPlaybackManager implements TextToSpeech.OnInitListener {
      */
     private void applyVoice() {
         if (tts == null) return;
+        String key = (voiceName != null ? voiceName : "") + "|" + (language != null ? language : "");
+        if (key.equals(appliedVoiceKey)) return;
+        appliedVoiceKey = key;
         if (voiceName != null && !voiceName.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             List<Voice> voices = listVoices();
             for (Voice voice : voices) {
