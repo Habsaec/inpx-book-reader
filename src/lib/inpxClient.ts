@@ -49,6 +49,8 @@ export interface InpxProfile {
     wantCount?: number;
     /** «Мои оценки» (additive). */
     ratedCount?: number;
+    /** Smart shelves (additive; older servers omit it). «Полки» = shelvesCount + smartShelvesCount. */
+    smartShelvesCount?: number;
     createdAt: string | null;
   };
   recentBooks: Array<{

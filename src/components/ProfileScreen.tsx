@@ -130,7 +130,7 @@ export default function ProfileScreen({
     ? [
         { label: 'Закладки', value: stats.readerBookmarksCount, seg: 'bookmarks' },
         { label: 'Заметки', value: stats.readerAnnotationsCount, seg: 'notes' },
-        { label: 'Полки', value: stats.shelvesCount, seg: 'shelves' },
+        { label: 'Полки', value: stats.shelvesCount + (stats.smartShelvesCount ?? 0), seg: 'shelves' },
         { label: 'Авторы', value: stats.favoriteAuthorsCount, seg: 'favorites' },
         { label: 'Серии', value: stats.favoriteSeriesCount, seg: 'favorites' },
         ...(stats.ratedCount != null ? [{ label: 'Мои оценки', value: stats.ratedCount, seg: 'rated' as const }] : []),

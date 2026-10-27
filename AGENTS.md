@@ -73,7 +73,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 Приложение использует следующие endpoint'ы INPX Library Server:
 
 #### Аутентификация и профиль
-- `GET /api/profile` — данные профиля пользователя (`user.email` — email аккаунта, additive; `userStats.wantCount` — «Хочу прочитать», additive)
+- `GET /api/profile` — данные профиля пользователя (`user.email` — email аккаунта, additive; `userStats.wantCount` — «Хочу прочитать», additive; `userStats.smartShelvesCount` — умные полки, additive: «Полки» в профиле = `shelvesCount + smartShelvesCount`)
 - `GET /api/account-email` / `POST /api/account-email` (`{ email }`, пусто = очистить) — email аккаунта `users.email`; 400 `PROFILE_INVALID_EMAIL`, 409 `PROFILE_EMAIL_TAKEN`. Отдельно от `GET/POST /api/ereader-email`
 - `POST /api/auth/device` — выдать device token (Android, после Basic Auth)
 - `DELETE /api/auth/device/:tokenId` — отозвать device token
