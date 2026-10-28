@@ -50,3 +50,9 @@ export function applyEinkDataset(active: boolean): void {
   if (active) root.dataset.eink = '1';
   else delete root.dataset.eink;
 }
+
+/** E-Ink mode is on right now (root marker set by `applyEinkDataset`). */
+export function isEinkDatasetActive(): boolean {
+  if (typeof document === 'undefined') return false;
+  return document.documentElement.dataset.eink === '1';
+}

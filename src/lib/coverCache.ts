@@ -9,6 +9,7 @@ import {
 } from './inpxClient';
 import { encodeBookRef, safeBookIdFileKey } from './bookRef';
 import { isNativeApp } from './platform';
+import { isEinkDatasetActive } from './einkMode';
 import { BookStorage } from './bookStoragePlugin';
 import { appCacheDisplayUrl, downloadUrlToAppCacheNative } from './nativeDownload';
 import type { ServerConfig } from '../types';
@@ -82,25 +83,34 @@ function rememberAppCacheExists(appPath: string, ok: boolean): void {
   }
 }
 
-function coverMemKey(bookId: string, variant: 'thumb' | 'full'): string {
-  return `cover:${variant}:${bookId}`;
+/** 'thumb' follows the E-Ink switch (HD thumb, see `coverUrl`); 'thumb-sd' / 'thumb-hd' name one cache explicitly. */
+type CoverKeyVariant = 'thumb' | 'full' | 'thumb-sd' | 'thumb-hd';
+
+function coverKeyTag(variant: CoverKeyVariant): string {
+  if (variant === 'full') return 'full';
+  if (variant === 'thumb-hd') return 'thumbhd';
+  if (variant === 'thumb-sd') return 'thumb';
+  return isEinkDatasetActive() ? 'thumbhd' : 'thumb';
+}
+
+function coverMemKey(bookId: string, variant: CoverKeyVariant): string {
+  return `cover:${coverKeyTag(variant)}:${bookId}`;
 }
 
 function portraitMemKey(authorName: string): string {
   return `portrait:${authorName}`;
 }
 
-function coverIdbKey(bookId: string, variant: 'thumb' | 'full'): string {
-  return `${IDB_COVER}${variant}:${bookId}`;
+function coverIdbKey(bookId: string, variant: CoverKeyVariant): string {
+  return `${IDB_COVER}${coverKeyTag(variant)}:${bookId}`;
 }
 
 function portraitIdbKey(authorName: string): string {
   return `${IDB_PORTRAIT}${authorName}`;
 }
 
-function appCoverPath(bookId: string, variant: 'thumb' | 'full'): string {
-  const suffix = variant === 'full' ? 'full' : 'thumb';
-  return `${APP_COVER_DIR}/${safeBookIdFileKey(bookId)}_${suffix}.jpg`;
+function appCoverPath(bookId: string, variant: CoverKeyVariant): string {
+  return `${APP_COVER_DIR}/${safeBookIdFileKey(bookId)}_${coverKeyTag(variant)}.jpg`;
 }
 
 function appPortraitPath(authorName: string): string {
@@ -621,7 +631,7 @@ export async function removeCoverFromDirectory(
   _directory: StorageDirectory,
   bookId: string,
 ): Promise<void> {
-  for (const variant of ['thumb', 'full'] as const) {
+  for (const variant of ['thumb-sd', 'thumb-hd', 'full'] as const) {
     const memKey = coverMemKey(bookId, variant);
     coverTombstones.add(memKey);
     const pending = inflight.get(memKey);

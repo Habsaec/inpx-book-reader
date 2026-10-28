@@ -11,6 +11,7 @@
 import { ServerConfig } from '../types';
 import { arrayBufferToBase64 } from './bookStorage';
 import { isNativeApp } from './platform';
+import { isEinkDatasetActive } from './einkMode';
 import { appendHideReadParam } from './hideReadPreference';
 import { getDebugRequestId } from './debugSessionLog';
 import {
@@ -1915,10 +1916,16 @@ async function downloadBookBinaryOnce(
   return out.buffer;
 }
 
+/** `cover-thumb` path; on E-Ink asks for the double-size thumb (server `?hd=1`): ~300 ppi screens upscale the normal one. */
+function coverApiPath(bookId: string, variant: 'thumb' | 'full'): string {
+  if (variant === 'full') return apiBookPath(bookId, 'cover');
+  const path = apiBookPath(bookId, 'cover-thumb');
+  return isEinkDatasetActive() ? `${path}?hd=1` : path;
+}
+
 export function coverUrl(config: ServerConfig, bookId: string, variant: 'thumb' | 'full' = 'thumb'): string {
   const base = normalizeBaseUrl(config.url);
-  const suffix = variant === 'full' ? 'cover' : 'cover-thumb';
-  return `${base}${apiBookPath(bookId, suffix)}`;
+  return `${base}${coverApiPath(bookId, variant)}`;
 }
 
 export function displayCoverUrl(config: ServerConfig, bookId: string, variant: 'thumb' | 'full' = 'thumb'): string {
@@ -1933,11 +1940,10 @@ export async function fetchCoverBlob(
   bookId: string,
   variant: 'thumb' | 'full' = 'thumb'
 ): Promise<Blob | null> {
-  const suffix = variant === 'full' ? 'cover' : 'cover-thumb';
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
-    const res = await apiFetch(config, apiBookPath(bookId, suffix), {
+    const res = await apiFetch(config, coverApiPath(bookId, variant), {
       headers: { Accept: 'image/*' },
       signal: controller.signal,
     });
