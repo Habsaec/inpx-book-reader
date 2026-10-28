@@ -107,6 +107,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/books/:id/content` — скачать книгу
   - ID с NUL/control-символами (Flibusta): путь `/api/books/b64/<base64url>/content` (см. `bookRef.ts` / серверный `book-ref.js`), иначе HTTP 400
 - `GET /api/books/:id/cover` — обложка (full)
+- KOReader (KOSync на сервере): книга, скачанная через сервер и читаемая в KOReader, сама попадает в «Читаю» с процентом KOReader (`readProgress` в `/api/library/continue` и `recentBooks` `/api/profile` = максимум из своего ридера и KOReader), на 99% — в «Прочитано»; приложение подхватывает это по `readingHistoryRev` без своего кода. Локальный прогресс скачанной в приложение книги по-прежнему важнее серверного
 - `GET /api/books/:id/cover-thumb` — обложка (миниатюра). Для книг в `.7z` сервер не распаковывает FB2 ради миниатюры (solid 7z иначе подвешивает HTTP). Таймаут портрета/обложки не считается потерей связи с сервером. В режиме E-Ink (`html[data-eink="1"]`, `isEinkDatasetActive()`) `coverUrl` / `fetchCoverBlob` просят `?hd=1` — миниатюру вдвое крупнее (на ~300 ppi обычная 220×320 растягивается и выглядит мутной); кэш `coverCache` для неё отдельный (тег `thumbhd`: память, IDB, `covers/<id>_thumbhd.jpg`), переключение режима просто перезагружает обложки
 - `GET /api/books/:id/details` — детали книги
 - `GET /api/books/:id/review` — рецензия на книгу
