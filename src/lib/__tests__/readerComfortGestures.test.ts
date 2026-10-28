@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+/** Source as text with LF line endings (Windows checkouts with core.autocrlf get CRLF). */
+function readText(path: string): string {
+  return readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+}
+
 function readPublic(rel: string) {
-  return readFileSync(fileURLToPath(new URL(`../../../public/${rel}`, import.meta.url)), 'utf8');
+  return readText(fileURLToPath(new URL(`../../../public/${rel}`, import.meta.url)));
 }
 
 function sliceFn(source: string, start: string, end: string) {
@@ -80,10 +85,7 @@ describe('reading gestures do not steal the page', () => {
     expect(apply).toContain('if (unchanged) return');
     expect(apply).toContain('Number(window.visualViewport.scale) > 1.01');
 
-    const parent = readFileSync(
-      fileURLToPath(new URL('../../../src/components/FoliateReader.tsx', import.meta.url)),
-      'utf8',
-    );
+    const parent = readText(fileURLToPath(new URL('../../../src/components/FoliateReader.tsx', import.meta.url)));
     expect(parent).not.toContain('visualViewport?.addEventListener(\'resize\'');
   });
 

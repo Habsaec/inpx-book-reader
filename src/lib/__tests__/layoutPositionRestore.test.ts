@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+/** Source as text with LF line endings (Windows checkouts with core.autocrlf get CRLF). */
+function readText(path: string): string {
+  return readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+}
+
 function readerPreserveSource() {
   const readerPath = fileURLToPath(
     new URL('../../../public/inpx-reader/reader.js', import.meta.url),
   );
-  const source = readFileSync(readerPath, 'utf8');
+  const source = readText(readerPath);
   const start = source.indexOf('async function preserveLocationAfterLayoutChange');
   const end = source.indexOf('function applyPreset', start);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -50,7 +55,7 @@ describe('layout position restore after typography change', () => {
     const readerPath = fileURLToPath(
       new URL('../../../public/inpx-reader/reader.js', import.meta.url),
     );
-    const source = readFileSync(readerPath, 'utf8');
+    const source = readText(readerPath);
     expect(source).toContain('function estimateTextOffsetFromPage');
     expect(source).toContain('textOffset <= 0 && page > 1');
     expect(source).toContain('cloneRange');
@@ -80,7 +85,7 @@ describe('layout position restore after typography change', () => {
     const readerPath = fileURLToPath(
       new URL('../../../public/inpx-reader/reader.js', import.meta.url),
     );
-    const source = readFileSync(readerPath, 'utf8');
+    const source = readText(readerPath);
     expect(source).toContain('async function tryRestorePaginatorPage');
     expect(source).toContain('async function tryFastRestorePaginatorPage');
     expect(source).toContain('if (Number(renderer.page) === savedPage) return true');
@@ -101,7 +106,7 @@ describe('layout position restore after typography change', () => {
     const readerPath = fileURLToPath(
       new URL('../../../public/inpx-reader/reader.js', import.meta.url),
     );
-    const source = readFileSync(readerPath, 'utf8');
+    const source = readText(readerPath);
     const cssStart = source.indexOf('function getBookCSS');
     const cssEnd = source.indexOf('function applyBookStyles', cssStart);
     const css = source.slice(cssStart, cssEnd);
@@ -117,7 +122,7 @@ describe('layout position restore after typography change', () => {
     const fb2Path = fileURLToPath(
       new URL('../../../public/foliate/fb2.js', import.meta.url),
     );
-    const source = readFileSync(fb2Path, 'utf8');
+    const source = readText(fb2Path);
     expect(source).toContain('stitchFictionEls');
     expect(source).toContain('collectChapterTitles');
     expect(source).not.toContain('explodeChapterSections');
@@ -130,8 +135,8 @@ describe('layout position restore after typography change', () => {
     const viewPath = fileURLToPath(
       new URL('../../../public/foliate/view.js', import.meta.url),
     );
-    const source = readFileSync(paginatorPath, 'utf8');
-    const view = readFileSync(viewPath, 'utf8');
+    const source = readText(paginatorPath);
+    const view = readText(viewPath);
     expect(source).toContain('pinTextAnchor(offset, quote = \'\')');
     expect(source).toContain('rangeFromTextOffset(doc, this.#textOffset, this.#textQuote)');
     expect(source).toContain('if (!this.scrolled && !(size > 8)) return');
@@ -169,7 +174,7 @@ describe('layout position restore after typography change', () => {
     const paginatorPath = fileURLToPath(
       new URL('../../../public/foliate/paginator.js', import.meta.url),
     );
-    const source = readFileSync(paginatorPath, 'utf8');
+    const source = readText(paginatorPath);
     const fnStart = source.indexOf('async #scrollToAnchor(anchor, reason = \'anchor\')');
     const fnEnd = source.indexOf('#getVisibleRange()', fnStart);
     const fn = source.slice(fnStart, fnEnd);
@@ -187,7 +192,7 @@ describe('layout position restore after typography change', () => {
     const paginatorPath = fileURLToPath(
       new URL('../../../public/foliate/paginator.js', import.meta.url),
     );
-    const source = readFileSync(paginatorPath, 'utf8');
+    const source = readText(paginatorPath);
     expect(source).toContain('page >= pages - 1 && this.#adjacentIndex(1) != null');
     expect(source).toContain('page <= 0 && this.#adjacentIndex(-1) != null');
     expect(source).toContain('#landAtSectionEdge(prev)');
@@ -201,8 +206,8 @@ describe('layout position restore after typography change', () => {
     const cssPath = fileURLToPath(
       new URL('../../../public/inpx-reader/reader.css', import.meta.url),
     );
-    const reader = readFileSync(readerPath, 'utf8');
-    const css = readFileSync(cssPath, 'utf8');
+    const reader = readText(readerPath);
+    const css = readText(cssPath);
     expect(css).toContain('.reader-restore-veil');
     expect(css).toContain('bottom:max(var(--r-safe-bottom), var(--r-status-h));');
     expect(css).not.toMatch(/#reader-body\{[^}]*bottom:var\(--r-bottom-reserve\)/);
@@ -216,7 +221,7 @@ describe('layout position restore after typography change', () => {
     const htmlPath = fileURLToPath(
       new URL('../../../public/inpx-reader/index.html', import.meta.url),
     );
-    const html = readFileSync(htmlPath, 'utf8');
+    const html = readText(htmlPath);
     expect(html).toContain('id="reader-restore-veil"');
     const resizeStart = reader.indexOf('function onViewportResize');
     const resizeEnd = reader.indexOf('window.addEventListener(\'resize\', onViewportResize)', resizeStart);
@@ -237,7 +242,7 @@ describe('layout position restore after typography change', () => {
     const readerPath = fileURLToPath(
       new URL('../../../public/inpx-reader/reader.js', import.meta.url),
     );
-    const source = readFileSync(readerPath, 'utf8');
+    const source = readText(readerPath);
     expect(source).toContain('function applyPinchFontSize(size)');
     expect(source).toContain('function commitPinchFont()');
     expect(source).toContain('applyPinchFontSize(pinchStartSize * dampened)');
@@ -252,7 +257,7 @@ describe('layout position restore after typography change', () => {
     const bootstrapPath = fileURLToPath(
       new URL('../../../public/inpx-reader/bootstrap.js', import.meta.url),
     );
-    const bootstrap = readFileSync(bootstrapPath, 'utf8');
+    const bootstrap = readText(bootstrapPath);
     expect(bootstrap).toContain('positionsDiffer(before, merged)');
     expect(bootstrap).toContain('seedRestoreEnabled');
     expect(bootstrap).toContain('seedNeedsRestore');
@@ -267,7 +272,7 @@ describe('layout position restore after typography change', () => {
     const genPath = fileURLToPath(
       new URL('../../../scripts/generate-reader-html.mjs', import.meta.url),
     );
-    const gen = readFileSync(genPath, 'utf8');
+    const gen = readText(genPath);
     expect(gen).toContain('function readerAssetVersion');
     expect(gen).toContain('reader.js?v=${version}');
     expect(gen).toContain('bootstrap.js?v=${version}');
