@@ -7,6 +7,7 @@ import AppErrorBoundary from './ui/AppErrorBoundary';
 import './index.css';
 import { installStablePress } from './lib/stablePress';
 import { installNativeSafeAreaVars } from './lib/safeArea';
+import { installUiFontScale } from './lib/uiFontScale';
 
 installStablePress();
 installNativeSafeAreaVars();
@@ -21,7 +22,7 @@ installNativeSafeAreaVars();
   probe.remove();
 }
 
-createRoot(document.getElementById('root')!).render(
+void installUiFontScale().finally(() => createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MotionConfig reducedMotion="user">
       <AppErrorBoundary>
@@ -31,4 +32,4 @@ createRoot(document.getElementById('root')!).render(
       </AppErrorBoundary>
     </MotionConfig>
   </StrictMode>,
-);
+));

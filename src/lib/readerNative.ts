@@ -50,6 +50,8 @@ export interface FrontLightState {
 interface ReaderNativePlugin {
   getSafeAreaInsets(): Promise<SafeAreaInsets>;
   getDeviceInfo(): Promise<NativeDeviceInfo>;
+  /** System «Font size» (1 = 100%); the WebView itself runs with textZoom 100. */
+  getFontScale(): Promise<{ fontScale: number }>;
   setBrightness(options: { level: number }): Promise<FrontLightState | void>;
   getBrightness(): Promise<FrontLightState>;
   getFrontLightState(): Promise<FrontLightState>;

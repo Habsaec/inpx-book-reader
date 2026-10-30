@@ -10,6 +10,7 @@ import { isBookFinished } from '../lib/bookOpenPolicy';
 import BookCover from './BookCover';
 import ReadMark from './ReadMark';
 import ReadProgressBar from './ReadProgressBar';
+import { getUiFontScale } from '../lib/uiFontScale';
 
 /** Fallback tile width before first measure (CSS px). */
 export const BOOK_COVER_TILE_WIDTH_PX = 110;
@@ -30,9 +31,12 @@ const COVER_GAP_PX = 12;
  * | 900–1099px   | 6       | large e-ink / tab   |
  * | 1100–1299px  | 7       | wide                |
  * | ≥ 1300px     | 8       | very wide           |
+ *
+ * The width is divided by the system font scale first, so a larger «Font size»
+ * gives fewer, wider tiles instead of titles running into the next column.
  */
 export function coverGridColumnsForWidth(containerWidth: number): number {
-  const w = Math.max(0, Number(containerWidth) || 0);
+  const w = Math.max(0, Number(containerWidth) || 0) / getUiFontScale();
   if (w <= 0) return 3;
   if (w < 480) return 3;
   if (w < 640) return 4;

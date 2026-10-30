@@ -6,8 +6,9 @@ import type { CatalogViewMode } from './catalogTypes';
 import FlibustaBookRow from './FlibustaBookRow';
 import VirtualList from '../../ui/VirtualList';
 import { useDownloadQueue } from '../../hooks/useDownloadQueue';
+import { getUiFontScale } from '../../lib/uiFontScale';
 
-/** Cover list rows are 120px. */
+/** Cover list rows are 120px at 100% system font size (rows grow with it). */
 const LIST_ROW_HEIGHT = 120;
 const VIRTUALIZE_THRESHOLD = 60;
 
@@ -116,7 +117,7 @@ export default function CatalogBookList({
       <div className="max-h-[min(70vh,640px)]">
         <VirtualList
           items={books}
-          itemHeight={LIST_ROW_HEIGHT}
+          itemHeight={Math.round(LIST_ROW_HEIGHT * getUiFontScale())}
           className=""
           getKey={(book) => book.id}
           renderItem={(book) => renderRow(book)}

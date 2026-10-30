@@ -68,6 +68,29 @@ public class ReaderNativePlugin extends Plugin {
         instance = this;
         ttsManager = TtsPlaybackManager.getInstance(getContext());
         ttsManager.setUtteranceCallback((type, utteranceId, start, end) -> forwardTtsEventToReader(type, utteranceId, start, end));
+        disableWebViewTextZoom();
+    }
+
+    /**
+     * WebView по умолчанию переносит системный «Размер шрифта» в textZoom: Chromium раздувает
+     * только шрифт, а высота строк, плитки и таб-бар остаются прежними — названия наезжают
+     * друг на друга (Bigme, крупный шрифт). Масштаб отдаём в JS (`getFontScale`), он
+     * увеличивает корневой font-size, и весь интерфейс в rem растёт целиком.
+     */
+    private void disableWebViewTextZoom() {
+        if (getActivity() == null) return;
+        getActivity().runOnUiThread(() -> {
+            if (getBridge() == null || getBridge().getWebView() == null) return;
+            getBridge().getWebView().getSettings().setTextZoom(100);
+        });
+    }
+
+    @PluginMethod
+    public void getFontScale(PluginCall call) {
+        float scale = getContext().getResources().getConfiguration().fontScale;
+        JSObject out = new JSObject();
+        out.put("fontScale", scale > 0 ? scale : 1f);
+        call.resolve(out);
     }
 
     @Override
