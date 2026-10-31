@@ -132,10 +132,13 @@ export function orderShelves<T extends { key: string }>(shelves: T[], shelfOrder
 }
 
 /**
- * Drag in a shelves list (server `reorderShelfGroup`): `groupKeys` is the new order of one kind,
- * `allKeys` every shelf in the current order; the other kind keeps its slots.
+ * Drag in the shelves list (server `reorderShelfGroup`): `groupKeys` is all shelves in the new
+ * order (one mixed list), or the new order of one kind — then the other kind keeps its slots.
  */
 export function reorderShelfGroup(layout: HomeLayout, allKeys: string[], groupKeys: string[]): HomeLayout {
+  if (groupKeys.length === allKeys.length && allKeys.every((key) => groupKeys.includes(key))) {
+    return { ...layout, shelfOrder: groupKeys.slice() };
+  }
   const kind = groupKeys[0]?.split(':')[0];
   const slots = allKeys.filter((key) => key.split(':')[0] === kind);
   if (!kind || groupKeys.length !== slots.length || !slots.every((key) => groupKeys.includes(key))) return layout;

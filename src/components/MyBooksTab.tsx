@@ -384,8 +384,8 @@ export default function MyBooksTab({
     () => shelves.map((s) => `${shelfKey(s)}:${s.bookCount ?? 0}`).join('|'),
     [shelves],
   );
+  /** Only regular shelves can hold books (picker of «На полку» on the device tab). */
   const regularShelves = React.useMemo(() => shelves.filter((shelf) => shelf.kind !== 'smart'), [shelves]);
-  const smartShelves = React.useMemo(() => shelves.filter((shelf) => shelf.kind === 'smart'), [shelves]);
 
   const localReadBooks = React.useMemo(
     () => localOfflineBooks.filter((book) => (readingProgressByBookId?.[book.id] ?? book.readProgress ?? 0) >= 99),
@@ -738,40 +738,19 @@ export default function MyBooksTab({
                   ) : (
                     <>
                       <SortableShelfList
-                        shelves={regularShelves}
+                        shelves={shelves}
                         onReorder={onReorderShelves}
                         label="Порядок полок"
                         renderRow={(s) => (
                           <ShelfCard
                             name={s.name}
+                            smart={s.kind === 'smart'}
                             count={s.bookCount ?? 0}
                             serverConfig={serverConfig}
                             storageDirectory={storageDirectory}
                             previewBookIds={s.previewBookIds}
                             onClick={() => selectShelf(s)}
-                            onDelete={onRemoveShelf ? () => { void onRemoveShelf(String(s.id), 'shelf'); } : undefined}
-                            onHome={Boolean(s.onHome)}
-                            onToggleHome={onToggleShelfHome && typeof s.id === 'number' ? () => { void onToggleShelfHome(s); } : undefined}
-                          />
-                        )}
-                      />
-                      {smartShelves.length > 0 ? (
-                        <h3 className={`${textStyles.sectionLabel} ${theme.text} mt-6 mb-1`}>Умные полки</h3>
-                      ) : null}
-                      <SortableShelfList
-                        shelves={smartShelves}
-                        onReorder={onReorderShelves}
-                        label="Порядок умных полок"
-                        renderRow={(s) => (
-                          <ShelfCard
-                            name={s.name}
-                            smart
-                            count={s.bookCount ?? 0}
-                            serverConfig={serverConfig}
-                            storageDirectory={storageDirectory}
-                            previewBookIds={s.previewBookIds}
-                            onClick={() => selectShelf(s)}
-                            onDelete={onRemoveShelf ? () => { void onRemoveShelf(String(s.id), 'smart'); } : undefined}
+                            onDelete={onRemoveShelf ? () => { void onRemoveShelf(String(s.id), s.kind === 'smart' ? 'smart' : 'shelf'); } : undefined}
                             onHome={Boolean(s.onHome)}
                             onToggleHome={onToggleShelfHome && typeof s.id === 'number' ? () => { void onToggleShelfHome(s); } : undefined}
                           />

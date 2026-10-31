@@ -11,6 +11,7 @@ import {
   Heart,
   Highlighter,
   Library,
+  Search,
   Plus,
   type LucideIcon,
 } from 'lucide-react';
@@ -111,7 +112,11 @@ function ShelfRow({
         current ? 'bg-[var(--app-accent-soft)]' : theme.rowPress
       } ${theme.focusRing} ${motion.press}`}
     >
-      <Library className={`w-5 h-5 shrink-0 ${current ? theme.accentText : theme.textMuted}`} aria-hidden />
+      {shelf.kind === 'smart' ? (
+        <Search className={`w-5 h-5 shrink-0 ${theme.accentText}`} aria-label="Умная полка" />
+      ) : (
+        <Library className={`w-5 h-5 shrink-0 ${current ? theme.accentText : theme.textMuted}`} aria-hidden />
+      )}
       <span className={`flex-1 min-w-0 truncate ${textStyles.bodyBold} ${theme.text}`}>{shelf.name}</span>
       <span className={`shrink-0 ${textStyles.caption} tabular-nums ${theme.textMuted}`}>{shelf.bookCount ?? 0}</span>
       <ChevronRight className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
@@ -168,8 +173,6 @@ export default function LibraryCollections({
   onOpenQueue?: () => void;
 }) {
   const isCurrent = (s: LibrarySeg) => highlightCurrent && seg === s && !(s === 'shelves' && activeShelfKey != null);
-  const regularShelves = shelves.filter((shelf) => shelf.kind !== 'smart');
-  const smartShelves = shelves.filter((shelf) => shelf.kind === 'smart');
   const removeShelf = onRemoveShelf
     ? (shelf: UiShelf) => () => onRemoveShelf(shelf)
     : undefined;
@@ -213,10 +216,15 @@ export default function LibraryCollections({
           />
         ))}
       </Group>
-      {regularShelves.length > 0 || onNewShelf ? <Group title="Полки" hint={regularShelves.length > 0 && onRemoveShelf ? (onReorderShelves && regularShelves.length > 1 ? 'Порядок — перетаскиванием за ⠿, удалить — удерживайте полку' : 'Удерживайте полку, чтобы удалить') : undefined}>
-        <SortableShelfList shelves={regularShelves} onReorder={onReorderShelves} renderRow={renderShelfRow} label="Порядок полок" />
+      {shelves.length > 0 || onNewShelf ? <Group
+        title="Полки"
+        hint={shelves.length > 0 && onRemoveShelf
+          ? (onReorderShelves && shelves.length > 1 ? 'Порядок — перетаскиванием за ⠿, удалить — удерживайте полку' : 'Удерживайте полку, чтобы удалить')
+          : undefined}
+      >
+        <SortableShelfList shelves={shelves} onReorder={onReorderShelves} renderRow={renderShelfRow} label="Порядок полок" />
         {onNewShelf ? (
-          regularShelves.length === 0 ? (
+          shelves.length === 0 ? (
             <Row icon={Plus} label="Создать полку" accent onClick={onNewShelf} />
           ) : (
             <button
@@ -230,9 +238,6 @@ export default function LibraryCollections({
             </button>
           )
         ) : null}
-      </Group> : null}
-      {smartShelves.length > 0 ? <Group title="Умные полки" hint={regularShelves.length === 0 && onRemoveShelf ? 'Удерживайте полку, чтобы удалить' : undefined}>
-        <SortableShelfList shelves={smartShelves} onReorder={onReorderShelves} renderRow={renderShelfRow} label="Порядок умных полок" />
       </Group> : null}
     </nav>
   );

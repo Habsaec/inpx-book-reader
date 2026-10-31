@@ -6,6 +6,7 @@ import type { StorageDirectory } from '../../lib/storageDirectory';
 import ShelfCoverStack from './ShelfCoverStack';
 import { useLongPress } from '../../hooks/useLongPress';
 import ShelfHomeToggle from './ShelfHomeToggle';
+import { Search } from 'lucide-react';
 
 function bookCountLabel(n: number): string {
   const v = Math.max(0, Math.floor(n));
@@ -61,6 +62,7 @@ export default function ShelfCard({
           />
         ) : null}
         <p className={`${textStyles.sectionLabel} ${theme.text} ${ids.length ? 'mt-3' : ''} truncate`}>
+          {smart ? <Search className={`inline w-5 h-5 mr-1.5 -mt-1 ${theme.accentText}`} aria-label="Умная полка" /> : null}
           {name}
         </p>
         <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>

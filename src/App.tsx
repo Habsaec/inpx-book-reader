@@ -824,8 +824,8 @@ export default function App() {
   const libraryShelves = React.useMemo(() => {
     const ordered = <T extends { id: number | string; kind?: 'shelf' | 'smart' }>(list: T[]) =>
       orderShelves(list.map((shelf) => ({ key: shelfOrderKey(shelf), shelf })), homeLayout.shelfOrder).map((x) => x.shelf);
-    const regular = ordered(uiShelves.map((shelf) => ({ ...shelf, kind: 'shelf' as const })));
-    if (!isOnline) return regular;
+    const regular = uiShelves.map((shelf) => ({ ...shelf, kind: 'shelf' as const }));
+    if (!isOnline) return ordered(regular);
     const smart = inpxServer.smartShelves.map((shelf) => ({
       id: shelf.id,
       name: shelf.name,
@@ -834,7 +834,8 @@ export default function App() {
       previewBookIds: shelf.previewBookIds,
       onHome: shelf.onHome,
     }));
-    return [...regular, ...ordered(smart)];
+    // One list: regular and smart shelves mixed in the account order.
+    return ordered([...regular, ...smart]);
   }, [isOnline, uiShelves, inpxServer.smartShelves, homeLayout.shelfOrder]);
 
   /** Drag in a shelves list: new order of one kind → `homeLayout.shelfOrder` (the home page follows it). */
