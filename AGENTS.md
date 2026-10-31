@@ -95,7 +95,7 @@ Cursor rules: `.cursor/rules/android-only.mdc`, `.cursor/rules/unified-ecosystem
 - `GET /api/search?q=` — totals разделов `{ books, authors, series, preferredField?, routeField: null }`; drilldown через `/api/catalog?field=`; веб Enter всегда открывает книги с чипами Авторы/Серии (без hub / smart redirect)
 - `GET /api/search/genres?q=` — жанры среди книг текущей выдачи (фасет для фильтра; опционально format/year/minRate/hasSeries)
 - `GET /api/search/suggest` — подсказки поиска (книги/авторы/серии); тап по автору/серии открывает страницу сущности (`name` из suggest), а не поиск книг
-- `GET /api/catalog` — при пустой/слабой выдаче может быть additive `searchHints` (`tip`, `didYouMean`, `weak?`)
+- `GET /api/catalog` — при пустой/слабой выдаче может быть additive `searchHints` (`tip`, `didYouMean`, `weak?`). Ноль книг — окончательный ответ: `searchCatalog` в `inpxClient.ts` **не** повторяет запрос как `*q` (сервер сам уходит в LIKE при грязном FTS; повтор превращал каждый промах в contains-скан — «*Tolkien» вешал сервер на 21 с). `*q` ищет подстроку с ограниченным по времени сканом; additive `partial: true` = скан не дошёл до конца (совпадения с начала слова всё равно найдены через FTS)
 - `GET /api/browse/authors` — список авторов
 - `GET /api/browse/authors/:value/grouped` — серии автора + `standaloneBooks` + `books[]` в каждой серии (режим списка как на веб); `lean=1` — только сводки серий без книг
 - `GET /api/browse/series` — список серий

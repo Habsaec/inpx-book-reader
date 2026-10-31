@@ -1550,26 +1550,11 @@ export async function searchCatalog(
     return params;
   };
 
+  // No `*${q}` retry on zero hits: the server already falls back to LIKE when its FTS is
+  // dirty/desynced, and a healthy miss is final. The retry turned every miss into a
+  // contains scan («*Tolkien» stalled a 700k-book server for 21 s → «Нет связи»).
   const q = String(opts.q || '').trim();
-  const result = await apiJson<CatalogSearchResult>(config, `/api/catalog?${buildParams(q)}`);
-
-  // Server FTS can be desynced (dirty=0 but MATCH empty). Prefix `*` forces LIKE and finds books.
-  if (
-    opts.field === 'books' &&
-    q &&
-    !q.startsWith('*') &&
-    !q.startsWith('=') &&
-    !q.startsWith('~') &&
-    (result.total ?? 0) === 0
-  ) {
-    const fallback = await apiJson<CatalogSearchResult>(
-      config,
-      `/api/catalog?${buildParams(`*${q}`)}`,
-    );
-    if ((fallback.total ?? 0) > 0) return fallback;
-  }
-
-  return result;
+  return apiJson<CatalogSearchResult>(config, `/api/catalog?${buildParams(q)}`);
 }
 
 export interface SearchSuggestions {
