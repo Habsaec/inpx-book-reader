@@ -19,8 +19,11 @@ import {
   exportPersonalData,
   freezeLocalWrites,
   importPersonalData,
+  initLocalDb,
+  isUsingIndexedDbFallback,
   type PersonalDataSnapshot,
 } from './localDb';
+import { isNativeApp } from './platform';
 import {
   activateAccountCredentials,
   deleteAccountCredentials,
@@ -156,6 +159,12 @@ export async function forgetAccountForConfig(config: ServerConfig): Promise<void
  * Local writes stay frozen afterwards: the caller reloads the app.
  */
 async function swapPersonalData(fromOwner: string, toOwner: string): Promise<{ restoreLocalStorage: () => void }> {
+  await initLocalDb();
+  // On the IndexedDB fallback the live set is not the one in SQLite: a swap would store the
+  // wrong data as `fromOwner` and drop `toOwner`'s SQLite snapshot without importing it.
+  if (isNativeApp() && isUsingIndexedDbFallback()) {
+    throw new Error('База приложения недоступна — перезапустите приложение и повторите');
+  }
   freezeLocalWrites();
   const current = await exportPersonalData();
   const localPart: Record<string, string> = {};

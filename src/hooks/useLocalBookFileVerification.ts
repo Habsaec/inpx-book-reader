@@ -3,6 +3,7 @@ import { App as CapApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import type { Book } from '../types';
 import { verifyDownloadedBooksLocalFiles } from '../lib/localBookAccess';
+import { sameLibraryFolder } from '../lib/libraryFolders';
 import { downloadQueue } from '../lib/downloadQueue';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import {
@@ -81,7 +82,13 @@ export function useLocalBookFileVerification(opts: {
 
       const result = await verifyDownloadedBooksLocalFiles(books, directory);
       // Only propagate when URI actually changed — otherwise setState → effect → infinite fileExists storm.
-      if (result.resolvedDirectory && result.resolvedDirectory.uri !== storageUriRef.current) {
+      // A book found in another library folder must not become the download folder (the user's
+      // /Books silently turned into Download/INPXLibraryReader); only another URI of the same folder.
+      if (
+        result.resolvedDirectory
+        && result.resolvedDirectory.uri !== storageUriRef.current
+        && (!storageUriRef.current || sameLibraryFolder(result.resolvedDirectory.uri, storageUriRef.current))
+      ) {
         onResolvedRef.current?.(result.resolvedDirectory);
       }
       if (result.changed) {

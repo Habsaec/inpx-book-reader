@@ -4,6 +4,7 @@ import { debugSessionLog } from '../lib/debugSessionLog';
 import { extFromStoragePath, removeBookFromDirectory } from '../lib/bookStorage';
 import { resolveLocalBookFileDetailed, clearLocalFileMeta } from '../lib/localBookAccess';
 import { writeStoredStorageDirectory } from '../lib/storageDirectory';
+import { sameLibraryFolder } from '../lib/libraryFolders';
 import { removeCoverFromDirectory } from '../lib/coverCache';
 import {
   clearOfflineReadingHistory,
@@ -300,9 +301,11 @@ export function useBookActions(opts: {
         }
         return;
       }
+      // Opening a book from another library folder must not switch the download folder;
+      // only a better URI of the same folder (downloads:// → its SAF tree) is adopted.
       if (
-        loc.directory.uri.startsWith('content://')
-        || !storageDirectory?.uri?.startsWith('content://')
+        (loc.directory.uri.startsWith('content://') || !storageDirectory?.uri?.startsWith('content://'))
+        && (!storageDirectory?.uri || sameLibraryFolder(loc.directory.uri, storageDirectory.uri))
       ) {
         writeStoredStorageDirectory(loc.directory);
         onStorageDirectoryResolved?.(loc.directory);

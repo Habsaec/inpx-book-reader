@@ -137,8 +137,8 @@ export default function ProfileScreen({
   };
   const statTiles: Array<{ label: string; value: number; seg: LibrarySeg }> = [
     { label: 'На устройстве', value: localBookCount, seg: 'downloaded' },
-    // «На устройстве» is sorted by last read, so books in progress come first.
-    { label: 'Читаете', value: readingCount, seg: 'downloaded' },
+    // The server count is the «Читаю» list; offline only the device list (sorted by last read) is there.
+    { label: 'Читаете', value: readingCount, seg: stats ? 'reading' : 'downloaded' },
     ...(stats ? [{ label: 'Прочитано', value: stats.readBooksCount, seg: 'read' as const }] : []),
   ];
   const statRows: Array<{ label: string; value: number; seg: LibrarySeg }> = stats

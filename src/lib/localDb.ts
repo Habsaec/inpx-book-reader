@@ -28,6 +28,11 @@ async function openSqlite(): Promise<SQLiteDBConnection | null> {
   if (!isNativeApp()) return null;
   try {
     const sqlite = new SQLiteConnection(CapacitorSQLite);
+    // A page reload (account switch, error boundary) keeps the native plugin and its open
+    // connection while this fresh page knows none: createConnection failed with «already exists»
+    // and the app silently ran on the IndexedDB fallback until a restart. With an empty JS
+    // registry this closes the stale native connections.
+    await sqlite.checkConnectionsConsistency().catch(() => undefined);
     const isConn = (await sqlite.isConnection(DB_NAME, false)).result ?? false;
     const db = isConn
       ? await sqlite.retrieveConnection(DB_NAME, false)

@@ -43,6 +43,7 @@ import {
   writeStoredStorageDirectory,
   type StorageDirectory,
 } from './lib/storageDirectory';
+import { defaultLibraryFolder, readLibraryFolders, sameLibraryFolder } from './lib/libraryFolders';
 import { isAndroid, isNativeApp } from './lib/platform';
 import { theme } from './lib/appTheme';
 import { BookListSkeleton } from './ui/Skeleton';
@@ -430,6 +431,8 @@ export default function App() {
     setAppSettingRaw(APP_SETTING_KEYS.theme, appearance);
   }, [appearance, colorSource, libraryReady]);
 
+  const storageNoticeRef = React.useRef((message: string) => snackbar.show(message, undefined, 'error'));
+  storageNoticeRef.current = (message: string) => snackbar.show(message, undefined, 'error');
   React.useEffect(() => {
     if (!libraryReady) return;
     let cancelled = false;
@@ -439,12 +442,25 @@ export default function App() {
           setStorageDirectoryReady(true);
           return;
         }
-        const stored = normalizeStorageDirectory(readStoredStorageDirectory());
+        const saved = readStoredStorageDirectory();
+        // The default folder in Settings → «Папки» is the user's choice; a stored download folder
+        // that drifted away from it (older builds adopted the folder a found book lived in, or a
+        // one-off fallback) goes back to it. If that folder is unreachable now, ensureStorageDirectory
+        // falls back for this run only — the list keeps the choice for the next start.
+        const def = defaultLibraryFolder(readLibraryFolders(saved));
+        const stored = normalizeStorageDirectory(
+          def && (!saved || !sameLibraryFolder(def.uri, saved.uri)) ? { label: def.label, uri: def.uri } : saved,
+        );
         const resolved = normalizeStorageDirectory(await ensureStorageDirectory(stored));
         if (cancelled) return;
         if (resolved) {
           setStorageDirectory(resolved);
           writeStoredStorageDirectory(resolved);
+          if (stored?.uri && !sameLibraryFolder(stored.uri, resolved.uri ?? '')) {
+            storageNoticeRef.current(
+              `Нет доступа к папке «${stored.label}» — книги сохраняются в ${resolved.label}. Выберите папку заново в настройках.`,
+            );
+          }
         }
       } catch (err) {
         console.warn('[App] storage directory init failed:', err);
