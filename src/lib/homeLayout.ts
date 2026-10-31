@@ -4,9 +4,10 @@ import React from 'react';
  * Home layout of the account — shared with the web «Профиль → Вид → Главная страница»
  * (`/api/preferences.homeLayout`): `order` lists every section, `hidden` the switched-off ones.
  * `recent` («Недавно читали») exists only in the app; the web keeps its place in `order`.
+ * `collections` = pinned collections (Каталог → Подборки, server 2.13+).
  * Cached in localStorage so the home renders in the right order offline and before the profile loads.
  */
-export const HOME_SECTION_IDS = ['continue', 'recent', 'novinki', 'recommended', 'following', 'shelves'] as const;
+export const HOME_SECTION_IDS = ['continue', 'recent', 'novinki', 'recommended', 'following', 'shelves', 'collections'] as const;
 export type HomeSectionId = (typeof HOME_SECTION_IDS)[number];
 
 export const HOME_SECTION_LABELS: Record<HomeSectionId, string> = {
@@ -16,6 +17,7 @@ export const HOME_SECTION_LABELS: Record<HomeSectionId, string> = {
   recommended: 'Рекомендации',
   following: 'Новое у любимых',
   shelves: 'Закреплённые полки',
+  collections: 'Закреплённые подборки',
 };
 
 export interface HomeLayout {
@@ -23,6 +25,8 @@ export interface HomeLayout {
   hidden: HomeSectionId[];
   /** Pinned shelves inside «Закреплённые полки»: `shelf:<id>` / `smart:<id>`; unlisted ones follow. */
   shelfOrder: string[];
+  /** Collection slugs in the user's order (Каталог → Подборки and «Закреплённые подборки»); unlisted ones follow. */
+  collectionOrder: string[];
 }
 
 const STORAGE_KEY = 'inpx_home_layout';
@@ -51,16 +55,36 @@ function shelfKeyList(value: unknown): string[] {
   return out;
 }
 
+const COLLECTION_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+function collectionSlugList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const slug = String(item || '').trim().toLowerCase();
+    if (COLLECTION_SLUG_RE.test(slug) && !out.includes(slug)) out.push(slug);
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+
 /** Same rules as the server's `normalizeHomeLayout` (missing sections return to their default place). */
 export function normalizeHomeLayout(raw: unknown): HomeLayout {
-  const input = (raw && typeof raw === 'object' ? raw : {}) as { order?: unknown; hidden?: unknown; shelfOrder?: unknown };
+  const input = (raw && typeof raw === 'object' ? raw : {}) as {
+    order?: unknown; hidden?: unknown; shelfOrder?: unknown; collectionOrder?: unknown;
+  };
   const order = idList(input.order);
   HOME_SECTION_IDS.forEach((id, index) => {
     if (order.includes(id)) return;
     const before = HOME_SECTION_IDS.slice(0, index).reverse().find((prev) => order.includes(prev));
     order.splice(before ? order.indexOf(before) + 1 : 0, 0, id);
   });
-  return { order, hidden: idList(input.hidden), shelfOrder: shelfKeyList(input.shelfOrder) };
+  return {
+    order,
+    hidden: idList(input.hidden),
+    shelfOrder: shelfKeyList(input.shelfOrder),
+    collectionOrder: collectionSlugList(input.collectionOrder),
+  };
 }
 
 function readStored(): HomeLayout {
@@ -129,6 +153,15 @@ export function orderShelves<T extends { key: string }>(shelves: T[], shelfOrder
     .map((shelf, i) => ({ shelf, i, r: rank.get(shelf.key) ?? Infinity }))
     .sort((a, b) => a.r - b.r || a.i - b.i)
     .map((x) => x.shelf);
+}
+
+/** Collections in the account order (server `orderCollections`): listed slugs first, the rest as given. */
+export function orderCollections<T extends { slug: string }>(collections: T[], collectionOrder: string[]): T[] {
+  const rank = new Map(collectionOrder.map((slug, i) => [slug, i]));
+  return collections
+    .map((c, i) => ({ c, i, r: rank.get(c.slug) ?? Infinity }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.c);
 }
 
 /**

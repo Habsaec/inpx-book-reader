@@ -1,7 +1,8 @@
 /** Minimal HTML sanitizer for book annotations (aligned with server shared.sanitizeHtml). */
 
+// u / s / details / summary: BB-codes ([u] [s] [spoiler]) the server turns into HTML (annotationBbCodeToHtml).
 const ALLOWED_TAG_RE =
-  /^(b|i|em|strong|p|br|span|div|ul|ol|li|h[1-6]|blockquote|sup|sub|a)$/i;
+  /^(b|i|u|s|em|strong|p|br|span|div|ul|ol|li|h[1-6]|blockquote|sup|sub|a|details|summary)$/i;
 
 const SAFE_HREF_RE = /^(https?:\/\/|mailto:|tel:|#)/i;
 

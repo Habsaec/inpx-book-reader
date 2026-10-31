@@ -3,12 +3,12 @@ import { HOME_SECTION_IDS, moveHomeSection, normalizeHomeLayout, orderShelves, r
 
 describe('homeLayout', () => {
   it('defaults to every section in order', () => {
-    expect(normalizeHomeLayout(null)).toEqual({ order: [...HOME_SECTION_IDS], hidden: [], shelfOrder: [] });
+    expect(normalizeHomeLayout(null)).toEqual({ order: [...HOME_SECTION_IDS], hidden: [], shelfOrder: [], collectionOrder: [] });
   });
 
   it('keeps the server order and puts missing sections back in place', () => {
     const layout = normalizeHomeLayout({ order: ['shelves', 'novinki', 'bogus'], hidden: ['recent', 'nope'] });
-    expect(layout.order).toEqual(['continue', 'recent', 'shelves', 'novinki', 'recommended', 'following']);
+    expect(layout.order).toEqual(['continue', 'recent', 'shelves', 'collections', 'novinki', 'recommended', 'following']);
     expect(layout.hidden).toEqual(['recent']);
   });
 
@@ -31,5 +31,15 @@ describe('homeLayout', () => {
     expect(moveHomeSection(layout, 'novinki', 'up').shelfOrder).toEqual(layout.shelfOrder);
     expect(toggleHomeSection(layout, 'recent', false).shelfOrder).toEqual(layout.shelfOrder);
     expect(normalizeHomeLayout({ shelfOrder: ['smart:3', 'x', 'smart:3'] }).shelfOrder).toEqual(['smart:3']);
+  });
+});
+
+describe('collectionOrder', () => {
+  it('normalizes slugs and orders collections like the server', async () => {
+    const { orderCollections } = await import('../homeLayout');
+    expect(normalizeHomeLayout({ collectionOrder: ['b-list', 'Bad Slug', 'b-list', 'A-List'] }).collectionOrder).toEqual(['b-list', 'a-list']);
+    const list = [{ slug: 'a' }, { slug: 'b' }, { slug: 'c' }];
+    expect(orderCollections(list, ['c', 'x']).map((c) => c.slug)).toEqual(['c', 'a', 'b']);
+    expect(toggleHomeSection(normalizeHomeLayout({ collectionOrder: ['c'] }), 'recent', false).collectionOrder).toEqual(['c']);
   });
 });

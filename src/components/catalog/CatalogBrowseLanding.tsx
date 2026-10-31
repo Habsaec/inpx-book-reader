@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, Layers, Tags, User, Users } from 'lucide-react';
+import { ChevronRight, Layers, ListOrdered, Tags, User, Users } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles, motion } from '../../ui/tokens';
 import { getRecentBrowse, type RecentBrowseItem } from '../../lib/recentBrowseHistory';
@@ -10,6 +10,8 @@ interface CatalogBrowseLandingProps {
   onOpenAuthor?: (name: string) => void;
   onOpenSeries?: (name: string) => void;
   onBrowseTab?: (tab: CatalogSubTab) => void;
+  /** «Подборки» row; passed only when the server has collections (`/api/collections`). */
+  onOpenCollections?: () => void;
 }
 
 const BROWSE_SHORTCUTS = [
@@ -22,6 +24,7 @@ export default function CatalogBrowseLanding({
   onOpenAuthor,
   onOpenSeries,
   onBrowseTab,
+  onOpenCollections,
 }: CatalogBrowseLandingProps) {
   const [recent, setRecent] = React.useState<RecentBrowseItem[]>([]);
   React.useEffect(() => {
@@ -43,6 +46,17 @@ export default function CatalogBrowseLanding({
             <ChevronRight className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
           </button>
         ))}
+        {onOpenCollections ? (
+          <button
+            type="button"
+            onClick={onOpenCollections}
+            className={`w-full min-h-[3.75rem] flex items-center gap-3.5 px-0.5 text-left border-b ${theme.divider} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+          >
+            <ListOrdered className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
+            <span className={`flex-1 min-w-0 ${textStyles.bodyBold} ${theme.text}`}>Подборки</span>
+            <ChevronRight className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
+          </button>
+        ) : null}
       </div>
 
       {recent.length > 0 && (onOpenAuthor || onOpenSeries) ? (

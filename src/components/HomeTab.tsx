@@ -283,6 +283,8 @@ export default function HomeTab({
   const showRecommended = isHomeSectionVisible(homeLayout, 'recommended');
   const showFollowing = isHomeSectionVisible(homeLayout, 'following');
   const showShelves = isHomeSectionVisible(homeLayout, 'shelves');
+  /** Pinned collections come in the same `/api/home/shelves` response, shown as their own block. */
+  const showCollections = isHomeSectionVisible(homeLayout, 'collections');
   /** The server orders `/api/home/shelves` by `shelfOrder`: reload when it changes. */
   const shelfOrderKey = homeLayout.shelfOrder.join('|');
   const downloadJobs = useDownloadQueue();
@@ -455,14 +457,14 @@ export default function HomeTab({
   }, [fetchSectionBooks, isOnline, showFollowing, serverConfig, sectionKey, homeShelvesEpoch]);
 
   React.useEffect(() => {
-    if (!fetchSectionBooks || !isOnline || !showShelves) return;
+    if (!fetchSectionBooks || !isOnline || (!showShelves && !showCollections)) return;
     let cancelled = false;
     fetchHomeShelves(serverConfig)
       .then((shelves) => {
         if (cancelled) return;
         const next = shelves.map((shelf) => ({
           key: `${shelf.kind}:${shelf.id}`,
-          ref: { id: shelf.id, kind: shelf.kind, title: shelf.title },
+          ref: { id: shelf.id, kind: shelf.kind, title: shelf.title, slug: shelf.slug },
           books: shelf.items.map((b) => mapServerBook(b, serverConfig)),
         }));
         setHomeShelves(next);
@@ -477,7 +479,7 @@ export default function HomeTab({
     return () => {
       cancelled = true;
     };
-  }, [fetchSectionBooks, isOnline, showShelves, serverConfig, sectionKey, homeShelvesEpoch, shelfOrderKey]);
+  }, [fetchSectionBooks, isOnline, showShelves, showCollections, serverConfig, sectionKey, homeShelvesEpoch, shelfOrderKey]);
 
   React.useEffect(() => {
     if (!fetchSectionBooks || !isOnline || !showNovinki) return;
@@ -833,7 +835,18 @@ export default function HomeTab({
     ),
     shelves: (
     <>
-      {isOnline && orderShelves(homeShelves, homeLayout.shelfOrder).map((shelf) => (
+      {isOnline && showShelves && renderPinnedShelves(orderShelves(homeShelves.filter((shelf) => shelf.ref.kind !== 'collection'), homeLayout.shelfOrder))}
+    </>
+    ),
+    collections: (
+    <>
+      {isOnline && showCollections && renderPinnedShelves(homeShelves.filter((shelf) => shelf.ref.kind === 'collection'))}
+    </>
+    ),
+  };
+
+  function renderPinnedShelves(list: typeof homeShelves) {
+    return list.map((shelf) => (
         <section key={shelf.key} className="space-y-4">
           <HomeSectionHeader
             title={shelf.ref.title}
@@ -853,10 +866,8 @@ export default function HomeTab({
             onBookLongPress={onBookLongPress}
           />
         </section>
-      ))}
-    </>
-    ),
-  };
+    ));
+  }
 
   const scrollInner = (
     <>

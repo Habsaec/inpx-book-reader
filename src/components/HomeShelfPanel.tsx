@@ -4,6 +4,7 @@ import { theme } from '../lib/appTheme';
 import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import {
+  fetchCollection,
   fetchShelfBooks,
   fetchSmartShelfBooks,
   isAuthError,
@@ -24,7 +25,7 @@ import { usePageTitle } from '../ui/pageTitle';
 
 /** Server page size of `/api/smart-shelves/:id/books`; regular shelves come in one response. */
 
-export type HomeShelfRef = Pick<HomeShelf, 'id' | 'kind' | 'title'>;
+export type HomeShelfRef = Pick<HomeShelf, 'id' | 'kind' | 'title' | 'slug'>;
 
 interface HomeShelfPanelProps {
   shelf: HomeShelfRef;
@@ -89,7 +90,13 @@ export default function HomeShelfPanel({
           setPageSize(Number(res.pageSize) || requestedPageSize);
           return { items: res.items || [], total: Number(res.total) || 0 };
         })
-      : fetchShelfBooks(serverConfig, shelf.id).then((items) => ({ items, total: items.length }));
+      : shelf.kind === 'collection'
+        // A pinned collection: the books the library has, in the list's order (one response).
+        ? fetchCollection(serverConfig, shelf.slug || '').then((data) => {
+            const items = (data?.items || []).flatMap((item) => (item.book ? [item.book] : []));
+            return { items, total: items.length };
+          })
+        : fetchShelfBooks(serverConfig, shelf.id).then((items) => ({ items, total: items.length }));
     request
       .then((res) => {
         if (cancelled) return;
@@ -110,7 +117,7 @@ export default function HomeShelfPanel({
     return () => {
       cancelled = true;
     };
-  }, [serverConfig, shelf.id, shelf.kind, page, requestedPageSize, reloadKey, onAuthExpired, onConnectionLost]);
+  }, [serverConfig, shelf.id, shelf.kind, shelf.slug, page, requestedPageSize, reloadKey, onAuthExpired, onConnectionLost]);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });

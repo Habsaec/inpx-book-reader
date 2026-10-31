@@ -8,7 +8,7 @@ import { BookCardSkeleton, TextBlockSkeleton } from '../../ui/Skeleton';
 import ReadProgressBar from '../ReadProgressBar';
 import { useOverlayBackHandler } from '../../hooks/useBackHandler';
 import { Book, ServerConfig } from '../../types';
-import { authorFacetNames, fetchBookDetails, fetchBookMeta, fetchBookRating, fetchBookReviewHtml, fetchFacetBooks, isAuthError, mapServerBook, setBookRatingApi } from '../../lib/inpxClient';
+import { authorFacetNames, fetchBookDetails, fetchBookMeta, fetchBookPublishInfo, fetchBookRating, fetchBookReviewHtml, fetchFacetBooks, isAuthError, mapServerBook, setBookRatingApi, type BookPublishInfo } from '../../lib/inpxClient';
 import { parseBookReviews, reviewAvatarHue, reviewInitials } from '../../lib/bookReviews';
 import { looksLikeHtml, sanitizeHtml } from '../../lib/sanitizeHtml';
 import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, seriesVolumeLabel } from '../../lib/seriesLabel';
@@ -345,6 +345,8 @@ export default function BookDetailsSheet({
   const [shelfBusy, setShelfBusy] = React.useState(false);
   const [descOpen, setDescOpen] = React.useState(false);
   const [tab, setTab] = React.useState<'about' | 'series'>('about');
+  /** Edition year + ISBN from the FB2 (`/api/books/:id/publish-info`, server 2.13+). */
+  const [publishInfo, setPublishInfo] = React.useState<BookPublishInfo | null>(null);
 
   React.useEffect(() => {
     if (!liveBook) {
@@ -353,6 +355,7 @@ export default function BookDetailsSheet({
     }
     setAnnotation(null);
     setAnnotationIsHtml(false);
+    setPublishInfo(null);
     setBookReviewHtml('');
     setMoreByAuthor([]);
     setSeriesFollow(null);
@@ -380,6 +383,11 @@ export default function BookDetailsSheet({
         if (isAuthError(e)) onAuthExpired?.();
       })
       .finally(() => { if (!cancelled) setAnnotationLoading(false); });
+    if (String(liveBook.ext || 'fb2').toLowerCase() === 'fb2') {
+      fetchBookPublishInfo(serverConfig, liveBook.id)
+        .then((info) => { if (!cancelled) setPublishInfo(info); })
+        .catch(() => {});
+    }
     if (liveBook.series?.trim()) {
       void loadSeriesFollow(serverConfig, liveBook)
         .then((shelf) => { if (!cancelled) setSeriesFollow(shelf); })
@@ -495,9 +503,13 @@ export default function BookDetailsSheet({
   const fileLabel = [detail.ext ? detail.ext.toUpperCase() : null, sizeLabel].filter(Boolean).join(' · ');
   const langLabel = formatLang(detail.lang);
   // Format and size are technical: they sit at the end of «О книге», not next to the year.
+  // The edition year from the FB2 replaces the catalog year (INPX date) when the server knows it.
   const facts = ([
-    ['Год', detail.year ? String(detail.year) : ''],
+    publishInfo?.publishYear
+      ? ['Год издания', String(publishInfo.publishYear)]
+      : ['Год', detail.year ? String(detail.year) : ''],
     ['Язык', langLabel ?? ''],
+    ['ISBN', publishInfo?.isbn || ''],
   ] as const).filter(([, value]) => Boolean(value));
   const genres = genreLinks(detail);
   const showShelf = Boolean(onAddToShelf || onCreateShelf);

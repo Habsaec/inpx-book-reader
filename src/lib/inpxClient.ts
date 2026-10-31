@@ -960,18 +960,28 @@ export async function fetchShelfBooks(config: ServerConfig, shelfId: number): Pr
   return apiJson(config, `/api/shelves/${shelfId}/books`);
 }
 
-/** Полка, закреплённая на главной (`on_home`): обычная или умная, как на веб-главной. */
+/** Полка, закреплённая на главной (`on_home`): обычная, умная или подборка, как на веб-главной. */
 export interface HomeShelf {
   id: number;
-  kind: 'shelf' | 'smart';
+  kind: 'shelf' | 'smart' | 'collection';
+  /** Only for `kind: 'collection'` (open it with `fetchCollection(slug)`). */
+  slug?: string;
   title: string;
   href: string;
   items: InpxBookItem[];
 }
 
+const HOME_SHELF_KINDS = new Set(['shelf', 'smart', 'collection']);
+
 export async function fetchHomeShelves(config: ServerConfig): Promise<HomeShelf[]> {
-  const data = await apiJson<{ items?: HomeShelf[] }>(config, '/api/home/shelves');
-  return Array.isArray(data?.items) ? data.items.filter((shelf) => Array.isArray(shelf.items) && shelf.items.length > 0) : [];
+  // `collections=1`: pinned collections too (server 2.13+). Without it the server leaves them out,
+  // because older app builds took every non-smart item for a regular shelf id.
+  const data = await apiJson<{ items?: HomeShelf[] }>(config, '/api/home/shelves?collections=1');
+  return Array.isArray(data?.items)
+    ? data.items.filter((shelf) => HOME_SHELF_KINDS.has(shelf.kind)
+      && (shelf.kind !== 'collection' || Boolean(shelf.slug))
+      && Array.isArray(shelf.items) && shelf.items.length > 0)
+    : [];
 }
 
 export async function fetchSmartShelfBooks(
@@ -1854,6 +1864,76 @@ export async function fetchBookMeta(config: ServerConfig, bookId: string): Promi
   if (!String((data as InpxBookItem).id ?? '').trim() && !String((data as InpxBookItem).title ?? '').trim()) {
     return null;
   }
+  return data;
+}
+
+export interface BookPublishInfo {
+  /** Year of the edition from FB2 `<publish-info>` (or `<title-info><date>`); null when unknown. */
+  publishYear: number | null;
+  isbn: string;
+}
+
+/**
+ * `GET /api/books/:id/publish-info` (server 2.13+). The first call may read the FB2 from the archive;
+ * older servers answer 404 → empty.
+ */
+export async function fetchBookPublishInfo(config: ServerConfig, bookId: string): Promise<BookPublishInfo> {
+  const data = await softFetchJson<Partial<BookPublishInfo>>(config, apiBookPath(bookId, 'publish-info'), {});
+  const year = Math.floor(Number(data?.publishYear) || 0);
+  return {
+    publishYear: year > 0 ? year : null,
+    isbn: typeof data?.isbn === 'string' ? data.isbn.trim() : '',
+  };
+}
+
+/** Подборка (curated list) in `GET /api/collections`. */
+export interface ServerCollectionSummary {
+  slug: string;
+  title: string;
+  description: string;
+  source: string;
+  sourceUrl: string;
+  total: number;
+  found: number;
+  /** The server is still matching the list against the catalog. */
+  matching: boolean;
+  previewBookIds: string[];
+  /** Pinned to this user's home page (1|0); missing for anonymous access. */
+  onHome?: number;
+}
+
+export interface ServerCollectionItem {
+  position: number;
+  author: string;
+  title: string;
+  year: number | null;
+  note: string;
+  /** Catalog book, or null when the library does not have it. */
+  book: InpxBookItem | null;
+  read: boolean;
+}
+
+export interface ServerCollectionDetail extends Omit<ServerCollectionSummary, 'previewBookIds'> {
+  read: number;
+  items: ServerCollectionItem[];
+}
+
+/** `GET /api/collections` (server 2.13+); older servers → []. */
+export async function fetchCollections(config: ServerConfig): Promise<ServerCollectionSummary[]> {
+  const data = await softFetchJson<{ items?: ServerCollectionSummary[] }>(config, '/api/collections', {});
+  return Array.isArray(data?.items) ? data.items.filter((c) => c && typeof c.slug === 'string') : [];
+}
+
+/** «На главной» for a collection, like `setShelfOnHomeApi`: `POST /api/collections/:slug/home { on }`. */
+export async function setCollectionOnHomeApi(config: ServerConfig, slug: string, on: boolean): Promise<boolean> {
+  const data = await apiPostJson<{ onHome?: number }>(config, `/api/collections/${encodeURIComponent(slug)}/home`, { on });
+  return Number(data.onHome) === 1;
+}
+
+/** `GET /api/collections/:slug` → the list in order; null when missing / disabled / old server. */
+export async function fetchCollection(config: ServerConfig, slug: string): Promise<ServerCollectionDetail | null> {
+  const data = await apiJson<ServerCollectionDetail>(config, `/api/collections/${encodeURIComponent(slug)}`);
+  if (!data || !Array.isArray(data.items)) return null;
   return data;
 }
 

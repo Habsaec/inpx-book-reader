@@ -23,7 +23,9 @@ import {
   isUnreachableServerError,
   createSmartShelf,
   type SmartShelfQuery,
+  fetchCollections,
 } from '../lib/inpxClient';
+import CollectionsPanel from './CollectionsPanel';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useHorizontalTabSwipe } from '../hooks/useHorizontalTabSwipe';
 import { AlertCircle } from 'lucide-react';
@@ -115,6 +117,10 @@ interface CatalogTabProps {
   onCloseDetails?: () => void;
   onAuthExpired?: () => void;
   onConnectionLost?: () => void;
+  /** «На главной» for a collection (App: API + Home reload); → new state, null on error. Omitted offline. */
+  onSetCollectionOnHome?: (slug: string, on: boolean) => Promise<boolean | null>;
+  /** Drag in «Подборки» → `homeLayout.collectionOrder`. Omitted offline. */
+  onReorderCollections?: (slugs: string[]) => void;
   /** Server shelves for the series «На полку» action; omitted offline. */
   shelves?: UiShelf[];
   /** A series was added to a (possibly new) shelf — reload the shelf list. */
@@ -163,6 +169,8 @@ export default function CatalogTab({
   onCloseDetails,
   onAuthExpired,
   onConnectionLost,
+  onSetCollectionOnHome,
+  onReorderCollections,
 }: CatalogTabProps) {
   /**
    * Catalog surfaces (keep this machine explicit — don't collapse into extra flags):
@@ -1023,6 +1031,59 @@ export default function CatalogTab({
     enabled: isTabActive && !catalogDrillDown && swipeTabs.includes(subTab) && headerMode !== 'landing',
   });
 
+  /** «Подборки» (server 2.13+): the landing shows the row only when the server has collections. */
+  const [hasCollections, setHasCollections] = React.useState(false);
+  const [collectionsOpen, setCollectionsOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!isServerConnected) {
+      setHasCollections(false);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchCollections(serverConfig)
+      .then((items) => {
+        if (!cancelled) setHasCollections(items.length > 0);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [serverConfig, isServerConnected]);
+  const closeCollections = React.useCallback(() => setCollectionsOpen(false), []);
+
+  if (collectionsOpen) {
+    return (
+      <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden">
+        <CollectionsPanel
+          serverConfig={serverConfig}
+          storageDirectory={storageDirectory}
+          downloadedBookIds={downloadedBookIds}
+          readingProgressByBookId={readingProgressByBookId}
+          readIds={readIds}
+          isAppDark={isAppDark}
+          isTabActive={isTabActive}
+          onClose={closeCollections}
+          onOpenDetails={onOpenDetails}
+          onBookLongPress={onBookLongPress}
+          onAuthExpired={onAuthExpired}
+          onConnectionLost={onConnectionLost}
+          onSetOnHome={onSetCollectionOnHome}
+          onReorder={onReorderCollections}
+          onSearch={(q) => {
+            setCollectionsOpen(false);
+            clearDrilldownSelection();
+            setSearchInput(q);
+            const next = submitSearch(q);
+            if (!next) return;
+            addSearchQuery(next);
+            setSubTab('books');
+            setSearchPhase('results');
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden">
       <CatalogToolSlot.Provider value={toolSlot}>
@@ -1125,6 +1186,7 @@ export default function CatalogTab({
               clearDrilldownSelection();
               setSubTab(tab);
             }}
+            onOpenCollections={hasCollections ? () => setCollectionsOpen(true) : undefined}
           />
         ) : (
           <div className="flex-1 flex flex-col">

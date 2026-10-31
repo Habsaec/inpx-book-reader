@@ -84,6 +84,7 @@ import {
   fetchReaderActivitySyncMeta,
   mapServerBook,
   saveUserPreferences,
+  setCollectionOnHomeApi,
   type UiShelf,
 } from './lib/inpxClient';
 import { recentRemovedOnServer, withoutFinishedReading } from './lib/localReadingProgress';
@@ -874,6 +875,22 @@ export default function App() {
     [libraryShelves, serverConfig, snackbar],
   );
 
+  /** Drag in Каталог → Подборки: the whole list in the new order → `homeLayout.collectionOrder` (web /collections too). */
+  const handleReorderCollections = React.useCallback(
+    (slugs: string[]) => {
+      const current = getHomeLayout();
+      const next = { ...current, collectionOrder: slugs.slice() };
+      setHomeLayout(next);
+      void saveUserPreferences(serverConfig, { homeLayout: next })
+        .then(() => setHomeShelvesEpoch((n) => n + 1))
+        .catch(() => {
+          setHomeLayout(current);
+          snackbar.show('Не удалось сохранить порядок подборок на сервере', undefined, 'error');
+        });
+    },
+    [serverConfig, snackbar],
+  );
+
   /** Pin / unpin a shelf on the home page (Мои книги, home shelf header). */
   const handleSetShelfOnHome = React.useCallback(
     async (kind: 'shelf' | 'smart', shelfId: number, on: boolean) => {
@@ -886,6 +903,21 @@ export default function App() {
       }
     },
     [inpxServer.setShelfOnHome, snackbar],
+  );
+  /** «На главной» for a collection (Каталог → Подборки, «Убрать с главной» on Home). → new state, null on error. */
+  const handleSetCollectionOnHome = React.useCallback(
+    async (slug: string, on: boolean): Promise<boolean | null> => {
+      try {
+        const onHome = await setCollectionOnHomeApi(serverConfig, slug, on);
+        setHomeShelvesEpoch((n) => n + 1);
+        snackbar.show(onHome ? 'Подборка будет на главной' : 'Подборка убрана с главной');
+        return onHome;
+      } catch {
+        snackbar.show('Не удалось изменить подборку на сервере', undefined, 'error');
+        return null;
+      }
+    },
+    [serverConfig, snackbar],
   );
   const handleToggleShelfHome = React.useCallback(
     (shelf: UiShelf) => {
@@ -1344,7 +1376,13 @@ export default function App() {
               isTabActive={activeTab === 'home' && !activeReader}
               homeRootEpoch={homeRootEpoch}
               homeShelvesEpoch={homeShelvesEpoch}
-              onUnpinShelf={isOnline ? (ref) => { void handleSetShelfOnHome(ref.kind === 'smart' ? 'smart' : 'shelf', Number(ref.id), false); } : undefined}
+              onUnpinShelf={isOnline ? (ref) => {
+                if (ref.kind === 'collection') {
+                  if (ref.slug) void handleSetCollectionOnHome(ref.slug, false);
+                  return;
+                }
+                void handleSetShelfOnHome(ref.kind === 'smart' ? 'smart' : 'shelf', Number(ref.id), false);
+              } : undefined}
               readIds={isOnline ? inpxServer.readIds : undefined}
               onAuthExpired={markAuthExpired}
               onConnectionLost={markServerDisconnected}
@@ -1398,6 +1436,8 @@ export default function App() {
                 }}
                 onAuthExpired={markAuthExpired}
                 onConnectionLost={markServerDisconnected}
+                onSetCollectionOnHome={isOnline ? handleSetCollectionOnHome : undefined}
+                onReorderCollections={isOnline ? handleReorderCollections : undefined}
               />
             </React.Suspense>
           </TabScreenPanel>
