@@ -19,8 +19,11 @@
   <a href="#установка">Установка</a> ·
   <a href="#подключение-к-серверу">Подключение</a> ·
   <a href="#возможности">Возможности</a> ·
-  <a href="#сборка-из-исходников">Сборка</a> ·
-  <a href="https://boosty.to/habsaec/donate">Поддержать проект</a>
+  <a href="#сборка-из-исходников">Сборка</a>
+</p>
+
+<p align="center">
+  <a href="https://boosty.to/habsaec/donate"><img src="https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C%20%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82-f15f2c?style=for-the-badge&logo=boosty&logoColor=white" alt="Поддержать проект на Boosty"></a>
 </p>
 
 > [!IMPORTANT]
