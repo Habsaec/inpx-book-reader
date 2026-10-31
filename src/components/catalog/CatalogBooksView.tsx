@@ -22,6 +22,10 @@ import { useCatalogViewMode } from '../../hooks/useCatalogViewMode';
 import type { CatalogFormatFilter, CatalogHasSeriesFilter, DemoBookSort } from './catalogTypes';
 
 interface CatalogBooksViewProps {
+  /** «Сохранить как умную полку» in the filter sheet (server catalog search only). */
+  onSaveSmartShelf?: (draft: CatalogFilterDraft, name: string) => Promise<boolean>;
+  smartShelfHasBase?: boolean;
+  smartShelfDefaultName?: string;
   subTab: 'books' | 'authors' | 'series' | 'genres';
   isServerBrowse: boolean;
   isServerConnected: boolean;
@@ -90,6 +94,9 @@ interface CatalogBooksViewProps {
 }
 
 export default function CatalogBooksView({
+  onSaveSmartShelf,
+  smartShelfHasBase,
+  smartShelfDefaultName,
   subTab,
   isServerBrowse,
   isServerConnected,
@@ -426,6 +433,9 @@ export default function CatalogBooksView({
         resolveGenreOptions={showGenrePicker ? resolveGenreOptions : undefined}
         showSort={!isServerBrowse}
         showGenrePicker={showGenrePicker}
+        onSaveSmartShelf={isServerConnected ? onSaveSmartShelf : undefined}
+        smartShelfHasBase={smartShelfHasBase}
+        smartShelfDefaultName={smartShelfDefaultName}
       />
       )}
     </div>

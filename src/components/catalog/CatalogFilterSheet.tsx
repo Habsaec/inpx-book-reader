@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Filter } from 'lucide-react';
+import { X, Filter, Search } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { sheetPanelClass, SheetDragHandle } from '../../ui/SheetChrome';
 import DragSheet from '../../ui/DragSheet';
@@ -54,6 +54,15 @@ interface CatalogFilterSheetProps {
    * switch shared with the web UI; applying it saves `/api/preferences` and lists re-fetch.
    */
   serverConfig?: ServerConfig;
+  /**
+   * «Сохранить как умную полку»: saves the current search with the filters of the sheet (the draft)
+   * as a smart shelf. Resolves true when saved. Shown only when set.
+   */
+  onSaveSmartShelf?: (draft: CatalogFilterDraft, name: string) => Promise<boolean>;
+  /** Search text / genre page already narrows the catalog — saving is possible without sheet filters. */
+  smartShelfHasBase?: boolean;
+  /** Suggested shelf name (the search text or the genre). */
+  smartShelfDefaultName?: string;
 }
 
 const EMPTY_DRAFT: CatalogFilterDraft = {
@@ -93,6 +102,9 @@ export default function CatalogFilterSheet({
   showSort = true,
   showGenrePicker = true,
   serverConfig,
+  onSaveSmartShelf,
+  smartShelfHasBase = false,
+  smartShelfDefaultName = '',
 }: CatalogFilterSheetProps) {
   const closeRef = React.useRef<HTMLButtonElement>(null);
   const savedHideRead = getHideRead();
@@ -105,6 +117,9 @@ export default function CatalogFilterSheet({
   const [draft, setDraft] = React.useState<CatalogFilterDraft>(value);
   const [activeGenreOptions, setActiveGenreOptions] = React.useState<CatalogGenreOption[]>(genreOptions);
   const [genresLoading, setGenresLoading] = React.useState(false);
+  const [smartOpen, setSmartOpen] = React.useState(false);
+  const [smartName, setSmartName] = React.useState('');
+  const [smartBusy, setSmartBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (!open) return;
@@ -113,6 +128,8 @@ export default function CatalogFilterSheet({
       genreFilters: Array.isArray(value.genreFilters) ? [...value.genreFilters] : [],
     });
     setGenreQuery('');
+    setSmartOpen(false);
+    setSmartName(smartShelfDefaultName);
     closeRef.current?.focus();
 
     let cancelled = false;
@@ -430,6 +447,50 @@ export default function CatalogFilterSheet({
             </div>
           )}
         </div>
+
+        {onSaveSmartShelf && (hasActive || smartShelfHasBase) ? (
+          <div className={`pt-3 shrink-0 border-t ${theme.divider}`}>
+            {smartOpen ? (
+              <form
+                className="flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = smartName.trim();
+                  if (!name || smartBusy) return;
+                  setSmartBusy(true);
+                  void onSaveSmartShelf(draft, name)
+                    .then((saved) => {
+                      if (saved) setSmartOpen(false);
+                    })
+                    .finally(() => setSmartBusy(false));
+                }}
+              >
+                <input
+                  type="text"
+                  value={smartName}
+                  onChange={(e) => setSmartName(e.target.value)}
+                  maxLength={80}
+                  autoFocus
+                  placeholder="Название умной полки"
+                  aria-label="Название умной полки"
+                  className={`min-w-0 flex-1 min-h-12 px-3 ${radii.md} ${theme.input} ${theme.focusRing}`}
+                />
+                <Button type="submit" variant="primary" disabled={!smartName.trim() || smartBusy} loading={smartBusy}>
+                  Сохранить
+                </Button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSmartOpen(true)}
+                className={`w-full min-h-12 inline-flex items-center justify-center gap-2 ${radii.button} ${textStyles.bodyBold} ${theme.accentText} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
+              >
+                <Search className="w-4 h-4" aria-hidden />
+                Сохранить как умную полку
+              </button>
+            )}
+          </div>
+        ) : null}
 
         <div className={`flex gap-2 pt-4 shrink-0 border-t ${theme.divider}`}>
           {hasActive && (

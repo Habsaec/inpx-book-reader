@@ -21,6 +21,8 @@ import {
   displayAuthorName,
   isAuthError,
   isUnreachableServerError,
+  createSmartShelf,
+  type SmartShelfQuery,
 } from '../lib/inpxClient';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useHorizontalTabSwipe } from '../hooks/useHorizontalTabSwipe';
@@ -313,6 +315,33 @@ export default function CatalogTab({
     clearSearch();
     setSearchPhase('idle');
   }, [clearSearch, setSelectedAuthor, setSelectedSeries, setSelectedSubgenre]);
+
+  /** Catalog books search (with or without text): its filters can become a smart shelf, as on the web. */
+  const canSaveSmartShelf = isServerConnected && searchMode && subTab === 'books';
+  const handleSaveSmartShelf = React.useCallback(
+    async (draft: CatalogFilterDraft, name: string): Promise<boolean> => {
+      const q = listQuery.trim();
+      const query: SmartShelfQuery = {
+        q: q || undefined,
+        genre: draft.genreFilters.length ? draft.genreFilters : undefined,
+        format: draft.formatFilter !== 'all' ? draft.formatFilter : undefined,
+        year: draft.yearFilter >= 1800 && draft.yearFilter <= 2100 ? draft.yearFilter : undefined,
+        minRate: draft.minRating >= 1 ? Math.floor(draft.minRating) : undefined,
+        hasSeries: draft.hasSeriesFilter === 'yes' ? 1 : draft.hasSeriesFilter === 'no' ? 0 : undefined,
+        sort: catalogSort,
+      };
+      try {
+        await createSmartShelf(serverConfig, name, query);
+        snackbar.show(`Умная полка «${name}» сохранена`);
+        onShelvesChanged?.();
+        return true;
+      } catch (err) {
+        snackbar.show(err instanceof Error ? err.message : 'Не удалось сохранить умную полку', undefined, 'error');
+        return false;
+      }
+    },
+    [listQuery, catalogSort, serverConfig, snackbar, onShelvesChanged],
+  );
 
   const catalog = useCatalogData({
     serverConfig,
@@ -1184,6 +1213,9 @@ export default function CatalogTab({
               onSortByChange={setSortBy}
               onApplyFilters={applyCatalogFilters}
               onClearAllFilters={clearAllFilters}
+              onSaveSmartShelf={canSaveSmartShelf && !catalogDrillDown ? handleSaveSmartShelf : undefined}
+              smartShelfHasBase={listQuery.trim().length > 0}
+              smartShelfDefaultName={listQuery.trim()}
               showFilters={
                 (searchMode && subTab === 'books' && !catalogDrillDown) ||
                 Boolean(selectedSeries) ||

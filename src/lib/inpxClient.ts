@@ -934,6 +934,24 @@ export async function setShelfOnHomeApi(
   return Number(data.onHome) === 1;
 }
 
+/** Catalog filter of a smart shelf (server `parseSmartShelfFilter`): at least one of q / genre / lang / format / year / minRate / hasSeries. */
+export interface SmartShelfQuery {
+  q?: string;
+  genre?: string[];
+  lang?: string;
+  format?: string;
+  year?: number;
+  minRate?: number;
+  hasSeries?: 0 | 1;
+  sort?: string;
+}
+
+/** «Сохранить как умную полку» (same as the web catalog filter panel) → new shelf id. */
+export async function createSmartShelf(config: ServerConfig, name: string, query: SmartShelfQuery): Promise<number> {
+  const data = await apiPostJson<{ id: number }>(config, '/api/smart-shelves', { name, query });
+  return Number(data.id);
+}
+
 export async function deleteSmartShelf(config: ServerConfig, shelfId: number): Promise<void> {
   await apiDelete(config, `/api/smart-shelves/${shelfId}`);
 }

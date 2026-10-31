@@ -178,6 +178,21 @@ describe('fetchHomeShelves', () => {
     vi.unstubAllGlobals();
   });
 
+  it('creates a smart shelf from the catalog filters', async () => {
+    const { createSmartShelf } = await import('../inpxClient');
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(`${init?.method ?? 'GET'} ${decodeURIComponent(String(input))} ${String(init?.body ?? '')}`);
+      return new Response(JSON.stringify({ ok: true, id: 12 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+    await expect(createSmartShelf(baseConfig, 'Фантастика', { q: 'космос', genre: ['sf'], minRate: 4, sort: 'rating' })).resolves.toBe(12);
+    expect(bodies[0]).toContain('POST');
+    expect(bodies[0]).toContain('/api/smart-shelves');
+    expect(bodies[0]).toContain('"name":"Фантастика"');
+    expect(bodies[0]).toContain('"genre":["sf"]');
+    vi.unstubAllGlobals();
+  });
+
   it('pins a shelf or a smart shelf to the home page', async () => {
     const { setShelfOnHomeApi } = await import('../inpxClient');
     const calls: string[] = [];
