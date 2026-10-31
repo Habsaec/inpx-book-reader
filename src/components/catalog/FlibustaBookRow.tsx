@@ -67,7 +67,7 @@ export default function FlibustaBookRow({
 
   return (
     <div
-      className={`w-full flex items-stretch ${showFileExt ? 'min-h-[120px]' : 'h-[120px]'} border-b last:border-b-0 ${theme.divider} ${
+      className={`w-full flex items-stretch min-h-[7.5rem] border-b last:border-b-0 ${theme.divider} ${
         isSelected ? theme.accentMuted : ''
       }`}
     >

@@ -1,5 +1,5 @@
 import React from 'react';
-import { bookGridColumnsForViewport } from '../components/BookCoverGrid';
+import { useBookGridColumns } from '../components/BookCoverGrid';
 import type { CatalogViewMode } from '../lib/catalogViewMode';
 
 /** Largest page of whole cover rows that fits the server limit (24). */
@@ -12,12 +12,7 @@ export function fullRowsPageSize(cols: number, limit = 24): number {
  * short row (24 books in 5 columns would leave 4 on the last row of every page).
  */
 export function useBookGridPageSize(viewMode: CatalogViewMode, limit = 24): number {
-  const [cols, setCols] = React.useState(() => bookGridColumnsForViewport(window.innerWidth));
-  React.useEffect(() => {
-    const onResize = () => setCols(bookGridColumnsForViewport(window.innerWidth));
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+  const cols = useBookGridColumns();
   return viewMode === 'grid' ? fullRowsPageSize(cols, limit) : limit;
 }
 

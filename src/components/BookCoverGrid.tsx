@@ -3,6 +3,7 @@ import { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import BookCoverTile from './BookCoverTile';
 import { sortBooksBySeriesVolume } from '../lib/seriesVolumeSort';
+import { getUiFontScale } from '../lib/uiFontScale';
 
 export { sortBooksBySeriesVolume, seriesVolumeSortKey } from '../lib/seriesVolumeSort';
 export { BOOK_COVER_TILE_WIDTH_PX } from './BookCoverTile';
@@ -24,12 +25,27 @@ interface BookCoverGridProps {
   renderTileExtra?: (book: Book) => React.ReactNode;
 }
 
-/** Columns of the grid below for a viewport width. Keep in sync with its `grid-cols-*` classes. */
-export function bookGridColumnsForViewport(width: number): number {
+/**
+ * Columns of the grid below for a viewport width. The width is divided by the system font
+ * scale (root font-size), so a larger «Font size» gives fewer, wider tiles; px media queries
+ * cannot see that scale, hence the columns are set inline.
+ */
+export function bookGridColumnsForViewport(viewportWidth: number): number {
+  const width = viewportWidth / getUiFontScale();
   if (width >= 900) return 6;
   if (width >= 640) return 5;
   if (width >= 480) return 4;
   return 3;
+}
+
+export function useBookGridColumns(): number {
+  const [cols, setCols] = React.useState(() => bookGridColumnsForViewport(window.innerWidth));
+  React.useEffect(() => {
+    const onResize = () => setCols(bookGridColumnsForViewport(window.innerWidth));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return cols;
 }
 
 /**
@@ -56,9 +72,13 @@ export default function BookCoverGrid({
     () => (showSeriesVolume ? sortBooksBySeriesVolume(books) : books),
     [books, showSeriesVolume],
   );
+  const cols = useBookGridColumns();
 
   return (
-    <div className="grid grid-cols-3 min-[480px]:grid-cols-4 min-[640px]:grid-cols-5 min-[900px]:grid-cols-6 gap-4 w-full min-w-0">
+    <div
+      className="grid gap-4 w-full min-w-0"
+      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+    >
       {ordered.map((book) => (
         <div key={book.id} className="relative min-w-0 w-full">
           <BookCoverTile
