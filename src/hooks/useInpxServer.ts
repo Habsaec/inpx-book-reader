@@ -41,6 +41,7 @@ import {
   isUnreachableServerError,
   isAuthError,
   saveUserPreferences,
+  setShelfOnHomeApi,
 } from '../lib/inpxClient';
 import { applyServerActivitySyncMeta } from '../lib/readerActivitySync';
 import { sameSeriesName } from '../lib/seriesLabel';
@@ -191,7 +192,7 @@ export function useInpxServer(
       setFavoriteAuthors(favs.authors.map((a) => a.name));
       setFavoriteSeries(favs.series.map((s) => s.name));
       if (shelfGen === shelfListGen.current) {
-        shelfMembershipRef.current = `${shelfList.map((s) => `${s.id}\0${s.name}`).join('|')}#${smartShelfList.map((s) => `${s.id}\0${s.name}`).join('|')}`;
+        shelfMembershipRef.current = `${shelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}#${smartShelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}`;
         setShelves(shelfList);
         setSmartShelves(smartShelfList);
       }
@@ -422,6 +423,24 @@ export function useInpxServer(
     shelfListGen.current += 1;
     setSmartShelves((prev) => prev.filter((s) => s.id !== shelfId));
   }, [config, online]);
+
+  /** Pin / unpin on the home page; optimistic, reverted when the server refuses. */
+  const setShelfOnHome = React.useCallback(async (kind: 'shelf' | 'smart', shelfId: number, on: boolean) => {
+    if (!online) return false;
+    const apply = (value: boolean) => {
+      shelfListGen.current += 1;
+      if (kind === 'smart') setSmartShelves((prev) => prev.map((s) => (s.id === shelfId ? { ...s, onHome: value } : s)));
+      else setShelves((prev) => prev.map((s) => (s.id === shelfId ? { ...s, onHome: value } : s)));
+    };
+    apply(on);
+    try {
+      apply(await withAuthGuard(() => setShelfOnHomeApi(config, kind, shelfId, on)));
+      return true;
+    } catch (err) {
+      apply(!on);
+      throw err;
+    }
+  }, [config, online, withAuthGuard]);
 
   const loadShelfBooks = React.useCallback(
     async (shelfId: number) => {
@@ -667,7 +686,7 @@ export function useInpxServer(
         fetchSmartShelves(config),
       ]));
       if (gen !== shelfListGen.current) return false;
-      const membership = `${shelfList.map((s) => `${s.id}\0${s.name}`).join('|')}#${smartShelfList.map((s) => `${s.id}\0${s.name}`).join('|')}`;
+      const membership = `${shelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}#${smartShelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}`;
       const changed = membership !== shelfMembershipRef.current;
       shelfMembershipRef.current = membership;
       setShelves(shelfList);
@@ -722,6 +741,7 @@ export function useInpxServer(
     addShelf,
     removeShelf,
     removeSmartShelf,
+    setShelfOnHome,
     loadShelfBooks,
     addToShelf,
     removeFromShelf,

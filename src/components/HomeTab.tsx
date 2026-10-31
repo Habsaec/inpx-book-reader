@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, AlertCircle, ChevronRight, Download, MoreVertical, Play, Loader2 } from 'lucide-react';
+import { BookOpen, AlertCircle, ChevronRight, Download, MoreVertical, Play, Loader2, PinOff } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { InpxProfile, mapServerBook, fetchLibraryView, fetchHomeShelves, isAuthError, isUnreachableServerError } from '../lib/inpxClient';
 import { Book, ServerConfig } from '../types';
@@ -24,21 +24,29 @@ import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { textStyles, motion, radii, spacing } from '../ui/tokens';
 import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, seriesVolumeLabel } from '../lib/seriesLabel';
 import { getHomeRecentMode } from '../lib/appSettings';
-import { isHomeSectionVisible, useHomeLayout, type HomeSectionId } from '../lib/homeLayout';
+import { isHomeSectionVisible, orderShelves, useHomeLayout, type HomeSectionId } from '../lib/homeLayout';
 import type { CatalogViewMode } from '../lib/catalogViewMode';
 
 function HomeSectionHeader({
   title,
   actionLabel,
   onAction,
+  onUnpin,
 }: {
   title: string;
   actionLabel?: string;
   onAction?: () => void;
+  /** Pinned shelf: «Убрать с главной». */
+  onUnpin?: () => void;
 }) {
   return (
     <div className="flex min-h-12 items-center justify-between gap-3 -mb-1">
-      <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>{title}</h3>
+      <h3 className={`min-w-0 truncate ${textStyles.sectionLabel} ${theme.text}`}>{title}</h3>
+      {onUnpin ? (
+        <IconButton label={`Убрать «${title}» с главной`} className={`ml-auto -mr-1 ${theme.textMuted}`} onClick={onUnpin}>
+          <PinOff className="w-5 h-5" aria-hidden />
+        </IconButton>
+      ) : null}
       {actionLabel && onAction ? (
         <button
           type="button"
@@ -213,6 +221,8 @@ interface HomeTabProps {
   homeRootEpoch?: number;
   /** Bumped when the server shelf list changes — reload pinned home shelves. */
   homeShelvesEpoch?: number;
+  /** «Убрать с главной» on a pinned shelf header. */
+  onUnpinShelf?: (shelf: HomeShelfRef) => void;
   readIds?: Set<string>;
   onAuthExpired?: () => void;
   onConnectionLost?: () => void;
@@ -242,6 +252,7 @@ export default function HomeTab({
   isTabActive = true,
   homeRootEpoch = 0,
   homeShelvesEpoch = 0,
+  onUnpinShelf,
   readIds,
   onAuthExpired,
   onConnectionLost,
@@ -272,6 +283,8 @@ export default function HomeTab({
   const showRecommended = isHomeSectionVisible(homeLayout, 'recommended');
   const showFollowing = isHomeSectionVisible(homeLayout, 'following');
   const showShelves = isHomeSectionVisible(homeLayout, 'shelves');
+  /** The server orders `/api/home/shelves` by `shelfOrder`: reload when it changes. */
+  const shelfOrderKey = homeLayout.shelfOrder.join('|');
   const downloadJobs = useDownloadQueue();
   const homeRootEpochSeen = React.useRef(homeRootEpoch);
 
@@ -464,7 +477,7 @@ export default function HomeTab({
     return () => {
       cancelled = true;
     };
-  }, [fetchSectionBooks, isOnline, showShelves, serverConfig, sectionKey, homeShelvesEpoch]);
+  }, [fetchSectionBooks, isOnline, showShelves, serverConfig, sectionKey, homeShelvesEpoch, shelfOrderKey]);
 
   React.useEffect(() => {
     if (!fetchSectionBooks || !isOnline || !showNovinki) return;
@@ -820,9 +833,14 @@ export default function HomeTab({
     ),
     shelves: (
     <>
-      {isOnline && homeShelves.map((shelf) => (
+      {isOnline && orderShelves(homeShelves, homeLayout.shelfOrder).map((shelf) => (
         <section key={shelf.key} className="space-y-4">
-          <HomeSectionHeader title={shelf.ref.title} actionLabel="Все" onAction={() => setOpenShelf(shelf.ref)} />
+          <HomeSectionHeader
+            title={shelf.ref.title}
+            actionLabel="Все"
+            onAction={() => setOpenShelf(shelf.ref)}
+            onUnpin={onUnpinShelf ? () => onUnpinShelf(shelf.ref) : undefined}
+          />
           <HomeBookPreview
             books={shelf.books}
             viewMode={viewMode}

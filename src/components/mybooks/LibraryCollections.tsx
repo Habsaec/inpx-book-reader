@@ -18,6 +18,8 @@ import { theme } from '../../lib/appTheme';
 import { motion, radii, textStyles } from '../../ui/tokens';
 import { shelfKey, type UiShelf } from '../../lib/inpxClient';
 import { useLongPress } from '../../hooks/useLongPress';
+import ShelfHomeToggle from '../shelves/ShelfHomeToggle';
+import SortableShelfList from '../shelves/SortableShelfList';
 
 export type LibrarySeg = 'reading' | 'downloaded' | 'local' | 'favorites' | 'want' | 'shelves' | 'read' | 'rated' | 'bookmarks' | 'notes';
 
@@ -88,21 +90,24 @@ function ShelfRow({
   current,
   onOpen,
   onDelete,
+  onToggleHome,
 }: {
   shelf: UiShelf;
   current: boolean;
   onOpen: () => void;
   onDelete?: () => void;
+  onToggleHome?: () => void;
 }) {
   // Delete on long-press, like a shelf card: no red bin on every row.
   const press = useLongPress(onOpen, onDelete);
   return (
+    <div className={`flex items-center border-b ${theme.divider}`}>
     <button
       type="button"
       aria-current={current || undefined}
       {...press}
       aria-description={onDelete ? 'Удерживайте, чтобы удалить полку' : undefined}
-      className={`w-full min-h-14 flex items-center gap-3.5 px-0.5 text-left border-b select-none ${theme.divider} ${
+      className={`flex-1 min-w-0 min-h-14 flex items-center gap-3.5 px-0.5 text-left select-none ${
         current ? 'bg-[var(--app-accent-soft)]' : theme.rowPress
       } ${theme.focusRing} ${motion.press}`}
     >
@@ -111,6 +116,8 @@ function ShelfRow({
       <span className={`shrink-0 ${textStyles.caption} tabular-nums ${theme.textMuted}`}>{shelf.bookCount ?? 0}</span>
       <ChevronRight className={`w-5 h-5 shrink-0 ${theme.textMuted}`} aria-hidden />
     </button>
+    {onToggleHome ? <ShelfHomeToggle name={shelf.name} onHome={Boolean(shelf.onHome)} onToggle={onToggleHome} /> : null}
+    </div>
   );
 }
 
@@ -138,6 +145,8 @@ export default function LibraryCollections({
   onSelect,
   onSelectShelf,
   onRemoveShelf,
+  onToggleShelfHome,
+  onReorderShelves,
   onNewShelf,
   onOpenQueue,
 }: {
@@ -151,6 +160,10 @@ export default function LibraryCollections({
   onSelect: (seg: LibrarySeg) => void;
   onSelectShelf: (shelf: UiShelf) => void;
   onRemoveShelf?: (shelf: UiShelf) => void;
+  /** Server shelves only (numeric id): pin / unpin on the home page. */
+  onToggleShelfHome?: (shelf: UiShelf) => void;
+  /** Drag: the new order of one kind (`shelf:<id>` / `smart:<id>` keys). */
+  onReorderShelves?: (keys: string[]) => void;
   onNewShelf?: () => void;
   onOpenQueue?: () => void;
 }) {
@@ -160,6 +173,15 @@ export default function LibraryCollections({
   const removeShelf = onRemoveShelf
     ? (shelf: UiShelf) => () => onRemoveShelf(shelf)
     : undefined;
+  const renderShelfRow = (shelf: UiShelf) => (
+    <ShelfRow
+      shelf={shelf}
+      current={highlightCurrent && seg === 'shelves' && activeShelfKey === shelfKey(shelf)}
+      onOpen={() => onSelectShelf(shelf)}
+      onDelete={removeShelf?.(shelf)}
+      onToggleHome={onToggleShelfHome && typeof shelf.id === 'number' ? () => onToggleShelfHome(shelf) : undefined}
+    />
+  );
   return (
     <nav aria-label="Коллекции">
       {queueCount > 0 && onOpenQueue ? (
@@ -191,16 +213,8 @@ export default function LibraryCollections({
           />
         ))}
       </Group>
-      {regularShelves.length > 0 || onNewShelf ? <Group title="Полки" hint={regularShelves.length > 0 && onRemoveShelf ? 'Удерживайте полку, чтобы удалить' : undefined}>
-        {regularShelves.map((shelf) => (
-          <ShelfRow
-            key={shelfKey(shelf)}
-            shelf={shelf}
-            current={highlightCurrent && seg === 'shelves' && activeShelfKey === shelfKey(shelf)}
-            onOpen={() => onSelectShelf(shelf)}
-            onDelete={removeShelf?.(shelf)}
-          />
-        ))}
+      {regularShelves.length > 0 || onNewShelf ? <Group title="Полки" hint={regularShelves.length > 0 && onRemoveShelf ? (onReorderShelves && regularShelves.length > 1 ? 'Порядок — перетаскиванием за ⠿, удалить — удерживайте полку' : 'Удерживайте полку, чтобы удалить') : undefined}>
+        <SortableShelfList shelves={regularShelves} onReorder={onReorderShelves} renderRow={renderShelfRow} label="Порядок полок" />
         {onNewShelf ? (
           regularShelves.length === 0 ? (
             <Row icon={Plus} label="Создать полку" accent onClick={onNewShelf} />
@@ -218,15 +232,7 @@ export default function LibraryCollections({
         ) : null}
       </Group> : null}
       {smartShelves.length > 0 ? <Group title="Умные полки" hint={regularShelves.length === 0 && onRemoveShelf ? 'Удерживайте полку, чтобы удалить' : undefined}>
-        {smartShelves.map((shelf) => (
-          <ShelfRow
-            key={shelfKey(shelf)}
-            shelf={shelf}
-            current={highlightCurrent && seg === 'shelves' && activeShelfKey === shelfKey(shelf)}
-            onOpen={() => onSelectShelf(shelf)}
-            onDelete={removeShelf?.(shelf)}
-          />
-        ))}
+        <SortableShelfList shelves={smartShelves} onReorder={onReorderShelves} renderRow={renderShelfRow} label="Порядок умных полок" />
       </Group> : null}
     </nav>
   );

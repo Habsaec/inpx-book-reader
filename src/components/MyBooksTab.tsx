@@ -40,6 +40,7 @@ import {
   type LocalReaderAnnotationItem,
   type LocalReaderBookmarkItem,
 } from '../lib/offlineReaderStore';
+import SortableShelfList from './shelves/SortableShelfList';
 
 /** Collections list beside the content instead of drill-in (keep in sync with `min-[900px]:`). */
 const WIDE_QUERY = '(min-width: 900px)';
@@ -91,6 +92,10 @@ interface MyBooksTabProps {
   onOpenAuthor?: (name: string) => void;
   onOpenSeries?: (name: string) => void;
   onRemoveShelf?: (shelfId: string, kind?: 'shelf' | 'smart') => void | Promise<void | boolean>;
+  /** Pin / unpin a server shelf on the home page. */
+  onToggleShelfHome?: (shelf: UiShelf) => void | Promise<void>;
+  /** Drag in a shelves list: new order of one kind (`shelf:<id>` / `smart:<id>`). */
+  onReorderShelves?: (keys: string[]) => void;
   localReaderAnnotations?: LocalReaderAnnotationItem[];
   localReaderBookmarks?: LocalReaderBookmarkItem[];
   onOpenBookAtPosition?: (bookId: string, position: string, fallbackBook?: Book) => void;
@@ -145,6 +150,8 @@ export default function MyBooksTab({
   onOpenAuthor,
   onOpenSeries,
   onRemoveShelf,
+  onToggleShelfHome,
+  onReorderShelves,
   localReaderAnnotations = [],
   localReaderBookmarks = [],
   onOpenBookAtPosition,
@@ -638,6 +645,8 @@ export default function MyBooksTab({
                   ? (shelf) => { void onRemoveShelf(String(shelf.id), shelf.kind === 'smart' ? 'smart' : 'shelf'); }
                   : undefined
               }
+              onToggleShelfHome={onToggleShelfHome ? (shelf) => { void onToggleShelfHome(shelf); } : undefined}
+              onReorderShelves={onReorderShelves}
               onNewShelf={onAddShelf ? () => openCollection('shelves', { newShelf: true }) : undefined}
             />
           </div>
@@ -728,34 +737,46 @@ export default function MyBooksTab({
                     />
                   ) : (
                     <>
-                      {regularShelves.map((s) => (
-                        <ShelfCard
-                          key={shelfKey(s)}
-                          name={s.name}
-                          count={s.bookCount ?? 0}
-                          serverConfig={serverConfig}
-                          storageDirectory={storageDirectory}
-                          previewBookIds={s.previewBookIds}
-                          onClick={() => selectShelf(s)}
-                          onDelete={onRemoveShelf ? () => { void onRemoveShelf(String(s.id), 'shelf'); } : undefined}
-                        />
-                      ))}
+                      <SortableShelfList
+                        shelves={regularShelves}
+                        onReorder={onReorderShelves}
+                        label="Порядок полок"
+                        renderRow={(s) => (
+                          <ShelfCard
+                            name={s.name}
+                            count={s.bookCount ?? 0}
+                            serverConfig={serverConfig}
+                            storageDirectory={storageDirectory}
+                            previewBookIds={s.previewBookIds}
+                            onClick={() => selectShelf(s)}
+                            onDelete={onRemoveShelf ? () => { void onRemoveShelf(String(s.id), 'shelf'); } : undefined}
+                            onHome={Boolean(s.onHome)}
+                            onToggleHome={onToggleShelfHome && typeof s.id === 'number' ? () => { void onToggleShelfHome(s); } : undefined}
+                          />
+                        )}
+                      />
                       {smartShelves.length > 0 ? (
                         <h3 className={`${textStyles.sectionLabel} ${theme.text} mt-6 mb-1`}>Умные полки</h3>
                       ) : null}
-                      {smartShelves.map((s) => (
-                        <ShelfCard
-                          key={shelfKey(s)}
-                          name={s.name}
-                          smart
-                          count={s.bookCount ?? 0}
-                          serverConfig={serverConfig}
-                          storageDirectory={storageDirectory}
-                          previewBookIds={s.previewBookIds}
-                          onClick={() => selectShelf(s)}
-                          onDelete={onRemoveShelf ? () => { void onRemoveShelf(String(s.id), 'smart'); } : undefined}
-                        />
-                      ))}
+                      <SortableShelfList
+                        shelves={smartShelves}
+                        onReorder={onReorderShelves}
+                        label="Порядок умных полок"
+                        renderRow={(s) => (
+                          <ShelfCard
+                            name={s.name}
+                            smart
+                            count={s.bookCount ?? 0}
+                            serverConfig={serverConfig}
+                            storageDirectory={storageDirectory}
+                            previewBookIds={s.previewBookIds}
+                            onClick={() => selectShelf(s)}
+                            onDelete={onRemoveShelf ? () => { void onRemoveShelf(String(s.id), 'smart'); } : undefined}
+                            onHome={Boolean(s.onHome)}
+                            onToggleHome={onToggleShelfHome && typeof s.id === 'number' ? () => { void onToggleShelfHome(s); } : undefined}
+                          />
+                        )}
+                      />
                     </>
                   )}
                 </>

@@ -158,7 +158,7 @@ describe('fetchHomeShelves', () => {
       urls.push(`${init?.method ?? 'GET'} ${decodeURIComponent(String(input))}`);
       if ((init?.method ?? 'GET') === 'DELETE') return new Response(JSON.stringify({ ok: true }), { status: 200 });
       return new Response(JSON.stringify([
-        { id: 4, name: 'Бояр-аниме', query: 'genre=boyar&sort=title', bookCount: 12, previewBookIds: ['a', 'b'] },
+        { id: 4, name: 'Бояр-аниме', query: 'genre=boyar&sort=title', bookCount: 12, previewBookIds: ['a', 'b'], onHome: 1 },
       ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }));
 
@@ -171,9 +171,25 @@ describe('fetchHomeShelves', () => {
       catalogUrl: undefined,
       bookCount: 12,
       previewBookIds: ['a', 'b'],
+      onHome: true,
     }]);
     await deleteSmartShelf(baseConfig, 4);
     expect(urls.some((u) => u.includes('DELETE') && u.includes('/api/smart-shelves/4'))).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('pins a shelf or a smart shelf to the home page', async () => {
+    const { setShelfOnHomeApi } = await import('../inpxClient');
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${decodeURIComponent(String(input))} ${String(init?.body ?? '')}`);
+      const on = JSON.parse(String(init?.body ?? '{}')).on;
+      return new Response(JSON.stringify({ ok: true, onHome: on ? 1 : 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+    await expect(setShelfOnHomeApi(baseConfig, 'shelf', 7, true)).resolves.toBe(true);
+    await expect(setShelfOnHomeApi(baseConfig, 'smart', 4, false)).resolves.toBe(false);
+    expect(calls[0]).toMatch(/^POST .*\/api\/shelves\/7\/home .*\{"on":true\}$/);
+    expect(calls[1]).toMatch(/^POST .*\/api\/smart-shelves\/4\/home .*\{"on":false\}$/);
     vi.unstubAllGlobals();
   });
 });

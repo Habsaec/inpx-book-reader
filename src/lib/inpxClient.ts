@@ -858,6 +858,8 @@ export interface ServerShelf {
   description?: string;
   bookCount?: number;
   previewBookIds?: string[];
+  /** Pinned to the home page (`on_home`, web and app). */
+  onHome?: boolean;
 }
 
 /** Shelf row for library UI — server numeric id or local string id. */
@@ -868,6 +870,7 @@ export type UiShelf = {
   kind?: 'shelf' | 'smart';
   bookCount?: number;
   previewBookIds?: string[];
+  onHome?: boolean;
 };
 
 export function shelfKey(shelf: { id: number | string; kind?: 'shelf' | 'smart' }): string {
@@ -882,6 +885,7 @@ export async function fetchShelves(config: ServerConfig): Promise<ServerShelf[]>
     name: String(s.name ?? ''),
     bookCount: s.bookCount != null ? Number(s.bookCount) : undefined,
     previewBookIds: normalizePreviewBookIds(s.previewBookIds).slice(0, 4),
+    onHome: Number(s.onHome) === 1,
   })).filter((s) => s.name && Number.isFinite(s.id));
 }
 
@@ -901,6 +905,7 @@ export interface ServerSmartShelf {
   catalogUrl?: string;
   bookCount?: number;
   previewBookIds?: string[];
+  onHome?: boolean;
 }
 
 /** Saved catalog filters. `preview=1` adds `bookCount` and `previewBookIds`, same as the web shelves page. */
@@ -913,7 +918,20 @@ export async function fetchSmartShelves(config: ServerConfig): Promise<ServerSma
     catalogUrl: s.catalogUrl != null ? String(s.catalogUrl) : undefined,
     bookCount: s.bookCount != null ? Number(s.bookCount) : undefined,
     previewBookIds: normalizePreviewBookIds(s.previewBookIds).slice(0, 4),
+    onHome: Number(s.onHome) === 1,
   })).filter((s) => s.name && Number.isFinite(s.id));
+}
+
+/** Pin / unpin a shelf on the home page (`POST /api/shelves/:id/home`, `/api/smart-shelves/:id/home`). */
+export async function setShelfOnHomeApi(
+  config: ServerConfig,
+  kind: 'shelf' | 'smart',
+  shelfId: number,
+  on: boolean,
+): Promise<boolean> {
+  const base = kind === 'smart' ? '/api/smart-shelves' : '/api/shelves';
+  const data = await apiPostJson<{ onHome?: number }>(config, `${base}/${shelfId}/home`, { on });
+  return Number(data.onHome) === 1;
 }
 
 export async function deleteSmartShelf(config: ServerConfig, shelfId: number): Promise<void> {

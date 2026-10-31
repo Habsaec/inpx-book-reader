@@ -1,13 +1,12 @@
 import React from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { Reorder } from 'motion/react';
 import { theme } from '../lib/appTheme';
 import { textStyles } from '../ui/tokens';
-import IconButton from '../ui/IconButton';
 import { impactLight } from '../lib/haptics';
+import { DragRow, useDragOrder } from '../ui/DragReorder';
 import {
   HOME_SECTION_LABELS,
   isHomeSectionVisible,
-  moveHomeSection,
   toggleHomeSection,
   type HomeLayout,
   type HomeSectionId,
@@ -20,36 +19,34 @@ interface HomeLayoutSettingsProps {
   disabled?: boolean;
 }
 
-/** «Блоки главной»: switch + ▲▼ per home section (same list as the web «Профиль → Вид»). */
+/** «Блоки главной»: drag + switch per home section (same list as the web «Профиль → Вид»). */
 export default function HomeLayoutSettings({ layout, onChange, disabled = false }: HomeLayoutSettingsProps) {
-  const last = layout.order.length - 1;
+  const layoutRef = React.useRef(layout);
+  layoutRef.current = layout;
+  const sections = useDragOrder<HomeSectionId>(layout.order, (order) => onChange({ ...layoutRef.current, order }));
+
   return (
     <div className="py-3 border-b border-[color:var(--app-border)]">
       <p className={`${textStyles.body} ${theme.text}`}>Блоки главной</p>
       <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
-        Что показывать и в каком порядке. Общая настройка с сайтом
+        Что показывать; порядок — перетаскиванием за ⠿. Порядок полок — в «Мои книги». Общая настройка с сайтом
       </p>
-      <ul className="mt-2" aria-label="Блоки главной">
-        {layout.order.map((id: HomeSectionId, index) => {
+      <Reorder.Group axis="y" as="ul" values={sections.order} onReorder={sections.setOrder} className="mt-2" aria-label="Блоки главной">
+        {sections.order.map((id) => {
           const visible = isHomeSectionVisible(layout, id);
           const label = HOME_SECTION_LABELS[id];
           return (
-            <li key={id} className="flex items-center gap-1 min-h-12">
+            <DragRow
+              key={id}
+              value={id}
+              label={label}
+              disabled={disabled}
+              className="min-h-12"
+              onDragStart={sections.start}
+              onDragEnd={sections.finish}
+              onMove={(step) => sections.moveBy(id, step)}
+            >
               <span className={`flex-1 min-w-0 ${textStyles.body} ${visible ? theme.text : theme.textMuted}`}>{label}</span>
-              <IconButton
-                label={`${label}: выше`}
-                disabled={disabled || index === 0}
-                onClick={() => onChange(moveHomeSection(layout, id, 'up'))}
-              >
-                <ChevronUp className="w-5 h-5" aria-hidden />
-              </IconButton>
-              <IconButton
-                label={`${label}: ниже`}
-                disabled={disabled || index === last}
-                onClick={() => onChange(moveHomeSection(layout, id, 'down'))}
-              >
-                <ChevronDown className="w-5 h-5" aria-hidden />
-              </IconButton>
               <button
                 type="button"
                 role="switch"
@@ -70,10 +67,10 @@ export default function HomeLayoutSettings({ layout, onChange, disabled = false 
                   }`}
                 />
               </button>
-            </li>
+            </DragRow>
           );
         })}
-      </ul>
+      </Reorder.Group>
     </div>
   );
 }

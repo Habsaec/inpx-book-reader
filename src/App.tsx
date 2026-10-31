@@ -82,6 +82,8 @@ import {
   fetchLibraryView,
   fetchReaderActivitySyncMeta,
   mapServerBook,
+  saveUserPreferences,
+  type UiShelf,
 } from './lib/inpxClient';
 import { recentRemovedOnServer, withoutFinishedReading } from './lib/localReadingProgress';
 import { clearOfflineReadingHistory } from './lib/offlineReaderStore';
@@ -90,6 +92,7 @@ import { isBookDownloadInFlight, resolveBookPrimaryAction } from './lib/bookOpen
 import type { Book, Shelf } from './types';
 
 import FoliateReader from './components/FoliateReader';
+import { getHomeLayout, orderShelves, reorderShelfGroup, setHomeLayout, shelfOrderKey, useHomeLayout } from './lib/homeLayout';
 
 const CatalogTab = React.lazy(() => import('./components/CatalogTab'));
 
@@ -816,8 +819,12 @@ export default function App() {
     ];
   }, [isOnline, inpxServer.shelves, localShelves]);
 
+  const homeLayout = useHomeLayout();
+  /** In the account order (drag in «Мои книги», `homeLayout.shelfOrder`, shared with the web). */
   const libraryShelves = React.useMemo(() => {
-    const regular = uiShelves.map((shelf) => ({ ...shelf, kind: 'shelf' as const }));
+    const ordered = <T extends { id: number | string; kind?: 'shelf' | 'smart' }>(list: T[]) =>
+      orderShelves(list.map((shelf) => ({ key: shelfOrderKey(shelf), shelf })), homeLayout.shelfOrder).map((x) => x.shelf);
+    const regular = ordered(uiShelves.map((shelf) => ({ ...shelf, kind: 'shelf' as const })));
     if (!isOnline) return regular;
     const smart = inpxServer.smartShelves.map((shelf) => ({
       id: shelf.id,
@@ -825,9 +832,51 @@ export default function App() {
       kind: 'smart' as const,
       bookCount: shelf.bookCount,
       previewBookIds: shelf.previewBookIds,
+      onHome: shelf.onHome,
     }));
-    return [...regular, ...smart];
-  }, [isOnline, uiShelves, inpxServer.smartShelves]);
+    return [...regular, ...ordered(smart)];
+  }, [isOnline, uiShelves, inpxServer.smartShelves, homeLayout.shelfOrder]);
+
+  /** Drag in a shelves list: new order of one kind → `homeLayout.shelfOrder` (the home page follows it). */
+  const handleReorderShelves = React.useCallback(
+    (groupKeys: string[]) => {
+      const current = getHomeLayout();
+      // The mixed order of both kinds (as on the server), not «regular, then smart» of the grouped lists.
+      const allKeys = orderShelves(
+        libraryShelves.filter((s) => typeof s.id === 'number').map((s) => ({ key: shelfOrderKey(s) })),
+        current.shelfOrder,
+      ).map((x) => x.key);
+      const next = reorderShelfGroup(current, allKeys, groupKeys);
+      if (next === current) return;
+      setHomeLayout(next);
+      void saveUserPreferences(serverConfig, { homeLayout: next }).catch(() => {
+        setHomeLayout(current);
+        snackbar.show('Не удалось сохранить порядок полок на сервере', undefined, 'error');
+      });
+    },
+    [libraryShelves, serverConfig, snackbar],
+  );
+
+  /** Pin / unpin a shelf on the home page (Мои книги, home shelf header). */
+  const handleSetShelfOnHome = React.useCallback(
+    async (kind: 'shelf' | 'smart', shelfId: number, on: boolean) => {
+      try {
+        await inpxServer.setShelfOnHome(kind, shelfId, on);
+        setHomeShelvesEpoch((n) => n + 1);
+        snackbar.show(on ? 'Полка будет на главной' : 'Полка убрана с главной');
+      } catch {
+        snackbar.show('Не удалось изменить полку на сервере', undefined, 'error');
+      }
+    },
+    [inpxServer.setShelfOnHome, snackbar],
+  );
+  const handleToggleShelfHome = React.useCallback(
+    (shelf: UiShelf) => {
+      if (typeof shelf.id !== 'number') return;
+      void handleSetShelfOnHome(shelf.kind === 'smart' ? 'smart' : 'shelf', shelf.id, !shelf.onHome);
+    },
+    [handleSetShelfOnHome],
+  );
 
   const handleAddBookToShelfFromUi = React.useCallback(
     async (bookId: string, shelfId: number | string) => {
@@ -1278,6 +1327,7 @@ export default function App() {
               isTabActive={activeTab === 'home' && !activeReader}
               homeRootEpoch={homeRootEpoch}
               homeShelvesEpoch={homeShelvesEpoch}
+              onUnpinShelf={isOnline ? (ref) => { void handleSetShelfOnHome(ref.kind === 'smart' ? 'smart' : 'shelf', Number(ref.id), false); } : undefined}
               readIds={isOnline ? inpxServer.readIds : undefined}
               onAuthExpired={markAuthExpired}
               onConnectionLost={markServerDisconnected}
@@ -1387,6 +1437,8 @@ export default function App() {
               onOpenAuthor={handleOpenAuthorFromProfile}
               onOpenSeries={handleOpenSeriesFromProfile}
               onRemoveShelf={handleRemoveShelfConfirmed}
+              onToggleShelfHome={isOnline ? handleToggleShelfHome : undefined}
+              onReorderShelves={isOnline ? handleReorderShelves : undefined}
               onGoCatalog={handleOpenCatalogRoot}
               onGoProfile={() => handleTabChange('profile')}
               onOpenQueue={openQueueSheet}

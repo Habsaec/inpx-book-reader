@@ -5,6 +5,7 @@ import type { ServerConfig } from '../../types';
 import type { StorageDirectory } from '../../lib/storageDirectory';
 import ShelfCoverStack from './ShelfCoverStack';
 import { useLongPress } from '../../hooks/useLongPress';
+import ShelfHomeToggle from './ShelfHomeToggle';
 
 function bookCountLabel(n: number): string {
   const v = Math.max(0, Math.floor(n));
@@ -24,6 +25,8 @@ export default function ShelfCard({
   storageDirectory,
   onClick,
   onDelete,
+  onHome = false,
+  onToggleHome,
 }: {
   name: string;
   count?: number;
@@ -33,6 +36,8 @@ export default function ShelfCard({
   storageDirectory?: StorageDirectory | null;
   onClick?: () => void;
   onDelete?: () => void;
+  onHome?: boolean;
+  onToggleHome?: () => void;
 }) {
   const ids = (previewBookIds ?? []).map(String).filter(Boolean);
   const empty = count <= 0 && ids.length === 0;
@@ -62,6 +67,7 @@ export default function ShelfCard({
           {smart ? `Умная · ${countText}` : countText}
         </p>
       </button>
+      {onToggleHome ? <ShelfHomeToggle name={name} onHome={onHome} onToggle={onToggleHome} /> : null}
     </div>
   );
 }
