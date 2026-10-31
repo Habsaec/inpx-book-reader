@@ -32,9 +32,13 @@ import {
   setDefaultLibraryFolder,
   setHideDefaultInLocal,
 } from '../lib/libraryFolders';
-import { insecureHttpWarning } from '../lib/serverUrl';
+import { insecureHttpWarning, serverHostLabel } from '../lib/serverUrl';
 import { clearServerCredentials } from '../lib/secureServerConfig';
-import { parsePairingQrPayload, redeemPairingCode } from '../lib/inpxClient';
+import { parsePairingQrPayload, redeemPairingCode, saveUserPreferences } from '../lib/inpxClient';
+import { isAppReadableDownloadFormat, setDownloadFormat, useDownloadFormat } from '../lib/downloadFormatPreference';
+import { setHomeLayout, useHomeLayout } from '../lib/homeLayout';
+import { forgetAccountForConfig } from '../lib/accounts';
+import HomeLayoutSettings from './HomeLayoutSettings';
 import { scanAppPairingQr, isQrScanCanceled } from '../lib/scanAppPairingQr';
 import type { AppAppearance, AppColorSource } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
@@ -156,6 +160,8 @@ export default function SyncSettingsTab({
   const { viewMode: homeViewMode, setViewMode: setHomeViewMode } = useCatalogViewMode('home');
   const { viewMode: booksViewMode, setViewMode: setBooksViewMode } = useCatalogViewMode('books');
   const snackbar = useSnackbar();
+  const downloadFormat = useDownloadFormat();
+  const homeLayout = useHomeLayout();
   const [homeRecent, setHomeRecent] = React.useState(getHomeRecentMode);
   const [libraryFolders, setLibraryFolders] = React.useState(() => readLibraryFolders(storageDirectory));
   const [nameStyle, setNameStyle] = React.useState(getStorageNameStyle);
@@ -209,6 +215,8 @@ export default function SyncSettingsTab({
     setForgetting(true);
     const gen = ++authActionGen.current;
     const snapshot = serverConfig;
+    // «Выйти» revokes the device token, so the account leaves the quick-switch list too.
+    await forgetAccountForConfig(snapshot).catch(() => undefined);
     // Wipe React state first so the 250ms persist effect cannot re-save credentials
     // after clearServerCredentials finishes.
     onChangeServerConfig({
@@ -584,13 +592,28 @@ export default function SyncSettingsTab({
                 <ViewModeToggle value={group.value} onChange={group.onChange} />
               </div>
             ))}
+            <HomeLayoutSettings
+              layout={homeLayout}
+              onChange={(next) => {
+                const previous = homeLayout;
+                setHomeLayout(next);
+                if (!connected) return;
+                void saveUserPreferences(serverConfig, { homeLayout: next })
+                  .then((prefs) => {
+                    if (prefs.homeLayout !== undefined) setHomeLayout(prefs.homeLayout);
+                  })
+                  .catch(() => {
+                    setHomeLayout(previous);
+                    snackbar.show('Не удалось сохранить главную на сервере', undefined, 'error');
+                  });
+              }}
+            />
             <SettingsChoice
               label="Новинки"
-              hint="Блок на главной"
+              hint="Все новинки или только авторов, которых вы читали"
               options={([
                 ['on', 'Все'],
                 ['fav', 'Мои авторы'],
-                ['off', 'Скрыть'],
               ] as const).map(([id, label]) => ({
                 id,
                 label,
@@ -666,6 +689,28 @@ export default function SyncSettingsTab({
 
         <section className={sectionClass}>
           <h3 className={sectionTitle}>Файлы и настройки</h3>
+          {connected ? (
+            <SettingsChoice
+              label="Формат скачивания"
+              hint={downloadFormatHint(downloadFormat)}
+              options={APP_DOWNLOAD_FORMAT_OPTIONS.map(([id, label]) => ({
+                id: id || 'source',
+                label,
+                selected: downloadFormat === id,
+                onSelect: () => {
+                  if (downloadFormat === id) return;
+                  const previous = downloadFormat;
+                  setDownloadFormat(id);
+                  void saveUserPreferences(serverConfig, { downloadFormat: id })
+                    .then((prefs) => setDownloadFormat(prefs.downloadFormat))
+                    .catch(() => {
+                      setDownloadFormat(previous);
+                      snackbar.show('Не удалось сохранить формат на сервере', undefined, 'error');
+                    });
+                },
+              }))}
+            />
+          ) : null}
           <SettingsChoice
             label="Имена папок"
             hint="Как называть автора и серию на диске"
@@ -718,15 +763,6 @@ export default function SyncSettingsTab({
   );
 }
 
-/** «library.example.com» for the section list; the full URL lives inside the section. */
-function serverHostLabel(url: string): string {
-  try {
-    return new URL(url).host || url;
-  } catch {
-    return url;
-  }
-}
-
 const SETTINGS_BACKUP_PATH = '.inpx-reader/settings-backup.json';
 
 type ShowSnackbar = ReturnType<typeof useSnackbar>['show'];
@@ -769,6 +805,21 @@ async function loadSettingsBackup(dir: StorageDirectory | null, show: ShowSnackb
   } catch (error) {
     show(error instanceof SyntaxError || !(error instanceof Error) ? 'Файл настроек повреждён' : error.message, undefined, 'error');
   }
+}
+
+/** App-readable choices of the account «Формат скачивания» ('' = the original file). */
+const APP_DOWNLOAD_FORMAT_OPTIONS = [
+  ['', 'Исходный'],
+  ['epub2', 'EPUB'],
+  ['epub3', 'EPUB3'],
+] as const;
+
+function downloadFormatHint(format: string): string {
+  if (!format) return 'Как в профиле на сайте. Книга сохраняется в том формате, что в библиотеке';
+  if (isAppReadableDownloadFormat(format)) {
+    return 'FB2 сервер конвертирует в EPUB — его откроют и другие читалки. Позиция чтения с сайтом совпадёт только примерно';
+  }
+  return `На сайте выбран ${format.toUpperCase()} — читалка его не открывает, скачивается исходный файл`;
 }
 
 function SettingsChoice({

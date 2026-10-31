@@ -20,6 +20,7 @@ import {
   rekeySyncOpBookId,
   removeSyncOp,
 } from './localDb';
+import { isPersonalDataOwner } from './accounts';
 
 /** Stop hammering ops that keep failing (shown in Sync Center as failed). */
 export const MAX_SYNC_OP_ATTEMPTS = 8;
@@ -190,6 +191,8 @@ export function processSyncQueue(config: ServerConfig): Promise<number> {
 }
 
 async function runSyncQueue(config: ServerConfig): Promise<number> {
+  // The queue belongs to the account that owns the local personal data — never push it under another one.
+  if (!isPersonalDataOwner(config)) return 0;
   hydrateShelfIds();
   const ops = await getPendingSyncOps();
 

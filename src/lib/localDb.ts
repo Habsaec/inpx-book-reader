@@ -41,10 +41,29 @@ async function openSqlite(): Promise<SQLiteDBConnection | null> {
   }
 }
 
+/**
+ * Set while switching accounts (`src/lib/accounts.ts`): the old account's in-memory state must not
+ * write back into the DB between the personal-data swap and the page reload.
+ */
+let writesFrozen = false;
+
+export function freezeLocalWrites(): void {
+  writesFrozen = true;
+}
+
 async function execSql(sql: string, values: unknown[] = []): Promise<void> {
+  if (writesFrozen) return;
   if (sqliteConn) {
     await sqliteConn.run(sql, values);
   }
+}
+
+async function guardedSet(key: string, value: unknown): Promise<void> {
+  if (!writesFrozen) await set(key, value);
+}
+
+async function guardedDel(key: string): Promise<void> {
+  if (!writesFrozen) await del(key);
 }
 
 async function querySql<T extends Record<string, unknown>>(sql: string, values: unknown[] = []): Promise<T[]> {
@@ -60,11 +79,11 @@ async function idbGet<T>(table: string, id: string): Promise<T | null> {
 }
 
 async function idbSet(table: string, id: string, value: unknown): Promise<void> {
-  await set(`${IDB_PREFIX}${table}:${id}`, value);
+  await guardedSet(`${IDB_PREFIX}${table}:${id}`, value);
 }
 
 async function idbDelete(table: string, id: string): Promise<void> {
-  await del(`${IDB_PREFIX}${table}:${id}`);
+  await guardedDel(`${IDB_PREFIX}${table}:${id}`);
 }
 
 async function idbGetAll<T>(table: string): Promise<T[]> {
@@ -277,7 +296,7 @@ export async function setAppSetting(key: string, value: string): Promise<void> {
   if (sqliteConn) {
     await execSql('INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)', [key, value]);
   } else {
-    await set(`${IDB_PREFIX}app_setting:${key}`, value);
+    await guardedSet(`${IDB_PREFIX}app_setting:${key}`, value);
   }
 }
 
@@ -285,7 +304,7 @@ export async function deleteAppSetting(key: string): Promise<void> {
   if (sqliteConn) {
     await execSql('DELETE FROM app_meta WHERE key = ?', [key]);
   } else {
-    await del(`${IDB_PREFIX}app_setting:${key}`);
+    await guardedDel(`${IDB_PREFIX}app_setting:${key}`);
   }
 }
 
@@ -527,7 +546,7 @@ export async function setFavoriteAuthors(names: string[]): Promise<void> {
       await execSql('INSERT OR IGNORE INTO favorites_authors (name) VALUES (?)', [name]);
     }
   } else {
-    await set(`${IDB_PREFIX}lists:fav_authors`, names);
+    await guardedSet(`${IDB_PREFIX}lists:fav_authors`, names);
   }
 }
 
@@ -536,7 +555,7 @@ async function addFavoriteAuthor(name: string): Promise<void> {
     await execSql('INSERT OR IGNORE INTO favorites_authors (name) VALUES (?)', [name]);
   } else {
     const cur: string[] = (await get(`${IDB_PREFIX}lists:fav_authors`)) ?? [];
-    if (!cur.includes(name)) await set(`${IDB_PREFIX}lists:fav_authors`, [...cur, name]);
+    if (!cur.includes(name)) await guardedSet(`${IDB_PREFIX}lists:fav_authors`, [...cur, name]);
   }
 }
 
@@ -555,7 +574,7 @@ export async function setFavoriteSeries(names: string[]): Promise<void> {
       await execSql('INSERT OR IGNORE INTO favorites_series (name) VALUES (?)', [name]);
     }
   } else {
-    await set(`${IDB_PREFIX}lists:fav_series`, names);
+    await guardedSet(`${IDB_PREFIX}lists:fav_series`, names);
   }
 }
 
@@ -564,7 +583,7 @@ async function addFavoriteSeries(name: string): Promise<void> {
     await execSql('INSERT OR IGNORE INTO favorites_series (name) VALUES (?)', [name]);
   } else {
     const cur: string[] = (await get(`${IDB_PREFIX}lists:fav_series`)) ?? [];
-    if (!cur.includes(name)) await set(`${IDB_PREFIX}lists:fav_series`, [...cur, name]);
+    if (!cur.includes(name)) await guardedSet(`${IDB_PREFIX}lists:fav_series`, [...cur, name]);
   }
 }
 
@@ -825,11 +844,111 @@ export async function loadLibrarySnapshot(): Promise<{
   return { books, progress, bookmarks, highlights, shelves, favoriteAuthors, favoriteSeries };
 }
 
+// ── Per-account personal data (quick account switching) ──
+
+/** Tables that belong to one account; `books` (downloaded files) is shared by everyone on the device. */
+const PERSONAL_TABLES = [
+  'progress',
+  'bookmarks',
+  'highlights',
+  'shelves',
+  'favorites_authors',
+  'favorites_series',
+  'sync_queue',
+  'reader_data',
+  'sync_conflicts',
+] as const;
+
+/** app_meta keys of one account (sync revisions, search history, home «Новинки» mode). */
+const PERSONAL_APP_META_KEYS = ['reader_activity_sync', 'search_history', 'home_recent'];
+
+const PERSONAL_IDB_PREFIXES = [
+  ...PERSONAL_TABLES.map((table) => `${IDB_PREFIX}${table}:`),
+  `${IDB_PREFIX}lists:fav_`,
+  ...PERSONAL_APP_META_KEYS.map((key) => `${IDB_PREFIX}app_setting:${key}`),
+];
+
+export interface PersonalDataSnapshot {
+  version: 1;
+  /** SQLite: table → rows (`app_meta` holds only the personal keys). */
+  sqlite?: Record<string, Array<Record<string, unknown>>>;
+  /** IndexedDB fallback: raw key → value. */
+  idb?: Record<string, unknown>;
+}
+
+function isPersonalIdbKey(key: unknown): key is string {
+  return typeof key === 'string' && PERSONAL_IDB_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+const metaKeyPlaceholders = PERSONAL_APP_META_KEYS.map(() => '?').join(', ');
+
+export async function exportPersonalData(): Promise<PersonalDataSnapshot> {
+  await initLocalDb();
+  if (sqliteConn) {
+    const out: Record<string, Array<Record<string, unknown>>> = {};
+    for (const table of PERSONAL_TABLES) {
+      out[table] = await querySql(`SELECT * FROM ${table}`);
+    }
+    out.app_meta = await querySql(`SELECT key, value FROM app_meta WHERE key IN (${metaKeyPlaceholders})`, PERSONAL_APP_META_KEYS);
+    return { version: 1, sqlite: out };
+  }
+  const idb: Record<string, unknown> = {};
+  for (const key of await keys()) {
+    if (isPersonalIdbKey(key)) idb[key] = await get(key);
+  }
+  return { version: 1, idb };
+}
+
+/** Wipes the personal tables (ignores the write freeze — used only by the account swap). */
+export async function clearPersonalData(): Promise<void> {
+  await initLocalDb();
+  if (sqliteConn) {
+    const set = PERSONAL_TABLES.map((table) => ({ statement: `DELETE FROM ${table}`, values: [] as unknown[] }));
+    set.push({ statement: `DELETE FROM app_meta WHERE key IN (${metaKeyPlaceholders})`, values: PERSONAL_APP_META_KEYS });
+    await sqliteConn.executeSet(set, true);
+    return;
+  }
+  for (const key of await keys()) {
+    if (isPersonalIdbKey(key)) await del(key);
+  }
+}
+
+export async function importPersonalData(snapshot: PersonalDataSnapshot | null | undefined): Promise<void> {
+  if (!snapshot) return;
+  await initLocalDb();
+  if (sqliteConn && snapshot.sqlite) {
+    const allowed = new Set<string>([...PERSONAL_TABLES, 'app_meta']);
+    const statements: Array<{ statement: string; values: unknown[] }> = [];
+    for (const [table, rows] of Object.entries(snapshot.sqlite)) {
+      if (!allowed.has(table)) continue;
+      for (const row of rows) {
+        const columns = Object.keys(row).filter((c) => /^[a-z_]+$/.test(c));
+        if (!columns.length) continue;
+        if (table === 'app_meta' && !PERSONAL_APP_META_KEYS.includes(String(row.key))) continue;
+        statements.push({
+          statement: `INSERT OR REPLACE INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+          values: columns.map((c) => row[c]),
+        });
+      }
+    }
+    for (let i = 0; i < statements.length; i += 500) {
+      await sqliteConn.executeSet(statements.slice(i, i + 500), true);
+    }
+    return;
+  }
+  if (!sqliteConn && snapshot.idb) {
+    for (const [key, value] of Object.entries(snapshot.idb)) {
+      if (isPersonalIdbKey(key)) await set(key, value);
+    }
+  }
+}
+
 /** Сброс состояния БД — только для vitest. */
 export async function __resetLocalDbForTests(): Promise<void> {
   initPromise = null;
   sqliteConn = null;
   useIndexedDb = false;
+  writesFrozen = false;
   persistLibraryChain = Promise.resolve();
   try {
     const allKeys = await keys();

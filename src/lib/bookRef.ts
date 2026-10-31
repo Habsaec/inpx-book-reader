@@ -106,6 +106,11 @@ function apiActionPath(prefix: string, localId: string): string {
     : `${prefix}/${encodeURIComponent(id)}`;
 }
 
+/** `/download/:id` or `/download/b64/:ref` — the delivered file (`?format=` converts FB2). */
+export function downloadBookPath(id: string): string {
+  return bookSegment('/download', id);
+}
+
 /** `/api/books/:id` or `/api/books/b64/:ref` (+ optional suffix like `/content`). */
 export function apiBookPath(id: string, suffix = ''): string {
   return bookSegment('/api/books', id, suffix);

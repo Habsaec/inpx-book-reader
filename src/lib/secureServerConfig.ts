@@ -22,6 +22,22 @@ interface SecureCredentialsPlugin {
     deviceTokenId: string;
   }>;
   clear(): Promise<void>;
+  /** Saved accounts for quick switching (separate Keystore key; `clear` keeps them). */
+  saveAccount(options: {
+    key: string;
+    username: string;
+    password: string;
+    deviceToken?: string;
+    deviceTokenId?: string;
+  }): Promise<void>;
+  loadAccount(options: { key: string }): Promise<{
+    found: boolean;
+    username?: string;
+    password?: string;
+    deviceToken?: string;
+    deviceTokenId?: string;
+  }>;
+  deleteAccount(options: { key: string }): Promise<void>;
 }
 
 interface StoredServerConfig {
@@ -39,6 +55,8 @@ const SecureCredentials = registerPlugin<SecureCredentialsPlugin>('SecureCredent
 let persistQueue = Promise.resolve();
 /** Bumped on forget/clear so in-flight persist of old credentials is dropped. */
 let credentialsEpoch = 0;
+/** Set by an account switch: nothing may overwrite the new account's credentials before the reload. */
+let credentialsLocked = false;
 
 function readStoredConfig(): StoredServerConfig {
   try {
@@ -233,7 +251,7 @@ export function persistServerConfig(config: ServerConfig): Promise<void> {
   const epoch = credentialsEpoch;
   const wiped = !config.username && !config.password && !config.deviceToken;
   persistQueue = persistQueue.catch(() => undefined).then(async () => {
-    if (epoch !== credentialsEpoch) return;
+    if (epoch !== credentialsEpoch || credentialsLocked) return;
     const connectionStatus = wiped ? 'disconnected' : persistedConnectionStatus(config);
     const publicConfig = publicStoredConfig(config, connectionStatus);
     if (wiped) {
@@ -281,4 +299,65 @@ export async function clearServerCredentials(config?: ServerConfig): Promise<voi
     );
   });
   return persistQueue;
+}
+
+/**
+ * Account switch: makes `config` the active account on disk and blocks every later persist
+ * (the old account's React state still runs until the page reloads).
+ */
+export async function activateAccountCredentials(config: ServerConfig): Promise<void> {
+  credentialsEpoch += 1;
+  credentialsLocked = true;
+  await persistQueue.catch(() => undefined);
+  const connectionStatus: ServerConfig['connectionStatus'] = 'connected';
+  if (isNativeApp()) {
+    await SecureCredentials.save(credentialsForPersist(config));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(publicStoredConfig(config, connectionStatus)));
+    return;
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...config, connectionStatus }));
+}
+
+const DEV_ACCOUNT_SECRETS_KEY = 'inpx_account_secrets_dev';
+
+function readDevAccountSecrets(): Record<string, ReturnType<typeof credentialsForPersist>> {
+  try {
+    return JSON.parse(localStorage.getItem(DEV_ACCOUNT_SECRETS_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+/** Secrets of a saved account (Android Keystore; plain localStorage only in the dev browser). */
+export async function saveAccountCredentials(key: string, config: ServerConfig): Promise<void> {
+  const creds = credentialsForPersist(config);
+  if (isNativeApp()) {
+    await SecureCredentials.saveAccount({ key, ...creds });
+    return;
+  }
+  localStorage.setItem(DEV_ACCOUNT_SECRETS_KEY, JSON.stringify({ ...readDevAccountSecrets(), [key]: creds }));
+}
+
+export async function loadAccountCredentials(key: string): Promise<ReturnType<typeof credentialsForPersist> | null> {
+  if (isNativeApp()) {
+    const res = await SecureCredentials.loadAccount({ key });
+    if (!res.found) return null;
+    return {
+      username: res.username || '',
+      password: res.password || '',
+      deviceToken: res.deviceToken || '',
+      deviceTokenId: res.deviceTokenId || '',
+    };
+  }
+  return readDevAccountSecrets()[key] ?? null;
+}
+
+export async function deleteAccountCredentials(key: string): Promise<void> {
+  if (isNativeApp()) {
+    await SecureCredentials.deleteAccount({ key });
+    return;
+  }
+  const all = readDevAccountSecrets();
+  delete all[key];
+  localStorage.setItem(DEV_ACCOUNT_SECRETS_KEY, JSON.stringify(all));
 }

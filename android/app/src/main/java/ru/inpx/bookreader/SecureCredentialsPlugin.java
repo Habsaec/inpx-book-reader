@@ -24,24 +24,36 @@ public class SecureCredentialsPlugin extends Plugin {
     private static final String PREF_CIPHERTEXT = "ciphertext";
     private static final String PREF_IV = "iv";
 
+    /** Saved accounts for quick switching: own key and prefs, so logout (`clear`) keeps them. */
+    private static final String ACCOUNTS_KEY_ALIAS = "inpx_reader_saved_accounts";
+    private static final String ACCOUNTS_PREFS_NAME = "inpx_reader_secure_accounts";
+
     private SharedPreferences preferences() {
         return getContext().getSharedPreferences(PREFS_NAME, 0);
     }
 
+    private SharedPreferences accountPreferences() {
+        return getContext().getSharedPreferences(ACCOUNTS_PREFS_NAME, 0);
+    }
+
     private SecretKey getOrCreateKey() throws Exception {
+        return getOrCreateKey(KEY_ALIAS);
+    }
+
+    private SecretKey getOrCreateKey(String alias) throws Exception {
         KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
         keyStore.load(null);
-        if (keyStore.containsAlias(KEY_ALIAS)) {
-            SecretKey existing = (SecretKey) keyStore.getKey(KEY_ALIAS, null);
+        if (keyStore.containsAlias(alias)) {
+            SecretKey existing = (SecretKey) keyStore.getKey(alias, null);
             if (existing != null) {
                 return existing;
             }
             // Alias present but key unusable — delete so we can recreate.
-            keyStore.deleteEntry(KEY_ALIAS);
+            keyStore.deleteEntry(alias);
         }
         KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
         generator.init(new KeyGenParameterSpec.Builder(
-            KEY_ALIAS,
+            alias,
             KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT
         ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
@@ -131,6 +143,90 @@ public class SecureCredentialsPlugin extends Plugin {
             call.resolve();
         } else {
             call.reject("Unable to clear server credentials");
+        }
+    }
+
+    private static String accountPrefKey(String key, String field) {
+        return "account:" + key + ":" + field;
+    }
+
+    @PluginMethod
+    public void saveAccount(PluginCall call) {
+        String key = call.getString("key", "");
+        if (key == null || key.isEmpty()) {
+            call.reject("Account key is required");
+            return;
+        }
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("username", call.getString("username", ""));
+            payload.put("password", call.getString("password", ""));
+            payload.put("deviceToken", call.getString("deviceToken", ""));
+            payload.put("deviceTokenId", call.getString("deviceTokenId", ""));
+
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(ACCOUNTS_KEY_ALIAS));
+            byte[] ciphertext = cipher.doFinal(payload.toString().getBytes(StandardCharsets.UTF_8));
+            boolean saved = accountPreferences().edit()
+                .putString(accountPrefKey(key, PREF_CIPHERTEXT), Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+                .putString(accountPrefKey(key, PREF_IV), Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
+                .commit();
+            if (!saved) {
+                call.reject("Secure credential storage is unavailable");
+                return;
+            }
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("Unable to protect account credentials", error);
+        }
+    }
+
+    @PluginMethod
+    public void loadAccount(PluginCall call) {
+        String key = call.getString("key", "");
+        SharedPreferences prefs = accountPreferences();
+        String encodedCiphertext = prefs.getString(accountPrefKey(key, PREF_CIPHERTEXT), null);
+        String encodedIv = prefs.getString(accountPrefKey(key, PREF_IV), null);
+        JSObject result = new JSObject();
+        if (encodedCiphertext == null || encodedIv == null) {
+            result.put("found", false);
+            call.resolve(result);
+            return;
+        }
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                getOrCreateKey(ACCOUNTS_KEY_ALIAS),
+                new GCMParameterSpec(128, Base64.decode(encodedIv, Base64.NO_WRAP))
+            );
+            String plaintext = new String(
+                cipher.doFinal(Base64.decode(encodedCiphertext, Base64.NO_WRAP)),
+                StandardCharsets.UTF_8
+            );
+            JSONObject payload = new JSONObject(plaintext);
+            result.put("found", true);
+            result.put("username", payload.optString("username", ""));
+            result.put("password", payload.optString("password", ""));
+            result.put("deviceToken", payload.optString("deviceToken", ""));
+            result.put("deviceTokenId", payload.optString("deviceTokenId", ""));
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Unable to unlock account credentials", error);
+        }
+    }
+
+    @PluginMethod
+    public void deleteAccount(PluginCall call) {
+        String key = call.getString("key", "");
+        boolean removed = accountPreferences().edit()
+            .remove(accountPrefKey(key, PREF_CIPHERTEXT))
+            .remove(accountPrefKey(key, PREF_IV))
+            .commit();
+        if (removed) {
+            call.resolve();
+        } else {
+            call.reject("Unable to remove account credentials");
         }
     }
 }

@@ -4,8 +4,9 @@ import {
   pickSeriesFromItem,
   mapServerBook,
   downloadBookBinary,
-  bookContentUrl,
+  bookFileDownloadUrl,
 } from './inpxClient';
+import { getDownloadFormat, isAppReadableDownloadFormat } from './downloadFormatPreference';
 import { isNativeApp } from './platform';
 import { Book, ServerConfig } from '../types';
 
@@ -36,12 +37,14 @@ export async function fetchBookBinary(
   config: ServerConfig,
   book: Book,
   onProgress?: (loaded: number, total: number) => void,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; format?: string | null },
 ): Promise<ArrayBuffer> {
   if (isNativeApp()) {
     return downloadBookBinary(config, book.id, onProgress, opts);
   }
-  const downloadUrl = book.contentUrl || bookContentUrl(config, book.id);
+  const downloadUrl = opts?.format
+    ? bookFileDownloadUrl(config, book.id, opts.format)
+    : book.contentUrl || bookFileDownloadUrl(config, book.id);
   const headers: Record<string, string> = {};
   if (config.username && config.password) {
     headers.Authorization =
@@ -64,6 +67,10 @@ export async function buildChaptersJson(book: Book, buffer: ArrayBuffer): Promis
 
 /** Дополняет метаданные из API сервера перед сохранением на диск. */
 export async function enrichBookForDownload(config: ServerConfig, book: Book): Promise<Book> {
+  // «Формат скачивания» needs the book's server formats; catalog lists carry them, history items may not.
+  if (!book.downloadFormats && isAppReadableDownloadFormat(getDownloadFormat())) {
+    return fetchAndMergeMeta(config, book);
+  }
   if (book.series?.trim()) {
     return book.seriesNo != null && book.seriesNo > 0
       ? book
@@ -91,6 +98,7 @@ async function fetchAndMergeMeta(config: ServerConfig, book: Book): Promise<Book
       subgenre: book.subgenre || fromServer.subgenre,
       genresDisplay: book.genresDisplay ?? fromServer.genresDisplay,
       rating: book.rating || fromServer.rating,
+      downloadFormats: book.downloadFormats ?? fromServer.downloadFormats,
     };
   } catch {
     return book;

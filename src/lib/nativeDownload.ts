@@ -3,7 +3,7 @@
  */
 import { Capacitor } from '@capacitor/core';
 import type { Book, ServerConfig } from '../types';
-import { ApiError, authHeader, bookContentUrl, isAuthError, withServerBusyRetry } from './inpxClient';
+import { ApiError, authHeader, bookFileDownloadUrl, isAuthError, withServerBusyRetry } from './inpxClient';
 import { bookStorageRelativePath } from './bookStorage';
 import { isNativeApp } from './platform';
 import type { StorageDirectory } from './storageDirectory';
@@ -95,12 +95,13 @@ export async function downloadBookToStorageNative(
   jobId: string,
   onProgress?: (loaded: number, total: number) => void,
   signal?: AbortSignal,
+  format?: string | null,
 ): Promise<NativeBookDownloadResult> {
   if (!directory.uri) {
     throw new Error('Не выбрана папка хранения');
   }
   const relativePath = bookStorageRelativePath(book);
-  const url = bookContentUrl(config, book.id);
+  const url = bookFileDownloadUrl(config, book.id, format);
   const headers = authHeader(config);
 
   let listener: { remove: () => Promise<void> } | null = null;

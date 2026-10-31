@@ -17,6 +17,7 @@ import {
   type NativeBookDownloadResult,
 } from './nativeDownload';
 import { bookStorageRelativePath, removeBookFromDirectory } from './bookStorage';
+import { resolveBookDownloadFormat } from './downloadFormatPreference';
 
 export type DownloadStatus = 'queued' | 'downloading' | 'saving' | 'saved' | 'error' | 'cancelled';
 
@@ -418,17 +419,21 @@ class DownloadQueueManager {
 
       await assertEnoughStorage(this.estimateRequiredBytes());
 
-      const enriched = await enrichBookForDownload(this.serverConfig!, next.book);
+      const meta = await enrichBookForDownload(this.serverConfig!, next.book);
+      // «Формат скачивания» of the account: the server converts FB2 → EPUB, the file keeps that extension.
+      const fileFormat = resolveBookDownloadFormat(meta);
+      const enriched = fileFormat ? { ...meta, ext: fileFormat.ext } : meta;
+      const format = fileFormat?.format ?? null;
 
       let chaptersJson = '[]';
       let nativeResult: NativeBookDownloadResult | undefined;
 
       if (isNativeApp()) {
         nativeTargetPath = bookStorageRelativePath(enriched);
-        nativeResult = await this.fetchNative(next, controller, enriched);
+        nativeResult = await this.fetchNative(next, controller, enriched, format);
         await assertDownloadedBookReadableNative(this.storageDirectory!, enriched, nativeResult.relativePath);
       } else {
-        const buffer = await this.fetchWithProgress(next, controller);
+        const buffer = await this.fetchWithProgress(next, controller, format);
         assertDownloadedBookReadable(enriched, buffer);
         chaptersJson = await buildChaptersJson(enriched, buffer);
         if (
@@ -553,7 +558,11 @@ class DownloadQueueManager {
       }, 0);
   }
 
-  private async fetchWithProgress(job: DownloadJob, controller: AbortController): Promise<ArrayBuffer> {
+  private async fetchWithProgress(
+    job: DownloadJob,
+    controller: AbortController,
+    format: string | null = null,
+  ): Promise<ArrayBuffer> {
     const signal = controller.signal;
     const start = Date.now();
     job.bytesLoaded = 0;
@@ -579,7 +588,7 @@ class DownloadQueueManager {
           lastProgressAt = Date.now();
           this.applyTransferProgress(job, loaded, total);
         },
-        { signal },
+        { signal, format },
       );
       job.bytesLoaded = buffer.byteLength;
       job.bytesTotal = buffer.byteLength;
@@ -598,6 +607,7 @@ class DownloadQueueManager {
     job: DownloadJob,
     controller: AbortController,
     book: Book = job.book,
+    format: string | null = null,
   ): Promise<NativeBookDownloadResult> {
     const signal = controller.signal;
     const start = Date.now();
@@ -627,6 +637,7 @@ class DownloadQueueManager {
           this.applyTransferProgress(job, loaded, total);
         },
         signal,
+        format,
       );
       job.bytesLoaded = result.byteLength;
       job.bytesTotal = result.byteLength;

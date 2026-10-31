@@ -49,3 +49,12 @@ export function insecureHttpWarning(url: string): string | null {
   if (!isInsecureRemoteHttp(url)) return null;
   return 'Подключение по HTTP без шифрования. Логин и пароль могут быть перехвачены в публичной сети. Рекомендуется HTTPS.';
 }
+
+/** «library.example.com» for lists; the full URL lives inside the section. */
+export function serverHostLabel(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}

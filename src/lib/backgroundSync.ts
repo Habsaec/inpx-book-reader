@@ -24,6 +24,7 @@ import { bookHasPendingSync } from './syncStats';
 import { getPendingSyncOps } from './localDb';
 import { MAX_SYNC_OP_ATTEMPTS } from './syncQueueProcessor';
 import { activateServerBookAliases, resolveUnknownServerBooks } from './serverBookAliases';
+import { isPersonalDataOwner } from './accounts';
 
 export type BackgroundSyncReason =
   | 'online'
@@ -209,6 +210,11 @@ async function executeCycle(req: BackgroundSyncRequest): Promise<BackgroundSyncR
   const bookIds = [...new Set(req.bookIds.map(String).filter(Boolean))].filter(
     (id) => id !== exclude,
   );
+
+  // Local positions belong to the owner account; the swap runs on the next refresh.
+  if (!isPersonalDataOwner(serverConfig)) {
+    return { ok: true, skipped: true, reason, syncedBooks: 0, queueProcessed: 0, refreshed: false };
+  }
 
   await flushOfflineReaderStore();
   activateServerBookAliases(serverConfig.url);

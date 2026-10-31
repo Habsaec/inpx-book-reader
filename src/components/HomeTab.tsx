@@ -24,6 +24,7 @@ import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { textStyles, motion, radii, spacing } from '../ui/tokens';
 import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, seriesVolumeLabel } from '../lib/seriesLabel';
 import { getHomeRecentMode } from '../lib/appSettings';
+import { isHomeSectionVisible, useHomeLayout, type HomeSectionId } from '../lib/homeLayout';
 import type { CatalogViewMode } from '../lib/catalogViewMode';
 
 function HomeSectionHeader({
@@ -264,6 +265,13 @@ export default function HomeTab({
     window.addEventListener('inpx-settings', onChange);
     return () => window.removeEventListener('inpx-settings', onChange);
   }, []);
+  // Account «Главная страница» (shared with the web profile): order and hidden blocks.
+  const homeLayout = useHomeLayout();
+  const showContinue = isHomeSectionVisible(homeLayout, 'continue');
+  const showNovinki = isHomeSectionVisible(homeLayout, 'novinki') && recentMode !== 'off';
+  const showRecommended = isHomeSectionVisible(homeLayout, 'recommended');
+  const showFollowing = isHomeSectionVisible(homeLayout, 'following');
+  const showShelves = isHomeSectionVisible(homeLayout, 'shelves');
   const downloadJobs = useDownloadQueue();
   const homeRootEpochSeen = React.useRef(homeRootEpoch);
 
@@ -336,12 +344,13 @@ export default function HomeTab({
     [hero, serverConfig],
   );
   const wideHero = useMediaQuery(WIDE_HERO_QUERY);
+  // With «Продолжить чтение» hidden, «Недавно читали» starts from the current book.
   const recentBooks = React.useMemo(
-    () => mergedRecent.slice(1, 11).map((item) => recentItemToBook(item, serverConfig)),
-    [mergedRecent, serverConfig],
+    () => mergedRecent.slice(showContinue ? 1 : 0, showContinue ? 11 : 10).map((item) => recentItemToBook(item, serverConfig)),
+    [mergedRecent, serverConfig, showContinue],
   );
-  const sideRecent = wideHero ? recentBooks.slice(0, 2) : [];
-  const moreRecent = wideHero ? recentBooks.slice(2) : recentBooks;
+  const sideRecent = wideHero && showContinue ? recentBooks.slice(0, 2) : [];
+  const moreRecent = wideHero && showContinue ? recentBooks.slice(2) : recentBooks;
   const heroDownloading = Boolean(
     hero && isBookDownloadInFlight(hero.id, downloadingId, queuedBookIds),
   );
@@ -371,7 +380,7 @@ export default function HomeTab({
   const heroPress = useLongPress(handleHeroTap, onBookLongPress ? handleHeroLongPress : undefined);
 
   React.useEffect(() => {
-    if (!fetchSectionBooks || !isOnline) return;
+    if (!fetchSectionBooks || !isOnline || !showRecommended) return;
     let cancelled = false;
     let pollTimer: number | undefined;
     setRecLoading(true);
@@ -414,10 +423,10 @@ export default function HomeTab({
       cancelled = true;
       if (pollTimer) window.clearTimeout(pollTimer);
     };
-  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, onAuthExpired, onConnectionLost]);
+  }, [fetchSectionBooks, isOnline, showRecommended, serverConfig, sectionKey, onAuthExpired, onConnectionLost]);
 
   React.useEffect(() => {
-    if (!fetchSectionBooks || !isOnline) return;
+    if (!fetchSectionBooks || !isOnline || !showFollowing) return;
     let cancelled = false;
     fetchLibraryView(serverConfig, 'following', 1, 24)
       .then((res) => {
@@ -430,10 +439,10 @@ export default function HomeTab({
     return () => {
       cancelled = true;
     };
-  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, homeShelvesEpoch]);
+  }, [fetchSectionBooks, isOnline, showFollowing, serverConfig, sectionKey, homeShelvesEpoch]);
 
   React.useEffect(() => {
-    if (!fetchSectionBooks || !isOnline) return;
+    if (!fetchSectionBooks || !isOnline || !showShelves) return;
     let cancelled = false;
     fetchHomeShelves(serverConfig)
       .then((shelves) => {
@@ -455,10 +464,10 @@ export default function HomeTab({
     return () => {
       cancelled = true;
     };
-  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, homeShelvesEpoch]);
+  }, [fetchSectionBooks, isOnline, showShelves, serverConfig, sectionKey, homeShelvesEpoch]);
 
   React.useEffect(() => {
-    if (!fetchSectionBooks || !isOnline || recentMode === 'off') return;
+    if (!fetchSectionBooks || !isOnline || !showNovinki) return;
     let cancelled = false;
     setRecentLoading(true);
     setRecentError(false);
@@ -481,7 +490,7 @@ export default function HomeTab({
     return () => {
       cancelled = true;
     };
-  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, recentMode, onAuthExpired, onConnectionLost]);
+  }, [fetchSectionBooks, isOnline, serverConfig, sectionKey, showNovinki, onAuthExpired, onConnectionLost]);
 
   const pullRefresh = usePullToRefresh(
     isOnline
@@ -560,7 +569,8 @@ export default function HomeTab({
   const heroSeriesName = hero ? seriesLabel(hero) : '';
   const heroVolume = hero ? seriesVolumeLabel(hero) : '';
 
-  const scrollInner = (
+  const homeBlocks: Record<HomeSectionId, React.ReactNode> = {
+    continue: (
     <>
       <div className={sideRecent.length > 0 ? 'grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-10 items-start' : ''}>
       {hero && heroBook && heroAction ? (
@@ -687,7 +697,10 @@ export default function HomeTab({
         </section>
       ) : null}
       </div>
-
+    </>
+    ),
+    recent: (
+    <>
       {moreRecent.length > 0 ? (
         <section className="space-y-4">
           <HomeSectionHeader title="Недавно читали" />
@@ -705,8 +718,11 @@ export default function HomeTab({
           />
         </section>
       ) : null}
-
-      {isOnline && recentMode !== 'off' && (
+    </>
+    ),
+    novinki: (
+    <>
+      {isOnline && showNovinki && (
         <section className="space-y-4">
           <HomeSectionHeader
             title={recentMode === 'fav' ? 'Новинки ваших авторов' : 'Новинки'}
@@ -745,7 +761,10 @@ export default function HomeTab({
           )}
         </section>
       )}
-
+    </>
+    ),
+    recommended: (
+    <>
       {isOnline && (
         <section className="space-y-4">
           <HomeSectionHeader title="Рекомендации" actionLabel="Все" onAction={() => setSectionView('recommended')} />
@@ -777,7 +796,10 @@ export default function HomeTab({
           )}
         </section>
       )}
-
+    </>
+    ),
+    following: (
+    <>
       {isOnline && following.length > 0 && (
         <section className="space-y-4">
           <HomeSectionHeader title="Новое у любимых" actionLabel="Все" onAction={() => setSectionView('following')} />
@@ -794,7 +816,10 @@ export default function HomeTab({
           />
         </section>
       )}
-
+    </>
+    ),
+    shelves: (
+    <>
       {isOnline && homeShelves.map((shelf) => (
         <section key={shelf.key} className="space-y-4">
           <HomeSectionHeader title={shelf.ref.title} actionLabel="Все" onAction={() => setOpenShelf(shelf.ref)} />
@@ -811,6 +836,15 @@ export default function HomeTab({
           />
         </section>
       ))}
+    </>
+    ),
+  };
+
+  const scrollInner = (
+    <>
+      {homeLayout.order
+        .filter((id) => isHomeSectionVisible(homeLayout, id))
+        .map((id) => <React.Fragment key={id}>{homeBlocks[id]}</React.Fragment>)}
     </>
   );
 

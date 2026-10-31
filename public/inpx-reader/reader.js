@@ -14,6 +14,7 @@ import {
   positionFromLocation as sharedPositionFromLocation,
 } from '/inpx-reader/reader-shared/reader-position.js';
 import { createSuppressionCounter } from '/inpx-reader/reader-shared/suppression-counter.js';
+import { positionForBookFormat } from '/inpx-reader/position-sync.js';
 import { enrichAndroidPositionPayload } from '/inpx-reader/reader-shared/android-position.js';
 import { isStaleExplodedFb2Anchor, isTextAnchorLandingVerified } from '/inpx-reader/reader-shared/text-anchor.js';
 import { createReaderTts, normalizeTtsSettings, TTS_SETTING_DEFAULTS } from '/inpx-reader/reader-shared/reader-tts.js';
@@ -3277,6 +3278,10 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       posLog('restore', { method: 'next', ok: true });
       return false;
     }
+    // EPUB converted from the FB2 («Формат скачивания») or the other way round: only the fraction applies.
+    const formatSafe = positionForBookFormat(effectiveSaved, isFb2Active());
+    if (formatSafe !== effectiveSaved) posLog('restore', { method: 'foreign-format-fraction', fraction: savedFraction(formatSafe) });
+    effectiveSaved = formatSafe;
     const cfi = String(effectiveSaved.position || '').trim();
     const fb2Href = String(effectiveSaved.fb2Href || '').trim();
     const frac = savedFraction(effectiveSaved);

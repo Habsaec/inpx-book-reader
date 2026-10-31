@@ -13,9 +13,11 @@ import { arrayBufferToBase64 } from './bookStorage';
 import { isNativeApp } from './platform';
 import { isEinkDatasetActive } from './einkMode';
 import { appendHideReadParam } from './hideReadPreference';
+import { normalizeDownloadFormats } from './downloadFormatPreference';
 import { getDebugRequestId } from './debugSessionLog';
 import {
   apiBookPath,
+  downloadBookPath,
   apiBookmarkPath,
   apiReadPath,
   apiWantPath,
@@ -33,10 +35,12 @@ export interface UserPreferences {
   hideRead: boolean;
   downloadFormat: string;
   telegramDigest: boolean;
+  /** Additive: home blocks order / hidden (`src/lib/homeLayout.ts`); absent on older servers. */
+  homeLayout?: unknown;
 }
 
 export interface InpxProfile {
-  user: { username: string; role: string; email?: string; hideRead?: boolean; downloadFormat?: string; telegramDigest?: boolean };
+  user: { username: string; role: string; email?: string; hideRead?: boolean; downloadFormat?: string; telegramDigest?: boolean; homeLayout?: unknown };
   userStats: {
     readingCount: number;
     bookmarkCount: number;
@@ -105,6 +109,8 @@ export interface InpxBookItem {
   date?: string;
   lang?: string;
   readProgress?: number;
+  /** Additive: `[{ format, label }]` in lists and `/meta`. */
+  downloadFormats?: unknown;
 }
 
 export interface Paginated<T> {
@@ -774,6 +780,7 @@ export async function saveUserPreferences(config: ServerConfig, patch: Partial<U
     hideRead: Boolean(data.hideRead),
     downloadFormat: String(data.downloadFormat ?? ''),
     telegramDigest: Boolean(data.telegramDigest),
+    homeLayout: data.homeLayout,
   };
 }
 
@@ -1833,7 +1840,7 @@ export async function downloadBookBinary(
   config: ServerConfig,
   bookId: string,
   onProgress?: (loaded: number, total: number) => void,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; format?: string | null },
 ): Promise<ArrayBuffer> {
   return withServerBusyRetry(() => downloadBookBinaryOnce(config, bookId, onProgress, opts), opts?.signal);
 }
@@ -1842,7 +1849,7 @@ async function downloadBookBinaryOnce(
   config: ServerConfig,
   bookId: string,
   onProgress?: (loaded: number, total: number) => void,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; format?: string | null },
 ): Promise<ArrayBuffer> {
   // Timeout covers connect + headers only; body transfer can be long and uses caller signal.
   const headerController = new AbortController();
@@ -1851,7 +1858,10 @@ async function downloadBookBinaryOnce(
   opts?.signal?.addEventListener('abort', onCallerAbort);
   let res: Response;
   try {
-    res = await apiFetch(config, apiBookPath(bookId, 'content'), {
+    const path = opts?.format
+      ? `${downloadBookPath(bookId)}?format=${encodeURIComponent(opts.format)}`
+      : apiBookPath(bookId, 'content');
+    res = await apiFetch(config, path, {
       headers: { Accept: '*/*' },
       signal: headerController.signal,
     });
@@ -1967,6 +1977,16 @@ export async function fetchCoverBlob(
 export function bookContentUrl(config: ServerConfig, bookId: string): string {
   const base = normalizeBaseUrl(config.url);
   return `${base}${apiBookPath(bookId, 'content')}`;
+}
+
+/**
+ * URL of the file to save on disk: the reader's source (`/content`) or, with a format from
+ * the account «Формат скачивания», the server-converted file (`/download/:id?format=`).
+ */
+export function bookFileDownloadUrl(config: ServerConfig, bookId: string, format?: string | null): string {
+  if (!format) return bookContentUrl(config, bookId);
+  const base = normalizeBaseUrl(config.url);
+  return `${base}${downloadBookPath(bookId)}?format=${encodeURIComponent(format)}`;
 }
 
 /** Одно ФИО: «Фамилия, Имя, Отчество» → «Фамилия Имя Отчество». */
@@ -2144,6 +2164,7 @@ export function mapServerBook(
     seriesNoLabel: seriesNoLabel || (seriesNo != null ? String(seriesNo) : undefined),
     ext: (item.ext || 'fb2').replace(/^\./, ''),
     size: item.size,
+    downloadFormats: normalizeDownloadFormats(item.downloadFormats),
     description: item.annotation,
     rating: starsFromLibRate(rawRate),
     date: item.date,

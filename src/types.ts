@@ -15,6 +15,8 @@ export interface Book {
   seriesNoLabel?: string;
   ext: string;
   size?: number;
+  /** Server download formats for this book (`epub2`, `fb2zip`, …); absent for local files. */
+  downloadFormats?: string[];
   description?: string;
   date?: string;
   genresDisplay?: string[];

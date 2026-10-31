@@ -40,10 +40,15 @@ import {
   mapServerBook,
   isUnreachableServerError,
   isAuthError,
+  saveUserPreferences,
 } from '../lib/inpxClient';
 import { applyServerActivitySyncMeta } from '../lib/readerActivitySync';
 import { sameSeriesName } from '../lib/seriesLabel';
 import { setHideRead } from '../lib/hideReadPreference';
+import { ensurePersonalDataOwner, isPersonalDataOwner, rememberAccount } from '../lib/accounts';
+import { setDownloadFormat } from '../lib/downloadFormatPreference';
+import { getHomeLayout, setHomeLayout, toggleHomeSection } from '../lib/homeLayout';
+import { APP_SETTING_KEYS, getHomeRecentMode, setAppSettingRaw } from '../lib/appSettings';
 import { dropQueuedToggleReadOps, processSyncQueue } from '../lib/syncQueueProcessor';
 import { toLocalBookId } from '../lib/bookRef';
 import { activateServerBookAliases } from '../lib/serverBookAliases';
@@ -147,6 +152,9 @@ export function useInpxServer(
     /** Fast path: unlock Home/UI — profile + favs + shelves (no paginated ID dumps). */
     let prof: InpxProfile;
     try {
+      // Another account's personal data is still on the device («Выйти» → new login): swap before any sync.
+      if (!isPersonalDataOwner(config) && await ensurePersonalDataOwner(config)) return;
+      void rememberAccount(config).catch(() => undefined);
       await processSyncQueue(config);
       if (!isCurrent()) return;
       const shelfGen = ++shelfListGen.current;
@@ -164,6 +172,20 @@ export function useInpxServer(
       setProfile(prof);
       // «Скрыть прочитанное»: account switch from the server (undefined on older servers → not sent).
       setHideRead(typeof prof.user?.hideRead === 'boolean' ? prof.user.hideRead : null);
+      // «Формат скачивания»: same account preference as the web profile (older servers: keep the cached one).
+      if (typeof prof.user?.downloadFormat === 'string') setDownloadFormat(prof.user.downloadFormat);
+      // «Главная страница» of the account (older servers: keep the local layout).
+      if (prof.user?.homeLayout !== undefined) {
+        setHomeLayout(prof.user.homeLayout);
+        // The old local «Новинки: Скрыть» becomes the shared hidden «Новинки» block once.
+        if (getHomeRecentMode() === 'off') {
+          const next = toggleHomeSection(getHomeLayout(), 'novinki', false);
+          setHomeLayout(next);
+          setAppSettingRaw(APP_SETTING_KEYS.homeRecent, 'on');
+          window.dispatchEvent(new Event('inpx-settings'));
+          void saveUserPreferences(config, { homeLayout: next }).catch(() => undefined);
+        }
+      }
       setFavoriteAuthorItems(favs.authors);
       setFavoriteSeriesItems(favs.series);
       setFavoriteAuthors(favs.authors.map((a) => a.name));

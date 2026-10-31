@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Users } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { InpxProfile } from '../lib/inpxClient';
 import { ServerConfig } from '../types';
@@ -10,6 +10,9 @@ import type { StorageDirectory } from '../lib/storageDirectory';
 import { textStyles, semantic, radii, motion } from '../ui/tokens';
 import type { LibrarySeg } from './mybooks/LibraryCollections';
 import ReadingGoalCard from './ReadingGoalCard';
+import AccountSwitcherSheet from './AccountSwitcherSheet';
+import { listSavedAccounts, rememberAccount } from '../lib/accounts';
+import { clearServerCredentials } from '../lib/secureServerConfig';
 
 interface ProfileScreenProps {
   profile: InpxProfile | null;
@@ -120,6 +123,18 @@ export default function ProfileScreen({
       ? 'Офлайн — локальные настройки доступны'
       : '';
   const [statsOpen, setStatsOpen] = React.useState(false);
+  const [accountsOpen, setAccountsOpen] = React.useState(false);
+  /** Scrolls to the login form after «Добавить пользователя». */
+  const [loginFocusEpoch, setLoginFocusEpoch] = React.useState(0);
+  const handleAddAccount = async () => {
+    setAccountsOpen(false);
+    const snapshot = serverConfig;
+    await rememberAccount(snapshot).catch(() => undefined);
+    onChangeServerConfig({ username: '', password: '', deviceToken: '', deviceTokenId: '', connectionStatus: 'disconnected' });
+    // No revoke: the saved account keeps its device token for switching back.
+    await clearServerCredentials({ ...snapshot, deviceTokenId: '' }).catch(() => undefined);
+    setLoginFocusEpoch((n) => n + 1);
+  };
   const statTiles: Array<{ label: string; value: number; seg: LibrarySeg }> = [
     { label: 'На устройстве', value: localBookCount, seg: 'downloaded' },
     // «На устройстве» is sorted by last read, so books in progress come first.
@@ -148,7 +163,7 @@ export default function ProfileScreen({
             {initial}
           </span>
         ) : null}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {name ? (
             <p className={`font-serif text-[1.375rem] leading-7 font-semibold ${theme.text} truncate`}>{name}</p>
           ) : null}
@@ -164,6 +179,17 @@ export default function ProfileScreen({
             <p className={`${textStyles.caption} ${theme.textMuted}`}>{statusNote}</p>
           ) : null}
         </div>
+        {username || listSavedAccounts().length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setAccountsOpen(true)}
+            aria-haspopup="dialog"
+            className={`shrink-0 min-h-12 px-3 inline-flex items-center gap-1.5 ${radii.button} ${textStyles.captionBold} ${theme.chip} ${theme.chipHover} ${theme.focusRing} ${motion.press}`}
+          >
+            <Users className="w-4 h-4" aria-hidden />
+            Сменить
+          </button>
+        ) : null}
       </div>
       <ul
         className="mt-5 grid gap-3"
@@ -259,10 +285,16 @@ export default function ProfileScreen({
         onPairingLogin={onPairingLogin}
         onForgetServer={onForgetServer}
         connectionError={connectionError}
-        connectionFocusEpoch={connectionFocusEpoch}
+        connectionFocusEpoch={connectionFocusEpoch + loginFocusEpoch}
         updateFocusEpoch={updateFocusEpoch}
         active={isTabActive}
         rootEpoch={rootEpoch}
+      />
+      <AccountSwitcherSheet
+        open={accountsOpen}
+        onClose={() => setAccountsOpen(false)}
+        serverConfig={serverConfig}
+        onAddAccount={() => void handleAddAccount()}
       />
     </div>
   );
