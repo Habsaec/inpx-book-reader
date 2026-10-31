@@ -19,6 +19,8 @@ const CLIENT_TEMPLATE_RE = /`(\/api\/[^`]+)`/g;
 
 function normalize(p) {
   return p
+    // `${q}` glued to a segment is a query string suffix (`/api/reader-sync-index${q}`), not a path param.
+    .replace(/([^/])\$\{[^}]+\}/g, '$1')
     .replace(/\$\{[^}]+\}/g, ':param')
     .replace(/:[a-zA-Z_][a-zA-Z0-9_]*/g, ':param')
     .replace(/\([^)]*\)/g, '') // remove express regex groups like :view(recent|...)
