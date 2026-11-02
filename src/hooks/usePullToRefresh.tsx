@@ -1,6 +1,7 @@
 import React from 'react';
 import { RefreshCw } from 'lucide-react';
 import { theme } from '../lib/appTheme';
+import { t } from '../i18n';
 
 /** Pull distance (after the 0.5 drag resistance) that triggers a refresh. */
 const TRIGGER_PX = 56;
@@ -83,7 +84,7 @@ export function usePullToRefresh(onRefresh?: () => void | Promise<unknown>) {
         transition: pulling ? 'none' : 'transform 200ms ease-out',
       }}
       role="status"
-      aria-label={refreshing ? 'Обновление' : undefined}
+      aria-label={refreshing ? t('pullToRefresh.updating') : undefined}
     >
       <span className={`w-10 h-10 rounded-full inline-flex items-center justify-center shadow-md ${theme.card}`}>
         <RefreshCw

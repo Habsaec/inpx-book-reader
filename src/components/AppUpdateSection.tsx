@@ -15,6 +15,7 @@ import { textStyles, radii } from '../ui/tokens';
 import type { ServerConfig } from '../types';
 import Button from '../ui/Button';
 import { useSnackbar } from '../ui/Snackbar';
+import { t } from '../i18n';
 
 function formatMb(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(1);
@@ -96,7 +97,7 @@ export default function AppUpdateSection({ serverConfig }: { serverConfig?: Serv
       setPhase('none');
       setProgress(null);
       snackbar.show(
-        `Не удалось скачать обновление: ${e instanceof Error ? e.message : String(e)}`,
+        t('appUpdateSection.couldNotDownloadTheUpdate', { p: e instanceof Error ? e.message : String(e) }),
         undefined,
         'error',
       );
@@ -110,7 +111,7 @@ export default function AppUpdateSection({ serverConfig }: { serverConfig?: Serv
       await AppUpdate.installApk();
     } catch (e) {
       snackbar.show(
-        `Не удалось запустить установку: ${e instanceof Error ? e.message : String(e)}`,
+        t('appUpdateSection.couldNotStartTheInstallation', { p: e instanceof Error ? e.message : String(e) }),
         undefined,
         'error',
       );
@@ -124,40 +125,40 @@ export default function AppUpdateSection({ serverConfig }: { serverConfig?: Serv
 
   return (
     <section className="space-y-3">
-      <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>О приложении</h3>
+      <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>{t('common.aboutTheApp')}</h3>
       <div className="flex items-center justify-between gap-3 min-h-12">
-        <p className={`${textStyles.body} ${theme.text}`}>Версия</p>
+        <p className={`${textStyles.body} ${theme.text}`}>{t('appUpdateSection.version')}</p>
         <p className={`${textStyles.body} tabular-nums ${theme.textMuted}`}>v{currentVersion}</p>
       </div>
       {serverVersion && (
         <div className="flex items-center justify-between gap-3 min-h-12">
-          <p className={`${textStyles.body} ${theme.text}`}>Сервер</p>
+          <p className={`${textStyles.body} ${theme.text}`}>{t('common.server')}</p>
           <p className={`${textStyles.body} tabular-nums ${theme.textMuted}`}>v{serverVersion}</p>
         </div>
       )}
 
       {checkError && (
         <p className={`${textStyles.caption} text-[var(--app-danger)]`}>
-          Не удалось проверить обновления: {checkError}
+          {t('appUpdateSection.couldNotCheckForUpdates')} {checkError}
         </p>
       )}
 
       {result && !result.updateAvailable && (
         <p className={`${textStyles.caption} ${theme.textMuted}`}>
-          Установлена последняя версия (v{result.currentVersion}).
+          {t('appUpdateSection.latestInstalled', { version: result.currentVersion })}
         </p>
       )}
 
       {result?.updateAvailable && (
         <div className="space-y-3">
           <p className={textStyles.body}>
-            Доступна новая версия: <strong>v{result.latestVersion}</strong>
-            {result.apkSize > 0 ? ` (${formatMb(result.apkSize)} МБ)` : ''}
+            {t('appUpdateSection.aNewVersionIsAvailable')} <strong>v{result.latestVersion}</strong>
+            {result.apkSize > 0 ? t('appUpdateSection.mb', { apkSize: formatMb(result.apkSize) }) : ''}
           </p>
           {result.notes && (
             <details>
               <summary className={`${textStyles.caption} ${theme.accentText} cursor-pointer select-none`}>
-                Что нового
+                {t('appUpdateSection.whatsNew')}
               </summary>
               <p className={`${textStyles.caption} ${theme.textMuted} whitespace-pre-wrap mt-2`}>
                 {result.notes}
@@ -173,7 +174,7 @@ export default function AppUpdateSection({ serverConfig }: { serverConfig?: Serv
                 />
               </div>
               <p className={`${textStyles.caption} ${theme.textMuted}`}>
-                {progress ? `${formatMb(progress.loaded)} / ${formatMb(progress.total)} МБ` : ''}
+                {progress ? t('appUpdateSection.progressMb', { loaded: formatMb(progress.loaded), total: formatMb(progress.total) }) : ''}
               </p>
             </div>
           )}
@@ -184,13 +185,13 @@ export default function AppUpdateSection({ serverConfig }: { serverConfig?: Serv
         {result?.updateAvailable && phase === 'none' && (
           <Button fullWidth onClick={handleDownload}>
             <Download className="w-4 h-4 inline mr-1" aria-hidden />
-            Скачать
+            {t('common.download')}
           </Button>
         )}
         {result?.updateAvailable && phase === 'done' && (
           <Button fullWidth onClick={handleInstall}>
             <PackageCheck className="w-4 h-4 inline mr-1" aria-hidden />
-            Установить
+            {t('appUpdateSection.install')}
           </Button>
         )}
         <Button
@@ -201,11 +202,11 @@ export default function AppUpdateSection({ serverConfig }: { serverConfig?: Serv
           disabled={checking || phase === 'downloading'}
         >
           {checking ? (
-            'Проверка…'
+            t('common.checking')
           ) : (
             <>
               <RefreshCw className="w-4 h-4 inline mr-1" aria-hidden />
-              Проверить обновления
+              {t('appUpdateSection.checkForUpdates')}
             </>
           )}
         </Button>

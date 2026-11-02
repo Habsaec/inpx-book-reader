@@ -5,6 +5,7 @@ import { ChevronRight } from 'lucide-react';
 import { ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import AuthorPortrait from './AuthorPortrait';
+import { tn } from '../i18n';
 
 interface LiteEntityRowProps {
   name: string;
@@ -17,12 +18,7 @@ interface LiteEntityRowProps {
 }
 
 function bookCountLabel(n: number): string {
-  const v = Math.max(0, Math.floor(n));
-  const mod10 = v % 10;
-  const mod100 = v % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${v} книга`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${v} книги`;
-  return `${v} книг`;
+  return tn('common.booksCount', Math.max(0, Math.floor(n)));
 }
 
 export default function LiteEntityRow({

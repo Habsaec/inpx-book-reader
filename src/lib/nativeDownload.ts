@@ -9,6 +9,7 @@ import { isNativeApp } from './platform';
 import type { StorageDirectory } from './storageDirectory';
 import { isStoragePermissionError } from './storageDirectory';
 import { BookStorage } from './bookStoragePlugin';
+import { t } from '../i18n';
 
 const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04] as const;
 const SEVEN_ZIP_MAGIC = [0x37, 0x7a, 0xbc, 0xaf] as const;
@@ -19,7 +20,7 @@ function rethrowNativeDownloadError(err: unknown): never {
   const match = msg.match(/\bHTTP\s+(\d{3})\b/i);
   if (match) {
     const status = Number(match[1]);
-    throw new ApiError(msg.trim() || `Загрузка: HTTP ${status}`, status);
+    throw new ApiError(msg.trim() || t('nativeDownload.downloadHttp', { status }), status);
   }
   throw err instanceof Error ? err : new Error(msg);
 }
@@ -98,7 +99,7 @@ export async function downloadBookToStorageNative(
   format?: string | null,
 ): Promise<NativeBookDownloadResult> {
   if (!directory.uri) {
-    throw new Error('Не выбрана папка хранения');
+    throw new Error(t('common.noStorageFolderChosen'));
   }
   const relativePath = bookStorageRelativePath(book);
   const url = bookFileDownloadUrl(config, book.id, format);
@@ -169,11 +170,11 @@ export async function assertDownloadedBookReadableNative(
   const header = base64ToBytes(data);
   if (startsWithMagic(header, SEVEN_ZIP_MAGIC)) {
     throw new Error(
-      'EPUB пришёл в формате 7z. Обновите INPX Library Server и скачайте книгу заново.',
+      t('common.theEpubCameAs7z'),
     );
   }
   if (!startsWithMagic(header, ZIP_MAGIC)) {
-    throw new Error('Скачанный файл не похож на EPUB (ZIP). Попробуйте скачать заново.');
+    throw new Error(t('common.theDownloadedFileDoesNot'));
   }
 }
 
@@ -184,16 +185,16 @@ export async function verifyStorageFileDigestNative(
   expectedDigest: string,
 ): Promise<void> {
   if (!directory.uri) {
-    throw new Error('Не выбрана папка хранения');
+    throw new Error(t('common.noStorageFolderChosen'));
   }
   const info = await getStorageFileInfoWithRetry(directory.uri, relativePath);
   if (info.size !== expectedByteLength) {
     throw new Error(
-      `Проверка файла не пройдена: записано ${expectedByteLength} байт, на диске ${info.size}`,
+      t('nativeDownload.fileCheckFailedBytesWritten', { expectedByteLength, size: info.size }),
     );
   }
   if (info.digestSha256 !== expectedDigest) {
-    throw new Error('Проверка файла не пройдена: контрольная сумма не совпадает');
+    throw new Error(t('common.fileCheckFailedTheChecksum'));
   }
 }
 
@@ -204,7 +205,7 @@ export async function verifyNativeDownloadResult(
   result: NativeBookDownloadResult,
 ): Promise<void> {
   if (result.byteLength <= 0) {
-    throw new Error('Проверка файла не пройдена: пустой файл');
+    throw new Error(t('nativeDownload.fileCheckFailedEmptyFile'));
   }
   await verifyStorageFileDigestNative(
     directory,
@@ -229,5 +230,5 @@ async function getStorageFileInfoWithRetry(
       await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error('Файл не найден после загрузки');
+  throw lastErr instanceof Error ? lastErr : new Error(t('nativeDownload.fileNotFoundAfterThe'));
 }

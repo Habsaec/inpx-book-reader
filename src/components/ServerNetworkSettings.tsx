@@ -20,6 +20,7 @@ import { isAndroid } from '../lib/platform';
 import { normalizeBaseUrl } from '../lib/inpxClient';
 import { getNetworkStatus, requestSsidAccess, subscribeNetworkChanges, type NetworkStatus } from '../lib/networkInfo';
 import { normalizeSsid } from '../lib/serverUrlSwitch';
+import { t } from '../i18n';
 
 interface ServerNetworkSettingsProps {
   serverConfig: ServerConfig;
@@ -96,12 +97,12 @@ export default function ServerNetworkSettings({
     if (currentUrl) patch.localUrl = currentUrl;
     if (ssid) patch.localSsid = ssid;
     if (!currentUrl && !ssid) {
-      setUseCurrentHint('Нет текущего адреса и имени Wi‑Fi. Подключитесь к серверу и домашней сети, затем повторите.');
+      setUseCurrentHint(t('serverNetworkSettings.noCurrentAddressOrWi'));
       return;
     }
     onChangeServerConfig(patch);
     if (!ssid) {
-      setUseCurrentHint('Адрес сохранён. Имя Wi‑Fi Android не отдал — нажмите карандаш и введите его (как в настройках телефона).');
+      setUseCurrentHint(t('serverNetworkSettings.theAddressIsSavedAndroid'));
       startEdit('ssid', serverConfig.localSsid || '');
     }
   };
@@ -116,20 +117,20 @@ export default function ServerNetworkSettings({
 
   const liveNetLabel =
     liveNet.transport === 'wifi'
-      ? (liveNet.ssid ? `Wi‑Fi «${liveNet.ssid}»` : 'Wi‑Fi (имя неизвестно)')
+      ? (liveNet.ssid ? `Wi‑Fi «${liveNet.ssid}»` : t('serverNetworkSettings.wiFiNameUnknown'))
       : liveNet.transport === 'cellular'
-        ? 'мобильная сеть'
+        ? t('serverNetworkSettings.mobileNetwork')
         : liveNet.transport === 'none'
-          ? 'нет сети'
-          : 'другая сеть';
+          ? t('serverNetworkSettings.noNetwork')
+          : t('serverNetworkSettings.anotherNetwork');
 
   const inputClass = `w-full px-4 py-3.5 ${textStyles.body} ${radii.lg} ${theme.inputFocus} ${theme.input}`;
 
   return (
     <section className="space-y-5">
       <div>
-        <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>Сеть</h3>
-        <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>Текущий адрес сервера</p>
+        <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>{t('serverNetworkSettings.network')}</h3>
+        <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>{t('serverNetworkSettings.currentServerAddress')}</p>
         <div className="mt-2 flex items-center gap-2 min-h-12">
           <Check className={`w-4 h-4 shrink-0 ${connected ? semantic.success : theme.textMuted}`} aria-hidden />
           <span className={`${textStyles.body} break-all`}>{currentUrl || '—'}</span>
@@ -138,9 +139,9 @@ export default function ServerNetworkSettings({
 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className={textStyles.bodyBold}>Автоматическая смена URL</p>
+          <p className={textStyles.bodyBold}>{t('serverNetworkSettings.automaticUrlSwitching')}</p>
           <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
-            Подключаться локально по выбранной сети и использовать альтернативные адреса в ином случае
+            {t('serverNetworkSettings.connectLocallyOnTheChosen')}
           </p>
         </div>
         <button
@@ -168,20 +169,20 @@ export default function ServerNetworkSettings({
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <Home className={`w-4 h-4 ${theme.accentText}`} aria-hidden />
-              <h4 className={textStyles.bodyBold}>Локальная сеть</h4>
+              <h4 className={textStyles.bodyBold}>{t('serverNetworkSettings.localNetwork')}</h4>
             </div>
             <p className={`${textStyles.caption} ${theme.textMuted}`}>
-              Приложение будет подключаться к серверу по этому адресу, когда устройство подключено к указанной Wi‑Fi сети.
+              {t('serverNetworkSettings.theAppConnectsToThe')}
             </p>
             <p className={`${textStyles.caption} ${theme.textMuted}`}>
-              Сейчас: {liveNetLabel}
-              {onHomeWifi ? ' — домашняя сеть' : ''}
+              {t('serverNetworkSettings.now')} {liveNetLabel}
+              {onHomeWifi ? t('serverNetworkSettings.homeNetwork') : ''}
             </p>
 
             <SettingsRow
               icon={Wifi}
-              label="Имя сети"
-              value={serverConfig.localSsid || 'Не задано'}
+              label={t('serverNetworkSettings.networkName')}
+              value={serverConfig.localSsid || t('serverNetworkSettings.notSet')}
               onEdit={() => startEdit('ssid', serverConfig.localSsid || '')}
             />
             {editing === 'ssid' ? (
@@ -199,8 +200,8 @@ export default function ServerNetworkSettings({
 
             <SettingsRow
               icon={Server}
-              label="Адрес сервера"
-              value={serverConfig.localUrl || 'Не задан'}
+              label={t('common.serverAddress')}
+              value={serverConfig.localUrl || t('serverNetworkSettings.notSetAddress')}
               onEdit={() => startEdit('localUrl', serverConfig.localUrl || '')}
             />
             {editing === 'localUrl' ? (
@@ -222,17 +223,17 @@ export default function ServerNetworkSettings({
 
             <Button variant="secondary" fullWidth onClick={() => void handleUseCurrent()}>
               <Wifi className="w-4 h-4" aria-hidden />
-              Использовать текущее подключение
+              {t('serverNetworkSettings.useTheCurrentConnection')}
             </Button>
           </div>
 
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <Server className={`w-4 h-4 ${theme.accentText}`} aria-hidden />
-              <h4 className={textStyles.bodyBold}>Внешняя сеть</h4>
+              <h4 className={textStyles.bodyBold}>{t('serverNetworkSettings.externalNetwork')}</h4>
             </div>
             <p className={`${textStyles.caption} ${theme.textMuted}`}>
-              Когда устройство не подключено к указанной Wi‑Fi сети, приложение будет пытаться подключиться к серверу по адресам ниже, сверху вниз до успешного подключения.
+              {t('serverNetworkSettings.whenTheDeviceIsNot')}
             </p>
 
             <ul className="space-y-2">
@@ -257,7 +258,7 @@ export default function ServerNetworkSettings({
                       </span>
                       <button
                         type="button"
-                        aria-label="Выше"
+                        aria-label={t('serverNetworkSettings.up')}
                         disabled={index === 0}
                         onClick={() => moveAlternate(index, -1)}
                         className={`${touchMin} inline-flex items-center justify-center ${theme.focusRing} ${motion.press} disabled:opacity-30`}
@@ -266,7 +267,7 @@ export default function ServerNetworkSettings({
                       </button>
                       <button
                         type="button"
-                        aria-label="Ниже"
+                        aria-label={t('serverNetworkSettings.down')}
                         disabled={index === alternates.length - 1}
                         onClick={() => moveAlternate(index, 1)}
                         className={`${touchMin} inline-flex items-center justify-center ${theme.focusRing} ${motion.press} disabled:opacity-30`}
@@ -275,7 +276,7 @@ export default function ServerNetworkSettings({
                       </button>
                       <button
                         type="button"
-                        aria-label="Удалить адрес"
+                        aria-label={t('serverNetworkSettings.deleteTheAddress')}
                         onClick={() => onChangeServerConfig({
                           alternateUrls: alternates.filter((_, i) => i !== index),
                         })}
@@ -315,7 +316,7 @@ export default function ServerNetworkSettings({
             ) : (
               <Button variant="secondary" fullWidth onClick={() => startEdit('new', '')}>
                 <Plus className="w-4 h-4" aria-hidden />
-                Добавить адрес
+                {t('serverNetworkSettings.addAnAddress')}
               </Button>
             )}
           </div>
@@ -345,7 +346,7 @@ function SettingsRow({
       </div>
       <button
         type="button"
-        aria-label={`Изменить ${label}`}
+        aria-label={t('serverNetworkSettings.edit', { label })}
         onClick={onEdit}
         className={`${touchMin} inline-flex items-center justify-center ${theme.focusRing} ${theme.textMuted}`}
       >
@@ -397,8 +398,8 @@ function EditField({
         className={className}
       />
       <div className="flex gap-2">
-        <Button variant="secondary" className="flex-1" onClick={onCancel}>Отмена</Button>
-        <Button className="flex-1" onClick={onCommit}>Сохранить</Button>
+        <Button variant="secondary" className="flex-1" onClick={onCancel}>{t('common.cancel')}</Button>
+        <Button className="flex-1" onClick={onCommit}>{t('common.save')}</Button>
       </div>
     </div>
   );

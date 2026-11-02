@@ -30,6 +30,7 @@ import {
   loadAccountCredentials,
   saveAccountCredentials,
 } from './secureServerConfig';
+import { t } from '../i18n';
 
 export interface SavedAccount {
   /** `username@server` (lower-cased username, server URL at login). */
@@ -163,7 +164,7 @@ async function swapPersonalData(fromOwner: string, toOwner: string): Promise<{ r
   // On the IndexedDB fallback the live set is not the one in SQLite: a swap would store the
   // wrong data as `fromOwner` and drop `toOwner`'s SQLite snapshot without importing it.
   if (isNativeApp() && isUsingIndexedDbFallback()) {
-    throw new Error('База приложения недоступна — перезапустите приложение и повторите');
+    throw new Error(t('accounts.theAppDatabaseIsUnavailable'));
   }
   freezeLocalWrites();
   const current = await exportPersonalData();
@@ -202,7 +203,7 @@ function reloadApp(): void {
 export async function switchToAccount(account: SavedAccount, current: ServerConfig): Promise<void> {
   const creds = await loadAccountCredentials(account.key);
   if (!creds || (!creds.deviceToken && !creds.password)) {
-    throw new Error('Данные входа этого аккаунта не сохранились — войдите заново');
+    throw new Error(t('accounts.theSignInDataOf'));
   }
   const target: ServerConfig = {
     url: account.url,

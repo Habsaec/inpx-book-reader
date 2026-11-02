@@ -9,6 +9,7 @@ import {
 import { getDownloadFormat, isAppReadableDownloadFormat } from './downloadFormatPreference';
 import { isNativeApp } from './platform';
 import { Book, ServerConfig } from '../types';
+import { t } from '../i18n';
 
 const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04] as const;
 const SEVEN_ZIP_MAGIC = [0x37, 0x7a, 0xbc, 0xaf] as const;
@@ -25,11 +26,11 @@ export function assertDownloadedBookReadable(book: Book, buffer: ArrayBuffer): v
   if (ext !== 'epub') return;
   if (startsWithMagic(buffer, SEVEN_ZIP_MAGIC)) {
     throw new Error(
-      'EPUB пришёл в формате 7z. Обновите INPX Library Server и скачайте книгу заново.',
+      t('common.theEpubCameAs7z'),
     );
   }
   if (!startsWithMagic(buffer, ZIP_MAGIC)) {
-    throw new Error('Скачанный файл не похож на EPUB (ZIP). Попробуйте скачать заново.');
+    throw new Error(t('common.theDownloadedFileDoesNot'));
   }
 }
 
@@ -52,7 +53,7 @@ export async function fetchBookBinary(
   }
   const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}`;
   const response = await fetch(proxyUrl, { headers, signal: opts?.signal });
-  if (!response.ok) throw new Error(`Ошибка загрузки: HTTP ${response.status}`);
+  if (!response.ok) throw new Error(t('bookDownload.downloadErrorHttp', { status: response.status }));
   return response.arrayBuffer();
 }
 

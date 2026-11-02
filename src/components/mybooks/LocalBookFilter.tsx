@@ -2,12 +2,13 @@ import React from 'react';
 import { Search, X } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { radii, textStyles } from '../../ui/tokens';
+import { t } from '../../i18n';
 
 /** Filter for lists already on the device — no server search, works offline. */
 export default function LocalBookFilter({
   value,
   onChange,
-  placeholder = 'Найти в моих книгах',
+  placeholder = t('localBookFilter.findInMyBooks'),
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -29,7 +30,7 @@ export default function LocalBookFilter({
       {value ? (
         <button
           type="button"
-          aria-label="Очистить"
+          aria-label={t('common.clear')}
           onClick={() => onChange('')}
           className={`absolute right-0 top-0 h-full w-11 inline-flex items-center justify-center ${theme.textMuted} ${theme.focusRing}`}
         >

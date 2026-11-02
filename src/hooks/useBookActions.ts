@@ -54,6 +54,7 @@ import { isStoragePermissionError, STORAGE_PERMISSION_REVOKED_MSG } from '../lib
 import { isLocalOnlyBookId } from '../lib/importExternalBook';
 import { useSnackbar } from '../ui/Snackbar';
 import type { useInpxServer } from './useInpxServer';
+import { t, tn } from '../i18n';
 
 type InpxServer = ReturnType<typeof useInpxServer>;
 
@@ -245,7 +246,7 @@ export function useBookActions(opts: {
     async (book: Book, initialPosition?: string | null) => {
       const resolved = enrichBookMeta(book);
       if (finalizingBookIdsRef.current.has(resolved.id)) {
-        snackbar.show('Сохраняем позицию… Подождите секунду.');
+        snackbar.show(t('bookActions.savingThePositionWaitA'));
         return;
       }
       const openGen = ++openSyncGenRef.current;
@@ -253,7 +254,7 @@ export function useBookActions(opts: {
         debugSessionLog('H1', 'App:handleOpenBook', 'no local file meta', { bookId: resolved.id });
         if (initialPosition?.trim()) {
           pendingOpenRef.current = { bookId: resolved.id, position: initialPosition.trim() };
-          snackbar.show('Скачайте книгу — откроем это место после загрузки');
+          snackbar.show(t('bookActions.downloadTheBookThisPlace'));
         }
         promptDownloadBook(resolved);
         return;
@@ -262,7 +263,7 @@ export function useBookActions(opts: {
       try {
         const detailed = await resolveLocalBookFileDetailed(resolved, storageDirectory);
         if (detailed.status === 'unknown') {
-          snackbar.show('Не удалось проверить файл. Откройте книгу ещё раз.', undefined, 'error');
+          snackbar.show(t('bookActions.couldNotCheckTheFile'), undefined, 'error');
           return;
         }
         loc = detailed.status === 'found' ? detailed.resolved : null;
@@ -272,7 +273,7 @@ export function useBookActions(opts: {
           return;
         }
         console.warn('[useBookActions] resolveLocalBookFile failed:', err);
-        snackbar.show('Не удалось открыть книгу — проверьте папку хранения.', undefined, 'error');
+        snackbar.show(t('bookActions.couldNotOpenTheBook'), undefined, 'error');
         return;
       }
       if (openSyncGenRef.current !== openGen) return;
@@ -288,13 +289,13 @@ export function useBookActions(opts: {
         downloadQueue.remove(resolved.id);
         if (canReadOnline) {
           snackbar.show(
-            'Локальный файл недоступен — скачайте книгу заново.',
-            { label: 'Скачать', onClick: () => promptDownloadBook(resolved) },
+            t('bookActions.theLocalFileIsUnavailable'),
+            { label: t('common.download'), onClick: () => promptDownloadBook(resolved) },
             'error',
           );
         } else {
           snackbar.show(
-            'Файл книги не найден на устройстве. Проверьте папку хранения в профиле или скачайте заново.',
+            t('bookActions.theBookFileWasNot'),
             undefined,
             'error',
           );
@@ -487,11 +488,11 @@ export function useBookActions(opts: {
     async (bookId: string) => {
       if (removingBookIds.has(bookId)) return;
       const book = downloadedBooks.find((b) => b.id === bookId);
-      const title = book?.title ?? 'книгу';
+      const title = book?.title ?? t('bookActions.theBook');
       const ok = await dialog.confirm({
-        title: 'Удалить с устройства?',
-        message: `Файл «${title}» будет удалён. Прогресс, закладки, заметки и полки сохранятся.`,
-        confirmLabel: 'Удалить',
+        title: t('bookActions.deleteFromTheDevice'),
+        message: t('bookActions.theFileWillBeDeleted', { title }),
+        confirmLabel: t('common.delete'),
         destructive: true,
       });
       if (!ok) return;
@@ -505,9 +506,9 @@ export function useBookActions(opts: {
       const ids = [...new Set(bookIds.filter(Boolean))];
       if (ids.length === 0) return;
       const ok = await dialog.confirm({
-        title: 'Удалить файлы?',
-        message: `Файлы ${ids.length} книг будут удалены с устройства. Прогресс, закладки, заметки и полки сохранятся.`,
-        confirmLabel: 'Удалить',
+        title: t('bookActions.deleteTheFiles'),
+        message: tn('bookActions.deleteFilesMessage', ids.length),
+        confirmLabel: t('common.delete'),
         destructive: true,
       });
       if (!ok) return;
@@ -547,7 +548,7 @@ export function useBookActions(opts: {
               : prev.filter((a) => a !== authorName)
           ));
         } catch (e) {
-          if (!isAuthError(e)) snackbar.show('Не удалось обновить избранное', undefined, 'error');
+          if (!isAuthError(e)) snackbar.show(t('bookActions.couldNotUpdateFavorites'), undefined, 'error');
           return;
         }
         return;
@@ -574,7 +575,7 @@ export function useBookActions(opts: {
               : prev.filter((s) => s !== seriesName)
           ));
         } catch (e) {
-          if (!isAuthError(e)) snackbar.show('Не удалось обновить избранное', undefined, 'error');
+          if (!isAuthError(e)) snackbar.show(t('bookActions.couldNotUpdateFavorites'), undefined, 'error');
           return;
         }
         return;
@@ -596,7 +597,7 @@ export function useBookActions(opts: {
           await inpxServer.toggleBookmark(bookId);
         } catch (e) {
           if (!isAuthError(e)) {
-            snackbar.show('Не удалось обновить избранное', undefined, 'error');
+            snackbar.show(t('bookActions.couldNotUpdateFavorites'), undefined, 'error');
           }
         }
       }
@@ -608,14 +609,14 @@ export function useBookActions(opts: {
   const handleToggleWant = React.useCallback(
     async (bookId: string) => {
       if (!isOnline) {
-        snackbar.show('«Хочу прочитать» работает при подключении к серверу');
+        snackbar.show(t('bookActions.wantToReadWorksWhile'));
         return;
       }
       try {
         const want = await inpxServer.toggleWant(bookId);
-        snackbar.show(want ? 'Добавлено в «Хочу прочитать»' : 'Убрано из «Хочу прочитать»');
+        snackbar.show(want ? t('bookActions.addedToWantToRead') : t('bookActions.removedFromWantToRead'));
       } catch (e) {
-        if (!isAuthError(e)) snackbar.show('Не удалось обновить «Хочу прочитать»', undefined, 'error');
+        if (!isAuthError(e)) snackbar.show(t('bookActions.couldNotUpdateWantTo'), undefined, 'error');
       }
     },
     [inpxServer, isOnline, snackbar],
@@ -641,16 +642,16 @@ export function useBookActions(opts: {
         } catch (e) {
           if (isAuthError(e)) {
             onAuthExpiredRef.current?.();
-            snackbar.show('Сессия устройства устарела. Введите логин и пароль заново.', undefined, 'error');
+            snackbar.show(t('common.theDeviceSessionHasExpired'), undefined, 'error');
             return;
           }
           await enqueueSyncOp('toggle_read', bookId, { markRead: desiredRead });
           touchReadBooksLocalRev();
-          snackbar.show('Отметка сохранится, когда связь с сервером появится', undefined, 'error');
+          snackbar.show(t('bookActions.theMarkIsSavedOnce'), undefined, 'error');
           return;
         }
-        snackbar.show(wasRead ? 'Снята отметка «прочитано»' : 'Отмечено как прочитано', {
-          label: 'Отмена',
+        snackbar.show(wasRead ? t('bookActions.readMarkRemoved') : t('bookActions.markedAsRead'), {
+          label: t('common.undo'),
           onClick: () => {
             void (async () => {
               await dropQueuedToggleReadOps(bookId).catch(() => {});
@@ -679,7 +680,7 @@ export function useBookActions(opts: {
       const targetBook = downloadedBooks.find((b) => b.id === bookId);
       if (!targetBook) {
         touchReadBooksLocalRev();
-        snackbar.show('Отметка сохранится, когда связь с сервером появится');
+        snackbar.show(t('bookActions.theMarkIsSavedOnce'));
         return;
       }
 
@@ -721,8 +722,8 @@ export function useBookActions(opts: {
         };
         return [...prev, newProgress];
       });
-      snackbar.show(wasRead ? 'Снята отметка «прочитано»' : 'Отмечено как прочитано', {
-        label: 'Отмена',
+      snackbar.show(wasRead ? t('bookActions.readMarkRemoved') : t('bookActions.markedAsRead'), {
+        label: t('common.undo'),
         onClick: () => {
           void (async () => {
             await dropQueuedToggleReadOps(bookId).catch(() => {});
@@ -964,8 +965,8 @@ export function useBookActions(opts: {
         }
       }
       const snapshot: OfflineReaderBookmark = { ...removed };
-      snackbar.show('Закладка удалена', {
-        label: 'Отмена',
+      snackbar.show(t('bookActions.bookmarkDeleted'), {
+        label: t('common.undo'),
         onClick: () => {
           restoreOfflineReaderBookmark(bookId, snapshot);
           bumpReaderLocal();
@@ -1009,8 +1010,8 @@ export function useBookActions(opts: {
         }
       }
       const snapshot: OfflineReaderAnnotation = { ...removed };
-      snackbar.show('Заметка удалена', {
-        label: 'Отмена',
+      snackbar.show(t('bookActions.noteDeleted'), {
+        label: t('common.undo'),
         onClick: () => {
           restoreOfflineReaderAnnotation(bookId, snapshot);
           bumpReaderLocal();
@@ -1076,8 +1077,8 @@ export function useBookActions(opts: {
       } else {
         await enqueueSyncOp('remove_history', bookId, {});
       }
-      snackbar.show('Убрано из истории', {
-        label: 'Отмена',
+      snackbar.show(t('bookActions.removedFromHistory'), {
+        label: t('common.undo'),
         onClick: () => {
           restoreOfflineReadingHistoryVisibility(bookId);
           if (prevProgress) setProgressList((prev) => [...prev, prevProgress]);
@@ -1139,7 +1140,7 @@ export function useBookActions(opts: {
             onAuthExpiredRef.current?.();
             return null;
           }
-          snackbar.show(e instanceof Error && e.message ? e.message : 'Не удалось создать полку', undefined, 'error');
+          snackbar.show(e instanceof Error && e.message ? e.message : t('bookActions.couldNotCreateTheShelf'), undefined, 'error');
           return null;
         }
       }
@@ -1248,11 +1249,11 @@ export function useBookActions(opts: {
     async (shelfId: string, kind: 'shelf' | 'smart' = 'shelf') => {
       const smart = kind === 'smart';
       const ok = await dialog.confirm({
-        title: 'Удалить полку?',
+        title: t('bookActions.deleteTheShelf'),
         message: smart
-          ? 'Умная полка — сохранённый фильтр. Книги в каталоге останутся.'
-          : 'Книги на полке не будут удалены с устройства.',
-        confirmLabel: 'Удалить',
+          ? t('bookActions.aSmartShelfIsA')
+          : t('bookActions.theBooksOnTheShelf'),
+        confirmLabel: t('common.delete'),
         destructive: true,
       });
       if (!ok) return false;

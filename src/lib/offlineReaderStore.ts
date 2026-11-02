@@ -8,6 +8,7 @@ import {
 import { positionsDiffer } from '../../public/inpx-reader/reader-shared/position-revision.js';
 import { isUserPositionSaveReason } from '../../public/inpx-reader/position-sync.js';
 import { parseSyncTs } from './readerActivitySync';
+import { t } from '../i18n';
 
 export interface OfflineReaderBookmark {
   id: number;
@@ -790,8 +791,8 @@ export async function flushOfflineReaderStore(): Promise<void> {
 
 export async function clearOfflineReaderData(bookId: string): Promise<void> {
   cache.delete(bookId);
-  const t = persistTimers.get(bookId);
-  if (t !== undefined) globalThis.clearTimeout(t);
+  const timer = persistTimers.get(bookId);
+  if (timer !== undefined) globalThis.clearTimeout(timer);
   persistTimers.delete(bookId);
   try {
     localStorage.removeItem(offlineReaderStorageKey(bookId));
@@ -987,7 +988,7 @@ export function listLocalReaderBookmarks(
         id: bm.id,
         bookId: book.id,
         bookTitle: book.title,
-        label: bm.title || 'Закладка',
+        label: bm.title || t('common.bookmarkDefault'),
         position: bm.position,
         ext,
       });
@@ -1030,7 +1031,7 @@ export function readerBookmarkFromApi(row: {
     id: Number(row.id),
     bookId: String(row.bookId),
     bookTitle: String(row.bookTitle || ''),
-    label: String(row.label || 'Закладка'),
+    label: String(row.label || t('common.bookmarkDefault')),
     position: String(row.position || ''),
     ext: row.ext ? String(row.ext).replace(/^\./, '') : undefined,
   };
@@ -1125,7 +1126,7 @@ export function importOfflineReaderJson(bookId: string, json: string): { ok: boo
   try {
     const parsed = JSON.parse(json) as Partial<OfflineReaderExport>;
     if (parsed.bookId && parsed.bookId !== bookId) {
-      return { ok: false, error: 'Файл от другой книги' };
+      return { ok: false, error: t('offlineReaderStore.theFileIsFromAnother') };
     }
     const current = readOfflineReaderData(bookId);
     const deletedBm = new Set(current.deletedBookmarkPositions || []);
@@ -1179,14 +1180,14 @@ export function importOfflineReaderJson(bookId: string, json: string): { ok: boo
     });
     return { ok: true };
   } catch {
-    return { ok: false, error: 'Некорректный JSON' };
+    return { ok: false, error: t('offlineReaderStore.invalidJson') };
   }
 }
 
 /** Для vitest — сброс кэша. */
 export function __resetOfflineReaderCacheForTests(): void {
   cache.clear();
-  for (const t of persistTimers.values()) globalThis.clearTimeout(t);
+  for (const timer of persistTimers.values()) globalThis.clearTimeout(timer);
   persistTimers.clear();
   pendingUpserts.clear();
   flushPromise = null;

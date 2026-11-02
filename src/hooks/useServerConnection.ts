@@ -17,6 +17,7 @@ import {
 import { candidateServerUrls, firstReachableUrl, normalizeSsid } from '../lib/serverUrlSwitch';
 import { getNetworkStatus, subscribeNetworkChanges } from '../lib/networkInfo';
 import type { ServerConfig } from '../types';
+import { t } from '../i18n';
 
 export function useServerConnection() {
   const [serverConfig, setServerConfig] = React.useState<ServerConfig>(initialServerConfig);
@@ -64,7 +65,7 @@ export function useServerConnection() {
   }, []);
 
   const markAuthExpired = React.useCallback(() => {
-    setConnectionError('Сессия устройства устарела. Введите логин и пароль заново.');
+    setConnectionError(t('common.theDeviceSessionHasExpired'));
     const next: ServerConfig = {
       ...serverConfigRef.current,
       connectionStatus: 'disconnected',
@@ -73,7 +74,7 @@ export function useServerConnection() {
     };
     setServerConfig(next);
     void persistServerConfig(next).catch(() => {
-      setConnectionError('Не удалось сохранить учётные данные в защищённом хранилище Android');
+      setConnectionError(t('serverConnection.couldNotSaveTheCredentials'));
     });
   }, []);
 
@@ -102,7 +103,7 @@ export function useServerConnection() {
     const timer = window.setTimeout(() => {
       void persistServerConfig(serverConfig).catch(() => {
         if (!cancelled) {
-          setConnectionError('Не удалось сохранить учётные данные в защищённом хранилище Android');
+          setConnectionError(t('serverConnection.couldNotSaveTheCredentials'));
         }
       });
     }, 250);
@@ -154,7 +155,7 @@ export function useServerConnection() {
           markAuthExpired();
           return;
         }
-        setConnectionError(result.ok ? null : result.error || 'Не удалось подключиться');
+        setConnectionError(result.ok ? null : result.error || t('common.couldNotConnect'));
         if (result.ok && isAndroid() && working.username?.trim() && working.password) {
           try {
             const exchanged = await exchangeDeviceToken(working);
@@ -229,7 +230,7 @@ export function useServerConnection() {
       normalizeBaseUrl((prev.alternateUrls || [])[0] || '');
     if (!fallback) {
       setServerConfig((cur) => ({ ...cur, connectionStatus: 'disconnected' }));
-      setConnectionError('Укажите адрес сервера');
+      setConnectionError(t('serverConnection.enterTheServerAddress'));
       return;
     }
     setConnectionError(null);

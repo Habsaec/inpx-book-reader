@@ -63,7 +63,8 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
   async function ensureReaderI18n() {
     if (_readerI18n.strings && Object.keys(_readerI18n.strings).length > 0) return;
     try {
-      const r = await fetch('/inpx-reader/reader-i18n-ru.json');
+      const lang = document.documentElement.lang === 'en' ? 'en' : 'ru';
+      const r = await fetch(`/inpx-reader/reader-i18n-${lang}.json`);
       if (r.ok) _readerI18n = await r.json();
     } catch { /* */ }
   }
@@ -401,7 +402,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       document.querySelector('.tb-title')?.textContent?.trim()
       || String(window.__READER_BOOK_TITLE || '').trim()
       || document.title
-      || 'Озвучка';
+      || rt('app.tts');
     const artist =
       document.getElementById('toc-book-author')?.textContent?.trim()
       || document.querySelector('.tb-kicker')?.textContent?.trim()
@@ -464,7 +465,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     if ('mediaSession' in navigator) {
       try {
         const meta = {
-          title: title || 'Озвучка',
+          title: title || rt('app.tts'),
           artist: artist || '',
         };
         if (ttsCoverArtworkUrl) {
@@ -492,7 +493,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     }
     // Re-read after await — user may have stopped TTS meanwhile.
     const payload = {
-      title: title || 'Озвучка',
+      title: title || rt('app.tts'),
       artist: artist || '',
       playing: ttsChainActive && !ttsPausedByUser,
       active: ttsChainActive,
@@ -2083,7 +2084,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
         applyRendererLayout();
         applyBookStyles();
       } catch { /* */ }
-      toast('Не удалось переключить режим PDF');
+      toast(rt('app.pdfModeFail'));
     } finally {
       setRestoreVeil(false);
       refreshSettingsUI();
@@ -2290,7 +2291,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const on = autoFlipArmed && S.autoFlipSec > 0;
     autoFlipHud.hidden = !on;
     autoFlipHud.setAttribute('aria-hidden', on ? 'false' : 'true');
-    if (on) autoFlipHud.textContent = `Авто · ${S.autoFlipSec}с`;
+    if (on) autoFlipHud.textContent = rtp('app.autoHud', { n: S.autoFlipSec });
   }
 
   function syncAutoFlipTimer() {
@@ -2314,7 +2315,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     }
     autoFlipArmed = !autoFlipArmed;
     syncAutoFlipTimer();
-    toast(autoFlipArmed ? `Автолист · ${S.autoFlipSec} с` : 'Автолист выкл');
+    toast(autoFlipArmed ? rtp('app.autoFlipOn', { n: S.autoFlipSec }) : rt('app.autoFlipOff'));
   }
 
   function runTapAction(action) {
@@ -2372,7 +2373,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       pageEl.max = String(Math.max(1, lastPageInfo.total || 1));
       pageEl.disabled = !(lastPageInfo.total > 0);
     }
-    if (pageTotal) pageTotal.textContent = lastPageInfo.total > 0 ? `из ${lastPageInfo.total}` : 'из —';
+    if (pageTotal) pageTotal.textContent = lastPageInfo.total > 0 ? rtp('app.pageOf', { n: lastPageInfo.total }) : rt('app.pageOfUnknown');
     popGen += 1;
     gotoOverlay.classList.add('is-open');
     gotoOverlay.setAttribute('aria-hidden', 'false');
@@ -2498,8 +2499,8 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     }
     if (hint) {
       hint.textContent = tapEditMode === 'long'
-        ? `Долгий тап · зона ${tapEditSelected.toUpperCase()}`
-        : `Короткий тап · зона ${tapEditSelected.toUpperCase()}`;
+        ? rtp('app.tapLongZone', { zone: tapEditSelected.toUpperCase() })
+        : rtp('app.tapShortZone', { zone: tapEditSelected.toUpperCase() });
     }
     document.querySelectorAll('[data-tap-edit]').forEach((b) => {
       b.classList.toggle('is-active', b.dataset.tapEdit === tapEditMode);
@@ -2518,13 +2519,13 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       S.tapZonesLong = defaultTapZonesLong();
       saveSettings();
       refreshTapZonesUi();
-      toast('Зоны сброшены');
+      toast(rt('app.zonesReset'));
     });
     const autoSl = $('rs-auto-flip');
     const autoVal = $('rs-auto-flip-val');
     autoSl?.addEventListener('input', () => {
       S.autoFlipSec = Math.round(Number(autoSl.value) || 0);
-      if (autoVal) autoVal.textContent = S.autoFlipSec > 0 ? `${S.autoFlipSec} с` : 'Выкл';
+      if (autoVal) autoVal.textContent = S.autoFlipSec > 0 ? rtp('app.seconds', { n: S.autoFlipSec }) : rt('app.off');
       if (S.autoFlipSec > 0) autoFlipArmed = true;
       else autoFlipArmed = false;
       saveSettings();
@@ -3700,13 +3701,13 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const text = parts.join('\n');
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'inpx-reader-share', text, title: title || 'Цитата' }, '*');
+        window.parent.postMessage({ type: 'inpx-reader-share', text, title: title || rt('app.quote') }, '*');
         return;
       }
     } catch { /* fall through */ }
     try {
       if (navigator.share) {
-        await navigator.share({ title: title || 'Цитата', text });
+        await navigator.share({ title: title || rt('app.quote'), text });
         return;
       }
     } catch (e) {
@@ -4298,12 +4299,12 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       const el = document.querySelector(`[data-rs-summary="${key}"]`);
       if (el) el.textContent = text;
     };
-    const fontLabel = S.usePublisherFont ? 'Шрифт из книги' : ($('rs-font-family')?.selectedOptions?.[0]?.textContent || '');
+    const fontLabel = S.usePublisherFont ? rt('app.publisherFont') : ($('rs-font-family')?.selectedOptions?.[0]?.textContent || '');
     set('text', [fontLabel, S.fontSize].filter(Boolean).join(', '));
-    set('look', { light: 'Светлая', sepia: 'Сепия', dark: 'Тёмная', night: 'Ночь', eink: 'E-Ink' }[S.theme] || '');
-    set('page', { paginated: 'Страницы', dual: 'Разворот', scrolled: 'Прокрутка' }[S.layout] || '');
-    set('status', { withChrome: 'С меню', always: 'Всегда', hidden: 'Скрыта' }[S.statusMode] || '');
-    set('controls', tapZonesCustomized() ? 'Свои зоны' : 'Зоны по умолчанию');
+    set('look', { light: rt('app.themeLight'), sepia: rt('app.themeSepia'), dark: rt('app.themeDark'), night: rt('app.themeNight'), eink: 'E-Ink' }[S.theme] || '');
+    set('page', { paginated: rt('app.layoutPaginated'), dual: rt('app.layoutDual'), scrolled: rt('app.layoutScrolled') }[S.layout] || '');
+    set('status', { withChrome: rt('app.statusWithChrome'), always: rt('app.statusAlways'), hidden: rt('app.statusHidden') }[S.statusMode] || '');
+    set('controls', tapZonesCustomized() ? rt('app.zonesCustom') : rt('app.zonesDefault'));
     set('tts', `${Number(S.ttsRate || 1).toFixed(2).replace(/0$/, '')}×`);
   }
 
@@ -4501,64 +4502,64 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const fontGroup = $('rs-font-family')?.closest('.rs-group');
     if (fontGroup && !$('rs-publisher-font')) {
       fontGroup.insertAdjacentHTML('beforeend',
-        '<label class="rs-check"><input type="checkbox" id="rs-publisher-font" name="readerPublisherFont"><span>Шрифт из книги</span></label>');
+        '<label class="rs-check"><input type="checkbox" id="rs-publisher-font" name="readerPublisherFont"><span>' + rt('app.publisherFont') + '</span></label>');
       fontGroup.insertAdjacentHTML('afterend',
-        '<div class="rs-group"><div class="rs-label">Начертание</div>' +
-        '<select id="rs-font-weight" name="readerFontWeight" class="rs-select" aria-label="Начертание">' +
-        '<option value="400">Обычный</option><option value="500">Средний</option>' +
-        '<option value="600">Полужирный</option><option value="700">Жирный</option></select></div>');
+        '<div class="rs-group"><div class="rs-label">' + rt('app.weight') + '</div>' +
+        '<select id="rs-font-weight" name="readerFontWeight" class="rs-select" aria-label="' + rt('app.weight') + '">' +
+        '<option value="400">' + rt('app.weightRegular') + '</option><option value="500">' + rt('app.weightMedium') + '</option>' +
+        '<option value="600">' + rt('app.weightSemibold') + '</option><option value="700">' + rt('app.weightBold') + '</option></select></div>');
     }
 
     const colorStack = settingsPanel.querySelector('.rs-color-stack');
     if (colorStack && !$('rs-link-color')) {
       colorStack.insertAdjacentHTML('beforeend',
-        '<div class="rs-color-line"><div class="rs-color-sub">Ссылки</div><div class="rs-color-row">' +
-        '<input type="color" id="rs-link-color" name="readerLinkColor" value="#8b5a12" aria-label="Ссылки" title="Цвет ссылок">' +
-        '<button type="button" class="rs-color-default" id="rs-link-color-default" title="Из темы">Из темы</button></div></div>');
+        '<div class="rs-color-line"><div class="rs-color-sub">' + rt('app.links') + '</div><div class="rs-color-row">' +
+        '<input type="color" id="rs-link-color" name="readerLinkColor" value="#8b5a12" aria-label="' + rt('app.links') + '" title="' + rt('app.linkColor') + '">' +
+        '<button type="button" class="rs-color-default" id="rs-link-color-default" title="' + rt('app.fromTheme') + '">' + rt('app.fromTheme') + '</button></div></div>');
     }
 
     const pageMarginGroup = $('rs-page-margin')?.closest('.rs-group');
     if (pageMarginGroup && !$('rs-vertical-margin')) {
       const label = pageMarginGroup.querySelector('.rs-label');
-      if (label) label.textContent = 'Боковые поля';
+      if (label) label.textContent = rt('app.marginsSideLabel');
       pageMarginGroup.insertAdjacentHTML('afterend',
-        '<div class="rs-group"><div class="rs-label">Верхнее поле</div><div class="rs-slider">' +
+        '<div class="rs-group"><div class="rs-label">' + rt('app.marginTop') + '</div><div class="rs-slider">' +
         '<span class="rs-icon" aria-hidden="true">—</span>' +
-        '<input type="range" id="rs-vertical-margin" name="readerVerticalMargin" min="0" max="96" step="4" aria-label="Верхнее поле">' +
+        '<input type="range" id="rs-vertical-margin" name="readerVerticalMargin" min="0" max="96" step="4" aria-label="' + rt('app.marginTop') + '">' +
         '<span class="rs-val" id="rs-vertical-margin-val">16 px</span><span class="rs-icon" aria-hidden="true">≡</span></div></div>' +
-        '<div class="rs-group"><div class="rs-label">Типографика</div>' +
-        '<label class="rs-check"><input type="checkbox" id="rs-justify" name="readerJustify" checked><span>Выравнивание по ширине</span></label>' +
-        '<label class="rs-check"><input type="checkbox" id="rs-hyphenate" name="readerHyphenate" checked><span>Переносы (дефисы)</span></label>' +
-        '<div class="rs-sublabel">Межбуквенный интервал</div><div class="rs-slider">' +
-        '<input type="range" id="rs-letter-spacing" name="readerLetterSpacing" min="-0.05" max="0.2" step="0.01" aria-label="Межбуквенный интервал">' +
+        '<div class="rs-group"><div class="rs-label">' + rt('app.typography') + '</div>' +
+        '<label class="rs-check"><input type="checkbox" id="rs-justify" name="readerJustify" checked><span>' + rt('app.justifyLong') + '</span></label>' +
+        '<label class="rs-check"><input type="checkbox" id="rs-hyphenate" name="readerHyphenate" checked><span>' + rt('app.hyphenateLong') + '</span></label>' +
+        '<div class="rs-sublabel">' + rt('app.letterSpacing') + '</div><div class="rs-slider">' +
+        '<input type="range" id="rs-letter-spacing" name="readerLetterSpacing" min="-0.05" max="0.2" step="0.01" aria-label="' + rt('app.letterSpacing') + '">' +
         '<span class="rs-val" id="rs-letter-spacing-val">0.00</span></div>' +
-        '<div class="rs-sublabel">Межабзацный интервал</div><div class="rs-slider">' +
-        '<input type="range" id="rs-paragraph-spacing" name="readerParagraphSpacing" min="0" max="1.5" step="0.05" aria-label="Межабзацный интервал">' +
+        '<div class="rs-sublabel">' + rt('app.paragraphSpacing') + '</div><div class="rs-slider">' +
+        '<input type="range" id="rs-paragraph-spacing" name="readerParagraphSpacing" min="0" max="1.5" step="0.05" aria-label="' + rt('app.paragraphSpacing') + '">' +
         '<span class="rs-val" id="rs-paragraph-spacing-val">0.40</span></div>' +
-        '<div class="rs-sublabel">Красная строка</div><div class="rs-slider">' +
-        '<input type="range" id="rs-text-indent" name="readerTextIndent" min="0" max="3" step="0.1" aria-label="Красная строка">' +
+        '<div class="rs-sublabel">' + rt('app.textIndent') + '</div><div class="rs-slider">' +
+        '<input type="range" id="rs-text-indent" name="readerTextIndent" min="0" max="3" step="0.1" aria-label="' + rt('app.textIndent') + '">' +
         '<span class="rs-val" id="rs-text-indent-val">0.0 em</span></div></div>');
     }
 
     const layoutSeg = settingsPanel.querySelector('[data-set-layout="paginated"]')?.parentElement;
     if (layoutSeg && !settingsPanel.querySelector('[data-set-layout="scrolled"]')) {
       layoutSeg.insertAdjacentHTML('beforeend',
-        '<button type="button" data-set-layout="scrolled">Прокрутка</button>');
+        '<button type="button" data-set-layout="scrolled">' + rt('app.layoutScrolled') + '</button>');
     }
 
     const dualGroup = $('rs-layout-dual');
     if (dualGroup && !$('rs-layout-scrolled')) {
       dualGroup.insertAdjacentHTML('afterend',
-        '<div class="rs-group" id="rs-layout-scrolled" hidden><div class="rs-label">Высота блока</div><div class="rs-slider">' +
-        '<input type="range" id="rs-max-block-size" name="readerMaxBlockSize" min="720" max="2400" step="40" aria-label="Высота блока">' +
+        '<div class="rs-group" id="rs-layout-scrolled" hidden><div class="rs-label">' + rt('app.blockHeight') + '</div><div class="rs-slider">' +
+        '<input type="range" id="rs-max-block-size" name="readerMaxBlockSize" min="720" max="2400" step="40" aria-label="' + rt('app.blockHeight') + '">' +
         '<span class="rs-val" id="rs-max-block-size-val">1440 px</span></div>' +
-        '<div class="rs-hint">Максимальная высота текста в режиме прокрутки</div></div>' +
-        '<div class="rs-group"><div class="rs-label">Отображение</div>' +
-        '<label class="rs-check"><input type="checkbox" id="rs-invert" name="readerInvert"><span>Инверсия цветов</span></label>' +
-        '<label class="rs-check"><input type="checkbox" id="rs-footnotes" name="readerFootnotes" checked><span>Всплывающие сноски</span></label></div>' +
-        '<div class="rs-group"><div class="rs-label">Свой CSS</div>' +
-        '<textarea id="rs-custom-css" class="rs-custom-css" name="readerCustomCss" rows="6" spellcheck="false" placeholder="/* Дополнительные стили для текста книги */"></textarea>' +
-        '<button type="button" class="rs-custom-css-clear" id="rs-custom-css-clear">Очистить CSS</button></div>');
+        '<div class="rs-hint">' + rt('app.blockHeightHint') + '</div></div>' +
+        '<div class="rs-group"><div class="rs-label">' + rt('app.display') + '</div>' +
+        '<label class="rs-check"><input type="checkbox" id="rs-invert" name="readerInvert"><span>' + rt('app.invertColors') + '</span></label>' +
+        '<label class="rs-check"><input type="checkbox" id="rs-footnotes" name="readerFootnotes" checked><span>' + rt('app.footnotes') + '</span></label></div>' +
+        '<div class="rs-group"><div class="rs-label">' + rt('app.customCss') + '</div>' +
+        '<textarea id="rs-custom-css" class="rs-custom-css" name="readerCustomCss" rows="6" spellcheck="false" placeholder="' + rt('app.customCssPlaceholder') + '"></textarea>' +
+        '<button type="button" class="rs-custom-css-clear" id="rs-custom-css-clear">' + rt('app.customCssClear') + '</button></div>');
     }
   }
 
@@ -4574,12 +4575,12 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     group.className = 'rs-group';
     group.id = 'rs-volume-keys-group';
     group.innerHTML =
-      '<div class="rs-label">Кнопки громкости</div>' +
+      '<div class="rs-label">' + rt('app.volumeKeys') + '</div>' +
       '<div class="rs-seg">' +
-      '<button type="button" data-set-volume-keys="normal">Vol+ вперёд</button>' +
-      '<button type="button" data-set-volume-keys="inverted">Vol+ назад</button>' +
+      '<button type="button" data-set-volume-keys="normal">' + rt('app.volumeForward') + '</button>' +
+      '<button type="button" data-set-volume-keys="inverted">' + rt('app.volumeBack') + '</button>' +
       '</div>' +
-      '<div class="rs-hint">Листание кнопками громкости (Android). Яркость — свайп у левого края.</div>';
+      '<div class="rs-hint">' + rt('app.volumeKeysHint') + '</div>';
     if (slot) slot.appendChild(group);
     else settingsPanel.insertBefore(group, actions);
   }
@@ -4721,7 +4722,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
         releaseRendererLayout();
         endLayoutSuppress();
       }
-      toast('CSS очищен');
+      toast(rt('app.cssCleared'));
     });
     const fontWeightEl = $('rs-font-weight');
     if (fontWeightEl) {
@@ -4910,9 +4911,9 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
         S.bgImage = await compressBgImageFile(file);
         applySettings();
         refreshSettingsUI();
-        toast('Фоновое изображение установлено');
+        toast(rt('app.bgImageSet'));
       } catch {
-        toast('Не удалось загрузить изображение');
+        toast(rt('app.bgImageFail'));
       }
     });
     clearBtn?.addEventListener('click', () => {
@@ -4947,7 +4948,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       block.id = 'rs-pdf-mode';
       block.hidden = true;
       block.innerHTML = '<div class="rs-label">PDF</div><div class="rs-seg">'
-        + '<button type="button" data-set-pdf-mode="page">Страница</button>'
+        + '<button type="button" data-set-pdf-mode="page">' + rt('app.sectionPage') + '</button>'
         + '<button type="button" data-set-pdf-mode="reflow">Reflow</button>'
         + '</div>';
       const title = section.querySelector('.rs-section-title');
@@ -4986,7 +4987,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     if (pdfTile) {
       pdfTile.hidden = !pdf;
       const label = pdfTile.querySelector('.rq-label');
-      if (label) label.textContent = S.pdfMode === 'reflow' ? 'PDF: страница' : 'PDF: Reflow';
+      if (label) label.textContent = S.pdfMode === 'reflow' ? rt('app.pdfPage') : 'PDF: Reflow';
     }
   }
 
@@ -5089,7 +5090,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const autoVal = $('rs-auto-flip-val');
     if (autoSl) {
       autoSl.value = String(S.autoFlipSec || 0);
-      if (autoVal) autoVal.textContent = S.autoFlipSec > 0 ? `${S.autoFlipSec} с` : 'Выкл';
+      if (autoVal) autoVal.textContent = S.autoFlipSec > 0 ? rtp('app.seconds', { n: S.autoFlipSec }) : rt('app.off');
     }
     const stChapter = $('rs-status-chapter');
     if (stChapter) stChapter.checked = S.statusShowChapter !== false;
@@ -5161,7 +5162,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
         speechSynthesis.addEventListener('voiceschanged', () => resolve(), { once: true });
         setTimeout(resolve, 400);
       })),
-    voiceHint: 'Голоса — из системного синтеза речи Android (Настройки → Специальные возможности → Синтез речи).',
+    voiceHint: rt('app.voiceHint'),
     onSleepChange: onTtsSleepChange,
     onStateChange: ({ active, paused }) => {
       ttsChainActive = active;
@@ -5300,8 +5301,8 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     if (window.__READER_NEXT_SERIES?.bookId) {
       nextBtn.hidden = false;
       nextBtn.title = window.__READER_NEXT_SERIES.title
-        ? 'Следующая в серии: ' + window.__READER_NEXT_SERIES.title
-        : 'Следующая в серии';
+        ? rt('app.nextInSeriesPrefix') + window.__READER_NEXT_SERIES.title
+        : rt('app.nextInSeries');
       if (!nextBtn.dataset.wired) {
         nextBtn.dataset.wired = '1';
         nextBtn.addEventListener('click', () => {
@@ -6912,7 +6913,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
         warmthDrag.sentRaw = raw;
         /* В железо пишем только на отпускании: setLightValue(TEMP) на BOOX поднимает
          * системную шкалу подсветки, окно теряет захват касания и свайп обрывается. */
-        showLightHud(`Температура ${raw}/${max}`);
+        showLightHud(rtp('app.warmth', { raw, max }));
       }
     } else {
       const base = Number.isFinite(warmthDrag.levelFloat) ? warmthDrag.levelFloat : 0.5;
@@ -7494,7 +7495,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const tbTitle = document.querySelector('.tb-title');
     if (tbTitle) tbTitle.textContent = title;
     const tbKicker = document.querySelector('.tb-kicker');
-    if (tbKicker) tbKicker.textContent = author || 'Чтение';
+    if (tbKicker) tbKicker.textContent = author || rt('app.reading');
     const header = $('toc-book-header');
     const coverEl = $('toc-cover');
     const tocTitle = $('toc-book-title');
@@ -7715,7 +7716,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     if (isSevenZipMagic(h)) {
       if (fb.includes('epub')) {
         throw new Error(
-          'EPUB сохранён в формате 7z. Удалите книгу с устройства и скачайте заново с сервера.',
+          rt('app.epub7z'),
         );
       }
       return fb || 'fb2';

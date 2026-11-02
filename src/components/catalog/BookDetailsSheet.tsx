@@ -21,26 +21,27 @@ import BookShelfGrid from '../BookShelfGrid';
 import ShelfPicker from '../ShelfPicker';
 import QuickAction from './QuickAction';
 import type { UiShelf } from '../../lib/inpxClient';
+import { t } from '../../i18n';
 
 function formatBookSize(bytes?: number): string | null {
   const n = Number(bytes) || 0;
   if (n <= 0) return null;
-  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} КБ`;
-  return `${(n / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} МБ`;
+  if (n < 1024 * 1024) return t('common.kb', { n: Math.max(1, Math.round(n / 1024)) });
+  return t('common.mb', { p: (n / (1024 * 1024)).toFixed(1).replace(/\.0$/, '') });
 }
 
 const LANG_LABELS: Record<string, string> = {
-  ru: 'Русский',
-  en: 'Английский',
-  uk: 'Украинский',
-  be: 'Белорусский',
-  de: 'Немецкий',
-  fr: 'Французский',
-  es: 'Испанский',
-  pl: 'Польский',
-  bg: 'Болгарский',
-  cs: 'Чешский',
-  it: 'Итальянский',
+  ru: t('bookDetailsSheet.russian'),
+  en: t('bookDetailsSheet.english'),
+  uk: t('bookDetailsSheet.ukrainian'),
+  be: t('bookDetailsSheet.belarusian'),
+  de: t('bookDetailsSheet.german'),
+  fr: t('bookDetailsSheet.french'),
+  es: t('bookDetailsSheet.spanish'),
+  pl: t('bookDetailsSheet.polish'),
+  bg: t('bookDetailsSheet.bulgarian'),
+  cs: t('bookDetailsSheet.czech'),
+  it: t('bookDetailsSheet.italian'),
 };
 
 /** Display label paired with the catalog genre code. Lists from the index stay aligned. */
@@ -52,7 +53,7 @@ function genreLinks(book: Book): Array<{ code: string; label: string }> {
   }
   const fallback = labels.length
     ? labels
-    : (book.genre && book.genre !== 'Другое' ? [book.genre] : []);
+    : (book.genre && book.genre !== 'Другое' && book.genre !== t('common.genreOther') ? [book.genre] : []);
   return fallback.map((label) => ({ code: label, label }));
 }
 
@@ -82,7 +83,7 @@ function mergeBookFacts(base: Book, extra: Book): Book {
 
 function RatingStars({ value }: { value: number }) {
   return (
-    <div className="flex items-center gap-1.5" role="img" aria-label={`Рейтинг ${value} из 5`}>
+    <div className="flex items-center gap-1.5" role="img" aria-label={t('bookDetailsSheet.ratingOf5', { value })}>
       <span className="flex gap-0.5" aria-hidden>
         {Array.from({ length: 5 }, (_, index) => (
           <Star
@@ -100,7 +101,7 @@ function RatingStars({ value }: { value: number }) {
 /** «Ваша оценка»: tap a star to rate, tap the current one again to clear (server «Мои оценки»). */
 function MyRatingPicker({ value, onChange }: { value: number; onChange: (next: number) => void }) {
   return (
-    <div className="flex gap-0.5" role="group" aria-label="Ваша оценка">
+    <div className="flex gap-0.5" role="group" aria-label={t('bookDetailsSheet.yourRating')}>
       {Array.from({ length: 5 }, (_, index) => {
         const n = index + 1;
         const on = n <= value;
@@ -108,7 +109,7 @@ function MyRatingPicker({ value, onChange }: { value: number; onChange: (next: n
           <button
             key={n}
             type="button"
-            aria-label={`${n} из 5`}
+            aria-label={t('bookDetailsSheet.of5', { n })}
             aria-pressed={on}
             onClick={() => onChange(n === value ? 0 : n)}
             className={`-m-1 p-1 ${radii.sm} ${theme.focusRing} ${motionTokens.press}`}
@@ -218,7 +219,7 @@ function SeriesVolumeCard({
       </div>
       <span className="min-w-0 flex-1">
         {volume ? (
-          <span className={`block ${textStyles.captionBold} ${theme.accentText}`}>Том {volume}</span>
+          <span className={`block ${textStyles.captionBold} ${theme.accentText}`}>{t('common.volume')} {volume}</span>
         ) : null}
         <span className={`mt-0.5 block ${textStyles.bookTitle} line-clamp-2 ${theme.text}`}>
           {volume ? bookTitleWithoutVolume(book) : displayBookTitle(book)}
@@ -506,9 +507,9 @@ export default function BookDetailsSheet({
   // The edition year from the FB2 replaces the catalog year (INPX date) when the server knows it.
   const facts = ([
     publishInfo?.publishYear
-      ? ['Год издания', String(publishInfo.publishYear)]
-      : ['Год', detail.year ? String(detail.year) : ''],
-    ['Язык', langLabel ?? ''],
+      ? [t('common.editionYear'), String(publishInfo.publishYear)]
+      : [t('common.year'), detail.year ? String(detail.year) : ''],
+    [t('bookDetailsSheet.language'), langLabel ?? ''],
     ['ISBN', publishInfo?.isbn || ''],
   ] as const).filter(([, value]) => Boolean(value));
   const genres = genreLinks(detail);
@@ -530,7 +531,7 @@ export default function BookDetailsSheet({
             <header className="inpx-book-chrome sticky top-0 z-10 min-h-16 px-1 flex items-center">
               <button
                 type="button"
-                aria-label="Назад"
+                aria-label={t('common.back')}
                 onClick={goBack}
                 className={`w-12 h-12 shrink-0 inline-flex items-center justify-center ${radii.md} ${theme.focusRing} ${motionTokens.press}`}
               >
@@ -566,7 +567,7 @@ export default function BookDetailsSheet({
                         <React.Fragment key={name}>
                           {index > 0 ? <span className={`${textStyles.body} ${theme.textMuted}`}>,</span> : null}
                           <BookSheetMetaLink
-                            ariaLabel={`Автор: ${name}`}
+                            ariaLabel={t('bookDetailsSheet.author', { name })}
                             onClick={() => onOpenAuthor(name)}
                           >
                             {name}
@@ -577,24 +578,24 @@ export default function BookDetailsSheet({
                   ) : null}
                   {detail.series ? (
                     <BookSheetMetaLink
-                      ariaLabel={`Серия: ${seriesLabel(detail)}`}
+                      ariaLabel={t('bookDetailsSheet.series', { detail: seriesLabel(detail) })}
                       muted
                       onClick={() => onOpenSeries(detail.series!)}
                     >
-                      {seriesLabel(detail)}{volume ? ` · том ${volume}` : ''}
+                      {seriesLabel(detail)}{volume ? t('common.vol', { volume }) : ''}
                     </BookSheetMetaLink>
                   ) : null}
                   {coverRating > 0 || facts.length || myRating != null ? (
                     <dl className={`mt-3 grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1.5 ${textStyles.caption}`}>
                       {coverRating > 0 ? (
                         <>
-                          <dt className={themeTextMuted}>Рейтинг</dt>
+                          <dt className={themeTextMuted}>{t('common.rating')}</dt>
                           <dd><RatingStars value={coverRating} /></dd>
                         </>
                       ) : null}
                       {myRating != null ? (
                         <>
-                          <dt className={themeTextMuted}>Ваша оценка</dt>
+                          <dt className={themeTextMuted}>{t('bookDetailsSheet.yourRating')}</dt>
                           <dd><MyRatingPicker value={myRating} onChange={changeMyRating} /></dd>
                         </>
                       ) : null}
@@ -615,7 +616,7 @@ export default function BookDetailsSheet({
                   <p className={`${textStyles.caption} ${semantic.error}`} role="alert">{downloadError}</p>
                 )}
                 {primaryAction?.kind === 'download' && !isServerConnected ? (
-                  <p className={`${textStyles.caption} ${themeTextMuted}`}>Нужен интернет для скачивания</p>
+                  <p className={`${textStyles.caption} ${themeTextMuted}`}>{t('bookDetailsSheet.internetIsNeededToDownload')}</p>
                 ) : null}
                 <div className="flex items-stretch">
                   {primaryAction ? (
@@ -650,7 +651,7 @@ export default function BookDetailsSheet({
                   <div className={`!mt-3.5 flex border-y ${theme.divider}`}>
                     {onToggleWant && !markedRead ? (
                       <QuickAction
-                        label={isWant ? 'Отложено' : 'Хочу прочитать'}
+                        label={isWant ? t('common.savedForLater') : t('common.wantToRead')}
                         pressed={isWant}
                         onClick={() => onToggleWant(book.id)}
                       >
@@ -659,7 +660,7 @@ export default function BookDetailsSheet({
                     ) : null}
                     {onToggleRead ? (
                       <QuickAction
-                        label={markedRead ? 'Прочитано' : 'В прочитанные'}
+                        label={markedRead ? t('common.read') : t('common.markAsRead')}
                         pressed={markedRead}
                         onClick={() => onToggleRead(book.id)}
                       >
@@ -668,7 +669,7 @@ export default function BookDetailsSheet({
                     ) : null}
                     {onToggleBookmark ? (
                       <QuickAction
-                        label={isBookmarked ? 'В избранном' : 'В избранное'}
+                        label={isBookmarked ? t('common.inFavorites') : t('common.addToFavorites')}
                         pressed={isBookmarked}
                         onClick={() => onToggleBookmark(book.id)}
                       >
@@ -677,7 +678,7 @@ export default function BookDetailsSheet({
                     ) : null}
                     {showShelf ? (
                       <QuickAction
-                        label="На полку"
+                        label={t('common.addToShelf')}
                         expanded={shelfPickerOpen}
                         onClick={() => setShelfPickerOpen((open) => !open)}
                       >
@@ -685,7 +686,7 @@ export default function BookDetailsSheet({
                       </QuickAction>
                     ) : null}
                     {hasMoreActions && onOpenActions ? (
-                      <QuickAction label="Ещё" onClick={() => onOpenActions(book)}>
+                      <QuickAction label={t('bookDetailsSheet.more')} onClick={() => onOpenActions(book)}>
                         <MoreHorizontal className="w-5 h-5" aria-hidden />
                       </QuickAction>
                     ) : null}
@@ -729,10 +730,10 @@ export default function BookDetailsSheet({
               </div>
 
               {showSeriesBlock ? (
-                <div role="tablist" aria-label="Разделы книги" className="mt-7 flex gap-6 border-b border-[color:var(--app-border)]">
+                <div role="tablist" aria-label={t('bookDetailsSheet.bookSections')} className="mt-7 flex gap-6 border-b border-[color:var(--app-border)]">
                   {([
-                    { id: 'about' as const, label: 'О книге' },
-                    { id: 'series' as const, label: 'Серия' },
+                    { id: 'about' as const, label: t('common.aboutTheBook') },
+                    { id: 'series' as const, label: t('common.series') },
                   ]).map((item) => (
                     <button
                       key={item.id}
@@ -754,7 +755,7 @@ export default function BookDetailsSheet({
               {tab === 'series' && showSeriesBlock ? (
                 <section className="pt-2" role="tabpanel">
                   <p className={`py-2 ${textStyles.caption} ${themeTextMuted}`}>
-                    {seriesFollow?.later ? 'Далее в серии' : 'Тома серии'}
+                    {seriesFollow?.later ? t('bookDetailsSheet.nextInTheSeries') : t('bookDetailsSheet.seriesVolumes')}
                   </p>
                   {seriesLoading && !seriesFollow?.books.length ? (
                     <div className="flex flex-col gap-2" aria-hidden>
@@ -778,13 +779,13 @@ export default function BookDetailsSheet({
                     </div>
                   )}
                   <Button variant="secondary" fullWidth className="mt-4" onClick={() => onOpenSeries(detail.series!)}>
-                    Вся серия
+                    {t('bookDetailsSheet.wholeSeries')}
                   </Button>
                 </section>
               ) : (
                 <div className="pt-5 flex flex-col" role={showSeriesBlock ? 'tabpanel' : undefined}>
                   <section className="space-y-3">
-                    {showSeriesBlock ? null : <h4 className={sectionKicker}>О книге</h4>}
+                    {showSeriesBlock ? null : <h4 className={sectionKicker}>{t('common.aboutTheBook')}</h4>}
                     {descriptionIsHtml && description ? (
                       <div
                         className={`font-serif text-[1.0625rem] leading-[1.6875rem] ${theme.text} select-text prose prose-sm ${isAppDark ? 'prose-invert' : ''} ${descOpen || !descLong ? '' : 'line-clamp-4 overflow-hidden'}`}
@@ -794,7 +795,7 @@ export default function BookDetailsSheet({
                       <TextBlockSkeleton lines={4} />
                     ) : (
                       <p className={`font-serif text-[1.0625rem] leading-[1.6875rem] ${theme.text} select-text ${descOpen || !descLong ? '' : 'line-clamp-4'}`}>
-                        {description || 'Аннотация отсутствует.'}
+                        {description || t('bookDetailsSheet.noAnnotation')}
                       </p>
                     )}
                     {descLong && description ? (
@@ -803,11 +804,11 @@ export default function BookDetailsSheet({
                         onClick={() => setDescOpen((v) => !v)}
                         className={`${textStyles.bodyBold} min-h-10 ${theme.accentText} ${theme.focusRing} ${motionTokens.press}`}
                       >
-                        {descOpen ? 'Свернуть' : 'Читать полностью'}
+                        {descOpen ? t('bookDetailsSheet.collapse') : t('bookDetailsSheet.readMore')}
                       </button>
                     ) : null}
                     {genres.length ? (
-                      <ul className="flex flex-wrap gap-2 pt-1" aria-label="Жанры">
+                      <ul className="flex flex-wrap gap-2 pt-1" aria-label={t('common.genres')}>
                         {genres.map((genre) => (
                           <li key={genre.code}>
                             <button
@@ -822,7 +823,7 @@ export default function BookDetailsSheet({
                       </ul>
                     ) : null}
                     {fileLabel ? (
-                      <p className={`pt-1 ${textStyles.caption} ${themeTextMuted}`}>Файл: {fileLabel}</p>
+                      <p className={`pt-1 ${textStyles.caption} ${themeTextMuted}`}>{t('bookDetailsSheet.file')} {fileLabel}</p>
                     ) : null}
                   </section>
 
@@ -831,13 +832,13 @@ export default function BookDetailsSheet({
                       <div className="my-6 border-t border-[color:var(--app-border)]" aria-hidden />
                       <section className="space-y-3">
                         <div className="flex items-center justify-between gap-2">
-                          <h4 className={sectionKicker}>Другие книги автора</h4>
+                          <h4 className={sectionKicker}>{t('bookDetailsSheet.otherBooksByTheAuthor')}</h4>
                           <button
                             type="button"
                             onClick={() => onOpenAuthor(authorNames[0] || detail.author)}
                             className={`${textStyles.bodyBold} min-h-10 px-1 ${themeAccentText} ${theme.focusRing} ${motionTokens.press}`}
                           >
-                            Все
+                            {t('common.all')}
                           </button>
                         </div>
                         <BookShelfGrid
@@ -859,7 +860,7 @@ export default function BookDetailsSheet({
                       <div className="my-6 border-t border-[color:var(--app-border)]" aria-hidden />
                       <section className="space-y-3">
                         <h4 className={`flex items-baseline gap-2 ${sectionKicker}`}>
-                          Отзывы
+                          {t('bookDetailsSheet.reviews')}
                           {bookReviews.length > 0 ? (
                             <span className={`font-medium tabular-nums ${theme.textMuted}`}>{bookReviews.length}</span>
                           ) : null}

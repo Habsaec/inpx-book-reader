@@ -53,6 +53,7 @@ import { APP_SETTING_KEYS, getHomeRecentMode, setAppSettingRaw } from '../lib/ap
 import { dropQueuedToggleReadOps, processSyncQueue } from '../lib/syncQueueProcessor';
 import { toLocalBookId } from '../lib/bookRef';
 import { activateServerBookAliases } from '../lib/serverBookAliases';
+import { intlLocale } from '../i18n';
 
 export function isServerOnline(config: ServerConfig): boolean {
   return config.connectionStatus === 'connected' && Boolean(config.url);
@@ -247,7 +248,7 @@ export function useInpxServer(
         });
         setReadingProgress(mergedProgress);
       }
-      setLastSynced(new Date().toLocaleTimeString('ru-RU'));
+      setLastSynced(new Date().toLocaleTimeString(intlLocale()));
       setSyncStatus('success');
     } catch (err: unknown) {
       if (!isCurrent()) return;
@@ -258,7 +259,7 @@ export function useInpxServer(
       }
       // Keep fast-path profile; only mark sync soft-failed.
       setSyncStatus('error');
-      setLastSynced(new Date().toLocaleTimeString('ru-RU'));
+      setLastSynced(new Date().toLocaleTimeString(intlLocale()));
     }
   }, [config, online]);
 

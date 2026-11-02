@@ -2,6 +2,7 @@ import React from 'react';
 import { Home } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import IconButton from '../../ui/IconButton';
+import { t } from '../../i18n';
 
 /** «На главной»: pins a shelf to the home page (same switch as on the web shelves page). */
 export default function ShelfHomeToggle({
@@ -15,9 +16,9 @@ export default function ShelfHomeToggle({
 }) {
   return (
     <IconButton
-      label={onHome ? `Убрать «${name}» с главной` : `Показывать «${name}» на главной`}
+      label={onHome ? t('shelfHomeToggle.removeFromTheHomeScreen', { name }) : t('shelfHomeToggle.showOnTheHomeScreen', { name })}
       aria-pressed={onHome}
-      title={onHome ? 'На главной' : 'Показывать на главной'}
+      title={onHome ? t('shelfHomeToggle.onTheHomeScreen') : t('shelfHomeToggle.showOnHomeTitle')}
       className={`shrink-0 self-center ${onHome ? `${theme.accentText} bg-[var(--app-accent-soft)]` : theme.textMuted}`}
       onClick={(e) => {
         e.stopPropagation();

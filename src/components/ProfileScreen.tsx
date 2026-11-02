@@ -13,6 +13,7 @@ import ReadingGoalCard from './ReadingGoalCard';
 import AccountSwitcherSheet from './AccountSwitcherSheet';
 import { listSavedAccounts, rememberAccount } from '../lib/accounts';
 import { clearServerCredentials } from '../lib/secureServerConfig';
+import { t } from '../i18n';
 
 interface ProfileScreenProps {
   profile: InpxProfile | null;
@@ -52,8 +53,8 @@ interface ProfileScreenProps {
 }
 
 const MEMBER_MONTHS = [
-  'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+  t('profileScreen.january'), t('profileScreen.february'), t('profileScreen.march'), t('profileScreen.april'), t('profileScreen.may'), t('profileScreen.june'),
+  t('profileScreen.july'), t('profileScreen.august'), t('profileScreen.september'), t('profileScreen.october'), t('profileScreen.november'), t('profileScreen.december'),
 ];
 
 /** Service logins read as a role, not as a name. */
@@ -61,7 +62,7 @@ const SERVICE_LOGINS = new Set(['admin', 'administrator', 'root', 'user', 'guest
 
 function displayName(username: string, role?: string): string {
   if (!username) return '';
-  if (SERVICE_LOGINS.has(username.toLowerCase())) return role === 'admin' ? 'Администратор' : 'Читатель';
+  if (SERVICE_LOGINS.has(username.toLowerCase())) return role === 'admin' ? t('profileScreen.administrator') : t('profileScreen.reader');
   return username;
 }
 
@@ -77,7 +78,7 @@ function memberSince(createdAt: string | null | undefined): string {
   const parsed = new Date(createdAt.includes('T') ? createdAt : createdAt.replace(' ', 'T'));
   if (Number.isNaN(parsed.getTime())) return '';
   const month = MEMBER_MONTHS[parsed.getMonth()];
-  return month ? `в библиотеке с ${month} ${parsed.getFullYear()}` : '';
+  return month ? t('profileScreen.inTheLibrarySince', { month, parsed: parsed.getFullYear() }) : '';
 }
 
 export default function ProfileScreen({
@@ -118,9 +119,9 @@ export default function ProfileScreen({
   const since = memberSince(stats?.createdAt);
   const readingCount = stats ? stats.readingCount : localInProgressCount;
   const statusNote = serverConfig.connectionStatus === 'testing'
-    ? 'Подключение к серверу…'
+    ? t('profileScreen.connectingToTheServer')
     : !isOnline
-      ? 'Офлайн — локальные настройки доступны'
+      ? t('profileScreen.offlineLocalSettingsAreAvailable')
       : '';
   const [statsOpen, setStatsOpen] = React.useState(false);
   const [accountsOpen, setAccountsOpen] = React.useState(false);
@@ -136,19 +137,19 @@ export default function ProfileScreen({
     setLoginFocusEpoch((n) => n + 1);
   };
   const statTiles: Array<{ label: string; value: number; seg: LibrarySeg }> = [
-    { label: 'На устройстве', value: localBookCount, seg: 'downloaded' },
+    { label: t('common.onTheDevice'), value: localBookCount, seg: 'downloaded' },
     // The server count is the «Читаю» list; offline only the device list (sorted by last read) is there.
-    { label: 'Читаете', value: readingCount, seg: stats ? 'reading' : 'downloaded' },
-    ...(stats ? [{ label: 'Прочитано', value: stats.readBooksCount, seg: 'read' as const }] : []),
+    { label: t('profileScreen.reading'), value: readingCount, seg: stats ? 'reading' : 'downloaded' },
+    ...(stats ? [{ label: t('common.read'), value: stats.readBooksCount, seg: 'read' as const }] : []),
   ];
   const statRows: Array<{ label: string; value: number; seg: LibrarySeg }> = stats
     ? [
-        { label: 'Закладки', value: stats.readerBookmarksCount, seg: 'bookmarks' },
-        { label: 'Заметки', value: stats.readerAnnotationsCount, seg: 'notes' },
-        { label: 'Полки', value: stats.shelvesCount + (stats.smartShelvesCount ?? 0), seg: 'shelves' },
-        { label: 'Авторы', value: stats.favoriteAuthorsCount, seg: 'favorites' },
-        { label: 'Серии', value: stats.favoriteSeriesCount, seg: 'favorites' },
-        ...(stats.ratedCount != null ? [{ label: 'Мои оценки', value: stats.ratedCount, seg: 'rated' as const }] : []),
+        { label: t('common.bookmarks'), value: stats.readerBookmarksCount, seg: 'bookmarks' },
+        { label: t('common.notes'), value: stats.readerAnnotationsCount, seg: 'notes' },
+        { label: t('common.shelves'), value: stats.shelvesCount + (stats.smartShelvesCount ?? 0), seg: 'shelves' },
+        { label: t('common.authors'), value: stats.favoriteAuthorsCount, seg: 'favorites' },
+        { label: t('common.seriesPlural'), value: stats.favoriteSeriesCount, seg: 'favorites' },
+        ...(stats.ratedCount != null ? [{ label: t('common.myRatings'), value: stats.ratedCount, seg: 'rated' as const }] : []),
       ]
     : [];
 
@@ -168,9 +169,9 @@ export default function ProfileScreen({
             <p className={`font-serif text-[1.375rem] leading-7 font-semibold ${theme.text} truncate`}>{name}</p>
           ) : null}
           {nameIsRole ? (
-            <p className={`${textStyles.caption} ${theme.textMuted}`}>Логин {username}</p>
+            <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('common.login')} {username}</p>
           ) : profile?.user?.role === 'admin' ? (
-            <p className={`${textStyles.caption} ${theme.textMuted}`}>Администратор</p>
+            <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('profileScreen.administrator')}</p>
           ) : null}
           {since ? (
             <p className={`${textStyles.caption} ${theme.textMuted}`}>{since}</p>
@@ -187,7 +188,7 @@ export default function ProfileScreen({
             className={`shrink-0 min-h-12 px-3 inline-flex items-center gap-1.5 ${radii.button} ${textStyles.captionBold} ${theme.chip} ${theme.chipHover} ${theme.focusRing} ${motion.press}`}
           >
             <Users className="w-4 h-4" aria-hidden />
-            Сменить
+            {t('profileScreen.change')}
           </button>
         ) : null}
       </div>
@@ -218,7 +219,7 @@ export default function ProfileScreen({
             aria-expanded={statsOpen}
             onClick={() => setStatsOpen((open) => !open)}
           >
-            <span className={`${textStyles.bodyBold} ${theme.text}`}>Статистика</span>
+            <span className={`${textStyles.bodyBold} ${theme.text}`}>{t('profileScreen.statistics')}</span>
             <ChevronRight
               className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-out ${statsOpen ? 'rotate-90' : ''} ${theme.textMuted}`}
               aria-hidden
@@ -226,7 +227,7 @@ export default function ProfileScreen({
           </button>
           <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${statsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
             <div className="min-h-0 overflow-hidden">
-              <ul aria-label="Статистика">
+              <ul aria-label={t('profileScreen.statistics')}>
                 {statRows.map((row) => (
                   <li key={row.label}>
                     <button

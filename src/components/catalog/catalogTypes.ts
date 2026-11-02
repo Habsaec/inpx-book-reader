@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 export type CatalogSubTab = 'books' | 'authors' | 'series' | 'genres';
 
 /** Full set (legacy / back-handler). */
@@ -16,15 +17,15 @@ export const CATALOG_BROWSE_TABS: CatalogSubTab[] = ['authors', 'series', 'genre
 export const CATALOG_SEARCH_TABS: CatalogSubTab[] = ['books', 'authors', 'series'];
 
 export const CATALOG_BROWSE_TAB_LABELS: { id: CatalogSubTab; label: string }[] = [
-  { id: 'authors', label: 'Авторы' },
-  { id: 'series', label: 'Серии' },
-  { id: 'genres', label: 'Жанры' },
+  { id: 'authors', label: t('common.authors') },
+  { id: 'series', label: t('common.seriesPlural') },
+  { id: 'genres', label: t('common.genres') },
 ];
 
 export const CATALOG_SEARCH_TAB_LABELS: { id: CatalogSubTab; label: string }[] = [
-  { id: 'books', label: 'Книги' },
-  { id: 'authors', label: 'Авторы' },
-  { id: 'series', label: 'Серии' },
+  { id: 'books', label: t('common.books') },
+  { id: 'authors', label: t('common.authors') },
+  { id: 'series', label: t('common.seriesPlural') },
 ];
 
 export type CatalogFormatFilter = 'all' | 'fb2' | 'epub' | 'txt';

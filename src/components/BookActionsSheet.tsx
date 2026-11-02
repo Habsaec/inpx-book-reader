@@ -20,6 +20,7 @@ import { bookTitleWithoutVolume, displayBookTitle } from '../lib/seriesLabel';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { UiShelf } from '../lib/inpxClient';
 import { useOverlayBackHandler } from '../hooks/useBackHandler';
+import { t } from '../i18n';
 
 export type BookActionsTarget = {
   book: Book;
@@ -147,7 +148,7 @@ export default function BookActionsSheet({
           </div>
           <button
             type="button"
-            aria-label="Закрыть"
+            aria-label={t('common.close')}
             onClick={onClose}
             className={`min-h-12 min-w-12 inline-flex items-center justify-center ${radii.button} ${theme.panel} ${theme.chipButton} ${theme.focusRing} ${motion.press}`}
           >
@@ -164,7 +165,7 @@ export default function BookActionsSheet({
                 onClose();
               }}
             >
-              О книге
+              {t('common.aboutTheBook')}
             </ActionRow>
           )}
 
@@ -181,7 +182,7 @@ export default function BookActionsSheet({
                 onClose();
               }}
             >
-              {isBookmarked ? 'Убрать из избранного' : 'В избранное'}
+              {isBookmarked ? t('common.removeFromFavorites') : t('common.addToFavorites')}
             </ActionRow>
           )}
 
@@ -193,7 +194,7 @@ export default function BookActionsSheet({
                 onClose();
               }}
             >
-              {isRead ? 'Снять «прочитано»' : 'Отметить прочитанной'}
+              {isRead ? t('bookActionsSheet.unmarkRead') : t('bookActionsSheet.markAsRead')}
             </ActionRow>
           )}
 
@@ -205,7 +206,7 @@ export default function BookActionsSheet({
                 onClose();
               }}
             >
-              Убрать из «Читаю»
+              {t('bookActionsSheet.removeFromReading')}
             </ActionRow>
           )}
 
@@ -218,15 +219,15 @@ export default function BookActionsSheet({
               }}
             >
               {shelfName?.trim()
-                ? `Убрать с полки «${shelfName.trim()}»`
-                : 'Убрать с полки'}
+                ? t('bookActionsSheet.removeFromTheShelf', { shelfName: shelfName.trim() })
+                : t('bookActionsSheet.removeFromShelfPlain')}
             </ActionRow>
           )}
 
           {(onAddToShelf || onCreateShelf) && !fromDetails && (
             shelfPickerOpen ? (
               <div className="pt-3 pb-1">
-                <p className={`${textStyles.captionBold} ${theme.textMuted} mb-2`}>На полку</p>
+                <p className={`${textStyles.captionBold} ${theme.textMuted} mb-2`}>{t('common.addToShelf')}</p>
                 <ShelfPicker
                   shelves={shelves}
                   excludeShelfId={shelfId}
@@ -267,7 +268,7 @@ export default function BookActionsSheet({
                 icon={<FolderPlus className="w-5 h-5 shrink-0" aria-hidden />}
                 onClick={() => setShelfPickerOpen(true)}
               >
-                На полку
+                {t('common.addToShelf')}
               </ActionRow>
             )
           )}
@@ -281,7 +282,7 @@ export default function BookActionsSheet({
                 onClose();
               }}
             >
-              Удалить с устройства
+              {t('bookActionsSheet.deleteFromTheDevice')}
             </ActionRow>
           )}
         </div>

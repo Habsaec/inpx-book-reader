@@ -41,6 +41,7 @@ import {
   type LocalReaderBookmarkItem,
 } from '../lib/offlineReaderStore';
 import SortableShelfList from './shelves/SortableShelfList';
+import { t } from '../i18n';
 
 /** Collections list beside the content instead of drill-in (keep in sync with `min-[900px]:`). */
 const WIDE_QUERY = '(min-width: 900px)';
@@ -455,7 +456,7 @@ export default function MyBooksTab({
     </div>
   ) : null);
   const noMatches = (shown: number) => (bookQuery.trim() && shown === 0 ? (
-    <p className={`py-8 text-center ${textStyles.body} ${theme.textMuted}`}>Ничего не найдено</p>
+    <p className={`py-8 text-center ${textStyles.body} ${theme.textMuted}`}>{t('common.nothingFound')}</p>
   ) : null);
   const bookListTools = (
     <div className="flex items-center justify-end gap-1 min-w-0">
@@ -517,16 +518,16 @@ export default function MyBooksTab({
   }, [seg, activeShelf, activeShelfKey, loadShelfBooks, shelfRevision, onAuthExpired, sectionRetry, smartPage, smartRequestedPageSize, serverConfig]);
 
   const drilledIn = isTabActive && !wide && collectionOpen;
-  usePageTitle(inShelfDrilldown ? activeShelfName ?? 'Полка' : LIBRARY_SEG_LABELS[seg], closeCollection, drilledIn);
+  usePageTitle(inShelfDrilldown ? activeShelfName ?? t('myBooksTab.shelf') : LIBRARY_SEG_LABELS[seg], closeCollection, drilledIn);
   useOverlayBackHandler(drilledIn, closeCollection);
 
   const listError = (
     <EmptyState
       icon={AlertCircle}
       tone="error"
-      title="Не удалось загрузить"
-      description="Проверьте соединение и повторите."
-      actionLabel="Повторить"
+      title={t('myBooksTab.couldNotLoad')}
+      description={t('myBooksTab.checkTheConnectionAndTry')}
+      actionLabel={t('common.retry')}
       onAction={() => {
         setSectionError(false);
         setReaderListsError(false);
@@ -729,9 +730,9 @@ export default function MyBooksTab({
                   {shelves.length === 0 && !newShelfOpen ? (
                     <EmptyState
                       icon={Folder}
-                      title="Полок пока нет"
-                      description="Соберите книги в коллекции — на потом, по жанру или автору."
-                      actionLabel={onAddShelf ? 'Создать полку' : onGoCatalog ? 'Каталог' : undefined}
+                      title={t('myBooksTab.noShelvesYet')}
+                      description={t('myBooksTab.gatherBooksIntoCollectionsFor')}
+                      actionLabel={onAddShelf ? t('common.createAShelf') : onGoCatalog ? t('common.catalog') : undefined}
                       actionVariant="primary"
                       onAction={onAddShelf ? () => setNewShelfOpen(true) : onGoCatalog}
                     />
@@ -740,7 +741,7 @@ export default function MyBooksTab({
                       <SortableShelfList
                         shelves={shelves}
                         onReorder={onReorderShelves}
-                        label="Порядок полок"
+                        label={t('common.shelfOrder')}
                         renderRow={(s) => (
                           <ShelfCard
                             name={s.name}
@@ -775,9 +776,9 @@ export default function MyBooksTab({
                     ) : shelfBooks.length === 0 ? (
                       <EmptyState
                         icon={Folder}
-                        title={activeShelf.kind === 'smart' ? 'По фильтру ничего не нашлось' : 'Полка пуста'}
-                        description={activeShelf.kind === 'smart' ? 'Книги подберутся, когда в каталоге появятся совпадения.' : 'Добавьте сюда книги из библиотеки.'}
-                        actionLabel={activeShelf.kind === 'smart' ? undefined : onGoCatalog ? 'Каталог' : undefined}
+                        title={activeShelf.kind === 'smart' ? t('myBooksTab.nothingMatchesTheFilter') : t('myBooksTab.theShelfIsEmpty')}
+                        description={activeShelf.kind === 'smart' ? t('myBooksTab.booksWillBePickedWhen') : t('myBooksTab.addBooksFromTheLibrary')}
+                        actionLabel={activeShelf.kind === 'smart' ? undefined : onGoCatalog ? t('common.catalog') : undefined}
                         actionVariant="primary"
                         onAction={activeShelf.kind === 'smart' ? undefined : onGoCatalog}
                       />
@@ -831,49 +832,49 @@ export default function MyBooksTab({
                 ) : seg === 'favorites' && authorRows.length === 0 && seriesRows.length === 0 && visibleSectionBooks.length === 0 ? (
                   <EmptyState
                     icon={Heart}
-                    title="Избранное пусто"
-                    description="Добавляйте книги, авторов и серии из каталога."
-                    actionLabel={onGoCatalog ? 'Каталог' : undefined}
+                    title={t('myBooksTab.noFavoritesYet')}
+                    description={t('myBooksTab.addBooksAuthorsAndSeries')}
+                    actionLabel={onGoCatalog ? t('common.catalog') : undefined}
                     actionVariant="primary"
                     onAction={onGoCatalog}
                   />
                 ) : seg === 'reading' && visibleSectionBooks.length === 0 ? (
                   <EmptyState
                     icon={BookOpen}
-                    title="Сейчас ничего не читаете"
-                    description="Открытые книги появятся здесь, пока вы их не дочитаете. Список общий с сайтом."
-                    actionLabel={onGoCatalog ? 'Каталог' : undefined}
+                    title={t('myBooksTab.notReadingAnythingNow')}
+                    description={t('myBooksTab.booksYouOpenAppearHere')}
+                    actionLabel={onGoCatalog ? t('common.catalog') : undefined}
                     actionVariant="primary"
                     onAction={onGoCatalog}
                   />
                 ) : seg === 'want' && visibleSectionBooks.length === 0 ? (
                   <EmptyState
                     icon={BookMarked}
-                    title={isOnline ? 'Список пуст' : 'Нужно подключение к серверу'}
+                    title={isOnline ? t('myBooksTab.theListIsEmpty') : t('myBooksTab.aServerConnectionIsNeeded')}
                     description={isOnline
-                      ? 'Нажмите «Хочу прочитать» в карточке книги. Книга уйдёт отсюда, когда вы её откроете или отметите прочитанной.'
-                      : '«Хочу прочитать» хранится на сервере.'}
-                    actionLabel={isOnline && onGoCatalog ? 'Каталог' : undefined}
+                      ? t('myBooksTab.tapWantToReadOn')
+                      : t('myBooksTab.wantToReadIsStored')}
+                    actionLabel={isOnline && onGoCatalog ? t('common.catalog') : undefined}
                     actionVariant="primary"
                     onAction={onGoCatalog}
                   />
                 ) : seg === 'rated' && visibleSectionBooks.length === 0 ? (
                   <EmptyState
                     icon={Star}
-                    title={isOnline ? 'Оценок пока нет' : 'Нужно подключение к серверу'}
+                    title={isOnline ? t('myBooksTab.noRatingsYet') : t('myBooksTab.aServerConnectionIsNeeded')}
                     description={isOnline
-                      ? 'Поставьте звёзды в карточке книги («Ваша оценка») — оценённые книги соберутся здесь.'
-                      : 'Оценки хранятся на сервере.'}
-                    actionLabel={isOnline && onGoCatalog ? 'Каталог' : undefined}
+                      ? t('myBooksTab.rateBooksWithStarsOn')
+                      : t('myBooksTab.ratingsAreStoredOnThe')}
+                    actionLabel={isOnline && onGoCatalog ? t('common.catalog') : undefined}
                     actionVariant="primary"
                     onAction={onGoCatalog}
                   />
                 ) : seg === 'read' && visibleSectionBooks.length === 0 ? (
                   <EmptyState
                     icon={CheckCircle2}
-                    title="Прочитанных книг пока нет"
-                    description="Отмечайте книги прочитанными — они появятся здесь."
-                    actionLabel={onGoCatalog ? 'Каталог' : undefined}
+                    title={t('myBooksTab.noReadBooksYet')}
+                    description={t('myBooksTab.markBooksAsReadThey')}
+                    actionLabel={onGoCatalog ? t('common.catalog') : undefined}
                     actionVariant="primary"
                     onAction={onGoCatalog}
                   />
@@ -881,7 +882,7 @@ export default function MyBooksTab({
                   <>
                     {seg === 'favorites' && authorRows.length > 0 && (
                       <div className="space-y-0">
-                        <h3 className={`${textStyles.sectionLabel} ${theme.text} mb-1`}>Авторы</h3>
+                        <h3 className={`${textStyles.sectionLabel} ${theme.text} mb-1`}>{t('common.authors')}</h3>
                         {authorRows.map((a) => (
                           <EntityPreviewRow
                             key={a.name}
@@ -898,7 +899,7 @@ export default function MyBooksTab({
                     )}
                     {seg === 'favorites' && seriesRows.length > 0 && (
                       <div className="space-y-0">
-                        <h3 className={`${textStyles.sectionLabel} ${theme.text} mb-1`}>Серии</h3>
+                        <h3 className={`${textStyles.sectionLabel} ${theme.text} mb-1`}>{t('common.seriesPlural')}</h3>
                         {seriesRows.map((s) => (
                           <EntityPreviewRow
                             key={s.name}
@@ -917,7 +918,7 @@ export default function MyBooksTab({
                         {bookFilter(visibleSectionBooks.length)}
                         <div className="mb-3 flex items-center justify-between gap-2">
                           {seg === 'favorites' ? (
-                            <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>Книги</h3>
+                            <h3 className={`${textStyles.sectionLabel} ${theme.text}`}>{t('common.books')}</h3>
                           ) : <span />}
                           {bookListTools}
                         </div>

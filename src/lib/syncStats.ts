@@ -1,6 +1,7 @@
 import { getPendingSyncOps, getFailedSyncOps } from './localDb';
 import { readOfflineReaderData } from './offlineReaderStore';
 import { parseSyncTs } from './readerActivitySync';
+import { t } from '../i18n';
 
 export interface SyncPendingBreakdown {
   queueTotal: number;
@@ -13,11 +14,11 @@ export interface SyncPendingBreakdown {
 }
 
 const OP_LABELS: Record<string, string> = {
-  remove_history: 'История',
-  progress: 'Прогресс',
-  bookmark: 'Закладки',
-  annotation: 'Заметки',
-  read: 'Прочитано',
+  remove_history: t('syncStats.history'),
+  progress: t('syncStats.progress'),
+  bookmark: t('common.bookmarks'),
+  annotation: t('common.notes'),
+  read: t('common.read'),
 };
 
 export function syncOpLabel(opType: string): string {

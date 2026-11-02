@@ -14,6 +14,7 @@ import BookSortBar from './BookSortBar';
 import type { ServerConfig } from '../../types';
 import { getHideRead, setHideRead } from '../../lib/hideReadPreference';
 import { saveUserPreferences } from '../../lib/inpxClient';
+import { t } from '../../i18n';
 
 export interface CatalogGenreOption {
   name: string;
@@ -209,14 +210,14 @@ export default function CatalogFilterSheet({
             <span className={`inline-flex items-center justify-center w-10 h-10 ${radii.md} ${theme.accentMuted}`}>
               <Filter className={`w-5 h-5 ${theme.accentText}`} aria-hidden />
             </span>
-            Фильтры
+            {t('common.filters')}
           </h2>
           <button
             ref={closeRef}
             type="button"
             onClick={onClose}
             className={`${touchMin} inline-flex items-center justify-center ${radii.button} ${theme.focusRing} ${motion.press}`}
-            aria-label="Закрыть"
+            aria-label={t('common.close')}
           >
             <X className="w-5 h-5" aria-hidden />
           </button>
@@ -225,7 +226,7 @@ export default function CatalogFilterSheet({
         <div className="space-y-5 overflow-y-auto flex-1 min-h-0 pb-4">
           <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
-              Рейтинг
+              {t('common.rating')}
             </span>
             <div className="flex flex-wrap gap-2">
               {[0, 1, 2, 3, 4, 5].map((n) => (
@@ -237,7 +238,7 @@ export default function CatalogFilterSheet({
                     draft.minRating === n ? theme.accentActive : `${theme.chip} ${theme.chipHover}`
                   }`}
                 >
-                  {n === 0 ? 'Любой' : `${n}+`}
+                  {n === 0 ? t('catalogFilterSheet.any') : `${n}+`}
                 </button>
               ))}
             </div>
@@ -246,12 +247,12 @@ export default function CatalogFilterSheet({
           {showGenrePicker && (
           <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
-              Жанры
+              {t('common.genres')}
               {draft.genreFilters.length > 0 ? ` (${draft.genreFilters.length})` : ''}
             </span>
             {genresLoading ? (
               <p className={`${textStyles.caption} ${theme.textMuted}`} role="status">
-                Загрузка жанров…
+                {t('catalogFilterSheet.loadingGenres')}
               </p>
             ) : activeGenreOptions.length > 0 ? (
               <div className="space-y-2">
@@ -260,14 +261,14 @@ export default function CatalogFilterSheet({
                     type="search"
                     value={genreQuery}
                     onChange={(e) => setGenreQuery(e.target.value)}
-                    placeholder="Найти жанр…"
-                    aria-label="Найти жанр"
+                    placeholder={t('catalogFilterSheet.findAGenre')}
+                    aria-label={t('catalogFilterSheet.findAGenreLabel')}
                     className={`w-full ${radii.button} pl-4 pr-12 py-3 min-h-12 ${textStyles.body} ${theme.inputFocus} ${theme.input}`}
                   />
                   {genreQuery ? (
                     <button
                       type="button"
-                      aria-label="Очистить"
+                      aria-label={t('common.clear')}
                       onClick={() => setGenreQuery('')}
                       className={`absolute right-0 top-0 h-full w-12 inline-flex items-center justify-center ${theme.textMuted} ${theme.focusRing}`}
                     >
@@ -278,7 +279,7 @@ export default function CatalogFilterSheet({
                 <div
                   className={`max-h-48 overflow-y-auto ${radii.lg} border border-[color:var(--app-border)] divide-y divide-[color:var(--app-border)] ${theme.cardSolid}`}
                   role="group"
-                  aria-label="Жанры"
+                  aria-label={t('common.genres')}
                 >
                   {filteredGenres.map((g) => {
                     const checked = selectedSet.has(g.name);
@@ -310,13 +311,13 @@ export default function CatalogFilterSheet({
                     onClick={() => setDraft((prev) => ({ ...prev, genreFilters: [] }))}
                     className={`min-h-12 px-2 ${textStyles.caption} ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
                   >
-                    Сбросить жанры
+                    {t('catalogFilterSheet.resetGenres')}
                   </button>
                 )}
               </div>
             ) : (
               <p className={`${textStyles.caption} ${theme.textMuted}`}>
-                Нет жанров для текущей выдачи
+                {t('catalogFilterSheet.noGenresForTheCurrent')}
               </p>
             )}
           </div>
@@ -324,14 +325,14 @@ export default function CatalogFilterSheet({
 
           <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
-              Год издания
+              {t('common.editionYear')}
             </span>
             <input
               type="number"
               inputMode="numeric"
               min={1800}
               max={2100}
-              placeholder="Например, 2020"
+              placeholder={t('catalogFilterSheet.forExample2020')}
               value={yearInputValue}
               onChange={(e) => {
                 const raw = e.target.value.trim();
@@ -350,12 +351,12 @@ export default function CatalogFilterSheet({
           {showHideRead ? (
             <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
               <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
-                Прочитанные книги
+                {t('catalogFilterSheet.readBooks')}
               </span>
               <div className="flex flex-wrap gap-2">
                 {([
-                  { id: false, label: 'Показывать' },
-                  { id: true, label: 'Скрыть' },
+                  { id: false, label: t('catalogFilterSheet.show') },
+                  { id: true, label: t('common.hide') },
                 ] as const).map((opt) => (
                   <button
                     key={opt.label}
@@ -371,21 +372,21 @@ export default function CatalogFilterSheet({
                 ))}
               </div>
               <p className={`${textStyles.caption} ${theme.textMuted}`}>
-                Действует в каталоге, новинках, сериях и у авторов — и на сайте библиотеки.
+                {t('catalogFilterSheet.appliesToTheCatalogNew')}
               </p>
             </div>
           ) : null}
 
           <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
-              Наличие серии
+              {t('catalogFilterSheet.series')}
             </span>
             <div className="flex flex-wrap gap-2">
               {(
                 [
-                  { id: 'any' as const, label: 'Любые' },
-                  { id: 'yes' as const, label: 'В серии' },
-                  { id: 'no' as const, label: 'Без серии' },
+                  { id: 'any' as const, label: t('catalogFilterSheet.anySeries') },
+                  { id: 'yes' as const, label: t('common.inASeries') },
+                  { id: 'no' as const, label: t('common.notInASeries') },
                 ] as const
               ).map((opt) => (
                 <button
@@ -408,7 +409,7 @@ export default function CatalogFilterSheet({
 
           <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
             <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
-              Формат
+              {t('catalogFilterSheet.format')}
             </span>
             <div className="flex flex-wrap gap-2">
               {(['all', 'fb2', 'epub', 'txt'] as const).map((fmt) => (
@@ -422,7 +423,7 @@ export default function CatalogFilterSheet({
                       : `${theme.chip} ${theme.chipHover}`
                   }`}
                 >
-                  {fmt === 'all' ? 'Все' : fmt.toUpperCase()}
+                  {fmt === 'all' ? t('common.all') : fmt.toUpperCase()}
                 </button>
               ))}
             </div>
@@ -431,16 +432,16 @@ export default function CatalogFilterSheet({
           {showSort && (
             <div className={`${radii.lg} bg-[color-mix(in_srgb,var(--app-text)_4%,var(--app-surface))] p-4 space-y-3`}>
               <span className={`block ${textStyles.sectionLabel} ${theme.text}`}>
-                Сортировка
+                {t('common.sort')}
               </span>
               <BookSortBar
                 className="max-w-none w-full"
                 value={draft.sortBy}
                 options={[
-                  { id: 'rating', label: 'Рейтинг' },
-                  { id: 'title', label: 'Название' },
-                  { id: 'year', label: 'Год' },
-                  { id: 'downloads', label: 'Скачивания' },
+                  { id: 'rating', label: t('common.rating') },
+                  { id: 'title', label: t('common.title') },
+                  { id: 'year', label: t('common.year') },
+                  { id: 'downloads', label: t('catalogFilterSheet.downloads') },
                 ]}
                 onChange={(id) => setDraft((prev) => ({ ...prev, sortBy: id as DemoBookSort }))}
               />
@@ -471,12 +472,12 @@ export default function CatalogFilterSheet({
                   onChange={(e) => setSmartName(e.target.value)}
                   maxLength={80}
                   autoFocus
-                  placeholder="Название умной полки"
-                  aria-label="Название умной полки"
+                  placeholder={t('catalogFilterSheet.smartShelfName')}
+                  aria-label={t('catalogFilterSheet.smartShelfName')}
                   className={`min-w-0 flex-1 min-h-12 px-3 ${radii.md} ${theme.input} ${theme.focusRing}`}
                 />
                 <Button type="submit" variant="primary" disabled={!smartName.trim() || smartBusy} loading={smartBusy}>
-                  Сохранить
+                  {t('common.save')}
                 </Button>
               </form>
             ) : (
@@ -486,7 +487,7 @@ export default function CatalogFilterSheet({
                 className={`w-full min-h-12 inline-flex items-center justify-center gap-2 ${radii.button} ${textStyles.bodyBold} ${theme.accentText} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
               >
                 <Search className="w-4 h-4" aria-hidden />
-                Сохранить как умную полку
+                {t('catalogFilterSheet.saveAsASmartShelf')}
               </button>
             )}
           </div>
@@ -495,11 +496,11 @@ export default function CatalogFilterSheet({
         <div className={`flex gap-2 pt-4 shrink-0 border-t ${theme.divider}`}>
           {hasActive && (
             <Button type="button" variant="ghost" className="flex-1" onClick={resetDraft}>
-              Сбросить
+              {t('common.reset')}
             </Button>
           )}
           <Button type="button" variant="primary" className="flex-1" onClick={applyAndClose}>
-            Готово
+            {t('common.done')}
           </Button>
         </div>
     </DragSheet>

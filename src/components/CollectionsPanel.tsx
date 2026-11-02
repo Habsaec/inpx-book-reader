@@ -24,6 +24,7 @@ import { BookGridSkeleton, BookListSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
 import { textStyles, motion } from '../ui/tokens';
 import { usePageTitle } from '../ui/pageTitle';
+import { t, formatNumber } from '../i18n';
 
 interface CollectionsPanelProps {
   serverConfig: ServerConfig;
@@ -47,7 +48,7 @@ interface CollectionsPanelProps {
 }
 
 function foundLabel(found: number, total: number) {
-  return `В библиотеке ${found.toLocaleString('ru-RU')} из ${total.toLocaleString('ru-RU')}`;
+  return t('collectionsPanel.foundOf', { found: formatNumber(found), total: formatNumber(total) });
 }
 
 /**
@@ -90,8 +91,8 @@ export default function CollectionsPanel({
 
   useOverlayBackHandler(isTabActive && !openSlug, onClose);
   useOverlayBackHandler(isTabActive && Boolean(openSlug), closeDetail);
-  usePageTitle('Подборки', onClose, isTabActive && !openSlug);
-  const openTitle = detail?.title || collections.find((c) => c.slug === openSlug)?.title || 'Подборка';
+  usePageTitle(t('common.collections'), onClose, isTabActive && !openSlug);
+  const openTitle = detail?.title || collections.find((c) => c.slug === openSlug)?.title || t('common.collection');
   usePageTitle(openTitle, closeDetail, isTabActive && Boolean(openSlug));
 
   React.useEffect(() => {
@@ -179,13 +180,13 @@ export default function CollectionsPanel({
   const renderList = () => {
     if (listLoading) return <BookListSkeleton count={5} />;
     if (!collections.length) {
-      return <EmptyState icon={ListOrdered} title="Подборок нет" description="Администратор может включить их в Админка → Контент." />;
+      return <EmptyState icon={ListOrdered} title={t('collectionsPanel.noCollections')} description={t('collectionsPanel.theAdministratorCanTurnThem')} />;
     }
     if (sortable) {
       // Same as the shelves list in «Мои книги» (`SortableShelfList`): drag by ⠿, ↑↓ on the handle.
       const bySlug = new Map(ordered.map((c) => [c.slug, c]));
       return (
-        <Reorder.Group axis="y" as="ul" values={drag.order} onReorder={drag.setOrder} aria-label="Порядок подборок" className={`border-t ${theme.divider}`}>
+        <Reorder.Group axis="y" as="ul" values={drag.order} onReorder={drag.setOrder} aria-label={t('collectionsPanel.collectionOrder')} className={`border-t ${theme.divider}`}>
           {drag.order.map((slug) => {
             const c = bySlug.get(slug);
             if (!c) return null;
@@ -241,9 +242,9 @@ export default function CollectionsPanel({
           compact
           tone="error"
           icon={AlertCircle}
-          title="Не удалось загрузить подборку"
-          description="Проверьте соединение с сервером."
-          actionLabel="Повторить"
+          title={t('collectionsPanel.couldNotLoadTheCollection')}
+          description={t('common.checkTheConnectionToThe')}
+          actionLabel={t('common.retry')}
           actionVariant="secondary"
           onAction={() => setReloadKey((k) => k + 1)}
         />
@@ -251,21 +252,21 @@ export default function CollectionsPanel({
     }
     if (detailLoading || !detail) {
       return (
-        <div aria-busy aria-label="Загрузка">
+        <div aria-busy aria-label={t('common.loading')}>
           <BookGridSkeleton count={9} />
         </div>
       );
     }
     const summary = [
-      detail.matching ? 'Сопоставляется с каталогом…' : foundLabel(detail.found, detail.total),
-      detail.found ? `прочитано ${detail.read.toLocaleString('ru-RU')}` : '',
+      detail.matching ? t('collectionsPanel.matchingWithTheCatalog') : foundLabel(detail.found, detail.total),
+      detail.found ? t('collectionsPanel.readCount', { read: formatNumber(detail.read) }) : '',
     ].filter(Boolean).join(' · ');
     return (
       <>
         {detail.description ? <p className={`mb-1 ${textStyles.caption} ${theme.textMuted}`}>{detail.description}</p> : null}
         {detail.source ? (
           // Plain text: the app has no way to open an external page (a link would navigate the WebView away).
-          <p className={`mb-3 ${textStyles.caption} ${theme.textMuted}`}>Источник: {detail.source}</p>
+          <p className={`mb-3 ${textStyles.caption} ${theme.textMuted}`}>{t('collectionsPanel.source')} {detail.source}</p>
         ) : <div className="mb-2" />}
         <div className="flex items-center justify-between gap-2 mb-3">
           <p className={`${textStyles.micro} ${theme.textMuted}`}>{summary}</p>
@@ -294,7 +295,7 @@ export default function CollectionsPanel({
         ) : null}
         {missing.length ? (
           <section className="mt-7">
-            <h2 className={`mb-1.5 ${textStyles.captionBold} ${theme.textMuted}`}>Нет в библиотеке</h2>
+            <h2 className={`mb-1.5 ${textStyles.captionBold} ${theme.textMuted}`}>{t('collectionsPanel.notInTheLibrary')}</h2>
             <div className={`border-t ${theme.divider}`}>
               {missing.map((item) => (
                 <div key={item.position} className={`min-h-14 flex items-center gap-3 px-0.5 py-2 border-b ${theme.divider}`}>
@@ -311,7 +312,7 @@ export default function CollectionsPanel({
                       onClick={() => onSearch([item.title, item.author].filter(Boolean).join(' '))}
                       className={`shrink-0 min-h-10 px-3 rounded-full ${textStyles.micro} ${theme.chip} ${theme.chipHover} ${theme.focusRing} ${motion.press}`}
                     >
-                      Искать
+                      {t('collectionsPanel.search')}
                     </button>
                   ) : null}
                 </div>

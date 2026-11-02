@@ -63,6 +63,7 @@
             </LinearLayout>
 
             <TextView
+                android:id="@+id/widget_following_label"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"

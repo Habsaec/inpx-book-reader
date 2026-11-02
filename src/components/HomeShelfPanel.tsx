@@ -22,6 +22,7 @@ import { BookGridSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
 import { textStyles } from '../ui/tokens';
 import { usePageTitle } from '../ui/pageTitle';
+import { t, formatNumber } from '../i18n';
 
 /** Server page size of `/api/smart-shelves/:id/books`; regular shelves come in one response. */
 
@@ -142,23 +143,23 @@ export default function HomeShelfPanel({
             compact
             tone="error"
             icon={AlertCircle}
-            title="Не удалось загрузить полку"
-            description="Проверьте соединение с сервером."
-            actionLabel="Повторить"
+            title={t('homeShelfPanel.couldNotLoadTheShelf')}
+            description={t('common.checkTheConnectionToThe')}
+            actionLabel={t('common.retry')}
             actionVariant="secondary"
             onAction={() => setReloadKey((k) => k + 1)}
           />
         ) : loading ? (
-          <div aria-busy aria-label="Загрузка">
+          <div aria-busy aria-label={t('common.loading')}>
             <BookGridSkeleton count={9} />
           </div>
         ) : books.length === 0 ? (
-          <EmptyState icon={BookOpen} title="На полке пока нет книг" />
+          <EmptyState icon={BookOpen} title={t('homeShelfPanel.noBooksOnTheShelf')} />
         ) : (
           <>
             <div className="flex items-center justify-between gap-2 mb-3">
               <p className={`${textStyles.micro} ${theme.textMuted}`}>
-                Книг: <strong>{total.toLocaleString('ru-RU')}</strong>
+                {t('homeShelfPanel.books')} <strong>{formatNumber(total)}</strong>
               </p>
               <ViewModeToggle value={viewMode} onChange={setViewMode} />
             </div>

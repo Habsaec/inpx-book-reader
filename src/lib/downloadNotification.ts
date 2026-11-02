@@ -1,5 +1,6 @@
 import { registerPlugin } from '@capacitor/core';
 import { isNativeApp } from './platform';
+import { t } from '../i18n';
 
 interface DownloadNotificationPlugin {
   start(options: { title?: string; text?: string; progress?: number; indeterminate?: boolean }): Promise<void>;
@@ -28,7 +29,7 @@ export async function notifyDownloadStart(title: string): Promise<void> {
     if (taskGen !== notifyGeneration || !notifyActive) return;
     try {
       await DownloadNotification.start({
-        title: 'Загрузка книг',
+        title: t('downloadNotification.downloadingBooks'),
         text: title,
         progress: 0,
         indeterminate: true,
@@ -45,7 +46,7 @@ export async function notifyDownloadProgress(title: string, progress: number): P
     if (taskGen !== notifyGeneration || !notifyActive) return;
     try {
       await DownloadNotification.update({
-        title: 'Загрузка книг',
+        title: t('downloadNotification.downloadingBooks'),
         text: title,
         progress: Math.round(progress),
         indeterminate: false,

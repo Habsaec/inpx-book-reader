@@ -18,6 +18,7 @@ import { importExternalBookFromUri, findImportedBookByUri } from '../lib/importE
 import type { AppTab } from '../components/AppShell';
 import { useSnackbar } from '../ui/Snackbar';
 import { bookContentUrl, displayCoverUrl } from '../lib/inpxClient';
+import { t } from '../i18n';
 
 function localRecentToBook(item: LocalRecentReadingItem, config: ServerConfig): Book {
   return {
@@ -121,17 +122,17 @@ export function useAndroidLaunch({
           const fromRecent = recentList.find((item) => item.id === wantedId);
           if (fromRecent) {
             // Recent metadata without a local file — don't open a broken reader.
-            snackbarRef.current.show('Файл книги недоступен — скачайте снова');
+            snackbarRef.current.show(t('androidLaunch.theBookFileIsUnavailable'));
             onTabChangeRef.current('library');
             return;
           }
-          snackbarRef.current.show('Книга с виджета ещё не доступна локально');
+          snackbarRef.current.show(t('androidLaunch.theBookFromTheWidget'));
           onTabChangeRef.current('home');
           return;
         }
         const recent = recentList[0];
         if (!recent) {
-          snackbarRef.current.show('Нет книги для продолжения чтения');
+          snackbarRef.current.show(t('androidLaunch.noBookToContinueReading'));
           onTabChangeRef.current('home');
           return;
         }
@@ -139,7 +140,7 @@ export function useAndroidLaunch({
           (b) => b.id === recent.id && Boolean(b.localFileName?.trim()),
         );
         if (!recentOnDisk) {
-          snackbarRef.current.show('Файл книги недоступен — скачайте снова');
+          snackbarRef.current.show(t('androidLaunch.theBookFileIsUnavailable'));
           onTabChangeRef.current('library');
           return;
         }
@@ -182,7 +183,7 @@ export function useAndroidLaunch({
           if (!dir?.uri) {
             if (isCancelled()) return;
             // Don't mark handled — user may pick a folder and re-launch the same URI.
-            snackbarRef.current.show('Выберите папку хранения в настройках');
+            snackbarRef.current.show(t('androidLaunch.chooseAStorageFolderIn'));
             onTabChangeRef.current('profile');
             return;
           }
@@ -194,7 +195,7 @@ export function useAndroidLaunch({
             onOpenBookRef.current(imported);
           } catch {
             if (isCancelled()) return;
-            snackbarRef.current.show('Не удалось импортировать файл');
+            snackbarRef.current.show(t('androidLaunch.couldNotImportTheFile'));
             onTabChangeRef.current('library');
           }
         })();

@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /** RFC1918, loopback, link-local, mDNS, Tailscale/CGNAT — не считаем «удалённым HTTP». */
 export function isPrivateOrLocalHost(hostname: string): boolean {
   const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
@@ -47,7 +48,7 @@ export function isInsecureRemoteHttp(url: string): boolean {
 
 export function insecureHttpWarning(url: string): string | null {
   if (!isInsecureRemoteHttp(url)) return null;
-  return 'Подключение по HTTP без шифрования. Логин и пароль могут быть перехвачены в публичной сети. Рекомендуется HTTPS.';
+  return t('serverUrl.connectingOverHttpWithoutEncryption');
 }
 
 /** «library.example.com» for lists; the full URL lives inside the section. */

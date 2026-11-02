@@ -19,6 +19,7 @@ import {
   buildMergeInputFromLocalCtx,
   type PositionMergeInput,
 } from '../../public/inpx-reader/position-sync.js';
+import { t } from '../i18n';
 
 export const SYNC_EPOCH = '1970-01-01T00:00:00.000Z';
 export {
@@ -59,9 +60,9 @@ export function isServerCollectionNewer(
 }
 
 export const CROSS_DEVICE_POSITION_MESSAGE =
-  'Ранее вы уже читали эту книгу на другом устройстве. Перейти на сохранённую позицию?';
-export const CROSS_DEVICE_POSITION_ACCEPT = 'Перейти';
-export const CROSS_DEVICE_POSITION_DECLINE = 'Остаться здесь';
+  t('common.youHaveReadThisBook');
+export const CROSS_DEVICE_POSITION_ACCEPT = t('syncMerge.go');
+export const CROSS_DEVICE_POSITION_DECLINE = t('syncMerge.stayHere');
 
 export interface PositionDisplayMeta {
   fb2Href?: string | null;

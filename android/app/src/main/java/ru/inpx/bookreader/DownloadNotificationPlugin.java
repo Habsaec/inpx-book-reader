@@ -11,8 +11,8 @@ public class DownloadNotificationPlugin extends Plugin {
 
     @PluginMethod
     public void start(PluginCall call) {
-        String title = call.getString("title", "Загрузка книг");
-        String text = call.getString("text", "Подготовка…");
+        String title = call.getString("title", UiLocale.str(getContext(), R.string.download_title));
+        String text = call.getString("text", UiLocale.str(getContext(), R.string.download_preparing));
         int progress = call.getInt("progress", 0);
         boolean indeterminate = call.getBoolean("indeterminate", false);
 
@@ -36,7 +36,7 @@ public class DownloadNotificationPlugin extends Plugin {
 
     @PluginMethod
     public void update(PluginCall call) {
-        String title = call.getString("title", "Загрузка книг");
+        String title = call.getString("title", UiLocale.str(getContext(), R.string.download_title));
         String text = call.getString("text", "");
         int progress = call.getInt("progress", 0);
         boolean indeterminate = call.getBoolean("indeterminate", false);

@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../i18n';
 
 /** Server base cover width the fixed ribbon (17×75) was designed for. */
 const SERVER_COVER_W = 176;
@@ -27,7 +28,7 @@ export default function CoverRatingBadge({
     <span
       className={`cover-rating-wrapper ${className}`.trim()}
       style={style}
-      aria-label={`Рейтинг ${n} из 5`}
+      aria-label={t('coverRatingBadge.ratingOf5', { n })}
       data-cover-ref={SERVER_COVER_W}
     >
       <span className={`cover-rating-badge cover-rating-${n}`}>

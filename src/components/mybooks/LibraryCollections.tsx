@@ -21,20 +21,21 @@ import { shelfKey, type UiShelf } from '../../lib/inpxClient';
 import { useLongPress } from '../../hooks/useLongPress';
 import ShelfHomeToggle from '../shelves/ShelfHomeToggle';
 import SortableShelfList from '../shelves/SortableShelfList';
+import { t } from '../../i18n';
 
 export type LibrarySeg = 'reading' | 'downloaded' | 'local' | 'favorites' | 'want' | 'shelves' | 'read' | 'rated' | 'bookmarks' | 'notes';
 
 export const LIBRARY_SEG_LABELS: Record<LibrarySeg, string> = {
-  reading: 'Читаю',
-  downloaded: 'На устройстве',
-  local: 'Папки',
-  favorites: 'Избранное',
-  want: 'Хочу прочитать',
-  shelves: 'Полки',
-  read: 'Прочитано',
-  rated: 'Мои оценки',
-  bookmarks: 'Закладки',
-  notes: 'Заметки',
+  reading: t('libraryCollections.reading'),
+  downloaded: t('common.onTheDevice'),
+  local: t('libraryCollections.folders'),
+  favorites: t('libraryCollections.favorites'),
+  want: t('common.wantToRead'),
+  shelves: t('common.shelves'),
+  read: t('common.read'),
+  rated: t('common.myRatings'),
+  bookmarks: t('common.bookmarks'),
+  notes: t('common.notes'),
 };
 
 const LIBRARY_GROUP: { seg: LibrarySeg; icon: LucideIcon }[] = [
@@ -107,13 +108,13 @@ function ShelfRow({
       type="button"
       aria-current={current || undefined}
       {...press}
-      aria-description={onDelete ? 'Удерживайте, чтобы удалить полку' : undefined}
+      aria-description={onDelete ? t('common.holdToDeleteTheShelf') : undefined}
       className={`flex-1 min-w-0 min-h-14 flex items-center gap-3.5 px-0.5 text-left select-none ${
         current ? 'bg-[var(--app-accent-soft)]' : theme.rowPress
       } ${theme.focusRing} ${motion.press}`}
     >
       {shelf.kind === 'smart' ? (
-        <Search className={`w-5 h-5 shrink-0 ${theme.accentText}`} aria-label="Умная полка" />
+        <Search className={`w-5 h-5 shrink-0 ${theme.accentText}`} aria-label={t('common.smartShelf')} />
       ) : (
         <Library className={`w-5 h-5 shrink-0 ${current ? theme.accentText : theme.textMuted}`} aria-hidden />
       )}
@@ -186,13 +187,13 @@ export default function LibraryCollections({
     />
   );
   return (
-    <nav aria-label="Коллекции">
+    <nav aria-label={t('libraryCollections.collections')}>
       {queueCount > 0 && onOpenQueue ? (
         <div className={`mt-2 border-y ${theme.divider}`}>
-          <Row icon={Download} label="Очередь загрузок" count={queueCount} accent onClick={onOpenQueue} />
+          <Row icon={Download} label={t('libraryCollections.downloadQueue')} count={queueCount} accent onClick={onOpenQueue} />
         </div>
       ) : null}
-      <Group title="Библиотека">
+      <Group title={t('common.library')}>
         {LIBRARY_GROUP.map(({ seg: s, icon }) => (
           <Row
             key={s}
@@ -204,7 +205,7 @@ export default function LibraryCollections({
           />
         ))}
       </Group>
-      <Group title="Из книг">
+      <Group title={t('libraryCollections.fromBooks')}>
         {NOTES_GROUP.map(({ seg: s, icon }) => (
           <Row
             key={s}
@@ -217,21 +218,21 @@ export default function LibraryCollections({
         ))}
       </Group>
       {shelves.length > 0 || onNewShelf ? <Group
-        title="Полки"
+        title={t('common.shelves')}
         hint={shelves.length > 0 && onRemoveShelf
-          ? (onReorderShelves && shelves.length > 1 ? 'Порядок — перетаскиванием за ⠿, удалить — удерживайте полку' : 'Удерживайте полку, чтобы удалить')
+          ? (onReorderShelves && shelves.length > 1 ? t('libraryCollections.dragToReorderHoldA') : t('libraryCollections.holdAShelfToDelete'))
           : undefined}
       >
-        <SortableShelfList shelves={shelves} onReorder={onReorderShelves} renderRow={renderShelfRow} label="Порядок полок" />
+        <SortableShelfList shelves={shelves} onReorder={onReorderShelves} renderRow={renderShelfRow} label={t('common.shelfOrder')} />
         {onNewShelf ? (
           shelves.length === 0 ? (
-            <Row icon={Plus} label="Создать полку" accent onClick={onNewShelf} />
+            <Row icon={Plus} label={t('common.createAShelf')} accent onClick={onNewShelf} />
           ) : (
             <button
               type="button"
               onClick={onNewShelf}
-              title="Создать полку"
-              aria-label="Создать полку"
+              title={t('common.createAShelf')}
+              aria-label={t('common.createAShelf')}
               className={`inline-flex items-center justify-center w-12 h-12 mt-1 ${radii.md} ${theme.accentText} ${theme.focusRing} ${motion.press}`}
             >
               <Plus className="w-5 h-5" aria-hidden />

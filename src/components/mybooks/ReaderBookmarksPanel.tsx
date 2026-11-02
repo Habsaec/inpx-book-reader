@@ -8,6 +8,12 @@ import type { Book, ServerConfig } from '../../types';
 import { bookContentUrl, displayCoverUrl } from '../../lib/inpxClient';
 import { useBarHeight } from '../../ui/useBarHeight';
 import { textStyles, touchMin, semantic, radii, motion, elevation } from '../../ui/tokens';
+import { t } from '../../i18n';
+
+/** Untitled bookmark: the reader saves «Закладка» / «Bookmark» depending on the interface language. */
+function isDefaultBookmarkLabel(label: string): boolean {
+  return label === 'Закладка' || label === 'Bookmark' || label === t('common.bookmarkDefault');
+}
 
 function bookmarkToBook(bm: LocalReaderBookmarkItem, config: ServerConfig): Book {
   const ext = (bm.ext || 'fb2').replace(/^\./, '');
@@ -58,7 +64,7 @@ export default function ReaderBookmarksPanel({
   if (!bookmarks.length) {
     return (
       <div className="flex-1 overflow-y-auto inpx-page-scroll px-5">
-        <EmptyState icon={Bookmark} title="Закладок пока нет" description="Отмечайте места в тексте во время чтения." />
+        <EmptyState icon={Bookmark} title={t('readerBookmarksPanel.noBookmarksYet')} description={t('readerBookmarksPanel.markPlacesInTheText')} />
       </div>
     );
   }
@@ -90,8 +96,8 @@ export default function ReaderBookmarksPanel({
                   <input
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
-                    aria-label="Название закладки"
-                    placeholder="Название закладки"
+                    aria-label={t('readerBookmarksPanel.bookmarkName')}
+                    placeholder={t('readerBookmarksPanel.bookmarkName')}
                     className={`w-full min-h-11 px-3 ${radii.button} ${textStyles.body} ${theme.input} ${theme.inputFocus}`}
                     autoFocus
                   />
@@ -100,14 +106,14 @@ export default function ReaderBookmarksPanel({
                       type="submit"
                       className={`min-h-11 px-4 ${radii.button} ${textStyles.captionBold} ${theme.accentBg} ${theme.focusRing} ${motion.press}`}
                     >
-                      Сохранить
+                      {t('common.save')}
                     </button>
                     <button
                       type="button"
                       onClick={() => setEditingId(null)}
                       className={`min-h-11 px-4 ${radii.button} ${textStyles.caption} ${theme.chip} ${theme.focusRing} ${motion.press}`}
                     >
-                      Отмена
+                      {t('common.cancel')}
                     </button>
                   </div>
                 </form>
@@ -117,23 +123,23 @@ export default function ReaderBookmarksPanel({
                   className={`mt-1 w-full text-left ${theme.focusRing} ${radii.md} ${motion.press}`}
                   onClick={() => {
                     setEditingId(`${bm.bookId}-${bm.id}`);
-                    setEditTitle(bm.label === 'Закладка' ? '' : bm.label);
+                    setEditTitle(isDefaultBookmarkLabel(bm.label) ? '' : bm.label);
                   }}
                 >
                   <p className={`m-0 ${textStyles.bodyBold} line-clamp-2`}>
-                    {bm.label === 'Закладка' ? 'Добавить название' : bm.label}
+                    {isDefaultBookmarkLabel(bm.label) ? t('readerBookmarksPanel.addAName') : bm.label}
                   </p>
                 </button>
               ) : (
                 <p className={`m-0 mt-1 ${textStyles.bodyBold} line-clamp-2`}>{bm.label}</p>
               )}
               {downloadedBookIds && !downloadedBookIds.includes(bm.bookId) ? (
-                <p className={`m-0 mt-1 ${textStyles.caption} ${theme.textMuted}`}>Не скачана</p>
+                <p className={`m-0 mt-1 ${textStyles.caption} ${theme.textMuted}`}>{t('common.notDownloaded')}</p>
               ) : null}
               {onRemoveBookmark && editingId !== `${bm.bookId}-${bm.id}` ? (
                 <button
                   type="button"
-                  aria-label="Удалить закладку"
+                  aria-label={t('readerBookmarksPanel.deleteTheBookmark')}
                   className={`${touchMin} mt-1 inline-flex items-center justify-center ${radii.button} ${semantic.error} ${theme.focusRing} ${motion.press}`}
                   onClick={() => void onRemoveBookmark(bm.bookId, bm.id)}
                 >
@@ -151,10 +157,10 @@ export default function ReaderBookmarksPanel({
           style={{ top: 'calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px))' }}
         >
           <ChoicePicker
-            title="Книга"
+            title={t('common.book')}
             value={bookFilter}
             onChange={setBookFilter}
-            options={[{ id: 'all', label: 'Все книги' }, ...bookOptions.map(([id, title]) => ({ id, label: title }))]}
+            options={[{ id: 'all', label: t('common.allBooks') }, ...bookOptions.map(([id, title]) => ({ id, label: title }))]}
             className="max-w-full"
           />
         </div>

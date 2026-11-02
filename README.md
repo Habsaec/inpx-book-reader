@@ -34,13 +34,13 @@
 > The app works together with [INPX Library Server](https://github.com/Habsaec/inpx-library-server): the catalog, books and sync come from it. Install the server first. Books already downloaded and files from the phone can be read without it.
 
 > [!NOTE]
-> The app interface is currently in **Russian only**. Menu names below are given in Russian with an English translation. The server's web interface is available in English.
+> The app interface is in **English and Russian**. It follows the phone language (Russian for Russian, Ukrainian, Belarusian and Kazakh, English otherwise); to change it, open **Profile → Appearance → Language**.
 
 ## Installation
 
 1. Download `INPX.Book.Reader.<version>.apk` from the [latest release](https://github.com/Habsaec/inpx-book-reader/releases/latest). On a phone it is easier to scan the «App» QR code in the sidebar of the library's web interface.
 2. Open the file and allow installing from this source.
-3. After that the app updates itself: **Профиль → О приложении** (Profile → About).
+3. After that the app updates itself: **Profile → About the app**.
 
 Requires Android 6.0 or newer. iOS and desktop are not supported.
 
@@ -48,11 +48,11 @@ Requires Android 6.0 or newer. iOS and desktop are not supported.
 
 On first launch a setup wizard walks you through three steps.
 
-1. **Sign in.** The easiest way is a QR code: in the library's web interface, press «App» in the sidebar and scan the one-time sign-in code (valid for 10 minutes, the password is not transferred). Or tap «Войти по логину и паролю» (sign in with login and password) and enter the server address, e.g. `http://192.168.1.10:3000`, your login and password.
+1. **Sign in.** The easiest way is a QR code: in the library's web interface, press «App» in the sidebar and scan the one-time sign-in code (valid for 10 minutes, the password is not transferred). Or tap «Sign in with login and password» and enter the server address, e.g. `http://192.168.1.10:3000`, your login and password.
 2. **Books folder** — where downloads are saved; you can keep the suggested one.
 3. **Done** — catalog, downloads, reading.
 
-To change the server later: **Профиль → Подключение** (Profile → Connection).
+To change the server later: **Profile → Connection**.
 
 <details>
 <summary><b>Can't connect?</b></summary>

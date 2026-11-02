@@ -5,6 +5,7 @@
 import { registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { APP_SETTING_KEYS, getAppSettingJson, getAppSettingString, setAppSettingJson, setAppSettingRaw } from './appSettings';
+import { t } from '../i18n';
 
 const CHECK_TIMEOUT_MS = 15_000;
 
@@ -204,13 +205,13 @@ export async function checkForAppUpdate(): Promise<AppUpdateCheckResult> {
   const { json } = await withTimeout(
     AppUpdate.checkLatest(),
     CHECK_TIMEOUT_MS,
-    'Нет доступа к GitHub. Проверьте сеть или VPN.',
+    t('appUpdate.noAccessToGithubCheck'),
   );
   let release: GithubRelease;
   try {
     release = JSON.parse(json) as GithubRelease;
   } catch {
-    throw new Error('Некорректный ответ сервера обновлений');
+    throw new Error(t('appUpdate.invalidResponseFromTheUpdate'));
   }
   return buildAppUpdateCheckResult(release, currentVersion);
 }

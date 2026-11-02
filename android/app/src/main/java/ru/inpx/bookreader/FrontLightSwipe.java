@@ -269,7 +269,7 @@ final class FrontLightSwipe {
     private void showHud(int raw) {
         TextView view = hudView();
         if (view == null) return;
-        view.setText(activity.getString(
+        view.setText(UiLocale.str(activity,
             warmthSide ? R.string.light_hud_warmth : R.string.light_hud_brightness, raw, max));
         if (view.getVisibility() != View.VISIBLE) view.setVisibility(View.VISIBLE);
     }

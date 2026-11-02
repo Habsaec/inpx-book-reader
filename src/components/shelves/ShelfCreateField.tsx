@@ -5,6 +5,7 @@ import { theme } from '../../lib/appTheme';
 import { useCalmMotion } from '../../hooks/useCalmMotion';
 import { textStyles, radii, motion as motionTokens } from '../../ui/tokens';
 import { useFollowSpring } from '../../ui/useFollowSpring';
+import { t } from '../../i18n';
 
 type Props = {
   open: boolean;
@@ -63,8 +64,8 @@ export default function ShelfCreateField({
     <div className="flex items-center min-w-0 w-full">
       <button
         type="button"
-        title="Создать"
-        aria-label="Создать"
+        title={t('shelfCreateField.create')}
+        aria-label={t('shelfCreateField.create')}
         aria-expanded={open}
         disabled={busy}
         onClick={onPlus}
@@ -89,10 +90,10 @@ export default function ShelfCreateField({
               e.preventDefault();
               if (name.trim()) onSubmit();
             }}
-            placeholder="Название полки"
+            placeholder={t('shelfCreateField.shelfName')}
             maxLength={80}
             disabled={busy}
-            aria-label="Название новой полки"
+            aria-label={t('shelfCreateField.newShelfName')}
           />
         ) : null}
       </motion.div>

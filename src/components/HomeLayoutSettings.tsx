@@ -11,6 +11,7 @@ import {
   type HomeLayout,
   type HomeSectionId,
 } from '../lib/homeLayout';
+import { t } from '../i18n';
 
 interface HomeLayoutSettingsProps {
   layout: HomeLayout;
@@ -27,11 +28,11 @@ export default function HomeLayoutSettings({ layout, onChange, disabled = false 
 
   return (
     <div className="py-3 border-b border-[color:var(--app-border)]">
-      <p className={`${textStyles.body} ${theme.text}`}>Блоки главной</p>
+      <p className={`${textStyles.body} ${theme.text}`}>{t('homeLayoutSettings.homeScreenBlocks')}</p>
       <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
-        Что показывать; порядок — перетаскиванием за ⠿. Порядок полок — в «Мои книги». Общая настройка с сайтом
+        {t('homeLayoutSettings.whatToShowDragTo')}
       </p>
-      <Reorder.Group axis="y" as="ul" values={sections.order} onReorder={sections.setOrder} className="mt-2" aria-label="Блоки главной">
+      <Reorder.Group axis="y" as="ul" values={sections.order} onReorder={sections.setOrder} className="mt-2" aria-label={t('homeLayoutSettings.homeScreenBlocks')}>
         {sections.order.map((id) => {
           const visible = isHomeSectionVisible(layout, id);
           const label = HOME_SECTION_LABELS[id];
@@ -51,7 +52,7 @@ export default function HomeLayoutSettings({ layout, onChange, disabled = false 
                 type="button"
                 role="switch"
                 aria-checked={visible}
-                aria-label={`Показывать «${label}»`}
+                aria-label={t('homeLayoutSettings.show', { label })}
                 disabled={disabled}
                 onClick={() => {
                   impactLight();

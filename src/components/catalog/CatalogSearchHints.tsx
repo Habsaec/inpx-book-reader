@@ -2,6 +2,7 @@ import React from 'react';
 import { theme } from '../../lib/appTheme';
 import { textStyles, motion } from '../../ui/tokens';
 import type { CatalogSearchHints } from '../../lib/inpxClient';
+import { t } from '../../i18n';
 
 interface Props {
   hints: CatalogSearchHints | null | undefined;
@@ -19,7 +20,7 @@ export default function CatalogSearchHintsBanner({ hints, onDidYouMean }: Props)
       {tip ? <p className={`${textStyles.body} ${theme.textMuted}`}>{tip}</p> : null}
       {typos.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`${textStyles.caption} ${theme.textMuted}`}>Возможно, вы имели в виду</span>
+          <span className={`${textStyles.caption} ${theme.textMuted}`}>{t('catalogSearchHints.didYouMean')}</span>
           {typos.map((q) => (
             <button
               key={q}

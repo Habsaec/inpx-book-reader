@@ -40,8 +40,8 @@ public class DownloadForegroundService extends Service {
         boolean indeterminate = intent.getBooleanExtra(EXTRA_INDETERMINATE, false);
 
         Notification notification = buildNotification(
-            title != null ? title : "Загрузка книг",
-            text != null ? text : "Подготовка…",
+            title != null ? title : UiLocale.str(this, R.string.download_title),
+            text != null ? text : UiLocale.str(this, R.string.download_preparing),
             progress,
             indeterminate
         );
@@ -104,10 +104,10 @@ public class DownloadForegroundService extends Service {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,
-            "Загрузка книг",
+            UiLocale.str(this, R.string.download_channel),
             NotificationManager.IMPORTANCE_LOW
         );
-        channel.setDescription("Фоновая загрузка книг из библиотеки");
+        channel.setDescription(UiLocale.str(this, R.string.download_channel_description));
         channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {

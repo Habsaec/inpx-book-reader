@@ -1,5 +1,6 @@
 import { registerPlugin } from '@capacitor/core';
 import { isAndroid } from './platform';
+import { t } from '../i18n';
 
 interface QrScanNative {
   scan(): Promise<{ value?: string }>;
@@ -28,7 +29,7 @@ export function isQrScanCanceled(err: unknown): boolean {
  */
 export async function scanAppPairingQr(): Promise<string> {
   if (!isAndroid()) {
-    throw new Error('Сканирование QR доступно только в Android-приложении');
+    throw new Error(t('scanAppPairingQr.qrScanningIsAvailableOnly'));
   }
 
   let value: string | undefined;
@@ -38,16 +39,16 @@ export async function scanAppPairingQr(): Promise<string> {
     const code = (err as { code?: string } | null)?.code;
     if (code === 'CANCELED' || isQrScanCanceled(err)) throw new QrScanCanceledError();
     if (code === 'MODULE_INSTALLING') {
-      throw new Error('Устанавливается модуль сканера Google. Повторите сканирование через несколько секунд.');
+      throw new Error(t('scanAppPairingQr.theGoogleScannerModuleIs'));
     }
     if (code === 'UNSUPPORTED') {
-      throw new Error('Сканер QR недоступен на этом устройстве');
+      throw new Error(t('scanAppPairingQr.theQrScannerIsUnavailable'));
     }
     throw err;
   }
   const raw = value?.trim();
   if (!raw) {
-    throw new Error('QR-код не распознан');
+    throw new Error(t('scanAppPairingQr.theQrCodeWasNot'));
   }
   return raw;
 }

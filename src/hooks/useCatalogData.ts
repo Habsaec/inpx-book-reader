@@ -20,6 +20,7 @@ import type { Book, ServerConfig } from '../types';
 import { useHideReadEpoch } from '../lib/hideReadPreference';
 import type { CatalogSubTab } from '../components/catalog/catalogTypes';
 import { sortBooksBySeriesVolume } from '../lib/seriesVolumeSort';
+import { t } from '../i18n';
 
 export interface CatalogAuthorRow {
   key: string;
@@ -92,7 +93,7 @@ function applyGenreFilter(
 
 function catalogErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  return msg.trim() || 'Не удалось загрузить каталог';
+  return msg.trim() || t('common.couldNotLoadTheCatalog');
 }
 
 export function useCatalogData({

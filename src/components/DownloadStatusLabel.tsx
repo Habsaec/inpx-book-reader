@@ -2,6 +2,7 @@ import React from 'react';
 import { theme } from '../lib/appTheme';
 import { textStyles } from '../ui/tokens';
 import { Cloud, Loader2, Smartphone } from 'lucide-react';
+import { t } from '../i18n';
 
 interface DownloadStatusLabelProps {
   isDownloaded: boolean;
@@ -22,7 +23,7 @@ export default function DownloadStatusLabel({
         className={`inline-flex items-center gap-1 ${textStyles.microBold} ${theme.accentText} ${className}`}
       >
         <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" aria-hidden />
-        <span className="sr-only">Скачивается</span>
+        <span className="sr-only">{t('common.downloading')}</span>
       </span>
     );
   }
@@ -32,11 +33,11 @@ export default function DownloadStatusLabel({
     return (
       <span
         className={`inline-flex items-center gap-1 ${showNotDownloaded ? textStyles.microBold : ''} ${theme.textMuted} ${className}`}
-        title="На устройстве"
-        aria-label="На устройстве"
+        title={t('common.onTheDevice')}
+        aria-label={t('common.onTheDevice')}
       >
         <Smartphone className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} aria-hidden />
-        {showNotDownloaded ? 'На устройстве' : null}
+        {showNotDownloaded ? t('common.onTheDevice') : null}
       </span>
     );
   }
@@ -46,7 +47,7 @@ export default function DownloadStatusLabel({
   return (
     <span className={`inline-flex items-center gap-1 ${textStyles.microBold} ${theme.textMuted} ${className}`}>
       <Cloud className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
-      На сервере
+      {t('downloadStatusLabel.onTheServer')}
     </span>
   );
 }

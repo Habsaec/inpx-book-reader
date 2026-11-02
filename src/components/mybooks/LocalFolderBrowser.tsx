@@ -8,12 +8,13 @@ import CatalogBookList from '../catalog/CatalogBookList';
 import ViewModeToggle from '../../ui/ViewModeToggle';
 import BookSortBar from '../catalog/BookSortBar';
 import { sortBooksLocal, type LocalBookSort } from '../../lib/localBookSort';
+import { t } from '../../i18n';
 
 const FOLDER_SORT_OPTIONS: Array<{ id: LocalBookSort; label: string }> = [
-  { id: 'recent', label: 'Как в папке' },
-  { id: 'title', label: 'Название' },
-  { id: 'author', label: 'Автор' },
-  { id: 'volume', label: 'Номер тома' },
+  { id: 'recent', label: t('localFolderBrowser.asInTheFolder') },
+  { id: 'title', label: t('common.title') },
+  { id: 'author', label: t('common.author') },
+  { id: 'volume', label: t('common.volumeNumber') },
 ];
 import EmptyState from '../../ui/EmptyState';
 import { textStyles, touchMin, radii } from '../../ui/tokens';
@@ -94,7 +95,7 @@ function FolderCells({
             </button>
             {item.onHide ? (
               <button type="button" onClick={item.onHide} className={`${textStyles.caption} ${theme.textMuted} ${theme.focusRing}`}>
-                Скрыть
+                {t('common.hide')}
               </button>
             ) : null}
           </div>
@@ -121,7 +122,7 @@ function FolderCells({
           </button>
           {item.onHide ? (
             <button type="button" onClick={item.onHide} className={`shrink-0 ${textStyles.caption} ${theme.textMuted} ${theme.focusRing}`}>
-              Скрыть
+              {t('common.hide')}
             </button>
           ) : null}
         </div>
@@ -446,7 +447,7 @@ export default function LocalFolderBrowser({
           if (waitTimer) window.clearTimeout(waitTimer);
           setPending(false);
           setLoading(false);
-          if (!shown) setError(err instanceof Error ? err.message : 'Не удалось открыть папку');
+          if (!shown) setError(err instanceof Error ? err.message : t('localFolderBrowser.couldNotOpenTheFolder'));
         }
       }
     })();
@@ -589,14 +590,14 @@ export default function LocalFolderBrowser({
     try {
       const info = await BookStorage.getStorageFileInfo({ treeUri: folder.uri, path: book.localFileName });
       const digest = String(info?.digestSha256 || '').toLowerCase();
-      if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error('Не удалось опознать файл');
+      if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(t('localFolderBrowser.couldNotIdentifyTheFile'));
       const saved: Book = { ...book, id: `local:${digest}` };
       await upsertBook(saved);
       setKnown((prev) => [...prev.filter((b) => b.id !== saved.id), saved]);
       onRegisterBook?.(saved);
       onOpenBook(saved);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось открыть книгу');
+      setError(err instanceof Error ? err.message : t('common.couldNotOpenTheBook'));
     }
   };
 
@@ -621,7 +622,7 @@ export default function LocalFolderBrowser({
             items={roots.map((item) => ({
               key: item.id,
               label: item.label,
-              hint: item.id === def.id ? 'Папка по умолчанию' : undefined,
+              hint: item.id === def.id ? t('common.defaultFolder') : undefined,
               onHide: item.id === def.id ? () => { hideDefault(); } : undefined,
               onClick: () => {
                 setFolder(item);
@@ -632,8 +633,8 @@ export default function LocalFolderBrowser({
         ) : (
           <EmptyState
             icon={Folder}
-            title="Папки скрыты"
-            description="Папка по умолчанию скрыта. Вернуть её можно в Профиле, в разделе «Хранилище»."
+            title={t('localFolderBrowser.foldersAreHidden')}
+            description={t('localFolderBrowser.theDefaultFolderIsHidden')}
           />
         )}
       </div>
@@ -650,7 +651,7 @@ export default function LocalFolderBrowser({
             else setFolder(null);
           }}
           className={`${touchMin} inline-flex items-center justify-center ${radii.button} ${theme.focusRing}`}
-          aria-label="Назад"
+          aria-label={t('common.back')}
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
@@ -678,10 +679,10 @@ export default function LocalFolderBrowser({
         />
       ) : null}
       {loading ? (
-        <p className={`${textStyles.caption} ${theme.textMuted}`}>Открываем папку…</p>
+        <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('localFolderBrowser.openingTheFolder')}</p>
       ) : null}
       {!pending && !loading && !dirs.length && !books.length ? (
-        <EmptyState icon={Folder} title="Папка пуста" description="Нет подпапок и книг fb2, epub, pdf, txt или zip." />
+        <EmptyState icon={Folder} title={t('localFolderBrowser.theFolderIsEmpty')} description={t('localFolderBrowser.noSubfoldersOrFb2Epub')} />
       ) : null}
       {books.length > 0 ? (
         <CatalogBookList

@@ -28,6 +28,7 @@ import {
   toLocalBookId,
   toServerBookId,
 } from './bookRef';
+import { t, getLocale, intlLocale } from '../i18n';
 
 /** Per-account switches shared with the web UI (`GET/POST /api/preferences`). */
 export interface UserPreferences {
@@ -99,6 +100,8 @@ export interface InpxBookItem {
   authorsList?: string[];
   genres?: string;
   genresDisplayList?: string[];
+  /** Additive: English genre names (same order as `genresDisplayList`). */
+  genresDisplayListEn?: string[];
   series?: string;
   seriesNo?: string | number;
   seriesList?: Array<{ name: string; displayName?: string; seriesNo?: string | number }>;
@@ -172,6 +175,8 @@ export async function apiFetch(
   const fullUrl = `${base}${targetPath.startsWith('/') ? targetPath : `/${targetPath}`}`;
   const headers: Record<string, string> = {
     Accept: 'application/json',
+    // Server messages, genre names etc. in the app's interface language (not only the phone's).
+    'Accept-Language': getLocale(),
     'X-Request-ID': getDebugRequestId(),
     ...authHeader(config),
     ...(init.headers as Record<string, string> | undefined),
@@ -207,7 +212,7 @@ export interface ServerBranding {
   rawUi?: Record<string, unknown>;
 }
 
-const BRANDING_FALLBACK_NAME = 'Библиотека';
+const BRANDING_FALLBACK_NAME = t('common.library');
 const DEFAULT_LOGO_PATH = '/logo.png';
 const CONNECTION_TIMEOUT_MS = 8_000;
 /** Default timeout for catalog/sync/profile JSON API calls. */
@@ -230,7 +235,7 @@ export class ApiError extends Error {
 }
 
 /** Same wording as the server's `errors.serverBusy` (503 SERVICE_UNAVAILABLE + Retry-After). */
-export const SERVER_BUSY_MESSAGE = 'Сервер сейчас готовит другие книги. Повторите через несколько секунд.';
+export const SERVER_BUSY_MESSAGE = t('inpxClient.theServerIsBusyPreparing');
 /** The server answers `Retry-After: 15` when its download / 7z queue is full. */
 const SERVER_BUSY_RETRY_MS = 15_000;
 const SERVER_BUSY_ATTEMPTS = 4;
@@ -293,7 +298,7 @@ async function withTimeoutSignal<T>(
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new Error(`Timeout: сервер не ответил за ${Math.round(timeoutMs / 1000)} с`));
+      reject(new Error(t('inpxClient.timeoutTheServerDidNot', { n: Math.round(timeoutMs / 1000) })));
     }, timeoutMs);
   });
   const task = work(controller.signal);
@@ -345,22 +350,22 @@ export async function fetchServerLogoBlob(config: ServerConfig, logoPath: string
 export async function testConnection(config: ServerConfig): Promise<ConnectionTestResult> {
   const base = normalizeBaseUrl(config.url);
   if (!base) {
-    return { ok: false, error: 'Не указан адрес сервера' };
+    return { ok: false, error: t('inpxClient.noServerAddress') };
   }
 
   if (isNativeApp() && /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(config.url.trim())) {
     return {
       ok: false,
-      error: 'На телефоне нельзя использовать localhost. Укажите IP компьютера в Wi‑Fi, например http://192.168.1.42:3000',
+      error: t('inpxClient.localhostDoesNotWorkOn'),
     };
   }
 
   if (!config.username?.trim() && !config.deviceToken?.trim()) {
-    return { ok: false, error: 'Укажите логин и пароль пользователя библиотеки' };
+    return { ok: false, error: t('inpxClient.enterTheLoginAndPassword') };
   }
 
   if (!config.deviceToken?.trim() && !config.password) {
-    return { ok: false, error: 'Укажите логин и пароль пользователя библиотеки' };
+    return { ok: false, error: t('inpxClient.enterTheLoginAndPassword') };
   }
 
   let healthAnswered = false;
@@ -371,7 +376,7 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
     if (!healthRes.ok) {
       return {
         ok: false,
-        error: `Сервер не отвечает (HTTP ${healthRes.status}). Адрес: ${base}`,
+        error: t('inpxClient.theServerDoesNotAnswer', { status: healthRes.status, base }),
       };
     }
 
@@ -381,16 +386,16 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
         return {
           ok: false,
           authExpired: true,
-          error: 'Сессия устройства устарела. Введите логин и пароль заново.',
+          error: t('common.theDeviceSessionHasExpired'),
         };
       }
-      return { ok: false, error: 'Неверный логин или пароль' };
+      return { ok: false, error: t('inpxClient.wrongLoginOrPassword') };
     }
     if (!profileRes.ok) {
       const hint = profileRes.status === 404
-        ? ' Обновите INPX Library Server — нужен endpoint /api/profile.'
+        ? t('inpxClient.updateInpxLibraryServerThe')
         : '';
-      return { ok: false, error: `Ошибка авторизации (HTTP ${profileRes.status}).${hint}` };
+      return { ok: false, error: t('inpxClient.authorizationErrorHttp', { status: profileRes.status, hint }) };
     }
 
     return { ok: true };
@@ -401,16 +406,16 @@ export async function testConnection(config: ServerConfig): Promise<ConnectionTe
     if (healthAnswered && /timeout|abort/i.test(msg)) {
       return {
         ok: false,
-        error: `Сервер ${base} отвечает слишком медленно. Подождите немного и нажмите «Подключить» ещё раз.`,
+        error: t('inpxClient.theServerAnswersTooSlowly', { base }),
       };
     }
     if (isUnreachableServerError(e)) {
       return {
         ok: false,
-        error: `Нет связи с ${base}. Проверьте: сервер запущен, домен открывается в браузере телефона, логин/пароль верны. Если адрес через DDNS — проверьте, что запись на роутере актуальна.`,
+        error: t('inpxClient.noConnectionToCheckThat', { base }),
       };
     }
-    return { ok: false, error: msg || 'Не удалось подключиться' };
+    return { ok: false, error: msg || t('common.couldNotConnect') };
   }
 }
 
@@ -433,11 +438,11 @@ export async function probeServerHealth(
 }
 
 function statusFallbackMessage(status: number): string {
-  if (status === 401) return 'Сессия устройства устарела. Введите логин и пароль заново.';
-  if (status === 403) return 'Недостаточно прав для этого действия.';
-  if (status === 404) return 'Не найдено на сервере.';
-  if (status === 429) return 'Слишком много запросов. Подождите немного и повторите.';
-  if (status >= 500) return `Ошибка сервера (HTTP ${status}). Попробуйте позже.`;
+  if (status === 401) return t('common.theDeviceSessionHasExpired');
+  if (status === 403) return t('inpxClient.notEnoughRightsForThis');
+  if (status === 404) return t('inpxClient.notFoundOnTheServer');
+  if (status === 429) return t('inpxClient.tooManyRequestsWaitA');
+  if (status >= 500) return t('inpxClient.serverErrorHttpTryAgain', { status });
   return `HTTP ${status}`;
 }
 
@@ -473,7 +478,7 @@ async function apiJson<T>(config: ServerConfig, path: string, init: RequestInit 
     try {
       return (await res.json()) as T;
     } catch {
-      throw new ApiError('Сервер вернул некорректный ответ', res.status);
+      throw new ApiError(t('inpxClient.theServerReturnedAnInvalid'), res.status);
     }
   });
 }
@@ -1223,7 +1228,7 @@ export async function saveReadingPosition(
   try {
     return await response.json();
   } catch {
-    throw new ApiError('Сервер вернул некорректный ответ', response.status);
+    throw new ApiError(t('inpxClient.theServerReturnedAnInvalid'), response.status);
   }
 }
 
@@ -1596,6 +1601,23 @@ export async function fetchSearchOverview(
   return apiJson(config, `/api/search?q=${encodeURIComponent(query)}`);
 }
 
+type GenreRow = { name: string; displayName?: string; displayNameEn?: string; bookCount?: number };
+
+/**
+ * English UI: genre names from the additive server field `displayNameEn` (the index keeps Russian
+ * `displayName`). Older servers have no such field — the Russian name stays.
+ */
+export function localizeGenreRows<T extends GenreRow>(items: T[]): T[] {
+  if (getLocale() !== 'en') return items;
+  return items.map((g) => (g.displayNameEn ? { ...g, displayName: g.displayNameEn } : g));
+}
+
+/** Genre names of a book in the UI language (`genresDisplayListEn` when English and the server sends it). */
+export function bookGenreLabels(item: Pick<InpxBookItem, 'genres' | 'genresDisplayList' | 'genresDisplayListEn'>): string[] {
+  if (getLocale() === 'en' && item.genresDisplayListEn?.length) return item.genresDisplayListEn;
+  return item.genresDisplayList || (item.genres ? item.genres.split(':') : []);
+}
+
 /** Genres present in books matching the current search/filters (faceted). */
 export async function fetchSearchGenres(
   config: ServerConfig,
@@ -1615,7 +1637,8 @@ export async function fetchSearchGenres(
   if (opts.minRate != null && opts.minRate >= 1) params.set('minRate', String(Math.floor(opts.minRate)));
   if (opts.hasSeries === 0 || opts.hasSeries === 1) params.set('hasSeries', String(opts.hasSeries));
   if (![...params.keys()].length) return { scoped: false, items: [] };
-  return apiJson(config, `/api/search/genres?${params}`);
+  const data = await apiJson<{ scoped: boolean; items?: GenreRow[] }>(config, `/api/search/genres?${params}`);
+  return { ...data, items: localizeGenreRows(Array.isArray(data.items) ? data.items : []) };
 }
 
 export async function fetchRecentBooks(
@@ -1662,7 +1685,9 @@ export async function fetchSeries(
 
 export type GenreGroup = {
   groupName: string;
-  items: Array<{ name: string; bookCount?: number; displayName?: string }>;
+  /** Additive: English group name. */
+  groupNameEn?: string;
+  items: Array<{ name: string; bookCount?: number; displayName?: string; displayNameEn?: string }>;
 };
 
 export async function fetchGenres(
@@ -1677,13 +1702,24 @@ export async function fetchGenres(
     groups?: GenreGroup[] | Record<string, string[]>;
     items?: Array<{ name: string; bookCount?: number; displayName?: string }>;
   }>(config, `/api/browse/genres?sort=${sortParam}`);
-  const items = Array.isArray(data.items) ? data.items : [];
+  const items = localizeGenreRows(Array.isArray(data.items) ? data.items : []);
   // Ожидаем groups: [{ groupName, items }]. Старые серверы отдавали сырой map кодов.
   if (Array.isArray(data.groups)) {
-    return { items, groups: data.groups };
+    const english = getLocale() === 'en';
+    const byName = (a: string, b: string) => a.localeCompare(b, intlLocale(), { sensitivity: 'base' });
+    let groups = data.groups.map((g) => {
+      let groupItems = localizeGenreRows(Array.isArray(g.items) ? g.items : []);
+      // The server orders names by the Russian title; English names need their own order.
+      if (english && sort === 'name') {
+        groupItems = [...groupItems].sort((a, b) => byName(a.displayName || a.name, b.displayName || b.name));
+      }
+      return { ...g, groupName: (english && g.groupNameEn) || g.groupName, items: groupItems };
+    });
+    if (english && sort === 'name') groups = [...groups].sort((a, b) => byName(a.groupName, b.groupName));
+    return { items, groups };
   }
   if (items.length) {
-    return { items, groups: [{ groupName: 'Жанры', items }] };
+    return { items, groups: [{ groupName: t('common.genres'), items }] };
   }
   return { items, groups: [] };
 }
@@ -1780,7 +1816,7 @@ export async function fetchAuthorPortraitBlob(config: ServerConfig, authorName: 
         const text = await res.text().catch(() => '');
         throw new ApiError(messageFromErrorBody(text, res.status), res.status);
       }
-      throw new ApiError(`Портрет: HTTP ${res.status}`, res.status);
+      throw new ApiError(t('inpxClient.portraitHttp', { status: res.status }), res.status);
     }
     return await res.blob();
   } catch (e: unknown) {
@@ -1968,7 +2004,7 @@ async function downloadBookBinaryOnce(
     });
   } catch (e: unknown) {
     if (headerController.signal.aborted && !opts?.signal?.aborted) {
-      throw new Error(`Timeout: сервер не ответил за ${Math.round(API_TIMEOUT_MS / 1000)} с`);
+      throw new Error(t('inpxClient.timeoutTheServerDidNot', { n: Math.round(API_TIMEOUT_MS / 1000) }));
     }
     throw e;
   } finally {
@@ -1978,7 +2014,7 @@ async function downloadBookBinaryOnce(
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
     throw new ApiError(
-      `Загрузка: ${messageFromErrorBody(detail, res.status)}`,
+      t('inpxClient.download', { p: messageFromErrorBody(detail, res.status) }),
       res.status,
     );
   }
@@ -2002,7 +2038,7 @@ async function downloadBookBinaryOnce(
       const idleTimeout = new Promise<never>((_, reject) => {
         idleTimer = setTimeout(() => {
           void reader.cancel().catch(() => {});
-          reject(new Error('Загрузка остановилась: сервер не присылает данные'));
+          reject(new Error(t('inpxClient.theDownloadStalledTheServer')));
         }, DOWNLOAD_IDLE_TIMEOUT_MS);
       });
       const { done, value } = await Promise.race([reader.read(), idleTimeout]).finally(() => {
@@ -2129,7 +2165,7 @@ export function formatAuthorLabel(value = ''): string {
     .filter(Boolean);
   if (!authors.length) return raw;
   const head = authors.slice(0, 3).join(', ');
-  return authors.length > 3 ? `${head} и ещё ${authors.length - 3}` : head;
+  return authors.length > 3 ? t('inpxClient.andMore', { head, p: authors.length - 3 }) : head;
 }
 
 /** Separate people for author pages. INPX joins people with `:`, not a comma. */
@@ -2151,7 +2187,7 @@ export function authorFacetNames(book: { author?: string; authors?: string[] }):
   const listed = (book.authors || []).map((name) => name.trim()).filter(Boolean);
   if (listed.length) return listed.slice(0, 2);
   const raw = (book.author || '').trim();
-  if (!raw || raw === 'Неизвестный автор') return [];
+  if (!raw || raw === 'Неизвестный автор' || raw === t('common.unknownAuthor')) return [];
   return raw
     .split(/,\s+/)
     .map((part) => part.replace(/\s+и ещё \d+$/u, '').trim())
@@ -2167,10 +2203,10 @@ export function formatAuthorsFromItem(
     const authors = item.authorsList.map((author) => formatSingleAuthorName(author)).filter(Boolean);
     if (authors.length) {
       const head = authors.slice(0, 3).join(', ');
-      return authors.length > 3 ? `${head} и ещё ${authors.length - 3}` : head;
+      return authors.length > 3 ? t('inpxClient.andMore', { head, p: authors.length - 3 }) : head;
     }
   }
-  return formatAuthorLabel(item.authors || '') || 'Неизвестный автор';
+  return formatAuthorLabel(item.authors || '') || t('common.unknownAuthor');
 }
 
 function parseSeriesNo(value: unknown): number | undefined {
@@ -2244,7 +2280,7 @@ export function mapServerBook(
 ) {
   const author = formatAuthorsFromItem(item);
   const authors = authorNamesFromItem(item);
-  const genreParts = item.genresDisplayList || (item.genres ? item.genres.split(':') : []);
+  const genreParts = bookGenreLabels(item);
   const { series, seriesDisplay, seriesNo, seriesNoLabel } = pickSeriesFromItem(item, opts?.preferredSeries);
   const rawRate = item.libRate ?? (item as { lib_rate?: unknown }).lib_rate;
   return {
@@ -2252,8 +2288,8 @@ export function mapServerBook(
     title: item.title,
     author,
     authors: authors.length ? authors : undefined,
-    genre: genreParts[0] || 'Другое',
-    subgenre: genreParts[1] || 'Разное',
+    genre: genreParts[0] || t('common.genreOther'),
+    subgenre: genreParts[1] || t('common.genreMisc'),
     genresDisplay: genreParts.length ? genreParts : undefined,
     genreCodes: String(item.genres || '')
       .split(/[:,]/)
@@ -2293,11 +2329,11 @@ export async function exchangeDeviceToken(
     body: JSON.stringify({ deviceName }),
   });
   if (!res.ok) {
-    throw new Error(`Не удалось получить device token (HTTP ${res.status})`);
+    throw new Error(t('inpxClient.couldNotGetADevice', { status: res.status }));
   }
   const data = await res.json() as { ok?: boolean; token?: string; tokenId?: string; deviceName?: string };
   if (!data.token || !data.tokenId) {
-    throw new Error('Сервер не вернул device token');
+    throw new Error(t('inpxClient.theServerDidNotReturn'));
   }
   return {
     deviceToken: data.token,
@@ -2314,7 +2350,7 @@ export async function revokeDeviceToken(config: ServerConfig, tokenId: string): 
     headers: { Accept: 'application/json' },
   });
   if (!res.ok && res.status !== 404) {
-    throw new Error(`Не удалось отозвать device token (HTTP ${res.status})`);
+    throw new Error(t('inpxClient.couldNotRevokeTheDevice', { status: res.status }));
   }
 }
 
@@ -2340,40 +2376,40 @@ export function parsePairingQrPayload(raw: string): AppPairingPayload {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error('QR-код не похож на код входа INPX');
+    throw new Error(t('inpxClient.theQrCodeDoesNot'));
   }
   if (!data || typeof data !== 'object') {
-    throw new Error('QR-код не похож на код входа INPX');
+    throw new Error(t('inpxClient.theQrCodeDoesNot'));
   }
   const obj = data as Record<string, unknown>;
   if (obj.type !== 'inpx-pair') {
-    throw new Error('QR-код не похож на код входа INPX');
+    throw new Error(t('inpxClient.theQrCodeDoesNot'));
   }
   const url = String(obj.url || '').trim();
   const code = String(obj.code || '').trim();
   if (!url || !code) {
-    throw new Error('В QR-коде нет адреса сервера или кода');
+    throw new Error(t('inpxClient.theQrCodeHasNo'));
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
     const proto = url.split('://', 1)[0]!.toLowerCase();
     if (proto !== 'http' && proto !== 'https') {
-      throw new Error('В QR-коде некорректный адрес сервера');
+      throw new Error(t('inpxClient.theQrCodeHasAn'));
     }
   } else if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^[a-z0-9.-]+:\d+/i.test(url)) {
-    throw new Error('В QR-коде некорректный адрес сервера');
+    throw new Error(t('inpxClient.theQrCodeHasAn'));
   }
   const normalized = normalizeBaseUrl(url);
   let parsed: URL;
   try {
     parsed = new URL(normalized);
   } catch {
-    throw new Error('В QR-коде некорректный адрес сервера');
+    throw new Error(t('inpxClient.theQrCodeHasAn'));
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('В QR-коде некорректный адрес сервера');
+    throw new Error(t('inpxClient.theQrCodeHasAn'));
   }
   if (!parsed.hostname) {
-    throw new Error('В QR-коде некорректный адрес сервера');
+    throw new Error(t('inpxClient.theQrCodeHasAn'));
   }
   return {
     type: 'inpx-pair',
@@ -2391,10 +2427,10 @@ export async function redeemPairingCode(
 ): Promise<AppPairingRedeemResult> {
   const base = normalizeBaseUrl(serverUrl);
   if (!base) {
-    throw new Error('Не указан адрес сервера в QR-коде');
+    throw new Error(t('inpxClient.noServerInQr'));
   }
   if (isNativeApp() && /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?\/?$/i.test(serverUrl.trim())) {
-    throw new Error('На телефоне нельзя использовать localhost. Обновите Public site URL на сервере.');
+    throw new Error(t('inpxClient.localhostQr'));
   }
 
   const fullUrl = `${base}/api/auth/pairing/redeem`;
@@ -2402,6 +2438,7 @@ export async function redeemPairingCode(
     method: 'POST',
     headers: {
       Accept: 'application/json',
+      'Accept-Language': getLocale(),
       'Content-Type': 'application/json',
       'X-Request-ID': getDebugRequestId(),
     },
@@ -2433,22 +2470,22 @@ export async function redeemPairingCode(
   } catch (e: unknown) {
     if (e instanceof Error && e.message.startsWith('Timeout:')) throw e;
     if (isUnreachableServerError(e)) {
-      throw new Error(`Нет связи с ${base}. Проверьте, что телефон в той же сети или указан внешний адрес.`);
+      throw new Error(t('inpxClient.noConnectionQr', { base }));
     }
     throw e instanceof Error ? e : new Error(String(e));
   }
 
   if (!res.ok || !data.ok) {
     if (data.code === 'PAIRING_INVALID' || res.status === 400) {
-      throw new Error(data.error || 'Код недействителен или истёк');
+      throw new Error(data.error || t('inpxClient.theCodeIsInvalidOr'));
     }
     if (res.status === 429) {
-      throw new Error(data.error || 'Слишком много попыток. Попробуйте позже.');
+      throw new Error(data.error || t('inpxClient.tooManyAttemptsTryAgain'));
     }
-    throw new Error(data.error || `Не удалось войти по QR (HTTP ${res.status})`);
+    throw new Error(data.error || t('inpxClient.couldNotSignInWith', { status: res.status }));
   }
   if (!data.deviceToken || !data.deviceTokenId || !data.username) {
-    throw new Error('Сервер не вернул device token');
+    throw new Error(t('inpxClient.theServerDidNotReturn'));
   }
   // serverUrl из ответа принимаем только с того же origin, куда отправили код:
   // на http:// (LAN) MITM мог бы подменить адрес и собирать device token дальше.

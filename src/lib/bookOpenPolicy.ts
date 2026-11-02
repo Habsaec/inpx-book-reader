@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /**
  * Primary action for a book tile/row (Home and other storefront surfaces).
  * Secondary actions (favourite, read, delete, about) live in BookActionsSheet.
@@ -12,11 +13,11 @@ export type BookPrimaryAction = {
 };
 
 const LABELS: Record<BookPrimaryKind, string> = {
-  download: 'Скачать',
-  downloading: 'Скачивается',
-  read: 'Читать',
-  continue: 'Продолжить',
-  reread: 'Читать',
+  download: t('common.download'),
+  downloading: t('common.downloading'),
+  read: t('common.readAction'),
+  continue: t('common.continue'),
+  reread: t('common.readAction'),
 };
 
 export function resolveBookPrimaryAction(input: {

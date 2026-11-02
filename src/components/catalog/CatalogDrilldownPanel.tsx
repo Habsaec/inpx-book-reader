@@ -13,6 +13,7 @@ import FlibustaBookRow from './FlibustaBookRow';
 import QuickAction from './QuickAction';
 import ShelfPicker from '../ShelfPicker';
 import { textStyles, radii, elevation, motion as motionTokens } from '../../ui/tokens';
+import { t, tn, formatNumber } from '../../i18n';
 
 interface CatalogDrilldownPanelProps {
   selectedAuthor: string | null;
@@ -77,7 +78,7 @@ export function CatalogAuthorSeriesShelf({
       ))}
       {authorGrouped.standaloneBooks.length > 0 && (
         <LiteEntityRow
-          name="Вне серий"
+          name={t('common.outsideSeries')}
           count={authorGrouped.standaloneBooks.length}
           isAppDark={isAppDark}
           onClick={onOpenOutsideSeries}
@@ -139,13 +140,13 @@ export function CatalogAuthorGroupedList({
               >
                 <h3 className={`${textStyles.bookTitle} truncate`}>{s.displayName || s.name}</h3>
                 <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
-                  {s.bookCount} кн.
+                  {tn('common.booksShort', s.bookCount)}
                 </span>
               </button>
               {onDownloadSeries ? (
                 <button
                   type="button"
-                  aria-label={`Скачать серию ${s.displayName || s.name}`}
+                  aria-label={t('catalogDrilldownPanel.downloadSeries', { p: s.displayName || s.name })}
                   disabled={seriesDownloadBusy}
                   onClick={() => onDownloadSeries(s.name)}
                   className={`shrink-0 min-h-12 min-w-12 inline-flex items-center justify-center ${theme.focusRing} ${theme.accentText} ${motionTokens.press} disabled:opacity-50`}
@@ -176,9 +177,9 @@ export function CatalogAuthorGroupedList({
       {authorGrouped.standaloneBooks.length > 0 && (
         <section className="min-w-0 py-1">
           <div className="mb-1 flex items-baseline justify-between gap-2 min-h-10 px-0.5">
-            <h3 className={textStyles.bookTitle}>Вне серий</h3>
+            <h3 className={textStyles.bookTitle}>{t('common.outsideSeries')}</h3>
             <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
-              {authorGrouped.standaloneBooks.length} кн.
+              {tn('common.booksShort', authorGrouped.standaloneBooks.length)}
             </span>
           </div>
           <div>
@@ -220,10 +221,10 @@ function SeriesProgressBlock({
     <div className="mt-3 space-y-2">
       <div className="flex items-baseline justify-between gap-2">
         <p className={`${textStyles.captionBold} ${theme.text}`}>
-          Прочитано {progress.read} из {progress.total}
+          {t('common.readOf', { read: progress.read, total: progress.total })}
         </p>
         {!next ? (
-          <span className={`${textStyles.captionBold} text-[var(--app-success)]`}>Серия прочитана</span>
+          <span className={`${textStyles.captionBold} text-[var(--app-success)]`}>{t('catalogDrilldownPanel.seriesFinished')}</span>
         ) : null}
       </div>
       <div
@@ -232,7 +233,7 @@ function SeriesProgressBlock({
         aria-valuenow={pct}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label={`Прочитано ${progress.read} из ${progress.total}`}
+        aria-label={t('catalogDrilldownPanel.readOf', { read: progress.read, total: progress.total })}
       >
         <div className={`h-full rounded-full ${theme.progress}`} style={{ width: `${pct}%` }} />
       </div>
@@ -243,7 +244,7 @@ function SeriesProgressBlock({
           className={`flex w-full min-h-12 items-center gap-2 px-4 ${radii.button} ${textStyles.captionBold} ${theme.accentBg} ${theme.focusRing} ${motionTokens.press}`}
         >
           <BookOpen className="w-4 h-4 shrink-0" aria-hidden />
-          <span className="shrink-0">Продолжить</span>
+          <span className="shrink-0">{t('common.continue')}</span>
           <span className="min-w-0 truncate font-normal opacity-90">· {currentTitle}</span>
           <span className="ml-auto shrink-0 tabular-nums">{Math.round(current.progress)}%</span>
         </button>
@@ -256,7 +257,7 @@ function SeriesProgressBlock({
           className={`flex w-full min-h-12 items-center gap-2 px-4 ${radii.button} ${textStyles.captionBold} ${theme.accentBg} ${theme.focusRing} ${motionTokens.press}`}
         >
           <BookOpen className="w-4 h-4 shrink-0" aria-hidden />
-          <span className="shrink-0">Читать следующую</span>
+          <span className="shrink-0">{t('catalogDrilldownPanel.readTheNextOne')}</span>
           <span className="min-w-0 truncate font-normal opacity-90">· {nextTitle}</span>
         </button>
       ) : null}
@@ -317,11 +318,11 @@ export default function CatalogDrilldownPanel({
           onClick={onDrillDownBack}
           className={`flex items-center gap-1.5 min-h-12 px-3 ${radii.button} ${textStyles.captionBold} ${theme.accentText} ${theme.accentMuted} ${theme.focusRing} ${motionTokens.press}`}
         >
-          <ArrowLeft className="w-5 h-5" aria-hidden /> Назад
+          <ArrowLeft className="w-5 h-5" aria-hidden /> {t('common.back')}
         </button>
         <span className="flex-1 min-w-0" />
         <p className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
-          {bookCount} кн.
+          {tn('common.booksShort', bookCount)}
         </p>
       </div>
       ) : null}
@@ -345,14 +346,14 @@ export default function CatalogDrilldownPanel({
                 </div>
               )}
               <div className="min-w-0 pt-0.5">
-                <p className={`${textStyles.caption} ${theme.textMuted}`}>Автор</p>
+                <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('common.author')}</p>
                 <h2 className={`text-[1.375rem] leading-7 font-extrabold tracking-[-0.02em] landscape:max-[500px]:text-base landscape:max-[500px]:leading-snug mt-0.5 ${theme.text}`}>
                   {selectedAuthorLabel}
                 </h2>
                 {authorGrouped && (
                   <p className={`${textStyles.caption} mt-1 ${theme.textMuted}`}>
-                    {authorGrouped.series.length > 0 && `${authorGrouped.series.length} серий · `}
-                    {authorGrouped.total} книг
+                    {authorGrouped.series.length > 0 && `${tn('common.seriesCount', authorGrouped.series.length)} · `}
+                    {tn('common.booksCount', authorGrouped.total)}
                   </p>
                 )}
               </div>
@@ -361,7 +362,7 @@ export default function CatalogDrilldownPanel({
             <button
               type="button"
               onClick={() => onToggleFavoriteAuthor(selectedAuthor!)}
-              aria-label={favoriteAuthors.includes(selectedAuthor!) ? 'Убрать из избранного' : 'В избранное'}
+              aria-label={favoriteAuthors.includes(selectedAuthor!) ? t('common.removeFromFavorites') : t('common.addToFavorites')}
               className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${motionTokens.press} ${
                 favoriteAuthors.includes(selectedAuthor!)
                   ? 'text-[var(--app-danger)]'
@@ -379,7 +380,7 @@ export default function CatalogDrilldownPanel({
             />
           ) : isServerBrowse ? (
             <p className={`mt-4 ${textStyles.caption} ${theme.textMuted}`}>
-              Биография автора не найдена в библиотеке.
+              {t('catalogDrilldownPanel.noAuthorBiographyInThe')}
             </p>
           ) : null}
         </div>
@@ -393,14 +394,14 @@ export default function CatalogDrilldownPanel({
                 <Layers3 className={`w-7 h-7 landscape:max-[500px]:w-5 landscape:max-[500px]:h-5 ${theme.accentText}`} aria-hidden />
               </div>
               <div className="min-w-0 pt-0.5">
-                <p className={`${textStyles.caption} ${theme.textMuted}`}>Серия</p>
+                <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('common.series')}</p>
                 <h2 className={`text-[1.375rem] leading-7 font-extrabold tracking-[-0.02em] landscape:max-[500px]:text-base landscape:max-[500px]:leading-snug mt-0.5 ${theme.text}`}>
                   {selectedSeriesDisplay || selectedSeries}
                 </h2>
                 <p className={`${textStyles.caption} mt-1 ${theme.textMuted}`}>
                   {selectedAuthor ? selectedAuthorLabel : null}
                   {selectedAuthor ? ' · ' : ''}
-                  {bookCount} книг
+                  {tn('common.booksCount', bookCount)}
                 </p>
               </div>
             </div>
@@ -412,24 +413,24 @@ export default function CatalogDrilldownPanel({
               return (
                 <div className={`mt-3 flex border-y ${theme.divider} ${seriesActionBusy ? 'opacity-60 pointer-events-none' : ''}`}>
                   {onToggleSeriesWant && seriesProgress && !fullyRead ? (
-                    <QuickAction label={want ? 'Отложено' : 'Хочу прочитать'} pressed={want} onClick={onToggleSeriesWant}>
+                    <QuickAction label={want ? t('common.savedForLater') : t('common.wantToRead')} pressed={want} onClick={onToggleSeriesWant}>
                       <Bookmark className={`w-5 h-5 ${want ? 'fill-current' : ''}`} aria-hidden />
                     </QuickAction>
                   ) : null}
                   {onToggleSeriesRead && seriesProgress ? (
-                    <QuickAction label={fullyRead ? 'Прочитана' : 'В прочитанные'} pressed={fullyRead} onClick={onToggleSeriesRead}>
+                    <QuickAction label={fullyRead ? t('catalogDrilldownPanel.finished') : t('common.markAsRead')} pressed={fullyRead} onClick={onToggleSeriesRead}>
                       <CheckCircle2 className="w-5 h-5" aria-hidden />
                     </QuickAction>
                   ) : null}
                   <QuickAction
-                    label={favorite ? 'В избранном' : 'В избранное'}
+                    label={favorite ? t('common.inFavorites') : t('common.addToFavorites')}
                     pressed={favorite}
                     onClick={() => onToggleFavoriteSeries(selectedSeries)}
                   >
                     <Heart className={`w-5 h-5 ${favorite ? 'fill-current' : ''}`} aria-hidden />
                   </QuickAction>
                   {onAddSeriesToShelf ? (
-                    <QuickAction label="На полку" expanded={seriesShelfOpen} onClick={() => setSeriesShelfOpen((open) => !open)}>
+                    <QuickAction label={t('common.addToShelf')} expanded={seriesShelfOpen} onClick={() => setSeriesShelfOpen((open) => !open)}>
                       <FolderPlus className="w-5 h-5" aria-hidden />
                     </QuickAction>
                   ) : null}
@@ -465,7 +466,7 @@ export default function CatalogDrilldownPanel({
                 className={`mt-3 flex w-full min-h-12 items-center justify-center gap-2 ${radii.button} ${textStyles.captionBold} ${theme.accentText} ${theme.accentMuted} ${theme.focusRing} ${motionTokens.press} disabled:opacity-50`}
               >
                 <Download className="w-4 h-4" aria-hidden />
-                {seriesDownloadBusy ? 'Добавляем в очередь…' : 'Скачать серию'}
+                {seriesDownloadBusy ? t('catalogDrilldownPanel.addingToTheQueue') : t('catalogDrilldownPanel.downloadSeriesButton')}
               </button>
             ) : null}
         </div>
@@ -478,11 +479,11 @@ export default function CatalogDrilldownPanel({
               <Layers3 className={`w-7 h-7 landscape:max-[500px]:w-5 landscape:max-[500px]:h-5 ${theme.accentText}`} aria-hidden />
             </div>
             <div className="min-w-0 pt-0.5">
-              <p className={`${textStyles.caption} ${theme.textMuted}`}>Вне серий</p>
+              <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('common.outsideSeries')}</p>
               <h2 className={`text-[1.375rem] leading-7 font-extrabold tracking-[-0.02em] landscape:max-[500px]:text-base landscape:max-[500px]:leading-snug mt-0.5 ${theme.text}`}>
                 {selectedAuthorLabel}
               </h2>
-              <p className={`${textStyles.caption} mt-1 ${theme.textMuted}`}>{bookCount} книг</p>
+              <p className={`${textStyles.caption} mt-1 ${theme.textMuted}`}>{tn('common.booksCount', bookCount)}</p>
             </div>
           </div>
         </div>
@@ -492,7 +493,7 @@ export default function CatalogDrilldownPanel({
         <p className={`mb-3 ${textStyles.caption} ${theme.textMuted}`}>
           {[
             selectedSubgenre.parent,
-            bookCount ? `${Number(bookCount).toLocaleString('ru-RU')} книг` : null,
+            bookCount ? tn('common.booksCount', Number(bookCount), { n: formatNumber(Number(bookCount)) }) : null,
           ].filter(Boolean).join(' · ')}
         </p>
       )}

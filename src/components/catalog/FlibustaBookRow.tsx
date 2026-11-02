@@ -11,6 +11,7 @@ import { bookTitleWithoutVolume, seriesLabel, seriesVolumeLabel } from '../../li
 import { bookAuthorLabel } from '../../lib/importExternalBook';
 import { isBookFinished } from '../../lib/bookOpenPolicy';
 import ReadMark from '../ReadMark';
+import { t } from '../../i18n';
 
 const COVER_W = 56;
 const COVER_H = 84;
@@ -59,7 +60,7 @@ export default function FlibustaBookRow({
   const authorText = bookAuthorLabel(book);
   const seriesName = seriesLabel(book);
   const volume = seriesVolumeLabel(book);
-  const seriesText = seriesName ? `${seriesName}${volume ? ` · том ${volume}` : ''}` : volume ? `Том ${volume}` : '';
+  const seriesText = seriesName ? `${seriesName}${volume ? t('common.vol', { volume }) : ''}` : volume ? t('common.volN', { volume }) : '';
   const fileLine = [book.ext?.toUpperCase(), book.year ? String(book.year) : ''].filter(Boolean).join(' · ');
   const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));
   const progress = Math.max(0, Math.min(100, Math.round(readProgress || book.readProgress || 0)));
@@ -128,7 +129,7 @@ export default function FlibustaBookRow({
           {rating > 0 || fileLine ? (
             <span className={`${textStyles.micro} ${theme.textMuted} flex items-center gap-1 min-w-0`}>
               {rating > 0 ? (
-                <span className={`inline-flex items-center gap-1 shrink-0 font-semibold ${theme.text}`} aria-label={`Рейтинг ${rating} из 5`}>
+                <span className={`inline-flex items-center gap-1 shrink-0 font-semibold ${theme.text}`} aria-label={t('common.ratingOf5', { rating })}>
                   <Star className="w-3.5 h-3.5 fill-current text-[var(--app-star)]" aria-hidden />
                   <span className="tabular-nums">{rating}</span>
                 </span>
@@ -145,7 +146,7 @@ export default function FlibustaBookRow({
                 aria-valuenow={Math.round(downloadProgress)}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-label="Прогресс скачивания"
+                aria-label={t('common.downloadProgress')}
               >
                 <span className={`block h-full ${theme.progress}`} style={{ width: `${Math.max(4, downloadProgress)}%` }} />
               </span>
@@ -167,7 +168,7 @@ export default function FlibustaBookRow({
       {onLongPress ? (
         <button
           type="button"
-          aria-label="Ещё действия"
+          aria-label={t('common.moreActions')}
           className={`shrink-0 min-h-12 min-w-12 self-center inline-flex items-center justify-center ${theme.textMuted} ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
           onClick={(e) => {
             e.preventDefault();

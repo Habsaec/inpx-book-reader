@@ -9,6 +9,7 @@ import ReadProgressBar from './ReadProgressBar';
 import DownloadStatusLabel from './DownloadStatusLabel';
 import BookMetaSummary from './BookMetaSummary';
 import { cleanFileLikeTitle } from '../lib/seriesLabel';
+import { t } from '../i18n';
 
 interface LiteBookRowProps {
   book: Book;
@@ -49,7 +50,7 @@ export default function LiteBookRow({
   onLongPress,
   subtitle,
   onRemove,
-  removeLabel = 'Удалить',
+  removeLabel = t('common.delete'),
   compact = false,
 }: LiteBookRowProps) {
   const progress = isRead ? 100 : Math.max(readProgress, 0);
@@ -98,7 +99,7 @@ export default function LiteBookRow({
         onPointerUp={clearLongPress}
         onPointerLeave={clearLongPress}
         onPointerCancel={clearLongPress}
-        aria-label={onClick ? `Открыть: ${book.title}` : undefined}
+        aria-label={onClick ? t('liteBookRow.open', { title: book.title }) : undefined}
         className={`flex flex-1 min-w-0 items-center gap-3.5 text-left select-none touch-manipulation ${radii.md} ${theme.rowPress} ${motion.bookPress} ${theme.focusRing}`}
       >
         <div
@@ -119,8 +120,8 @@ export default function LiteBookRow({
             {isFullyRead && (
               <span
                 className="absolute bottom-1 right-1 z-[6] w-5 h-5 rounded-full bg-[var(--app-success)] text-white flex items-center justify-center shadow-sm border border-white/30"
-                title="Прочитано"
-                aria-label="Прочитано"
+                title={t('common.read')}
+                aria-label={t('common.read')}
               >
                 <Check className="w-3 h-3" strokeWidth={3} />
               </span>
@@ -146,9 +147,9 @@ export default function LiteBookRow({
           </span>
 
           {hasPendingSync && (
-            <span className={`inline-flex items-center gap-0.5 mt-0.5 ${textStyles.microBold} ${semantic.warning}`} title="Ожидает синхронизации">
+            <span className={`inline-flex items-center gap-0.5 mt-0.5 ${textStyles.microBold} ${semantic.warning}`} title={t('liteBookRow.waitingForSync')}>
               <CloudUpload className="w-3 h-3" aria-hidden />
-              Синхр.
+              {t('liteBookRow.sync')}
             </span>
           )}
 
@@ -166,11 +167,11 @@ export default function LiteBookRow({
             <span className="block mt-1.5">
               <ReadProgressBar value={progress} showLabel={!isFullyRead && progress > 0} />
               {isFullyRead && (
-                <span className={`block ${textStyles.labelBold} mt-0.5 ${titleColor}`}>Прочитано</span>
+                <span className={`block ${textStyles.labelBold} mt-0.5 ${titleColor}`}>{t('common.read')}</span>
               )}
             </span>
           ) : isRead ? (
-            <span className={`block ${textStyles.labelBold} mt-1 ${titleColor}`}>Прочитано</span>
+            <span className={`block ${textStyles.labelBold} mt-1 ${titleColor}`}>{t('common.read')}</span>
           ) : null}
         </span>
       </button>
@@ -184,8 +185,8 @@ export default function LiteBookRow({
             onDownload();
           }}
           className={`shrink-0 ${theme.touchTarget} ${radii.button} flex items-center justify-center ${theme.accentBg} disabled:opacity-50 disabled:cursor-not-allowed ${motion.press} ${theme.focusRing}`}
-          title="Скачать"
-          aria-label="Скачать"
+          title={t('common.download')}
+          aria-label={t('common.download')}
         >
           <Download className="w-4 h-4" aria-hidden />
         </button>

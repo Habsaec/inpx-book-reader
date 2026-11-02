@@ -11,6 +11,7 @@ import {
   CATALOG_SEARCH_TAB_LABELS,
   type CatalogSubTab as SubTab,
 } from './catalogTypes';
+import { t } from '../../i18n';
 
 export type CatalogHeaderMode = 'landing' | 'browse' | 'search' | 'entity';
 
@@ -64,11 +65,11 @@ export default function CatalogSearchHeader({
 }: CatalogSearchHeaderProps) {
   const query = mode === 'search' ? searchInput.trim() : '';
   const drillTitle = mode === 'entity'
-    ? (entityTitle || 'Каталог')
+    ? (entityTitle || t('common.catalog'))
     : mode === 'browse'
-      ? (browseTitle || 'Каталог')
+      ? (browseTitle || t('common.catalog'))
       : mode === 'search'
-        ? (query ? `«${query}»` : 'Поиск')
+        ? (query ? `«${query}»` : t('common.search'))
         : '';
   const onBack = mode === 'entity'
     ? onEntityBack
@@ -93,7 +94,7 @@ export default function CatalogSearchHeader({
         <SegmentTabStrip
           tabs={CATALOG_SEARCH_TAB_LABELS}
           active={subTab === 'genres' ? 'books' : subTab}
-          aria-label="Раздел поиска"
+          aria-label={t('catalogSearchHeader.searchSection')}
           onChange={onSubTabChange}
         />
       ) : null}
@@ -102,11 +103,11 @@ export default function CatalogSearchHeader({
           <BookSortBar
             value={entitySort}
             options={[
-              { id: 'count', label: 'По количеству' },
-              { id: 'name', label: 'По названию' },
+              { id: 'count', label: t('catalogSearchHeader.byCount') },
+              { id: 'name', label: t('catalogSearchHeader.byName') },
             ]}
             onChange={(id) => onEntitySortChange(id as CatalogEntitySort)}
-            ariaLabel="Сортировка списка"
+            ariaLabel={t('catalogSearchHeader.listSorting')}
           />
         </div>
       ) : null}

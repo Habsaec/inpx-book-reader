@@ -7,6 +7,7 @@ import type { ServerConfig } from '../types';
 import { useSearchHistory } from '../hooks/useSearchHistory';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { displayBookTitle } from '../lib/seriesLabel';
+import { t } from '../i18n';
 
 interface HomeSearchBarProps {
   serverConfig: ServerConfig;
@@ -132,7 +133,7 @@ export default function HomeSearchBar({
           submit();
         }}
       >
-        <label htmlFor={inputId} className="sr-only">Поиск книг, авторов и серий</label>
+        <label htmlFor={inputId} className="sr-only">{t('homeSearchBar.searchBooksAuthorsAndSeries')}</label>
         <input
           id={inputId}
           ref={inputRef}
@@ -158,7 +159,7 @@ export default function HomeSearchBar({
               setFocused(false);
             }, 120);
           }}
-          placeholder={isOnline ? 'Книга, автор или серия' : 'Поиск недоступен офлайн'}
+          placeholder={isOnline ? t('common.bookAuthorOrSeries') : t('homeSearchBar.searchIsUnavailableOffline')}
           disabled={!isOnline}
           autoFocus={autoFocus}
           autoComplete="off"
@@ -171,7 +172,7 @@ export default function HomeSearchBar({
         {query.length > 0 && (
           <button
             type="button"
-            aria-label="Очистить поиск"
+            aria-label={t('homeSearchBar.clearTheSearch')}
             onClick={() => {
               setQuery('');
               inputRef.current?.focus();
@@ -189,13 +190,13 @@ export default function HomeSearchBar({
           className={`absolute left-0 right-0 top-full mt-2 z-30 border overflow-hidden ${radii.md} ${theme.dropdown}`}
         >
           <div className={`px-4 py-2.5 flex items-center justify-between ${textStyles.caption} ${theme.textMuted}`}>
-            <span>Недавние поиски</span>
+            <span>{t('homeSearchBar.recentSearches')}</span>
             <button
               type="button"
               onClick={clearHistory}
               className={`${touchMin} inline-flex items-center px-2 ${textStyles.captionBold} ${theme.accentText} ${radii.button} ${theme.focusRing}`}
             >
-              Очистить
+              {t('common.clear')}
             </button>
           </div>
           {history.map((item) => (
@@ -210,7 +211,7 @@ export default function HomeSearchBar({
               </button>
               <button
                 type="button"
-                aria-label={`Удалить запрос ${item}`}
+                aria-label={t('homeSearchBar.deleteTheQuery', { item })}
                 onClick={() => removeQuery(item)}
                 className={`${touchMin} inline-flex items-center justify-center shrink-0 ${theme.chipButton} ${theme.focusRing}`}
               >
@@ -228,7 +229,7 @@ export default function HomeSearchBar({
         >
           {suggestions.authors.length > 0 ? (
             <>
-              <div className={`px-4 py-2 ${textStyles.caption} ${theme.textMuted}`}>Авторы</div>
+              <div className={`px-4 py-2 ${textStyles.caption} ${theme.textMuted}`}>{t('common.authors')}</div>
               {suggestions.authors.slice(0, 4).map((row) => (
                 <button
                   key={`a-${row.name}`}
@@ -253,7 +254,7 @@ export default function HomeSearchBar({
           ) : null}
           {suggestions.series.length > 0 ? (
             <>
-              <div className={`px-4 py-2 ${textStyles.caption} ${theme.textMuted}`}>Серии</div>
+              <div className={`px-4 py-2 ${textStyles.caption} ${theme.textMuted}`}>{t('common.seriesPlural')}</div>
               {suggestions.series.slice(0, 4).map((row) => (
                 <button
                   key={`s-${row.name}`}
@@ -278,7 +279,7 @@ export default function HomeSearchBar({
           ) : null}
           {suggestions.books.length > 0 ? (
             <>
-              <div className={`px-4 py-2 ${textStyles.caption} ${theme.textMuted}`}>Книги</div>
+              <div className={`px-4 py-2 ${textStyles.caption} ${theme.textMuted}`}>{t('common.books')}</div>
               {suggestions.books.slice(0, 5).map((book) => (
                 <button
                   key={`b-${book.id}`}

@@ -1,4 +1,4 @@
-import { registerPlugin } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 
 export interface ReaderVoice {
   name: string;
@@ -52,6 +52,8 @@ interface ReaderNativePlugin {
   getDeviceInfo(): Promise<NativeDeviceInfo>;
   /** System «Font size» (1 = 100%); the WebView itself runs with textZoom 100. */
   getFontScale(): Promise<{ fontScale: number }>;
+  /** Notifications and widgets in the in-app language (UiLocale.java): 'ru' | 'en' | '' (phone language). */
+  setUiLocale(options: { locale: string }): Promise<void>;
   setBrightness(options: { level: number }): Promise<FrontLightState | void>;
   getBrightness(): Promise<FrontLightState>;
   getFrontLightState(): Promise<FrontLightState>;
@@ -95,6 +97,15 @@ interface ReaderNativePlugin {
 }
 
 export const ReaderNative = registerPlugin<ReaderNativePlugin>('ReaderNative');
+
+/**
+ * Tell the native side (notifications, widgets) the app's interface language. The resolved one, not «Авто»:
+ * a Ukrainian / Belarusian / Kazakh phone gets the Russian app, but has no values-uk/ etc. resources.
+ */
+export function syncNativeUiLocale(locale: 'ru' | 'en'): void {
+  if (!Capacitor.isNativePlatform()) return;
+  void ReaderNative.setUiLocale({ locale }).catch(() => {});
+}
 
 /** Methods the Foliate iframe may invoke via postMessage. Parent-only APIs stay off this list. */
 export const READER_NATIVE_BRIDGE_METHODS = [

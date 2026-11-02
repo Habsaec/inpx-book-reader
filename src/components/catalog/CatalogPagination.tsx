@@ -1,6 +1,7 @@
 import React from 'react';
 import { theme } from '../../lib/appTheme';
 import { radii, motion } from '../../ui/tokens';
+import { t } from '../../i18n';
 
 interface CatalogPaginationProps {
   page: number;
@@ -38,7 +39,7 @@ export default function CatalogPagination({
   return (
     <div className="flex flex-wrap gap-2 mt-4 mb-2 justify-center items-center">
       {page > 1 && (
-        <button type="button" className={`${btnBase} ${theme.chip} ${theme.chipHover}`} onClick={() => onPageChange(page - 1)} aria-label="Предыдущая страница">
+        <button type="button" className={`${btnBase} ${theme.chip} ${theme.chipHover}`} onClick={() => onPageChange(page - 1)} aria-label={t('catalogPagination.previousPage')}>
           ‹
         </button>
       )}
@@ -58,7 +59,7 @@ export default function CatalogPagination({
         ),
       )}
       {page < totalPages && (
-        <button type="button" className={`${btnBase} ${theme.chip} ${theme.chipHover}`} onClick={() => onPageChange(page + 1)} aria-label="Следующая страница">
+        <button type="button" className={`${btnBase} ${theme.chip} ${theme.chipHover}`} onClick={() => onPageChange(page + 1)} aria-label={t('catalogPagination.nextPage')}>
           ›
         </button>
       )}

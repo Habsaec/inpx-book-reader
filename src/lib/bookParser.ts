@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { t } from '../i18n';
 
 export interface Chapter {
   title: string;
@@ -23,12 +24,12 @@ export function parseTxt(text: string): Chapter[] {
     .filter(p => p.length > 0);
 
   if (paragraphs.length === 0) {
-    return [{ title: 'Книга', content: ['Содержимое книги пустое.'] }];
+    return [{ title: t('common.book'), content: [t('bookParser.theBookIsEmpty')] }];
   }
 
   // Group into chapters if there are clear chapter marks, or simple chunks of 40 paragraphs
   const chapters: Chapter[] = [];
-  let currentChapter: Chapter = { title: 'Глава 1', content: [] };
+  let currentChapter: Chapter = { title: t('bookParser.chapter1'), content: [] };
   let chapterParagraphCount = 0;
 
   paragraphs.forEach((p, idx) => {
@@ -46,7 +47,7 @@ export function parseTxt(text: string): Chapter[] {
       // Split chapter when it reaches 50 paragraphs (using chapter-local count, not global index)
       if (chapterParagraphCount >= 50 && !isChapterHeader) {
         chapters.push(currentChapter);
-        currentChapter = { title: `Часть ${chapters.length + 1}`, content: [] };
+        currentChapter = { title: t('bookParser.part', { p: chapters.length + 1 }), content: [] };
         chapterParagraphCount = 0;
       }
       currentChapter.content.push(p);
@@ -82,9 +83,9 @@ export function parseFb2(xmlText: string): Chapter[] {
       .filter(p => p.length > 0);
 
     if (paragraphs.length > 0) {
-      return [{ title: 'Книга', content: paragraphs }];
+      return [{ title: t('common.book'), content: paragraphs }];
     }
-    return [{ title: 'Книга', content: [xmlText.slice(0, 15000)] }];
+    return [{ title: t('common.book'), content: [xmlText.slice(0, 15000)] }];
   }
 
   // Filter: only top-level sections (direct children of body)
@@ -114,7 +115,7 @@ export function parseFb2(xmlText: string): Chapter[] {
     
     // Find title of section
     const titleNode = section.getElementsByTagName('title')[0];
-    let title = `Глава ${i + 1}`;
+    let title = t('bookParser.chapter', { p: i + 1 });
     if (titleNode) {
       const pNodes = titleNode.getElementsByTagName('p');
       if (pNodes.length > 0) {
@@ -144,8 +145,8 @@ export function parseFb2(xmlText: string): Chapter[] {
     const pElements = xmlDoc.getElementsByTagName('p');
     const content = Array.from(pElements)
       .map(p => p.textContent?.trim() || '')
-      .filter(t => t);
-    return [{ title: 'Начало', content }];
+      .filter(s => s);
+    return [{ title: t('bookParser.beginning'), content }];
   }
 
   return chapters;
@@ -166,7 +167,7 @@ function parseFuzzyFb2(xmlText: string): Chapter[] {
     
     // Extract title
     const titleMatch = /<title>([\s\S]*?)<\/title>/i.exec(sectionBody);
-    let title = `Глава ${index}`;
+    let title = t('bookParser.chapterIndex', { index });
     if (titleMatch) {
       // Extract p nodes inside title
       const pInTitleRegex = /<p>([\s\S]*?)<\/p>/gi;
@@ -210,7 +211,7 @@ function parseFuzzyFb2(xmlText: string): Chapter[] {
         content.push(cleanP);
       }
     }
-    return [{ title: 'Книга', content }];
+    return [{ title: t('common.book'), content }];
   }
 
   return chapters;
@@ -224,17 +225,17 @@ export async function parseEpub(arrayBuffer: ArrayBuffer): Promise<Chapter[]> {
   
   // Find container.xml
   const containerXmlFile = zip.file('META-INF/container.xml');
-  if (!containerXmlFile) throw new Error('Некорректный EPUB: отсутствует META-INF/container.xml');
+  if (!containerXmlFile) throw new Error(t('bookParser.invalidEpubMetaInfContainer'));
   
   const containerXmlText = await containerXmlFile.async('text');
   const parser = new DOMParser();
   const containerDoc = parser.parseFromString(containerXmlText, 'text/xml');
   const opfPath = containerDoc.getElementsByTagName('rootfile')[0]?.getAttribute('full-path');
-  if (!opfPath) throw new Error('Некорректный EPUB: отсутствует корневой файл OPF');
+  if (!opfPath) throw new Error(t('bookParser.invalidEpubTheRootOpf'));
 
   // Read OPF manifest
   const opfFile = zip.file(opfPath);
-  if (!opfFile) throw new Error(`Некорректный EPUB: не найден OPF-файл по пути: ${opfPath}`);
+  if (!opfFile) throw new Error(t('bookParser.invalidEpubNoOpfFile', { opfPath }));
   
   const opfText = await opfFile.async('text');
   const opfDoc = parser.parseFromString(opfText, 'text/xml');
@@ -277,7 +278,7 @@ export async function parseEpub(arrayBuffer: ArrayBuffer): Promise<Chapter[]> {
     // Chapter Title detection
     let title = htmlDoc.getElementsByTagName('title')[0]?.textContent?.trim() || '';
     if (!title || title.toLowerCase() === 'untitled') {
-      title = htmlDoc.querySelector('h1, h2, h3, h4')?.textContent?.trim() || `Глава ${chapters.length + 1}`;
+      title = htmlDoc.querySelector('h1, h2, h3, h4')?.textContent?.trim() || t('bookParser.chapter', { p: chapters.length + 1 });
     }
 
     // Extract text paragraphs
@@ -286,9 +287,9 @@ export async function parseEpub(arrayBuffer: ArrayBuffer): Promise<Chapter[]> {
     pElements.forEach(p => {
       // Avoid duplicate text from outer tags
       if (p.tagName === 'DIV' && p.querySelector('p')) return;
-      const t = p.textContent?.trim();
-      if (t && t.length > 1) {
-        content.push(t);
+      const text = p.textContent?.trim();
+      if (text && text.length > 1) {
+        content.push(text);
       }
     });
 
@@ -315,7 +316,7 @@ export async function parseEpub(arrayBuffer: ArrayBuffer): Promise<Chapter[]> {
   }
 
   if (chapters.length === 0) {
-    throw new Error('EPUB файл пуст или не содержит распознаваемого текста.');
+    throw new Error(t('bookParser.theEpubFileIsEmpty'));
   }
 
   return chapters;
@@ -361,7 +362,7 @@ export async function parseBookFile(
       return { title: txtFileName.replace(/\.[^/.]+$/, ""), chapters };
     }
 
-    throw new Error('В ZIP-архиве не найдены поддерживаемые форматы (.fb2, .epub, .txt)');
+    throw new Error(t('bookParser.noSupportedFormatsFb2Epub'));
   } else {
     // Normal single files
     const decoder = new TextDecoder('utf-8');

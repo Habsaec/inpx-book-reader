@@ -9,6 +9,7 @@ import {
   initLocalDb,
   setAppSetting,
 } from './localDb';
+import { t } from '../i18n';
 
 export const APP_SETTING_KEYS = {
   theme: 'app_theme',
@@ -61,7 +62,7 @@ export async function exportAppSettingsJson(): Promise<string> {
 export async function importAppSettingsJson(raw: string): Promise<number> {
   const parsed = JSON.parse(raw) as { settings?: Record<string, string> };
   const settings = parsed?.settings;
-  if (!settings || typeof settings !== 'object') throw new Error('Не файл настроек читалки');
+  if (!settings || typeof settings !== 'object') throw new Error(t('appSettings.notAReaderSettingsFile'));
   let n = 0;
   for (const [key, value] of Object.entries(settings)) {
     if (!key || typeof value !== 'string' || SETTINGS_BACKUP_SKIP.has(key)) continue;

@@ -58,6 +58,7 @@ import { useOpenShellSearch } from '../ui/pageTitle';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { CatalogFilterDraft, CatalogGenreOption } from './catalog/CatalogFilterSheet';
+import { t, tn, formatNumber, intlLocale } from '../i18n';
 
 /** INPX code (`popadancy`) → label from browse groups / `/api/browse/genres`. */
 function genrePageLabel(
@@ -285,7 +286,7 @@ export default function CatalogTab({
           flat
             .map((g) => ({ name: g.name, displayName: g.displayName }))
             .sort((a, b) =>
-              (a.displayName || a.name || '').localeCompare(b.displayName || b.name || '', 'ru', {
+              (a.displayName || a.name || '').localeCompare(b.displayName || b.name || '', intlLocale(), {
                 sensitivity: 'base',
               }),
             ),
@@ -340,11 +341,11 @@ export default function CatalogTab({
       };
       try {
         await createSmartShelf(serverConfig, name, query);
-        snackbar.show(`Умная полка «${name}» сохранена`);
+        snackbar.show(t('catalogTab.smartShelfSaved', { name }));
         onShelvesChanged?.();
         return true;
       } catch (err) {
-        snackbar.show(err instanceof Error ? err.message : 'Не удалось сохранить умную полку', undefined, 'error');
+        snackbar.show(err instanceof Error ? err.message : t('catalogTab.couldNotSaveTheSmart'), undefined, 'error');
         return false;
       }
     },
@@ -592,12 +593,12 @@ export default function CatalogTab({
   }, isTabActive);
 
   const searchPlaceholder = isServerConnected
-    ? 'Книга, автор или серия'
-    : 'Поиск по названию, автору, серии…';
+    ? t('common.bookAuthorOrSeries')
+    : t('catalogTab.searchByTitleAuthorSeries');
 
   const handleDownloadSeries = async (seriesName: string, author?: string | null) => {
     if (!isServerConnected) {
-      snackbar.show('Подключитесь к серверу в настройках', undefined, 'error');
+      snackbar.show(t('common.connectToTheServerIn'), undefined, 'error');
       return;
     }
     if (!seriesName || seriesDownloadBusy) return;
@@ -615,7 +616,7 @@ export default function CatalogTab({
         (book) => !downloadedBookIds.includes(book.id) && !queued.has(book.id),
       );
       if (!pending.length) {
-        snackbar.show('Все книги серии уже скачаны');
+        snackbar.show(t('catalogTab.allBooksOfTheSeries'));
         return;
       }
       let added = 0;
@@ -624,16 +625,16 @@ export default function CatalogTab({
           await onEnqueueDownload(book);
           added += 1;
         } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : 'Не удалось добавить в очередь';
+          const message = err instanceof Error ? err.message : t('catalogTab.couldNotAddToThe');
           snackbar.show(message, undefined, 'error');
           break;
         }
       }
       if (added > 0) {
-        snackbar.show(added === 1 ? 'В очередь: 1 книга' : `В очередь: ${added} книг`);
+        snackbar.show(tn('catalogTab.queuedBooks', added));
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Не удалось получить список серии';
+      const message = err instanceof Error ? err.message : t('catalogTab.couldNotGetTheSeries');
       snackbar.show(message, undefined, 'error');
     } finally {
       setSeriesDownloadBusy(false);
@@ -769,7 +770,7 @@ export default function CatalogTab({
       await action(selectedSeries);
     } catch (e) {
       if (isAuthError(e)) onAuthExpired?.();
-      else snackbar.show('Не удалось обновить серию', undefined, 'error');
+      else snackbar.show(t('catalogTab.couldNotUpdateTheSeries'), undefined, 'error');
     } finally {
       setSeriesActionBusy(false);
     }
@@ -779,16 +780,16 @@ export default function CatalogTab({
     const res = await toggleSeriesWantApi(serverConfig, series);
     setSeriesProgress((p) => (p ? { ...p, want: res.want } : p));
     snackbar.show(res.want
-      ? `В «Хочу прочитать»: ${res.added} кн.`
-      : res.removed > 0 ? 'Серия убрана из «Хочу прочитать»' : 'Непрочитанных книг в серии нет');
+      ? tn('catalogTab.wantAdded', res.added)
+      : res.removed > 0 ? t('catalogTab.theSeriesWasRemovedFrom') : t('catalogTab.noUnreadBooksInThe'));
     onReadMarksChanged?.();
   });
 
   const toggleSeriesRead = () => runSeriesAction(async (series) => {
     const res = await toggleSeriesReadApi(serverConfig, series);
     snackbar.show(res.read
-      ? (res.added > 0 ? `Отмечено прочитанными: ${res.added}` : 'Серия уже прочитана')
-      : `Снята отметка «Прочитано»: ${res.removed}`);
+      ? (res.added > 0 ? t('catalogTab.markedAsRead', { added: res.added }) : t('catalogTab.theSeriesIsAlreadyRead'))
+      : t('catalogTab.readMarkRemoved', { removed: res.removed }));
     // readIds refresh re-fetches the progress (it keys on the read count).
     onReadMarksChanged?.();
     const p = await fetchSeriesProgress(serverConfig, series).catch(() => null);
@@ -797,7 +798,7 @@ export default function CatalogTab({
 
   const addSeriesToShelf = (shelfId: number | string) => runSeriesAction(async (series) => {
     const added = await addSeriesToShelfApi(serverConfig, Number(shelfId), series);
-    snackbar.show(added > 0 ? `На полку добавлено: ${added}` : 'Книги серии уже на этой полке');
+    snackbar.show(added > 0 ? t('catalogTab.addedToTheShelf', { added }) : t('catalogTab.theSeriesBooksAreAlready'));
     onShelvesChanged?.();
   });
 
@@ -806,7 +807,7 @@ export default function CatalogTab({
     await runSeriesAction(async (series) => {
       const id = await createServerShelf(serverConfig, name);
       const added = await addSeriesToShelfApi(serverConfig, id, series);
-      snackbar.show(`Полка «${name}» создана, добавлено: ${added}`);
+      snackbar.show(t('catalogTab.shelfCreatedAdded', { name, added }));
       onShelvesChanged?.();
       ok = true;
     });
@@ -998,7 +999,7 @@ export default function CatalogTab({
         : 'landing';
 
   const browseTitle =
-    subTab === 'authors' ? 'Авторы' : subTab === 'series' ? 'Серии' : subTab === 'genres' ? 'Жанры' : undefined;
+    subTab === 'authors' ? t('common.authors') : subTab === 'series' ? t('common.seriesPlural') : subTab === 'genres' ? t('common.genres') : undefined;
 
   // `selectedSeries` is the lowercase lookup key; the page's books carry the readable name.
   const selectedSeriesDisplay = React.useMemo(() => {
@@ -1014,7 +1015,7 @@ export default function CatalogTab({
   }, [selectedSeries, selectedSeriesDisplay]);
 
   const entityTitle = authorOutsideSeries && selectedAuthor && !selectedSeries
-    ? 'Вне серий'
+    ? t('common.outsideSeries')
     : selectedSeries
       ? selectedSeriesDisplay || selectedSeries
       : selectedAuthor
@@ -1125,7 +1126,7 @@ export default function CatalogTab({
           browseTitle={browseTitle}
           onBrowseBack={() => setSubTab(CATALOG_BROWSE_ROOT)}
           entityTitle={entityTitle}
-          entityBackLabel="Назад"
+          entityBackLabel={t('common.back')}
           onEntityBack={handleDrillDownBack}
           active={isTabActive}
           serverConfig={serverConfig}
@@ -1158,21 +1159,21 @@ export default function CatalogTab({
             compact
             tone="error"
             icon={AlertCircle}
-            title="Не удалось загрузить каталог"
-            description="Проверьте соединение с сервером."
-            actionLabel={isServerConnected ? 'Повторить' : undefined}
+            title={t('common.couldNotLoadTheCatalog')}
+            description={t('common.checkTheConnectionToThe')}
+            actionLabel={isServerConnected ? t('common.retry') : undefined}
             actionVariant="secondary"
             onAction={isServerConnected ? () => void refreshCatalog() : undefined}
           />
         ) : null}
 
         {isRefreshing && (
-          <p className={`mb-2 ${textStyles.caption} ${themeTextMuted}`} role="status">Обновление…</p>
+          <p className={`mb-2 ${textStyles.caption} ${themeTextMuted}`} role="status">{t('catalogTab.updating')}</p>
         )}
 
         {((searchPhase === 'results' || hasBookFilters) && listTotal > 0 && !catalogDrillDown) && (
           <p className={`mb-2 ${textStyles.micro} ${themeTextMuted}`}>
-            Найдено: <strong>{listTotal.toLocaleString('ru-RU')}</strong>
+            {t('common.found')} <strong>{formatNumber(listTotal)}</strong>
           </p>
         )}
 

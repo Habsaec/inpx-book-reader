@@ -440,3 +440,22 @@ describe('releaseReadingPositionSession', () => {
     }
   });
 });
+
+describe('English genre names', () => {
+  it('uses displayNameEn / genresDisplayListEn only in the English UI', async () => {
+    const { localizeGenreRows, bookGenreLabels } = await import('../inpxClient');
+    const { setLocaleForTests } = await import('../../i18n');
+    const rows = [{ name: 'sf_fantasy', displayName: 'Фэнтези', displayNameEn: 'Fantasy' }, { name: 'x', displayName: 'Икс' }];
+    const book = { genres: 'sf_fantasy', genresDisplayList: ['Фэнтези'], genresDisplayListEn: ['Fantasy'] };
+    try {
+      setLocaleForTests('en');
+      expect(localizeGenreRows(rows).map((g) => g.displayName)).toEqual(['Fantasy', 'Икс']);
+      expect(bookGenreLabels(book)).toEqual(['Fantasy']);
+      expect(bookGenreLabels({ genres: 'sf_fantasy', genresDisplayList: ['Фэнтези'] })).toEqual(['Фэнтези']);
+    } finally {
+      setLocaleForTests('ru');
+    }
+    expect(localizeGenreRows(rows).map((g) => g.displayName)).toEqual(['Фэнтези', 'Икс']);
+    expect(bookGenreLabels(book)).toEqual(['Фэнтези']);
+  });
+});

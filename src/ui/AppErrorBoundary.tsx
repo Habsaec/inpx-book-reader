@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, radii, elevation } from './tokens';
 import Button from './Button';
+import { t } from '../i18n';
 
 interface AppErrorBoundaryState {
   error: Error | null;
@@ -42,17 +43,17 @@ export default class AppErrorBoundary extends React.Component<
         <span className={`inline-flex items-center justify-center w-14 h-14 ${radii.full} ${theme.accentMuted}`}>
           <AlertTriangle className={`w-7 h-7 ${theme.accentText}`} aria-hidden strokeWidth={1.75} />
         </span>
-        <p className={`${textStyles.title} text-xl`}>Приложение столкнулось с ошибкой</p>
+        <p className={`${textStyles.title} text-xl`}>{t('appErrorBoundary.theAppRanIntoAn')}</p>
         <p className={`${textStyles.body} ${theme.textMuted} max-w-xs leading-relaxed`}>
-          Попробуйте перезапустить экран. Если ошибка повторяется — закройте читалку и откройте снова.
+          {t('appErrorBoundary.tryRestartingTheScreenIf')}
         </p>
         <div className={`${radii.lg} ${theme.card} ${elevation.card} max-w-sm w-full px-4 py-3`}>
           <p className={`${textStyles.caption} ${theme.textMuted} break-words text-left`}>
-            {this.state.error.message || 'Неизвестная ошибка'}
+            {this.state.error.message || t('appErrorBoundary.unknownError')}
           </p>
         </div>
         <Button variant="primary" onClick={this.handleReload}>
-          Перезапустить
+          {t('appErrorBoundary.restart')}
         </Button>
       </div>
     );

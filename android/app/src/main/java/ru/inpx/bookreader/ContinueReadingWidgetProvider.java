@@ -76,13 +76,13 @@ public class ContinueReadingWidgetProvider extends AppWidgetProvider {
         boolean empty = title == null || title.trim().isEmpty();
         File coverFile = findCoverFile(context, bookId, coverPath, !wide);
         bindCover(views, coverFile, size, wide);
-        views.setTextViewText(R.id.widget_title, empty ? context.getString(R.string.widget_continue_empty) : title);
+        views.setTextViewText(R.id.widget_title, empty ? UiLocale.str(context, R.string.widget_continue_empty) : title);
         views.setTextViewText(R.id.widget_author, empty || author == null ? "" : author);
         views.setViewVisibility(R.id.widget_author, empty || author == null || author.isEmpty() ? View.GONE : View.VISIBLE);
         boolean showProgress = !empty && progress > 0;
         views.setViewVisibility(R.id.widget_progress_row, showProgress ? View.VISIBLE : View.GONE);
         views.setProgressBar(R.id.widget_progress, 100, progress, false);
-        views.setTextViewText(R.id.widget_percent, context.getString(R.string.widget_continue_percent, progress));
+        views.setTextViewText(R.id.widget_percent, UiLocale.str(context, R.string.widget_continue_percent, progress));
         if (Build.VERSION.SDK_INT >= 31) {
             views.setBoolean(R.id.widget_root, "setClipToOutline", true);
         }

@@ -39,6 +39,7 @@ import {
 import { useDialog } from '../ui/Dialog';
 import type { ReaderFontFamily } from './reader/readerTypes';
 import type { ServerConfig } from '../types';
+import { t, getLocale } from '../i18n';
 
 interface ReaderPrefs {
   orientationLock: 'auto' | 'portrait' | 'landscape';
@@ -120,7 +121,7 @@ export function writeFoliateReaderSession(config: FoliateReaderConfig) {
 export default function FoliateReader({
   bookId,
   bookExt = 'fb2',
-  bookTitle = 'Книга',
+  bookTitle = t('common.book'),
   bookAuthor = '',
   coverUrl = '',
   coverAuthHeader = '',
@@ -214,12 +215,12 @@ export default function FoliateReader({
         }, flatToc),
       );
       const accepted = await dialog.confirm({
-        title: 'Продолжить с другого устройства?',
-        message: String(event.data.message || 'Ранее вы уже читали эту книгу на другом устройстве. Перейти на сохранённую позицию?'),
+        title: t('foliateReader.continueFromAnotherDevice'),
+        message: String(event.data.message || t('common.youHaveReadThisBook')),
         positionCompare: {
-          localLabel: 'Сейчас',
+          localLabel: t('common.current'),
           localValue: localLine,
-          serverLabel: 'На другом устройстве',
+          serverLabel: t('foliateReader.onAnotherDevice'),
           serverValue: serverLine,
         },
         confirmLabel: CROSS_DEVICE_POSITION_ACCEPT,
@@ -521,7 +522,7 @@ export default function FoliateReader({
           localFileName: Boolean(localFileName),
           storageUri: Boolean(storageUri),
         });
-        if (!cancelled) setLoadError('Книга не скачана на устройство');
+        if (!cancelled) setLoadError(t('foliateReader.theBookIsNotDownloaded'));
         return;
       }
 
@@ -561,14 +562,15 @@ export default function FoliateReader({
         }
         if (einkActive) query.set('eink', '1');
         query.set('session', String(Date.now()));
-        setIframeSrc(`./inpx-reader/index.html?${query.toString()}`);
+        // The page is generated per interface language (scripts/generate-reader-html.mjs).
+        setIframeSrc(`./inpx-reader/${getLocale() === 'en' ? 'index.en.html' : 'index.html'}?${query.toString()}`);
         debugSessionLog('H1', 'FoliateReader:init', 'iframe src set', { bookId });
       } catch (e: unknown) {
         debugSessionLog('H1', 'FoliateReader:init', 'failed', {
           msg: e instanceof Error ? e.message : String(e),
         });
         if (!cancelled) {
-          setLoadError(e instanceof Error ? e.message : 'Не удалось открыть книгу');
+          setLoadError(e instanceof Error ? e.message : t('common.couldNotOpenTheBook'));
         }
       }
     })();
@@ -627,7 +629,7 @@ export default function FoliateReader({
         target.postMessage({
           type: 'inpx-reader-book-file',
           requestId,
-          error: 'Файл книги не найден на устройстве',
+          error: t('foliateReader.theBookFileWasNot'),
         }, '*');
         return;
       }
@@ -652,7 +654,7 @@ export default function FoliateReader({
             target.postMessage({ type: 'inpx-reader-book-file', requestId, url: fileUrl }, '*');
             return;
           }
-          throw new Error('Не удалось открыть файл книги');
+          throw new Error(t('foliateReader.couldNotOpenTheBook'));
         } catch (e: unknown) {
           if (!alive || event.source !== iframeRef.current?.contentWindow) return;
           debugSessionLog('H2', 'FoliateReader:fileRequest', 'failed', {
@@ -663,7 +665,7 @@ export default function FoliateReader({
             ? STORAGE_PERMISSION_REVOKED_MSG
             : e instanceof Error
               ? e.message
-              : 'Не удалось прочитать файл';
+              : t('foliateReader.couldNotReadTheFile');
           if (isStoragePermissionError(e)) {
             setLoadError(STORAGE_PERMISSION_REVOKED_MSG);
           }
@@ -833,11 +835,11 @@ export default function FoliateReader({
         && isTrustedReaderMessage(event)
       ) {
         const text = String(event.data.text || '').trim();
-        const title = String(event.data.title || 'Цитата');
+        const title = String(event.data.title || t('foliateReader.quote'));
         if (text) {
           void (async () => {
             try {
-              await Share.share({ title, text, dialogTitle: 'Поделиться цитатой' });
+              await Share.share({ title, text, dialogTitle: t('foliateReader.shareTheQuote') });
             } catch {
               try {
                 await navigator.clipboard.writeText(text);
@@ -1013,9 +1015,9 @@ export default function FoliateReader({
         <EmptyState
           icon={BookOpen}
           tone="error"
-          title="Не удалось открыть книгу"
-          description="Проверьте файл на устройстве или скачайте книгу снова."
-          actionLabel="Назад"
+          title={t('common.couldNotOpenTheBook')}
+          description={t('foliateReader.checkTheFileOnThe')}
+          actionLabel={t('common.back')}
           actionVariant="secondary"
           onAction={onClose}
         />

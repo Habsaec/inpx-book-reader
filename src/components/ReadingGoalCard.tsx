@@ -4,8 +4,9 @@ import { fetchReadingStats, isAuthError, saveReadingGoal, type ReadingStats } fr
 import type { ServerConfig } from '../types';
 import { radii, textStyles } from '../ui/tokens';
 import Button from '../ui/Button';
+import { t } from '../i18n';
 
-const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const MONTHS_SHORT = [t('readingGoalCard.jan'), t('readingGoalCard.feb'), t('readingGoalCard.mar'), t('readingGoalCard.apr'), t('readingGoalCard.may'), t('readingGoalCard.jun'), t('readingGoalCard.jul'), t('readingGoalCard.aug'), t('readingGoalCard.sep'), t('readingGoalCard.oct'), t('readingGoalCard.nov'), t('readingGoalCard.dec')];
 
 interface ReadingGoalCardProps {
   serverConfig: ServerConfig;
@@ -50,28 +51,28 @@ export default function ReadingGoalCard({ serverConfig, isOnline, refreshKey = 0
       setEditing(false);
     } catch (e) {
       if (isAuthError(e)) onAuthExpired?.();
-      setError('Не удалось сохранить цель');
+      setError(t('readingGoalCard.couldNotSaveTheGoal'));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <section className={`mt-3 p-4 ${radii.lg} ${theme.card}`} aria-label={`Цель на ${year} год`}>
+    <section className={`mt-3 p-4 ${radii.lg} ${theme.card}`} aria-label={t('readingGoalCard.goalFor', { year })}>
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className={`${textStyles.bodyBold} ${theme.text}`}>Цель на {year} год</h3>
+        <h3 className={`${textStyles.bodyBold} ${theme.text}`}>{t('readingGoalCard.title', { year })}</h3>
         {!editing ? (
           <button
             type="button"
             className={`${textStyles.caption} ${theme.accentText} ${theme.focusRing} ${radii.sm}`}
             onClick={() => { setDraft(goal ? String(goal) : ''); setEditing(true); }}
           >
-            {goal ? 'Изменить' : 'Поставить цель'}
+            {goal ? t('readingGoalCard.change') : t('readingGoalCard.setAGoal')}
           </button>
         ) : null}
       </div>
       <p className={`mt-1 ${textStyles.body} ${theme.textMuted}`}>
-        {goal ? `Прочитано ${readThisYear} из ${goal}` : `В этом году прочитано ${readThisYear}`}
+        {goal ? t('readingGoalCard.readOf', { readThisYear, goal }) : t('readingGoalCard.readThisYear', { readThisYear })}
       </p>
       {goal ? (
         <div
@@ -84,7 +85,7 @@ export default function ReadingGoalCard({ serverConfig, isOnline, refreshKey = 0
           <span className="block h-full rounded-full bg-[var(--app-accent)]" style={{ width: `${pct}%` }} />
         </div>
       ) : null}
-      <div className="mt-4 grid grid-cols-12 gap-1 items-end h-16" aria-label="Прочитано по месяцам">
+      <div className="mt-4 grid grid-cols-12 gap-1 items-end h-16" aria-label={t('readingGoalCard.readByMonth')}>
         {byMonth.map((n, i) => (
           <div key={MONTHS_SHORT[i]} className="flex h-full flex-col items-center gap-1" title={`${MONTHS_SHORT[i]}: ${n}`}>
             <span className="flex-1 w-full max-w-4 flex items-end rounded bg-[color-mix(in_srgb,var(--app-text)_6%,transparent)]">
@@ -106,12 +107,12 @@ export default function ReadingGoalCard({ serverConfig, isOnline, refreshKey = 0
             max={1000}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="например, 40"
-            aria-label="Цель, книг в год"
+            placeholder={t('readingGoalCard.forExample40')}
+            aria-label={t('readingGoalCard.goalBooksPerYear')}
             className={`w-28 px-3 py-2 ${radii.md} ${theme.input}`}
           />
-          <Button onClick={save} loading={saving}>Сохранить</Button>
-          <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>Отмена</Button>
+          <Button onClick={save} loading={saving}>{t('common.save')}</Button>
+          <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>{t('common.cancel')}</Button>
         </div>
       ) : null}
       {error ? <p className={`mt-2 ${textStyles.caption} text-[var(--app-danger)]`} role="alert">{error}</p> : null}

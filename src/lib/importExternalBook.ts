@@ -3,6 +3,7 @@ import type { StorageDirectory } from './storageDirectory';
 import { BookStorage } from './bookStoragePlugin';
 import { fileNameFromLaunchUri } from './launchIntent';
 import { cleanFileLikeTitle } from './seriesLabel';
+import { t } from '../i18n';
 
 function extFromFileName(name: string): string {
   const m = name.match(/\.([a-z0-9]+)$/i);
@@ -10,7 +11,7 @@ function extFromFileName(name: string): string {
 }
 
 function titleFromFileName(name: string): string {
-  return cleanFileLikeTitle(name) || 'Импортированная книга';
+  return cleanFileLikeTitle(name) || t('importExternalBook.importedBook');
 }
 
 function localImportBookId(relativePath: string): string {
@@ -30,7 +31,7 @@ export async function importExternalBookFromUri(
   directory: StorageDirectory,
   contentUri: string,
 ): Promise<Book> {
-  if (!directory.uri) throw new Error('Не выбрана папка хранения');
+  if (!directory.uri) throw new Error(t('common.noStorageFolderChosen'));
   const { relativePath } = await BookStorage.importContentUri({
     treeUri: directory.uri,
     contentUri,

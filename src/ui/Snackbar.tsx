@@ -3,6 +3,7 @@ import { Toaster, toast } from 'sonner';
 import { X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, radii, touchMin, motion as motionTokens, elevation } from './tokens';
+import { t } from '../i18n';
 
 export interface SnackbarAction {
   label: string;
@@ -57,7 +58,7 @@ function SnackbarCard({
       ) : (
         <button
           type="button"
-          aria-label="Закрыть"
+          aria-label={t('common.close')}
           className={`${touchMin} inline-flex items-center justify-center shrink-0 ${radii.button} ${theme.panel} ${motionTokens.press} ${theme.focusRing}`}
           onClick={() => toast.dismiss(id)}
         >
@@ -122,7 +123,7 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
         gap={8}
         duration={AUTO_HIDE_MS}
         swipeDirections={['bottom']}
-        containerAriaLabel="Уведомления"
+        containerAriaLabel={t('snackbar.notifications')}
         offset={{ bottom: ABOVE_TAB, left: '1.25rem', right: '1.25rem' }}
         mobileOffset={{ bottom: ABOVE_TAB, left: '1.25rem', right: '1.25rem' }}
       />

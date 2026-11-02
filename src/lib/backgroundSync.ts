@@ -25,6 +25,7 @@ import { getPendingSyncOps } from './localDb';
 import { MAX_SYNC_OP_ATTEMPTS } from './syncQueueProcessor';
 import { activateServerBookAliases, resolveUnknownServerBooks } from './serverBookAliases';
 import { isPersonalDataOwner } from './accounts';
+import { t } from '../i18n';
 
 export type BackgroundSyncReason =
   | 'online'
@@ -231,7 +232,7 @@ async function executeCycle(req: BackgroundSyncRequest): Promise<BackgroundSyncR
   // Null index with books = server error (500/timeout), not «old server without index».
   // Syncing every book would hammer the server during outages.
   if (bookIds.length > 0 && index === null) {
-    throw new Error('Сервер не ответил на запрос синхронизации');
+    throw new Error(t('backgroundSync.theServerDidNotAnswer'));
   }
   const activity = index?.activity ?? null;
   // Snapshot before apply — count-went-to-0 / shouldPush decisions need the prior local meta.
@@ -312,7 +313,7 @@ async function runLoop(initial: BackgroundSyncRequest): Promise<BackgroundSyncRe
         backoffUntil = 0;
       } catch (e) {
         consecutiveFailures += 1;
-        const msg = e instanceof Error ? e.message : 'Ошибка синхронизации';
+        const msg = e instanceof Error ? e.message : t('backgroundSync.syncError');
         lastError = msg;
         const delay = BACKOFF_MS[Math.min(consecutiveFailures - 1, BACKOFF_MS.length - 1)];
         backoffUntil = nowFn() + delay;

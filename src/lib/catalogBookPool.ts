@@ -1,6 +1,7 @@
 import type { Book } from '../types';
 import type { CatalogFormatFilter, CatalogHasSeriesFilter } from '../components/catalog/catalogTypes';
 import type { DemoBookSort } from './catalogAggregations';
+import { tn } from '../i18n';
 
 export interface CatalogBookPoolContext {
   isServerBrowse: boolean;
@@ -151,13 +152,5 @@ export function filterAndSortBooks(books: Book[], ctx: CatalogBookPoolContext): 
 
 export function formatSuggestCount(count?: number): string {
   if (count == null || count <= 0) return '';
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  const word =
-    mod10 === 1 && mod100 !== 11
-      ? 'книга'
-      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
-        ? 'книги'
-        : 'книг';
-  return `${count} ${word}`;
+  return tn('common.booksCount', count);
 }

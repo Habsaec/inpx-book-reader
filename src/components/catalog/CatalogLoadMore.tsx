@@ -2,6 +2,7 @@ import React from 'react';
 import { theme } from '../../lib/appTheme';
 import { textStyles } from '../../ui/tokens';
 import Button from '../../ui/Button';
+import { t, formatNumber } from '../../i18n';
 
 interface CatalogLoadMoreProps {
   loaded: number;
@@ -41,10 +42,10 @@ export default function CatalogLoadMore({
   return (
     <div ref={sentinelRef} className="mt-3 mb-1 flex flex-col items-center gap-1">
       <p className={`${textStyles.micro} ${theme.textMuted}`}>
-        Показано {loaded.toLocaleString('ru-RU')} из {total.toLocaleString('ru-RU')}
+        {t('catalogLoadMore.shown', { loaded: formatNumber(loaded), total: formatNumber(total) })}
       </p>
       <Button variant="secondary" loading={loading} onClick={onLoadMore}>
-        Загрузить ещё
+        {t('catalogLoadMore.loadMore')}
       </Button>
     </div>
   );

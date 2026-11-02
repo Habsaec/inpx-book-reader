@@ -19,15 +19,16 @@ import LocalBookFilter from './mybooks/LocalBookFilter';
 import { usePageTitle } from '../ui/pageTitle';
 import { useBarHeight } from '../ui/useBarHeight';
 import BookSortBar from './catalog/BookSortBar';
+import { t } from '../i18n';
 
 type DeviceSort = 'recent' | 'title' | 'author' | 'volume' | 'rating';
 
 const DEVICE_SORT_OPTIONS: Array<{ id: DeviceSort; label: string }> = [
-  { id: 'recent', label: 'Недавно открытые' },
-  { id: 'title', label: 'Название' },
-  { id: 'author', label: 'Автор' },
-  { id: 'volume', label: 'Номер тома' },
-  { id: 'rating', label: 'Рейтинг' },
+  { id: 'recent', label: t('deviceLibraryTab.recentlyOpened') },
+  { id: 'title', label: t('common.title') },
+  { id: 'author', label: t('common.author') },
+  { id: 'volume', label: t('common.volumeNumber') },
+  { id: 'rating', label: t('common.rating') },
 ];
 
 interface DeviceLibraryTabProps {
@@ -73,7 +74,7 @@ export default function DeviceLibraryTab({
   embedded = false,
   resetEpoch = 0,
 }: DeviceLibraryTabProps) {
-  usePageTitle('На устройстве', undefined, !embedded);
+  usePageTitle(t('common.onTheDevice'), undefined, !embedded);
   const [sort, setSort] = React.useState<DeviceSort>('recent');
   const [selectMode, setSelectMode] = React.useState(false);
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
@@ -153,7 +154,7 @@ export default function DeviceLibraryTab({
 
   if (!storageDirectoryReady) {
     return (
-      <div className="flex-1 overflow-y-auto inpx-page-scroll px-5 py-4" aria-busy aria-label="Подготовка хранилища">
+      <div className="flex-1 overflow-y-auto inpx-page-scroll px-5 py-4" aria-busy aria-label={t('deviceLibraryTab.preparingTheStorage')}>
         <BookListSkeleton count={4} />
       </div>
     );
@@ -164,9 +165,9 @@ export default function DeviceLibraryTab({
       <div className="flex-1 overflow-y-auto inpx-page-scroll">
       <EmptyState
         icon={HardDrive}
-        title="Выберите папку"
-        description="Книги хранятся на устройстве и доступны без интернета."
-        actionLabel={onGoProfile ? 'Выбрать папку' : undefined}
+        title={t('deviceLibraryTab.chooseAFolder')}
+        description={t('deviceLibraryTab.booksAreKeptOnThe')}
+        actionLabel={onGoProfile ? t('common.chooseAFolder') : undefined}
         actionVariant="primary"
         onAction={onGoProfile}
       />
@@ -179,9 +180,9 @@ export default function DeviceLibraryTab({
       <div className="flex-1 overflow-y-auto inpx-page-scroll">
       <EmptyState
         icon={HardDrive}
-        title="Загрузок пока нет"
-        description="Здесь появятся книги, которые вы скачаете из каталога."
-        actionLabel={onGoCatalog ? 'Каталог' : undefined}
+        title={t('deviceLibraryTab.noDownloadsYet')}
+        description={t('deviceLibraryTab.booksYouDownloadFromThe')}
+        actionLabel={onGoCatalog ? t('common.catalog') : undefined}
         actionVariant="primary"
         onAction={onGoCatalog}
       />
@@ -196,7 +197,7 @@ export default function DeviceLibraryTab({
     >
       <div className="absolute inset-0 overflow-y-auto inpx-page-scroll px-5 py-4">
         {visible.length === 0 ? (
-          <p className={`py-8 text-center ${textStyles.body} ${theme.textMuted}`}>Ничего не найдено</p>
+          <p className={`py-8 text-center ${textStyles.body} ${theme.textMuted}`}>{t('common.nothingFound')}</p>
         ) : null}
         <CatalogBookList
           books={visible}
@@ -249,14 +250,14 @@ export default function DeviceLibraryTab({
               }}
               aria-pressed={selectMode}
             >
-              {selectMode ? 'Отмена' : 'Выбрать'}
+              {selectMode ? t('common.cancel') : t('deviceLibraryTab.select')}
             </button>
           </div>
         </div>
         {selectMode && (
           <div className="flex items-center gap-2 flex-wrap">
             <p className={`${textStyles.caption} ${theme.textMuted}`}>
-              Выбрано: {selected.size}
+              {t('deviceLibraryTab.selected')} {selected.size}
             </p>
             <Button
               variant="secondary"
@@ -264,7 +265,7 @@ export default function DeviceLibraryTab({
               onClick={() => void handleDeleteSelected()}
             >
               <Trash2 className="w-4 h-4" aria-hidden />
-              Удалить файлы
+              {t('deviceLibraryTab.deleteFiles')}
             </Button>
             {shelves.length > 0 && onAddBooksToShelf && (
               <Button
@@ -273,7 +274,7 @@ export default function DeviceLibraryTab({
                 onClick={() => setShelfPickerOpen((v) => !v)}
               >
                 <FolderPlus className="w-4 h-4" aria-hidden />
-                На полку
+                {t('common.addToShelf')}
               </Button>
             )}
           </div>

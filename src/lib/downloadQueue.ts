@@ -18,6 +18,7 @@ import {
 } from './nativeDownload';
 import { bookStorageRelativePath, removeBookFromDirectory } from './bookStorage';
 import { resolveBookDownloadFormat } from './downloadFormatPreference';
+import { t } from '../i18n';
 
 export type DownloadStatus = 'queued' | 'downloading' | 'saving' | 'saved' | 'error' | 'cancelled';
 
@@ -41,7 +42,7 @@ const QUEUE_STORAGE_KEY = 'inpx_download_queue_v1';
 export const MAX_CONCURRENT_DOWNLOADS = 2;
 
 /** Shown when downloads pause because server/auth became unavailable. */
-export const DOWNLOAD_OFFLINE_MSG = 'Нет подключения к серверу';
+export const DOWNLOAD_OFFLINE_MSG = t('downloadQueue.noConnectionToTheServer');
 
 /** Abort when no bytes arrive for this long (stalled connection). */
 const DOWNLOAD_STALL_MS = 90_000;
@@ -412,7 +413,7 @@ class DownloadQueueManager {
     let nativeTargetPath: string | null = null;
 
     try {
-      if (this.cancelledIds.has(next.id) || controller.signal.aborted) throw new Error('Отменено');
+      if (this.cancelledIds.has(next.id) || controller.signal.aborted) throw new Error(t('downloadQueue.cancelled'));
 
       const access = await checkStorageAccess(this.storageDirectory);
       if (!access.ok) throw new Error(STORAGE_PERMISSION_REVOKED_MSG);
@@ -441,7 +442,7 @@ class DownloadQueueManager {
           || controller.signal.aborted
           || !this.jobs.some((j) => j.id === next.id)
         ) {
-          throw new Error('Отменено');
+          throw new Error(t('downloadQueue.cancelled'));
         }
         next.status = 'saving';
         next.progress = 95;
@@ -472,7 +473,7 @@ class DownloadQueueManager {
         || controller.signal.aborted
         || !this.jobs.some((j) => j.id === next.id)
       ) {
-        throw new Error('Отменено');
+        throw new Error(t('downloadQueue.cancelled'));
       }
 
       const savedBook = await this.onComplete!(enriched, chaptersJson, undefined, nativeResult);
@@ -506,16 +507,16 @@ class DownloadQueueManager {
         next.error = DOWNLOAD_OFFLINE_MSG;
       } else if (controller.signal.aborted) {
         next.status = 'error';
-        next.error = 'Загрузка прервана: нет данных от сервера';
+        next.error = t('downloadQueue.downloadInterruptedNoDataFrom');
       } else {
         next.status = 'error';
         next.error = isStoragePermissionError(err)
           ? STORAGE_PERMISSION_REVOKED_MSG
           : isAuthError(err)
-            ? (err instanceof Error ? err.message : 'Сессия устройства устарела')
+            ? (err instanceof Error ? err.message : t('downloadQueue.theDeviceSessionHasExpired'))
             : err instanceof Error
               ? err.message
-              : 'Ошибка загрузки';
+              : t('downloadQueue.downloadError');
         try {
           this.onError?.(next.book, next.error);
         } catch {
@@ -667,12 +668,12 @@ export function formatSpeed(bps: number): string {
 
 export function statusLabel(status: DownloadStatus): string {
   switch (status) {
-    case 'queued': return 'В очереди';
-    case 'downloading': return 'Скачивается';
-    case 'saving': return 'Сохранение…';
-    case 'saved': return 'Сохранено';
-    case 'error': return 'Ошибка';
-    case 'cancelled': return 'Отменено';
+    case 'queued': return t('common.queued');
+    case 'downloading': return t('common.downloading');
+    case 'saving': return t('downloadQueue.saving');
+    case 'saved': return t('downloadQueue.saved');
+    case 'error': return t('common.error');
+    case 'cancelled': return t('downloadQueue.cancelled');
     default: return status;
   }
 }

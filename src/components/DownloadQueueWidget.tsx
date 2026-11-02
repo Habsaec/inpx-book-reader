@@ -5,6 +5,7 @@ import { downloadQueue, statusLabel } from '../lib/downloadQueue';
 import { useDownloadQueue } from '../hooks/useDownloadQueue';
 import { textStyles, radii, motion } from '../ui/tokens';
 import IconButton from '../ui/IconButton';
+import { t } from '../i18n';
 
 interface DownloadQueueWidgetProps {
   onOpenQueue?: () => void;
@@ -18,15 +19,15 @@ export default function DownloadQueueWidget({ onOpenQueue }: DownloadQueueWidget
 
   const primary = active.find((j) => j.status === 'downloading' || j.status === 'saving') ?? active[0] ?? errors[0];
   const extraCount = active.length + errors.length - 1;
-  const extra = extraCount > 0 ? ` и ещё ${extraCount}` : '';
+  const extra = extraCount > 0 ? t('downloadQueueWidget.andMore', { extraCount }) : '';
   const verb =
     primary.status === 'saving'
-      ? 'Сохранение'
+      ? t('common.saving')
       : primary.status === 'queued'
-        ? 'В очереди'
+        ? t('common.queued')
         : primary.status === 'error'
-          ? 'Ошибка'
-          : 'Скачивается';
+          ? t('common.error')
+          : t('common.downloading');
   const pct =
     primary.status === 'downloading' ? ` · ${Math.round(primary.progress)}%` : '';
   const line = `${verb} «${primary.book.title}»${pct}${extra}`;
@@ -40,14 +41,14 @@ export default function DownloadQueueWidget({ onOpenQueue }: DownloadQueueWidget
         type="button"
         onClick={onOpenQueue}
         className={`min-w-0 flex-1 flex items-center gap-3 text-left min-h-12 ${radii.button} ${theme.focusRing} ${motion.press}`}
-        aria-label={`Загрузки: ${line}`}
+        aria-label={t('downloadQueueWidget.downloads', { line })}
       >
         <Download className={`w-4 h-4 shrink-0 ${theme.accentText}`} aria-hidden />
         <p className={`${textStyles.captionBold} ${theme.text} truncate`}>{line}</p>
       </button>
       {canCancel ? (
         <IconButton
-          label="Отменить"
+          label={t('common.cancelAction')}
           onClick={(e) => {
             e.stopPropagation();
             downloadQueue.cancel(primary.id);

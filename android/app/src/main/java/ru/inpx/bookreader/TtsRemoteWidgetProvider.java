@@ -64,6 +64,11 @@ public class TtsRemoteWidgetProvider extends AppWidgetProvider {
             context.getPackageName(),
             wide ? R.layout.widget_tts_remote_wide : R.layout.widget_tts_remote
         );
+        // Layout descriptions follow the phone language; these follow the app's own choice.
+        views.setContentDescription(R.id.widget_tts_prev, UiLocale.str(context, R.string.widget_tts_prev));
+        views.setContentDescription(R.id.widget_tts_next, UiLocale.str(context, R.string.widget_tts_next));
+        views.setContentDescription(R.id.widget_tts_sleep, UiLocale.str(context, R.string.widget_tts_sleep));
+        views.setContentDescription(R.id.widget_tts_stop, UiLocale.str(context, R.string.widget_tts_stop));
 
         boolean active = snap.active;
         String title = active && !snap.title.isEmpty() ? snap.title : bookTitle;
@@ -78,12 +83,12 @@ public class TtsRemoteWidgetProvider extends AppWidgetProvider {
             ContinueReadingWidgetProvider.bindCover(views, coverFile, size, wide);
         }
 
-        views.setTextViewText(R.id.widget_title, empty ? context.getString(R.string.widget_continue_empty) : title);
+        views.setTextViewText(R.id.widget_title, empty ? UiLocale.str(context, R.string.widget_continue_empty) : title);
         views.setTextViewText(R.id.widget_author, author != null ? author : "");
         views.setViewVisibility(R.id.widget_author, author == null || author.isEmpty() ? View.GONE : View.VISIBLE);
         views.setTextViewText(
             R.id.widget_tts_status,
-            context.getString(
+            UiLocale.str(context,
                 !active ? R.string.widget_tts_idle
                     : snap.playing ? R.string.widget_tts_playing
                     : R.string.widget_tts_paused
@@ -105,7 +110,7 @@ public class TtsRemoteWidgetProvider extends AppWidgetProvider {
         views.setImageViewResource(R.id.widget_tts_play, showPause ? R.drawable.widget_ic_pause : R.drawable.widget_ic_play);
         views.setContentDescription(
             R.id.widget_tts_play,
-            context.getString(showPause ? R.string.widget_tts_pause : R.string.widget_tts_play)
+            UiLocale.str(context, showPause ? R.string.widget_tts_pause : R.string.widget_tts_play)
         );
 
         bindSleep(views, active ? snap.sleepEndsAt : 0L);

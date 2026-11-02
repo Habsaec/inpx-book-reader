@@ -7,10 +7,11 @@ import DragSheet from '../ui/DragSheet';
 import Button from '../ui/Button';
 import { useDownloadQueue } from '../hooks/useDownloadQueue';
 import { downloadQueue, formatBytes, formatSpeed, statusLabel, type DownloadJob } from '../lib/downloadQueue';
+import { t } from '../i18n';
 
 function jobHeadline(job: DownloadJob): string {
-  if (job.status === 'downloading') return `Скачивается ${Math.round(job.progress)}%`;
-  if (job.status === 'saving') return 'Сохранение';
+  if (job.status === 'downloading') return t('downloadQueueSheet.downloading', { n: Math.round(job.progress) });
+  if (job.status === 'saving') return t('common.saving');
   return statusLabel(job.status);
 }
 
@@ -54,11 +55,11 @@ export default function DownloadQueueSheet({ open, onClose, onOpenSaved }: Downl
         <SheetDragHandle />
         <div className="flex items-start justify-between gap-3 mb-4">
           <h2 id="download-queue-title" className={textStyles.title}>
-            Загрузки
+            {t('downloadQueueSheet.downloads')}
           </h2>
           <button
             type="button"
-            aria-label="Закрыть"
+            aria-label={t('common.close')}
             onClick={onClose}
             className={`min-h-12 min-w-12 inline-flex items-center justify-center ${radii.button} ${theme.panel} ${theme.chipButton} ${theme.focusRing} ${motion.press}`}
           >
@@ -67,7 +68,7 @@ export default function DownloadQueueSheet({ open, onClose, onOpenSaved }: Downl
         </div>
 
         {visible.length === 0 ? (
-          <p className={`${textStyles.body} ${theme.textMuted} py-6 text-center`}>Очередь пуста</p>
+          <p className={`${textStyles.body} ${theme.textMuted} py-6 text-center`}>{t('downloadQueueSheet.theQueueIsEmpty')}</p>
         ) : (
           <ul className="space-y-1 max-h-[min(60vh,28rem)] overflow-y-auto">
             {visible.map((job) => {
@@ -110,22 +111,22 @@ export default function DownloadQueueSheet({ open, onClose, onOpenSaved }: Downl
                   </button>
                   {(job.status === 'queued' || job.status === 'downloading') && (
                     <Button variant="ghost" onClick={() => downloadQueue.cancel(job.id)}>
-                      Отменить
+                      {t('common.cancelAction')}
                     </Button>
                   )}
                   {job.status === 'error' && (
                     <>
                       <Button variant="ghost" onClick={() => downloadQueue.retry(job.id)}>
-                        Повторить
+                        {t('common.retry')}
                       </Button>
                       <Button variant="ghost" onClick={() => downloadQueue.remove(job.id)}>
-                        Убрать
+                        {t('common.remove')}
                       </Button>
                     </>
                   )}
                   {job.status === 'saved' && (
                     <Button variant="ghost" onClick={() => downloadQueue.remove(job.id)}>
-                      Убрать
+                      {t('common.remove')}
                     </Button>
                   )}
                 </li>
@@ -140,7 +141,7 @@ export default function DownloadQueueSheet({ open, onClose, onOpenSaved }: Downl
             className="mt-4 w-full"
             onClick={() => downloadQueue.clearFinished()}
           >
-            Очистить завершённые
+            {t('downloadQueueSheet.clearFinished')}
           </Button>
         ) : null}
     </DragSheet>

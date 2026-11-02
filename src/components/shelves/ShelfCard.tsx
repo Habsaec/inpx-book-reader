@@ -7,14 +7,10 @@ import ShelfCoverStack from './ShelfCoverStack';
 import { useLongPress } from '../../hooks/useLongPress';
 import ShelfHomeToggle from './ShelfHomeToggle';
 import { Search } from 'lucide-react';
+import { t, tn } from '../../i18n';
 
 function bookCountLabel(n: number): string {
-  const v = Math.max(0, Math.floor(n));
-  const mod10 = v % 10;
-  const mod100 = v % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${v} книга`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${v} книги`;
-  return `${v} книг`;
+  return tn('common.booksCount', Math.max(0, Math.floor(n)));
 }
 
 export default function ShelfCard({
@@ -42,7 +38,7 @@ export default function ShelfCard({
 }) {
   const ids = (previewBookIds ?? []).map(String).filter(Boolean);
   const empty = count <= 0 && ids.length === 0;
-  const countText = empty ? 'Пока нет книг' : bookCountLabel(count);
+  const countText = empty ? t('shelfCard.noBooksYet') : bookCountLabel(count);
   // Delete lives on long-press: a red bin on every card was noise and an easy mis-tap.
   const press = useLongPress(() => onClick?.(), onDelete);
 
@@ -51,7 +47,7 @@ export default function ShelfCard({
       <button
         type="button"
         {...press}
-        aria-description={onDelete ? 'Удерживайте, чтобы удалить полку' : undefined}
+        aria-description={onDelete ? t('common.holdToDeleteTheShelf') : undefined}
         className={`flex-1 min-w-0 text-left py-4 select-none ${theme.rowPress} ${motion.press} ${theme.focusRing}`}
       >
         {serverConfig && ids.length > 0 ? (
@@ -62,11 +58,11 @@ export default function ShelfCard({
           />
         ) : null}
         <p className={`${textStyles.sectionLabel} ${theme.text} ${ids.length ? 'mt-3' : ''} truncate`}>
-          {smart ? <Search className={`inline w-5 h-5 mr-1.5 -mt-1 ${theme.accentText}`} aria-label="Умная полка" /> : null}
+          {smart ? <Search className={`inline w-5 h-5 mr-1.5 -mt-1 ${theme.accentText}`} aria-label={t('common.smartShelf')} /> : null}
           {name}
         </p>
         <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>
-          {smart ? `Умная · ${countText}` : countText}
+          {smart ? t('shelfCard.smart', { countText }) : countText}
         </p>
       </button>
       {onToggleHome ? <ShelfHomeToggle name={name} onHome={onHome} onToggle={onToggleHome} /> : null}

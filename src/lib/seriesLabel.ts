@@ -1,4 +1,5 @@
 import type { Book } from '../types';
+import { t } from '../i18n';
 
 /**
  * Human-readable series name for UI. Prefers the server-provided `seriesDisplay`;
@@ -82,7 +83,7 @@ export function bookTitleWithoutVolume(book: {
 /** «Том 33» under a title in tiles and lists (the volume no longer sits in front of the name). */
 export function volumeCaption(book: { seriesNo?: number | string | null; seriesNoLabel?: string | null }): string {
   const volume = seriesVolumeLabel(book);
-  return volume ? `Том ${volume}` : '';
+  return volume ? t('common.volN', { volume }) : '';
 }
 
 /**
@@ -97,5 +98,5 @@ export function displayBookTitle(book: {
   const volume = seriesVolumeLabel(book);
   const name = bookTitleWithoutVolume(book);
   if (!volume) return name;
-  return name ? `${name}, том ${volume}` : `Том ${volume}`;
+  return name ? t('seriesLabel.vol', { name, volume }) : t('common.volN', { volume });
 }

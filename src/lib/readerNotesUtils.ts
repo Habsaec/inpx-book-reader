@@ -1,15 +1,16 @@
 import { Book, ServerConfig } from '../types';
 import type { LocalReaderAnnotationItem } from './offlineReaderStore';
 import { bookContentUrl, displayCoverUrl } from './inpxClient';
+import { t } from '../i18n';
 
 export const ANNOTATION_COLORS = ['yellow', 'green', 'blue', 'pink'] as const;
 export type AnnotationColorFilter = 'all' | (typeof ANNOTATION_COLORS)[number];
 
 export const ANNOTATION_COLOR_LABELS: Record<(typeof ANNOTATION_COLORS)[number], string> = {
-  yellow: 'Жёлтый',
-  green: 'Зелёный',
-  blue: 'Синий',
-  pink: 'Розовый',
+  yellow: t('readerNotesUtils.yellow'),
+  green: t('readerNotesUtils.green'),
+  blue: t('readerNotesUtils.blue'),
+  pink: t('readerNotesUtils.pink'),
 };
 
 export const ANNOTATION_COLOR_SWATCH: Record<(typeof ANNOTATION_COLORS)[number], string> = {
@@ -89,7 +90,7 @@ export function exportAnnotationsJson(items: LocalReaderAnnotationItem[]): strin
 }
 
 export function exportAnnotationsMarkdown(items: LocalReaderAnnotationItem[]): string {
-  const lines = ['# Заметки и выделения', ''];
+  const lines = [t('readerNotesUtils.notesAndHighlights'), ''];
   for (const an of items) {
     lines.push(`## ${an.bookTitle}`);
     if (an.text) lines.push(`> ${an.text}`);

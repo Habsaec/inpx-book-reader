@@ -119,7 +119,7 @@ public final class BookStorageAccess {
     }
 
     private static Exception permissionRevokedError() {
-        return new Exception("PERMISSION_REVOKED: доступ к папке отозван. Выберите папку в настройках.");
+        return new Exception("PERMISSION_REVOKED: folder access was revoked. Choose the folder in the settings.");
     }
 
     private static Exception asStorageError(Exception e) {

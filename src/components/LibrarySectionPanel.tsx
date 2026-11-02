@@ -20,6 +20,7 @@ import { useBarHeight } from '../ui/useBarHeight';
 import EmptyState from '../ui/EmptyState';
 import { textStyles, touchMin, radii } from '../ui/tokens';
 import { usePageTitle } from '../ui/pageTitle';
+import { t, formatNumber, intlLocale } from '../i18n';
 
 /** `following` = «Новое у любимых»: newest first, no filters (the server applies profile languages only). */
 export type LibrarySectionView = 'recent' | 'recommended' | 'following';
@@ -28,16 +29,16 @@ type LibrarySort = 'recent' | 'relevance' | 'title' | 'rating';
 
 const SORT_OPTIONS: Record<LibrarySectionView, { id: LibrarySort; label: string }[]> = {
   recent: [
-    { id: 'recent', label: 'Новые' },
-    { id: 'title', label: 'А–Я' },
-    { id: 'rating', label: 'Рейтинг' },
+    { id: 'recent', label: t('common.new') },
+    { id: 'title', label: t('librarySectionPanel.aZ') },
+    { id: 'rating', label: t('common.rating') },
   ],
   recommended: [
-    { id: 'relevance', label: 'Подборка' },
-    { id: 'title', label: 'А–Я' },
-    { id: 'rating', label: 'Рейтинг' },
+    { id: 'relevance', label: t('common.relevance') },
+    { id: 'title', label: t('librarySectionPanel.aZ') },
+    { id: 'rating', label: t('common.rating') },
   ],
-  following: [{ id: 'recent', label: 'Новые' }],
+  following: [{ id: 'recent', label: t('common.new') }],
 };
 
 const DEFAULT_SORT: Record<LibrarySectionView, LibrarySort> = {
@@ -60,19 +61,19 @@ const SECTION_META: Record<
   { title: string; subtitle: string; empty: string }
 > = {
   recent: {
-    title: 'Новинки',
-    subtitle: 'Последние поступления в библиотеку',
-    empty: 'Нет новых книг',
+    title: t('common.newBooks'),
+    subtitle: t('librarySectionPanel.latestAdditionsToTheLibrary'),
+    empty: t('librarySectionPanel.noNewBooks'),
   },
   recommended: {
-    title: 'Рекомендации',
-    subtitle: 'Подборка на основе избранных авторов, серий, истории и закладок',
-    empty: 'Нет рекомендаций',
+    title: t('common.recommendations'),
+    subtitle: t('librarySectionPanel.pickedFromYourFavoriteAuthors'),
+    empty: t('librarySectionPanel.noRecommendations'),
   },
   following: {
-    title: 'Новое у любимых',
-    subtitle: 'Новые книги избранных авторов и серий за три месяца',
-    empty: 'Пока ничего нового',
+    title: t('common.newFromFavorites'),
+    subtitle: t('librarySectionPanel.newBooksOfFavoriteAuthors'),
+    empty: t('librarySectionPanel.nothingNewYet'),
   },
 };
 
@@ -171,7 +172,7 @@ export default function LibrarySectionPanel({
           flat
             .map((g) => ({ name: g.name, displayName: g.displayName }))
             .sort((a, b) =>
-              (a.displayName || a.name || '').localeCompare(b.displayName || b.name || '', 'ru', {
+              (a.displayName || a.name || '').localeCompare(b.displayName || b.name || '', intlLocale(), {
                 sensitivity: 'base',
               }),
             ),
@@ -360,32 +361,32 @@ export default function LibrarySectionPanel({
             compact
             tone="error"
             icon={AlertCircle}
-            title="Не удалось загрузить список"
-            description="Проверьте соединение с сервером."
-            actionLabel="Повторить"
+            title={t('librarySectionPanel.couldNotLoadTheList')}
+            description={t('common.checkTheConnectionToThe')}
+            actionLabel={t('common.retry')}
             actionVariant="secondary"
             onAction={() => setReloadKey((k) => k + 1)}
           />
         ) : loading || computing ? (
-          <div className="space-y-3" aria-busy aria-label={computing ? 'Подбираем рекомендации…' : 'Загрузка'}>
+          <div className="space-y-3" aria-busy aria-label={computing ? t('librarySectionPanel.pickingRecommendations') : t('common.loading')}>
             {computing && (
-              <p className={`${textStyles.caption} ${theme.textMuted}`}>Подбираем рекомендации…</p>
+              <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('librarySectionPanel.pickingRecommendations')}</p>
             )}
             <BookGridSkeleton count={9} />
           </div>
         ) : books.length === 0 ? (
           <EmptyState
             icon={BookOpen}
-            title={hasActiveFilters ? 'Ничего не найдено' : meta.empty}
-            description={hasActiveFilters ? 'Сбросьте фильтры или измените условия' : meta.subtitle}
-            actionLabel={hasActiveFilters ? 'Сбросить фильтры' : undefined}
+            title={hasActiveFilters ? t('common.nothingFound') : meta.empty}
+            description={hasActiveFilters ? t('librarySectionPanel.resetTheFiltersOrChange') : meta.subtitle}
+            actionLabel={hasActiveFilters ? t('librarySectionPanel.resetFilters') : undefined}
             onAction={hasActiveFilters ? clearAllFilters : undefined}
           />
         ) : (
           <>
             {total > 0 && (
               <p className={`mb-3 ${textStyles.micro} ${theme.textMuted}`}>
-                Найдено: <strong>{total.toLocaleString('ru-RU')}</strong>
+                {t('common.found')} <strong>{formatNumber(total)}</strong>
               </p>
             )}
             <CatalogBookList
@@ -430,7 +431,7 @@ export default function LibrarySectionPanel({
             }`}
           >
             <Filter className="w-4 h-4" aria-hidden />
-            Фильтры{hasActiveFilters ? ' •' : ''}
+            {t('common.filters')}{hasActiveFilters ? ' •' : ''}
           </button>
           )}
           <div className="flex items-center gap-1 min-w-0">

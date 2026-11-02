@@ -69,12 +69,12 @@ public class AppUpdatePlugin extends Plugin {
                 call.resolve(ret);
             } catch (TimeoutException e) {
                 future.cancel(true);
-                call.reject("Нет доступа к GitHub. Проверьте сеть или VPN.");
+                call.reject(UiLocale.str(getContext(), R.string.error_github_unreachable));
             } catch (Exception e) {
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
                 String msg = cause.getMessage();
                 call.reject(
-                    msg != null && !msg.isEmpty() ? msg : "Нет доступа к GitHub. Проверьте сеть или VPN.",
+                    msg != null && !msg.isEmpty() ? msg : UiLocale.str(getContext(), R.string.error_github_unreachable),
                     cause instanceof Exception ? (Exception) cause : e
                 );
             }
@@ -85,7 +85,7 @@ public class AppUpdatePlugin extends Plugin {
         String tag = tagFromLatestRedirect();
         if (tag == null) tag = tagFromAtomFeed();
         if (tag == null) {
-            throw new Exception("Нет доступа к GitHub. Проверьте сеть или VPN.");
+            throw new Exception(UiLocale.str(getContext(), R.string.error_github_unreachable));
         }
         return releaseJson(tag);
     }

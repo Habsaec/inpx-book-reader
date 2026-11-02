@@ -1,6 +1,7 @@
 import { isNativeApp } from './platform';
 import { formatBytes } from './downloadQueue';
 import { BookStorage } from './bookStoragePlugin';
+import { t } from '../i18n';
 
 const STORAGE_MARGIN_BYTES = 50 * 1024 * 1024;
 
@@ -23,7 +24,7 @@ export async function assertEnoughStorage(requiredBytes: number): Promise<void> 
   const needed = Math.max(requiredBytes, 256 * 1024) + STORAGE_MARGIN_BYTES;
   if (available < needed) {
     throw new Error(
-      `Недостаточно места на устройстве. Нужно ~${formatBytes(needed)}, доступно ${formatBytes(available)}`,
+      t('storageSpace.notEnoughSpaceOnThe', { needed: formatBytes(needed), available: formatBytes(available) }),
     );
   }
 }

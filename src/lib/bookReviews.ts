@@ -1,3 +1,4 @@
+import { intlLocale } from '../i18n';
 export type BookReviewItem = {
   name: string;
   timeLabel: string;
@@ -47,7 +48,7 @@ export function formatReviewTime(raw: string): string {
     if (!Number.isNaN(parsed)) date = new Date(parsed);
   }
   if (!date || Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('ru-RU', {
+  return new Intl.DateTimeFormat(intlLocale(), {
     day: 'numeric',
     month: 'long',
     year: 'numeric',

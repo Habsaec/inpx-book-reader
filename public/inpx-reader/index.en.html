@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+
+<title></title>
+
+<link rel="stylesheet" href="/inpx-reader/reader.css?v=7681356ab191">
+<script>try{var _t=JSON.parse(localStorage.getItem('reader-settings')||'{}').theme||'sepia';document.documentElement.dataset.readerTheme=_t}catch(e){document.documentElement.dataset.readerTheme='sepia'}</script>
+</head>
+<body class="chrome-hidden">
+<div id="reader-wallpaper" aria-hidden="true"></div>
+<script type="application/json" id="ui-i18n-json">{"locale":"en","strings":{"reader.fontSystem":"System","reader.fontGoogle":"Google Fonts","reader.fullWidth":"Full width","reader.ttsVoiceDefault":"Default voice","reader.ttsPause":"Pause","reader.tts":"Read aloud","reader.ttsPlay":"Read aloud","reader.ttsSlower":"Slower","reader.ttsFaster":"Faster","reader.ttsNoPrev":"No previous passage","reader.ttsFixedLayout":"Read aloud is not available for fixed-layout books","reader.ttsUnavailable":"Read aloud is unavailable","reader.ttsNoText":"No text to read aloud","readerJs.nightOn":"Night mode","readerJs.dayOn":"Day mode","readerJs.dayModeBtn":"Day","readerJs.nightModeBtn":"Night","readerJs.enableDayMode":"Switch to day mode","readerJs.enableNightMode":"Switch to night mode","readerJs.settingsReset":"Settings reset","readerJs.autoMarkedRead":"The book is marked as read","readerJs.bookmarkAdded":"Bookmark added","readerJs.navigating":"Going…","readerJs.currentPos":"Current position","readerJs.readingNow":"Reading now","readerJs.addBmBtn":"Add a bookmark","readerJs.noBookmarks":"No bookmarks yet","readerJs.bookmarkFallback":"Bookmark","readerJs.delete":"Delete","readerJs.searchMinChars":"Enter at least 2 characters","readerJs.searchHint":"Search the book text","readerJs.searching":"Searching…","readerJs.searchNoResults":"Nothing found","readerJs.highlightAdded":"Highlight added","readerJs.copied":"Copied","readerJs.copyFailed":"Could not copy","readerJs.annotationRemoved":"Note deleted","readerJs.noteSaved":"Note saved","readerJs.noNotes":"No notes yet","readerJs.notesHint":"Select text and add a note","readerJs.tocNotFound":"No table of contents","readerJs.tocEmpty":"No chapters match","readerJs.panelSettings":"Reading","readerJs.panelSettingsTitle":"Settings","readerJs.panelTocKicker":"Navigation","readerJs.panelTocTitle":"Contents","readerJs.panelBmKicker":"Bookmarks","readerJs.panelBmTitle":"My bookmarks","readerJs.panelSearchKicker":"Search","readerJs.panelSearchTitle":"In the book","readerJs.panelNotesKicker":"Notes","readerJs.panelNotesTitle":"My notes","readerJs.fullscreenExit":"Exit fullscreen","readerJs.fullscreenEnter":"Fullscreen","readerJs.footnote":"Footnote","readerJs.close":"Close","readerJs.errorTitle":"Reading error","readerJs.back":"Back","readerJs.djvuUnsupportedTitle":"DJVU is not supported","readerJs.djvuUnsupportedText":"Download the file and open it in another app.","readerJs.unsupportedTitle":"Format not supported","readerJs.unsupportedText":"This format cannot be opened in the reader.","readerJs.download":"Download","readerJs.loadBookFail":"Could not load the book","readerJs.loadError":"Load error ({{status}})","readerJs.positionPct":"Position {{n}}%","readerJs.pctOfBook":"{{n}}% of the book","readerJs.savedBookmarks":"{{n}} {{word}}","readerJs.searchResults":"{{n}} {{word}}","readerJs.savedNotes":"{{n}} {{word}}","readerJs.dictTitle":"Dictionary","readerJs.dictLoading":"Searching…","readerJs.dictNotFound":"No definition found","readerJs.dictNetworkError":"No network for the dictionary","readerJs.mediaOverlay":"Read-along","readerJs.mediaOverlayStop":"Stop read-along","readerJs.notesExport":"Export JSON","readerJs.notesImport":"Import JSON","readerJs.notesImported":"Data imported","readerJs.notesImportFail":"Import error","plural.bookmark.one":"bookmark","plural.bookmark.other":"bookmarks","plural.result.one":"result","plural.result.other":"results","plural.note.one":"note","plural.note.other":"notes","app.auto":"Auto","app.autoFlipHint":"0 — off. Pages mode only.","app.autoFlipInterval":"Auto-flip interval","app.autoFlipOff":"Auto-flip off","app.autoFlipOn":"Auto-flip · {{n}} s","app.autoFlipSec":"Auto-flip, sec","app.autoHud":"Auto · {{n}}s","app.background":"Background","app.bgColor":"Background color","app.bgImage":"Background picture","app.bgImageFail":"Could not load the image","app.bgImageSet":"Background image set","app.blockHeight":"Block height","app.blockHeightHint":"Maximum text height in scroll mode","app.bookmark":"Bookmark","app.brightness":"Brightness","app.brightnessHint":"Or swipe up/down at the left edge of the screen","app.cancel":"Cancel","app.choose":"Choose","app.color":"Color","app.columnGap":"Column gap","app.columnWidth":"Column width","app.crossDeviceMessage":"You have read this book on another device before. Go to the saved position?","app.cssCleared":"CSS cleared","app.customCss":"Custom CSS","app.customCssClear":"Clear CSS","app.customCssPlaceholder":"/* Extra styles for the book text */","app.dim":"Dimming","app.dimLabel":"Dimming over the picture","app.display":"Display","app.einkEvery":"Every time","app.einkEvery3":"Every 3","app.einkEvery5":"Every 5","app.einkRefresh":"E-Ink full refresh","app.einkRefreshHint":"A full refresh removes the ghosting of previous pages.","app.einkVolumeHint":"E-Ink: the volume keys turn pages. Brightness — left edge, warmth — right edge.","app.epub7z":"The EPUB is saved as 7z. Delete the book from the device and download it again from the server.","app.fileNotFound":"The book file was not found on the device","app.fileReadEmpty":"Empty response while reading the file","app.fileReadTimeout":"Could not read the book file (timeout)","app.fitContain":"Fit","app.fitCover":"Fill","app.fitTile":"Tile","app.font":"Font","app.fontSize":"Font size","app.footnotes":"Footnote pop-ups","app.fromTheme":"From the theme","app.frontLight":"Front light","app.frontLightHint":"Brightness — swipe up/down at the left edge of the screen. Warmth — at the right edge. The volume keys turn pages.","app.fullWidth":"Full width","app.gap":"Gap","app.go":"Go","app.gotoHeading":"Go to…","app.gotoPageHint":"Screen number in the current layout","app.gotoTitle":"Go to position","app.hyphenate":"Hyphenation","app.hyphenateLong":"Hyphenation","app.invert":"Invert","app.invertColors":"Invert colors","app.justify":"Justify","app.justifyLong":"Justify","app.layoutDual":"Two pages","app.layoutPaginated":"Pages","app.layoutScrolled":"Scroll","app.letterSpacing":"Letter spacing","app.letterSpacingShort":"Letter spacing","app.lineHeight":"Line height","app.linkColor":"Link color","app.links":"Links","app.marginTop":"Top margin","app.margins":"Margins","app.marginsSide":"Side","app.marginsSideLabel":"Side margins","app.marginsVertical":"Vertical","app.marginsVerticalLabel":"Vertical margins","app.mode":"Mode","app.nextInSeries":"Next in the series","app.nextInSeriesPrefix":"Next in the series: ","app.now":"Current","app.off":"Off","app.otherDevice":"On another device","app.pageHaptic":"Vibrate on page turn","app.pageOf":"of {{n}}","app.pageOfUnknown":"of —","app.paragraph":"Paragraph","app.paragraphSpacing":"Paragraph spacing","app.paragraphSpacingShort":"Between paragraphs","app.pdfModeFail":"Could not switch the PDF mode","app.pdfPage":"PDF: page","app.presetBalanced":"Balanced","app.presetCompact":"Compact","app.presetRelaxed":"Relaxed","app.presets":"Presets","app.publisherFont":"Font from the book","app.quote":"Quote","app.reading":"Reading","app.remove":"Remove","app.reset":"Reset","app.scale":"Scale","app.screenBrightness":"Screen brightness","app.seconds":"{{n}} s","app.sectionControls":"Controls","app.sectionLook":"Colors and theme","app.sectionMore":"More","app.sectionPage":"Page","app.sectionStatus":"Status bar","app.sectionText":"Text","app.settings":"Settings","app.statusAlways":"Always","app.statusChapter":"Chapter","app.statusChapterLeft":"Left in chapter","app.statusClock":"Clock","app.statusHidden":"Hidden","app.statusPct":"Percent","app.statusWithChrome":"With menu","app.stayHere":"Stay here","app.tapAction":"Zone action","app.tapAutoFlip":"Auto-flip","app.tapChrome":"Menu","app.tapDayNight":"Day/night","app.tapGoto":"Go to…","app.tapHint":"Pick a cell, then an action","app.tapLongLabel":"Long tap","app.tapLongZone":"Long tap · zone {{zone}}","app.tapNext":"Forward","app.tapNextChapter":"Next chapter","app.tapNone":"None","app.tapPrev":"Back","app.tapPrevChapter":"Prev. chapter","app.tapReset":"Reset zones","app.tapSearch":"Search","app.tapShortLabel":"Short tap","app.tapShortZone":"Short tap · zone {{zone}}","app.tapToc":"Contents","app.tapZones":"Screen zones","app.textColor":"Text color","app.textIndent":"First-line indent","app.theme":"Theme","app.themeDark":"Dark","app.themeLight":"Light","app.themeNight":"Night","app.themeSepia":"Sepia","app.tts":"Read aloud","app.typography":"Typography","app.visibility":"Visibility","app.voiceHint":"Voices come from the Android system text-to-speech (Settings → Accessibility → Text-to-speech).","app.volumeBack":"Vol+ back","app.volumeForward":"Vol+ forward","app.volumeKeys":"Volume keys","app.volumeKeysHint":"Turn pages with the volume keys (Android). Brightness — swipe at the left edge.","app.warmth":"Warmth {{raw}}/{{max}}","app.weight":"Weight","app.weightBold":"Bold","app.weightMedium":"Medium","app.weightRegular":"Regular","app.weightSemibold":"Semibold","app.zonesCustom":"Custom zones","app.zonesDefault":"Default zones","app.zonesReset":"Zones reset"}}</script>
+<script>(function(){var d={};try{d=JSON.parse(document.getElementById('ui-i18n-json').textContent).strings||{}}catch(e){}window.__rt=function(k,p){var s=Object.prototype.hasOwnProperty.call(d,k)?d[k]:k;if(p)for(var n in p)s=s.split('{{'+n+'}}').join(String(p[n]));return s}})()</script>
+
+<div class="reader-toolbar reader-chrome" id="toolbar">
+  <div class="tb-left">
+    <button type="button" class="tb-btn" id="btn-app-back" title="Back" aria-label="Back to book"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <div class="tb-meta">
+      <span class="tb-title"></span>
+      <span class="tb-chapter" id="toolbar-chapter">Loading…</span>
+    </div>
+  </div>
+  <div class="tb-right">
+    <span class="tb-progress" id="progress-text">0%</span>
+    <button class="tb-btn" type="button" id="btn-bookmark-add" title="Bookmark" aria-label="Add bookmark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg></button>
+  </div>
+</div>
+
+<div class="reader-restore-veil" id="reader-restore-veil" hidden></div>
+  <div id="reader-body">
+  <div class="reader-loading" id="reader-loading">
+    <div class="reader-spinner"></div>
+    <div class="reader-loading-text">Loading book…</div>
+  </div>
+</div>
+
+<div class="reader-footer reader-chrome" id="reader-footer">
+  <span class="ft-chapter" id="ft-chapter"></span>
+  <div class="ft-seek-wrap">
+    <input type="range" class="ft-seek" id="ft-seek" name="readerSeek" min="0" max="1" step="0.001" value="0">
+  </div>
+  <button type="button" class="ft-goto-btn" id="ft-goto" title="Go to position" aria-label="Go to position"><span class="ft-pct" id="ft-pct">0%</span></button>
+</div>
+
+<div class="reader-quick reader-chrome" id="reader-quick" role="toolbar" aria-label="Reading menu">
+  <div class="rq-tiles">
+    <button class="rq-tile" type="button" id="btn-toc"  title="Contents" aria-label="Contents"><span class="rq-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></span><span class="rq-label">Contents</span></button>
+    <button class="rq-tile" type="button" data-quick-tab="bookmarks" title="Bookmarks" aria-label="Bookmarks"><span class="rq-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 19l-5-4-5 4V5a2 2 0 012-2h6a2 2 0 012 2z"/><path d="M20 9v12l-3-2.4"/></svg></span><span class="rq-label">Bookmarks</span></button>
+    <button class="rq-tile" type="button" data-quick-tab="notes" title="Notes" aria-label="Notes"><span class="rq-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg></span><span class="rq-label">Notes</span></button>
+    <button class="rq-tile" type="button" id="btn-search"  title="Search in book" aria-label="Search in book"><span class="rq-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span><span class="rq-label">Search</span></button>
+    <button class="rq-tile" type="button" id="btn-tts" title="Read aloud" aria-label="Read aloud (TTS): V play/pause; Shift+V — stop; [ ] — previous/next phrase"><svg class="tts-main-icon" viewBox="0 0 24 24" aria-hidden="true"><path class="tts-main-path" fill="currentColor" d="M8 5v14l11-7z"/></svg><span class="rq-label">Read aloud</span></button>
+    <button class="rq-tile" type="button" id="btn-day-night"  title="Toggle day or night mode" aria-label="Toggle day or night mode"><span class="rq-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></span><span class="rq-label">Day / night</span></button>
+    <button class="rq-tile" type="button" id="btn-fullscreen"  title="Fullscreen" aria-label="Fullscreen"><span class="rq-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg></span><span class="rq-label">Full screen</span></button>
+    <button class="rq-tile" type="button" id="btn-settings"  title="Reader settings" aria-label="Reader settings"><span class="rq-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></span><span class="rq-label">Settings</span></button>
+  </div>
+  <div class="rq-row">
+    <div class="rq-step" role="group" aria-label="Font size">
+      <button type="button" class="rq-step-btn" id="rq-font-dec" aria-label="Smaller">A&minus;</button>
+      <span class="rq-step-val" id="rq-font-val">18</span>
+      <button type="button" class="rq-step-btn rq-step-btn-lg" id="rq-font-inc" aria-label="Larger">A+</button>
+    </div>
+    <div class="rq-themes" role="group" aria-label="Theme"><button class="rs-theme-dot rq-theme-dot" type="button" data-set-theme="light" title="Light" aria-label="Light"><span class="rs-dot-label">Light</span></button><button class="rs-theme-dot rq-theme-dot" type="button" data-set-theme="sepia" title="Sepia" aria-label="Sepia"><span class="rs-dot-label">Sepia</span></button><button class="rs-theme-dot rq-theme-dot" type="button" data-set-theme="dark" title="Dark" aria-label="Dark"><span class="rs-dot-label">Dark</span></button><button class="rs-theme-dot rq-theme-dot" type="button" data-set-theme="night" title="Night" aria-label="Night"><span class="rs-dot-label">Night</span></button><button class="rs-theme-dot rq-theme-dot" type="button" data-set-theme="eink" title="E-Ink" aria-label="E-Ink"><span class="rs-dot-label">E-Ink</span></button></div>
+  </div>
+</div>
+
+
+  <div class="reader-status-strip" id="reader-status-strip" aria-hidden="true">
+    <div class="rss-side rss-left">
+      <span class="rss-item rss-chapter" id="rss-chapter" hidden></span>
+    </div>
+    <div class="rss-mid">
+      <span class="rss-item rss-page" id="rss-page" hidden></span>
+      <span class="rss-item rss-chapter-left" id="rss-chapter-left" hidden></span>
+    </div>
+    <div class="rss-side rss-right">
+      <span class="rss-item rss-clock" id="rss-clock" hidden></span>
+      <span class="rss-item rss-pct" id="rss-pct" hidden></span>
+    </div>
+  </div>
+
+  <div class="reader-autoflip-hud" id="reader-autoflip-hud" hidden aria-hidden="true">Auto</div>
+
+  <div class="reader-hud-flash" id="reader-hud-flash" aria-hidden="true"></div>
+
+  <div class="reader-tts-dock" id="reader-tts-dock" role="region" aria-hidden="true" aria-label="Read aloud"></div>
+
+<div class="reader-book-pages" id="reader-book-pages" aria-hidden="true">
+  <span class="book-page-num" id="book-page-left"></span>
+  <span class="book-page-num" id="book-page-right"></span>
+</div>
+
+<div class="reader-sel-menu" id="reader-sel-menu" role="menu" aria-hidden="true">
+  <div class="rsm-colors">
+    <button type="button" class="rsm-color" data-color="yellow" title="Highlight" aria-label="Highlight"></button>
+    <button type="button" class="rsm-color" data-color="green" title="Highlight" aria-label="Highlight"></button>
+    <button type="button" class="rsm-color" data-color="blue" title="Highlight" aria-label="Highlight"></button>
+    <button type="button" class="rsm-color" data-color="pink" title="Highlight" aria-label="Highlight"></button>
+  </div>
+  <span class="rsm-sep"></span>
+  <button type="button" class="rsm-btn" id="rsm-note">Note</button>
+  <button type="button" class="rsm-btn" id="rsm-bookmark">Bookmark</button>
+  <button type="button" class="rsm-btn" id="rsm-copy" title="Copy">Copy</button>
+  <button type="button" class="rsm-btn rsm-btn-danger" id="rsm-remove" title="Remove" hidden>Remove</button>
+</div>
+
+<div class="reader-note-editor" id="reader-note-editor" aria-hidden="true">
+  <div class="rne-card">
+    <div class="rne-quote" id="rne-quote"></div>
+    <textarea id="rne-text" class="rne-text" rows="4" placeholder="Note text…"></textarea>
+    <div class="rne-actions">
+      <button type="button" class="rne-btn" id="rne-cancel">Cancel</button>
+      <button type="button" class="rne-btn rne-btn-primary" id="rne-save">Save</button>
+    </div>
+  </div>
+</div>
+
+
+  <div class="reader-goto" id="reader-goto" aria-hidden="true">
+    <div class="rg-card">
+      <div class="rg-title">Go to…</div>
+      <label class="rg-label" for="rg-pct">Percent</label>
+      <div class="rg-row">
+        <input type="range" id="rg-pct" name="gotoPct" min="0" max="100" step="0.1" value="0">
+        <input type="number" id="rg-pct-num" name="gotoPctNum" min="0" max="100" step="0.1" value="0" inputmode="decimal">
+        <span class="rg-unit">%</span>
+      </div>
+      <label class="rg-label" for="rg-page">Page</label>
+      <div class="rg-row">
+        <input type="number" id="rg-page" name="gotoPage" min="1" step="1" value="1" inputmode="numeric">
+        <span class="rg-unit" id="rg-page-total">of —</span>
+      </div>
+      <div class="rg-hint" id="rg-page-hint">Screen number in the current layout</div>
+      <div class="rne-actions">
+        <button type="button" class="rne-btn" id="rg-cancel">Cancel</button>
+        <button type="button" class="rne-btn rne-btn-primary" id="rg-go">Go</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel-overlay" id="panel-overlay">
+  <button type="button" class="panel-backdrop" id="panel-backdrop" tabindex="-1" aria-label="Close panel"></button>
+  <div class="panel">
+    <div class="panel-header">
+      <button type="button" class="panel-back" id="panel-back" hidden title="Back" aria-label="Back to settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="panel-heading">
+        <div class="panel-kicker" id="panel-kicker">Book navigation</div>
+        <div class="panel-title" id="panel-title">Contents</div>
+      </div>
+      <button type="button" class="panel-close" id="panel-close" title="Close" aria-label="Close panel">&times;</button>
+    </div>
+    <div class="panel-tabs">
+      <button class="panel-tab is-active" data-tab="toc">Contents</button>
+      <button class="panel-tab" data-tab="search">Search</button>
+      <button class="panel-tab" data-tab="bookmarks">Bookmarks</button>
+      <button class="panel-tab" data-tab="notes">Notes</button>
+    </div>
+    <div class="panel-body" data-panel-tab="toc">
+      <div class="toc-tools">
+        <input type="search" id="toc-search-input" name="tocSearch" class="toc-search-input" placeholder="Find chapter…" autocomplete="off">
+        <div class="toc-actions">
+          <button type="button" class="toc-action-btn" id="toc-prev-chapter">← Prev. chapter</button>
+          <button type="button" class="toc-action-btn" id="toc-next-chapter">Next chapter →</button>
+        </div>
+      </div>
+      <div id="toc-content"><div class="bm-empty">Loading…</div></div>
+    </div>
+    <div class="panel-body" data-panel-tab="search" hidden>
+      <div class="toc-tools">
+        <input type="search" id="book-search-input" name="bookSearch" class="toc-search-input" placeholder="Find in book…" autocomplete="off" enterkeyhint="search">
+      </div>
+      <div id="search-content"><div class="bm-empty">Type a query to search the book text</div></div>
+    </div>
+    <div class="panel-body" data-panel-tab="bookmarks" hidden>
+      <div id="bookmarks-content"><div class="bm-empty">Loading…</div></div>
+    </div>
+    <div class="panel-body" data-panel-tab="notes" hidden>
+      <div id="notes-content"><div class="bm-empty">Loading…</div></div>
+    </div>
+    <div class="panel-body rs-body" data-panel-tab="settings" hidden>
+        <nav class="rs-root" id="rs-root" aria-label="Settings">
+          <button type="button" class="rs-root-row" data-rs-open="text"><span class="rs-root-ico" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l6-16 6 16M6.5 14h7"/><path d="M17 20v-6a2.5 2.5 0 015 0v6M17 17h5"/></svg></span><span class="rs-root-label">Text</span><span class="rs-root-val" data-rs-summary="text"></span><span class="rs-root-chev" aria-hidden="true">&rsaquo;</span></button>
+          <button type="button" class="rs-root-row" data-rs-open="look"><span class="rs-root-ico" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 100 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A4.7 4.7 0 0021 9.7C21 6 17 3 12 3z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15.5" cy="8.5" r="1"/></svg></span><span class="rs-root-label">Colors and theme</span><span class="rs-root-val" data-rs-summary="look"></span><span class="rs-root-chev" aria-hidden="true">&rsaquo;</span></button>
+          <button type="button" class="rs-root-row" data-rs-open="page"><span class="rs-root-ico" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span><span class="rs-root-label">Page</span><span class="rs-root-val" data-rs-summary="page"></span><span class="rs-root-chev" aria-hidden="true">&rsaquo;</span></button>
+          <button type="button" class="rs-root-row" data-rs-open="status"><span class="rs-root-ico" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16h18M7 18.5h3M15 18.5h2"/></svg></span><span class="rs-root-label">Status bar</span><span class="rs-root-val" data-rs-summary="status"></span><span class="rs-root-chev" aria-hidden="true">&rsaquo;</span></button>
+          <button type="button" class="rs-root-row" data-rs-open="controls"><span class="rs-root-ico" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 013 0V12M11 11.5v-2a1.5 1.5 0 013 0V12M14 10.5a1.5 1.5 0 013 0V12M17 11.5a1.5 1.5 0 013 0V16a6 6 0 01-6 6h-2a6 6 0 01-5-2.7L4.3 15a1.5 1.5 0 012.5-1.7L8 15"/></svg></span><span class="rs-root-label">Controls</span><span class="rs-root-val" data-rs-summary="controls"></span><span class="rs-root-chev" aria-hidden="true">&rsaquo;</span></button>
+          <button type="button" class="rs-root-row" data-rs-open="tts"><span class="rs-root-ico" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14v-2a9 9 0 0118 0v2"/><path d="M21 15a2 2 0 01-2 2h-1v-6h1a2 2 0 012 2zM3 15a2 2 0 002 2h1v-6H5a2 2 0 00-2 2z"/></svg></span><span class="rs-root-label">Read aloud</span><span class="rs-root-val" data-rs-summary="tts"></span><span class="rs-root-chev" aria-hidden="true">&rsaquo;</span></button>
+          <button type="button" class="rs-root-row" data-rs-open="more"><span class="rs-root-ico" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></span><span class="rs-root-label">More</span><span class="rs-root-val" data-rs-summary="more"></span><span class="rs-root-chev" aria-hidden="true">&rsaquo;</span></button>
+          <button type="button" class="rs-root-row rs-root-reset" id="reader-reset-settings"><span class="rs-root-ico" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 109-9 9.7 9.7 0 00-6.7 2.8L3 8"/><path d="M3 3v5h5"/></svg></span><span class="rs-root-label">Reset</span></button>
+        </nav>
+
+        <section class="rs-page" data-rs-page="text" data-rs-title="Text" hidden>
+          <div class="rs-group">
+            <div class="rs-label">Font size</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-font-size" name="readerFontSize" min="12" max="32" step="1" aria-label="Font size">
+              <span class="rs-val" id="rs-font-size-val">18</span>
+            </div>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Presets</div>
+            <div class="rs-seg rs-preset-seg">
+              <button type="button" data-preset="compact">Compact</button>
+              <button type="button" data-preset="balanced">Balanced</button>
+              <button type="button" data-preset="relaxed">Relaxed</button>
+            </div>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Font</div>
+            <select id="rs-font-family" name="readerFontFamily" class="rs-select" aria-label="Font"></select>
+            <label class="rs-check">
+              <span>Font from the book</span>
+              <input type="checkbox" id="rs-publisher-font" name="readerPublisherFont">
+            </label>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Weight</div>
+            <select id="rs-font-weight" name="readerFontWeight" class="rs-select" aria-label="Weight">
+              <option value="400">Regular</option>
+              <option value="500">Medium</option>
+              <option value="600">Semibold</option>
+              <option value="700">Bold</option>
+            </select>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Line height</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-line-height" name="readerLineHeight" min="1.2" max="2.4" step="0.1" aria-label="Line height">
+              <span class="rs-val" id="rs-line-height-val">1.6</span>
+            </div>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Paragraph</div>
+            <label class="rs-check">
+              <span>Justify</span>
+              <input type="checkbox" id="rs-justify" name="readerJustify" checked>
+            </label>
+            <label class="rs-check">
+              <span>Hyphenation</span>
+              <input type="checkbox" id="rs-hyphenate" name="readerHyphenate" checked>
+            </label>
+          </div>
+          <div class="rs-group">
+            <div class="rs-sublabel">Between paragraphs</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-paragraph-spacing" name="readerParagraphSpacing" min="0" max="1.5" step="0.05" aria-label="Paragraph spacing">
+              <span class="rs-val" id="rs-paragraph-spacing-val">0.40</span>
+            </div>
+            <div class="rs-sublabel">First-line indent</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-text-indent" name="readerTextIndent" min="0" max="3" step="0.1" aria-label="First-line indent">
+              <span class="rs-val" id="rs-text-indent-val">0.0 em</span>
+            </div>
+            <div class="rs-sublabel">Letter spacing</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-letter-spacing" name="readerLetterSpacing" min="-0.05" max="0.2" step="0.01" aria-label="Letter spacing">
+              <span class="rs-val" id="rs-letter-spacing-val">0.00</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="rs-page" data-rs-page="look" data-rs-title="Colors and theme" hidden>
+          <div class="rs-group">
+            <div class="rs-label">Theme</div>
+            <div class="rs-themes">
+              <button class="rs-theme-dot" type="button" data-set-theme="light"><span class="rs-dot-label">Light</span></button>
+              <button class="rs-theme-dot" type="button" data-set-theme="sepia"><span class="rs-dot-label">Sepia</span></button>
+              <button class="rs-theme-dot" type="button" data-set-theme="dark"><span class="rs-dot-label">Dark</span></button>
+              <button class="rs-theme-dot" type="button" data-set-theme="night"><span class="rs-dot-label">Night</span></button>
+              <button class="rs-theme-dot" type="button" data-set-theme="eink"><span class="rs-dot-label">E-Ink</span></button>
+            </div>
+          </div>
+          <div id="rs-brightness-slot"></div>
+          <div class="rs-group">
+            <div class="rs-label">Color</div>
+            <div class="rs-color-stack">
+              <div class="rs-color-line">
+                <div class="rs-color-sub">Text</div>
+                <div class="rs-color-row">
+                  <input type="color" id="rs-text-color" name="readerTextColor" value="#3d3121" aria-label="Text" title="Text color">
+                  <button type="button" class="rs-color-default" id="rs-text-color-default">Theme</button>
+                </div>
+              </div>
+              <div class="rs-color-line">
+                <div class="rs-color-sub">Background</div>
+                <div class="rs-color-row">
+                  <input type="color" id="rs-bg-color" name="readerBgColor" value="#f4edd5" aria-label="Background" title="Background color">
+                  <button type="button" class="rs-color-default" id="rs-bg-color-default">Theme</button>
+                </div>
+              </div>
+              <div class="rs-color-line">
+                <div class="rs-color-sub">Links</div>
+                <div class="rs-color-row">
+                  <input type="color" id="rs-link-color" name="readerLinkColor" value="#8b5a12" aria-label="Links" title="Link color">
+                  <button type="button" class="rs-color-default" id="rs-link-color-default">Theme</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="rs-group" id="rs-bg-image-group">
+            <div class="rs-label">Background picture</div>
+            <div class="rs-bg-image-row">
+              <div class="rs-bg-image-preview" id="rs-bg-image-preview" aria-hidden="true"></div>
+              <div class="rs-bg-image-actions">
+                <label class="rs-file-btn">
+                  Choose
+                  <input type="file" id="rs-bg-image-file" accept="image/*" hidden>
+                </label>
+                <button type="button" class="rs-bg-image-clear" id="rs-bg-image-clear" hidden>Remove</button>
+              </div>
+            </div>
+            <div class="rs-sublabel">Scale</div>
+            <div class="rs-seg">
+              <button type="button" data-bg-image-fit="cover">Fill</button>
+              <button type="button" data-bg-image-fit="contain">Fit</button>
+              <button type="button" data-bg-image-fit="tile">Tile</button>
+            </div>
+            <div id="rs-bg-image-paper-wrap" hidden>
+              <div class="rs-sublabel">Dimming</div>
+              <div class="rs-slider">
+                <input type="range" id="rs-bg-image-paper" min="0" max="1" step="0.02" aria-label="Dimming over the picture">
+                <span class="rs-val" id="rs-bg-image-paper-val">35%</span>
+              </div>
+            </div>
+          </div>
+          <div class="rs-group">
+            <label class="rs-check">
+              <span>Invert</span>
+              <input type="checkbox" id="rs-invert" name="readerInvert">
+            </label>
+          </div>
+        </section>
+
+        <section class="rs-page" data-rs-page="page" data-rs-title="Page" hidden>
+          <div class="rs-group">
+            <div class="rs-label">Mode</div>
+            <div class="rs-seg">
+              <button type="button" data-set-layout="paginated">Pages</button>
+              <button type="button" data-set-layout="dual" class="rs-layout-dual-btn">Two pages</button>
+              <button type="button" data-set-layout="scrolled">Scroll</button>
+            </div>
+          </div>
+          <div class="rs-group" id="rs-layout-paginated">
+            <div class="rs-label">Column width</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-column-width" name="readerColumnWidth" min="480" max="920" step="20" aria-label="Column width">
+              <span class="rs-val" id="rs-column-width-val">720 px</span>
+            </div>
+            <label class="rs-check">
+              <span>Full width</span>
+              <input type="checkbox" id="rs-full-width" name="readerFullWidth">
+            </label>
+          </div>
+          <div class="rs-group" id="rs-layout-dual" hidden>
+            <div class="rs-label">Column gap</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-column-gap" name="readerColumnGap" min="4" max="16" step="1" aria-label="Gap">
+              <span class="rs-val" id="rs-column-gap-val">7%</span>
+            </div>
+          </div>
+          <div class="rs-group" id="rs-layout-scrolled" hidden>
+            <div class="rs-label">Block height</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-max-block-size" name="readerMaxBlockSize" min="720" max="2400" step="40" aria-label="Block height">
+              <span class="rs-val" id="rs-max-block-size-val">1440 px</span>
+            </div>
+            <div class="rs-hint">Maximum text height in scroll mode</div>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Margins</div>
+            <div class="rs-sublabel">Side</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-page-margin" name="readerPageMargin" min="0" max="72" step="4" aria-label="Side margins">
+              <span class="rs-val" id="rs-page-margin-val">32 px</span>
+            </div>
+            <div class="rs-sublabel">Vertical</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-vertical-margin" name="readerVerticalMargin" min="0" max="96" step="4" aria-label="Vertical margins">
+              <span class="rs-val" id="rs-vertical-margin-val">32 px</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="rs-page" data-rs-page="status" data-rs-title="Status bar" hidden>
+          <div class="rs-group">
+            <div class="rs-label">Visibility</div>
+            <div class="rs-seg">
+              <button type="button" data-set-status-mode="withChrome">With menu</button>
+              <button type="button" data-set-status-mode="always">Always</button>
+              <button type="button" data-set-status-mode="hidden">Hidden</button>
+            </div>
+          </div>
+          <div class="rs-group">
+            <label class="rs-check"><span>Chapter</span><input type="checkbox" id="rs-status-chapter" name="statusChapter" checked></label>
+            <label class="rs-check"><span>Percent</span><input type="checkbox" id="rs-status-pct" name="statusPct" checked></label>
+            <label class="rs-check"><span>Page</span><input type="checkbox" id="rs-status-page" name="statusPage" checked></label>
+            <label class="rs-check"><span>Left in chapter</span><input type="checkbox" id="rs-status-chapter-left" name="statusChapterLeft"></label>
+            <label class="rs-check"><span>Clock</span><input type="checkbox" id="rs-status-clock" name="statusClock"></label>
+          </div>
+        </section>
+
+        <section class="rs-page" data-rs-page="controls" data-rs-title="Controls" hidden>
+          <div class="rs-group" id="rs-eink-refresh-group" hidden>
+            <div class="rs-label">E-Ink full refresh</div>
+            <div class="rs-seg">
+              <button type="button" data-set-eink-refresh="1">Every time</button>
+              <button type="button" data-set-eink-refresh="3">Every 3</button>
+              <button type="button" data-set-eink-refresh="5">Every 5</button>
+            </div>
+            <div class="rs-hint">A full refresh removes the ghosting of previous pages.</div>
+          </div>
+          <div class="rs-group" id="rs-eink-volume-hint" hidden>
+            <div class="rs-hint">E-Ink: the volume keys turn pages. Brightness — left edge, warmth — right edge.</div>
+          </div>
+          <div id="rs-volume-keys-slot"></div>
+          <div class="rs-group">
+            <div class="rs-label">Auto-flip, sec</div>
+            <div class="rs-slider">
+              <input type="range" id="rs-auto-flip" name="readerAutoFlip" min="0" max="30" step="1" aria-label="Auto-flip interval">
+              <span class="rs-val" id="rs-auto-flip-val">Off</span>
+            </div>
+            <div class="rs-hint">0 — off. Pages mode only.</div>
+          </div>
+          <div class="rs-group">
+            <label class="rs-check"><span>Vibrate on page turn</span><input type="checkbox" id="rs-page-haptic" name="readerPageHaptic"></label>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Screen zones</div>
+            <div class="rs-seg rs-tap-mode-seg">
+              <button type="button" data-tap-edit="short" class="is-active">Short tap</button>
+              <button type="button" data-tap-edit="long">Long tap</button>
+            </div>
+            <div class="rs-tap-grid" id="rs-tap-grid" role="group" aria-label="Screen zones"></div>
+            <select id="rs-tap-action" class="rs-select" aria-label="Zone action" hidden></select>
+            <div class="rs-hint" id="rs-tap-hint">Pick a cell, then an action</div>
+            <button type="button" class="rs-tap-reset" id="rs-tap-reset">Reset zones</button>
+          </div>
+        </section>
+
+        <section class="rs-page" data-rs-page="tts" data-rs-title="Read aloud" hidden>
+          <div class="rs-group">
+            <!-- Voice, rate, pitch, highlight, pauses: reader-shared/reader-tts.js -->
+            <div id="rs-tts-mount"></div>
+          </div>
+        </section>
+
+        <section class="rs-page" data-rs-page="more" data-rs-title="More" hidden>
+          <div class="rs-group">
+            <label class="rs-check">
+              <span>Footnote pop-ups</span>
+              <input type="checkbox" id="rs-footnotes" name="readerFootnotes" checked>
+            </label>
+          </div>
+          <div class="rs-group">
+            <div class="rs-label">Custom CSS</div>
+            <textarea id="rs-custom-css" class="rs-custom-css" name="readerCustomCss" rows="5" spellcheck="false" placeholder="/* Extra styles for the book text */"></textarea>
+            <button type="button" class="rs-custom-css-clear" id="rs-custom-css-clear">Clear CSS</button>
+          </div>
+        </section>
+    </div>
+  </div>
+</div>
+
+<div class="reader-toast" id="reader-toast"></div>
+
+<script>window.__READER_APP=1;window.__READER_ASSET_V__="7681356ab191";</script>
+<script type="module" src="/inpx-reader/bootstrap.js?v=7681356ab191"></script>
+<script src="/inpx-reader/reader-native-bridge.js?v=7681356ab191"></script>
+<script type="module" src="/inpx-reader/reader.js?v=7681356ab191"></script>
+</body>
+</html>

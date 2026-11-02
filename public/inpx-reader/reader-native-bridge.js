@@ -1,6 +1,9 @@
 (function () {
   'use strict';
 
+  /** Reader dictionary lookup (window.__rt from the generated index*.html); the key itself outside the reader page. */
+  const rtx = (key, params) => (typeof window.__rt === 'function' ? window.__rt(key, params) : key);
+
   const pendingNative = new Map();
   let nativeReady = false;
 
@@ -312,23 +315,20 @@
     if (eink) {
       group.id = 'rs-frontlight-hint';
       group.innerHTML =
-        '<div class="rs-label">Подсветка</div>' +
-        '<div class="rs-hint">' +
-        'Яркость — свайп вверх/вниз у левого края экрана. Температура — у правого. ' +
-        'Кнопки громкости листают страницы.' +
-        '</div>';
+        '<div class="rs-label">' + rtx('app.frontLight') + '</div>' +
+        '<div class="rs-hint">' + rtx('app.frontLightHint') + '</div>';
       if (slot) slot.appendChild(group);
       else anchor.parentNode.insertBefore(group, anchor);
       return;
     }
 
     group.innerHTML =
-      '<div class="rs-label">Яркость экрана</div>' +
+      '<div class="rs-label">' + rtx('app.screenBrightness') + '</div>' +
       '<div class="rs-slider">' +
-      '<input type="range" id="rs-brightness" name="readerBrightness" min="0.05" max="1" step="0.01" aria-label="Яркость">' +
+      '<input type="range" id="rs-brightness" name="readerBrightness" min="0.05" max="1" step="0.01" aria-label="' + rtx('app.brightness') + '">' +
       '<span class="rs-val" id="rs-brightness-val">—</span>' +
       '</div>' +
-      '<div class="rs-hint">Или свайп вверх/вниз у левого края экрана</div>';
+      '<div class="rs-hint">' + rtx('app.brightnessHint') + '</div>';
 
     if (slot) slot.appendChild(group);
     else anchor.parentNode.insertBefore(group, anchor);

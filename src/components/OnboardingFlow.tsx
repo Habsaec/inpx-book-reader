@@ -16,6 +16,7 @@ import { insecureHttpWarning } from '../lib/serverUrl';
 import { parsePairingQrPayload, redeemPairingCode } from '../lib/inpxClient';
 import { scanAppPairingQr, isQrScanCanceled } from '../lib/scanAppPairingQr';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { t } from '../i18n';
 
 function StepIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
@@ -41,7 +42,7 @@ interface OnboardingFlowProps {
   onComplete: () => void;
 }
 
-const STEP_LABELS = ['Вход', 'Папка', 'Готово'] as const;
+const STEP_LABELS = [t('onboardingFlow.signIn'), t('common.folder'), t('common.done')] as const;
 
 function shortFolderName(dir: StorageDirectory | null): string {
   const raw = (dir?.label || DEFAULT_STORAGE_LABEL).trim();
@@ -92,7 +93,7 @@ export default function OnboardingFlow({
     } catch (err) {
       if (gen !== scanGenRef.current) return;
       if (isQrScanCanceled(err)) return;
-      setScanError(err instanceof Error ? err.message : 'Не удалось войти по QR');
+      setScanError(err instanceof Error ? err.message : t('common.couldNotSignInWith'));
     } finally {
       if (gen === scanGenRef.current) setScanning(false);
     }
@@ -145,7 +146,7 @@ export default function OnboardingFlow({
           ))}
         </div>
         <p className={`${textStyles.caption} ${theme.textMuted}`}>
-          Шаг {step} из 3 · {STEP_LABELS[step - 1]}
+          {t('onboardingFlow.step', { step, label: STEP_LABELS[step - 1] })}
         </p>
       </div>
 
@@ -154,15 +155,15 @@ export default function OnboardingFlow({
           <>
             <div>
               <StepIcon icon={Library} />
-              <h1 className={textStyles.title}>Добро пожаловать</h1>
+              <h1 className={textStyles.title}>{t('onboardingFlow.welcome')}</h1>
               <p className={`${textStyles.body} ${theme.textMuted} mt-2`}>
-                Ваша библиотека всегда с собой. Подключите INPX Library Server.
+                {t('onboardingFlow.yourLibraryIsAlwaysWith')}
               </p>
             </div>
 
             {isAndroid() && (
               <Button fullWidth loading={scanning} onClick={() => void handleScanQr()}>
-                <QrCode className="w-5 h-5" aria-hidden /> Сканировать QR
+                <QrCode className="w-5 h-5" aria-hidden /> {t('common.scanQr')}
               </Button>
             )}
 
@@ -174,12 +175,12 @@ export default function OnboardingFlow({
 
             {connected && (
               <p className={`${textStyles.caption} ${semantic.success} inline-flex items-center gap-2`}>
-                <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden /> Подключено к серверу
+                <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden /> {t('onboardingFlow.connectedToTheServer')}
               </p>
             )}
 
             <Button fullWidth variant="secondary" disabled={!connected} onClick={() => setStep(2)}>
-              Далее <ArrowRight className="w-4 h-4" aria-hidden />
+              {t('onboardingFlow.next')} <ArrowRight className="w-4 h-4" aria-hidden />
             </Button>
 
             <button
@@ -188,13 +189,13 @@ export default function OnboardingFlow({
               onClick={() => setManualLoginOpen((v) => !v)}
               aria-expanded={manualLoginOpen}
             >
-              {manualLoginOpen ? 'Скрыть вход по паролю' : 'Войти по логину и паролю'}
+              {manualLoginOpen ? t('onboardingFlow.hidePasswordSignIn') : t('onboardingFlow.signInWithLoginAnd')}
             </button>
 
             {manualLoginOpen && (
               <div className="space-y-4 pt-2">
                 <label className={`block ${textStyles.caption} ${theme.textMuted}`}>
-                  Адрес сервера
+                  {t('common.serverAddress')}
                   <input
                     className={`mt-2 w-full ${radii.md} px-4 py-3.5 ${theme.input} ${theme.inputFocus}`}
                     value={serverConfig.url}
@@ -208,7 +209,7 @@ export default function OnboardingFlow({
                   <p className={`${textStyles.caption} ${semantic.warning}`}>{httpWarning}</p>
                 )}
                 <label className={`block ${textStyles.caption} ${theme.textMuted}`}>
-                  Логин
+                  {t('common.login')}
                   <input
                     className={`mt-2 w-full ${radii.md} px-4 py-3.5 ${theme.input} ${theme.inputFocus}`}
                     value={serverConfig.username}
@@ -218,7 +219,7 @@ export default function OnboardingFlow({
                   />
                 </label>
                 <label className={`block ${textStyles.caption} ${theme.textMuted}`}>
-                  Пароль
+                  {t('common.password')}
                   <input
                     type="password"
                     className={`mt-2 w-full ${radii.md} px-4 py-3.5 ${theme.input} ${theme.inputFocus}`}
@@ -227,7 +228,7 @@ export default function OnboardingFlow({
                   />
                 </label>
                 <Button fullWidth loading={testing} onClick={onTestConnection}>
-                  Проверить подключение
+                  {t('onboardingFlow.checkTheConnection')}
                 </Button>
               </div>
             )}
@@ -238,14 +239,14 @@ export default function OnboardingFlow({
           <>
             <div>
               <StepIcon icon={FolderOpen} />
-              <h1 className={textStyles.title}>Где хранить книги?</h1>
+              <h1 className={textStyles.title}>{t('onboardingFlow.whereToKeepBooks')}</h1>
               <p className={`${textStyles.body} ${theme.textMuted} mt-2`}>
-                Книги доступны офлайн после скачивания.
+                {t('onboardingFlow.booksAreAvailableOfflineAfter')}
               </p>
             </div>
 
             <div className={`p-4 ${radii.lg} ${theme.card}`}>
-              <p className={`${textStyles.caption} ${theme.textMuted}`}>Папка хранения</p>
+              <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('onboardingFlow.storageFolder')}</p>
               <p className={`${textStyles.body} mt-1 break-all`}>{shortFolderName(storageDirectory)}</p>
             </div>
 
@@ -256,17 +257,17 @@ export default function OnboardingFlow({
               onClick={() => void handlePick()}
             >
               <FolderOpen className="w-4 h-4" aria-hidden />
-              {isValidStorageDirectory(storageDirectory) ? 'Изменить папку' : 'Выбрать папку'}
+              {isValidStorageDirectory(storageDirectory) ? t('onboardingFlow.changeTheFolder') : t('common.chooseAFolder')}
             </Button>
             <Button
               fullWidth
               disabled={!isValidStorageDirectory(storageDirectory) && isAndroid()}
               onClick={() => setStep(3)}
             >
-              Далее <ArrowRight className="w-4 h-4" aria-hidden />
+              {t('onboardingFlow.next')} <ArrowRight className="w-4 h-4" aria-hidden />
             </Button>
             <Button fullWidth variant="ghost" onClick={() => setStep(1)}>
-              Назад
+              {t('common.back')}
             </Button>
           </>
         )}
@@ -275,16 +276,16 @@ export default function OnboardingFlow({
           <>
             <div>
               <StepIcon icon={CheckCircle2} />
-              <h1 className={textStyles.title}>Всё готово</h1>
+              <h1 className={textStyles.title}>{t('onboardingFlow.allSet')}</h1>
               <p className={`${textStyles.body} ${theme.textMuted} mt-2`}>
-                Ваша библиотека готова.
+                {t('onboardingFlow.yourLibraryIsReady')}
               </p>
             </div>
             <Button fullWidth onClick={onComplete}>
-              Открыть библиотеку
+              {t('onboardingFlow.openTheLibrary')}
             </Button>
             <Button fullWidth variant="ghost" onClick={() => setStep(2)}>
-              Назад
+              {t('common.back')}
             </Button>
           </>
         )}

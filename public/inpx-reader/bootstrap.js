@@ -608,10 +608,13 @@ function debugLog(hypothesisId, location, message, data) {
     store.positionChangedAt = new Date().toISOString();
   }
 
+  /** Reader dictionary lookup (window.__rt from the generated index*.html); the key itself outside the reader page. */
+  const rtx = (key, params) => (typeof window.__rt === 'function' ? window.__rt(key, params) : key);
+
   const CROSS_DEVICE_MSG =
-    'Ранее вы уже читали эту книгу на другом устройстве. Перейти на сохранённую позицию?';
-  const CROSS_DEVICE_ACCEPT = 'Перейти';
-  const CROSS_DEVICE_DECLINE = 'Остаться здесь';
+    rtx('app.crossDeviceMessage');
+  const CROSS_DEVICE_ACCEPT = rtx('app.go');
+  const CROSS_DEVICE_DECLINE = rtx('app.stayHere');
 
   let positionPromptResolved = false;
   let positionPromptGate = null;
@@ -745,8 +748,8 @@ function debugLog(hypothesisId, location, message, data) {
         '<div class="inpx-cross-device-panel" role="alertdialog" aria-modal="true" aria-labelledby="inpx-cross-device-title" aria-describedby="inpx-cross-device-desc">' +
         `<h2 id="inpx-cross-device-title" class="inpx-cross-device-message">${CROSS_DEVICE_MSG}</h2>` +
         '<div id="inpx-cross-device-desc" class="inpx-cross-device-compare">' +
-        `<div class="inpx-cross-device-row"><span class="inpx-cross-device-label">Сейчас</span><span class="inpx-cross-device-value">${escapeHtml(lines.localLine)}</span></div>` +
-        `<div class="inpx-cross-device-row inpx-cross-device-row-server"><span class="inpx-cross-device-label">На другом устройстве</span><span class="inpx-cross-device-value">${escapeHtml(lines.serverLine)}</span></div>` +
+        `<div class="inpx-cross-device-row"><span class="inpx-cross-device-label">${rtx('app.now')}</span><span class="inpx-cross-device-value">${escapeHtml(lines.localLine)}</span></div>` +
+        `<div class="inpx-cross-device-row inpx-cross-device-row-server"><span class="inpx-cross-device-label">${rtx('app.otherDevice')}</span><span class="inpx-cross-device-value">${escapeHtml(lines.serverLine)}</span></div>` +
         '</div>' +
         '<div class="inpx-cross-device-actions">' +
         `<button type="button" data-act="decline">${CROSS_DEVICE_DECLINE}</button>` +
@@ -988,7 +991,7 @@ function debugLog(hypothesisId, location, message, data) {
   function requestBookFileFromParent() {
     return new Promise((resolve, reject) => {
       if (!storageUri || !localFileName) {
-        reject(new Error('Файл книги не найден на устройстве'));
+        reject(new Error(rtx('app.fileNotFound')));
         return;
       }
       const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -1025,7 +1028,7 @@ function debugLog(hypothesisId, location, message, data) {
         }, '*');
       }
       const timer = setTimeout(() => {
-        finishReject(new Error('Не удалось прочитать файл книги (таймаут)'));
+        finishReject(new Error(rtx('app.fileReadTimeout')));
       }, 60000);
 
       function onMsg(e) {
@@ -1062,7 +1065,7 @@ function debugLog(hypothesisId, location, message, data) {
           } else if (e.data.data) {
             bytes = base64ToBytes(String(e.data.data));
           } else {
-            finishReject(new Error('Пустой ответ при чтении файла'));
+            finishReject(new Error(rtx('app.fileReadEmpty')));
             return;
           }
           const blob = new Blob([bytes], { type: 'application/octet-stream' });

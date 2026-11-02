@@ -9,6 +9,7 @@ import BookCover from './BookCover';
 import type { NextInSeriesResult } from '../lib/seriesNavigation';
 import type { Book, ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
+import { t } from '../i18n';
 
 interface NextInSeriesSheetProps {
   open: boolean;
@@ -46,13 +47,13 @@ export default function NextInSeriesSheet({
         <SheetDragHandle />
         <div className="flex items-center justify-between mb-3">
           <h2 id="next-series-title" className={textStyles.title}>
-            Читать дальше?
+            {t('nextInSeriesSheet.readOn')}
           </h2>
         </div>
 
         <p className={`${textStyles.caption} ${theme.textMuted} mb-4`}>
-          «{current.title}» прочитана. Следующая в серии «{seriesDisplayName}»: {next.title}
-          {nextNo != null ? ` · том ${nextNo}` : ''}
+          {t('nextInSeriesSheet.message', { current: current.title, series: seriesDisplayName, next: next.title })}
+          {nextNo != null ? t('nextInSeriesSheet.vol', { nextNo }) : ''}
         </p>
 
         <div className="flex gap-3 mb-5">
@@ -70,7 +71,7 @@ export default function NextInSeriesSheet({
           </div>
           <div className="min-w-0 flex-1">
             {nextNo != null && (
-              <p className={`${textStyles.caption} ${theme.accentText} mb-1`}>Том {nextNo}</p>
+              <p className={`${textStyles.caption} ${theme.accentText} mb-1`}>{t('common.volume')} {nextNo}</p>
             )}
             <p className={`${textStyles.bookTitle} line-clamp-3`}>{next.title}</p>
             <p className={`${textStyles.caption} ${theme.textMuted} mt-1 truncate`}>{next.author}</p>
@@ -87,10 +88,10 @@ export default function NextInSeriesSheet({
             }}
           >
             <Play className="w-4 h-4 mr-1.5" aria-hidden />
-            Читать
+            {t('common.readAction')}
           </Button>
           <Button variant="ghost" fullWidth onClick={onClose}>
-            Позже
+            {t('nextInSeriesSheet.later')}
           </Button>
         </div>
     </DragSheet>

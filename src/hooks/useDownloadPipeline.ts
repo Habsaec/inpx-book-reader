@@ -9,6 +9,7 @@ import { cacheCoverFromServer } from '../lib/coverCache';
 import { isAuthError } from '../lib/inpxClient';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { useSnackbar } from '../ui/Snackbar';
+import { t } from '../i18n';
 
 function looksLikeAuthDownloadError(message: string): boolean {
   return /401|403|устарела|недостаточно прав/i.test(message);
@@ -39,10 +40,10 @@ export function useDownloadPipeline(opts: {
       native?: NativeBookDownloadResult,
     ): Promise<Book> => {
       if (!storageDirectory?.uri) {
-        throw new Error('Не настроена папка для сохранения книг');
+        throw new Error(t('downloadPipeline.noFolderIsSetFor'));
       }
       if (downloadQueue.isAborted(book.id)) {
-        throw new Error('Отменено');
+        throw new Error(t('downloadQueue.cancelled'));
       }
 
       const enriched = book;
@@ -54,17 +55,17 @@ export function useDownloadPipeline(opts: {
         byteLength = native.byteLength;
         digest = native.digestSha256;
         if (downloadQueue.isAborted(enriched.id)) {
-          throw new Error('Отменено');
+          throw new Error(t('downloadQueue.cancelled'));
         }
         paths = await persistBookMetadataToDirectory(storageDirectory, enriched, content);
       } else {
         if (!originalBuffer) {
-          throw new Error('Не удалось получить файл книги');
+          throw new Error(t('downloadPipeline.couldNotGetTheBook'));
         }
         digest = await computeBufferDigest(originalBuffer);
         byteLength = originalBuffer.byteLength;
         if (downloadQueue.isAborted(enriched.id)) {
-          throw new Error('Отменено');
+          throw new Error(t('downloadQueue.cancelled'));
         }
         paths = await persistBookToDirectory(storageDirectory, enriched, originalBuffer, content);
       }
@@ -72,7 +73,7 @@ export function useDownloadPipeline(opts: {
       try {
         if (downloadQueue.isAborted(enriched.id)) {
           await removeBookFromDirectory(storageDirectory, paths.localFileName, paths.chaptersPath);
-          throw new Error('Отменено');
+          throw new Error(t('downloadQueue.cancelled'));
         }
         if (native) {
           await verifyNativeDownloadResult(storageDirectory, paths.localFileName, native);
@@ -85,7 +86,7 @@ export function useDownloadPipeline(opts: {
       }
       if (downloadQueue.isAborted(enriched.id)) {
         await removeBookFromDirectory(storageDirectory, paths.localFileName, paths.chaptersPath);
-        throw new Error('Отменено');
+        throw new Error(t('downloadQueue.cancelled'));
       }
       const record: Book = {
         ...enriched,
@@ -116,10 +117,10 @@ export function useDownloadPipeline(opts: {
   const enqueueDownload = React.useCallback(
     async (book: Book) => {
       if (!canReadOnline) {
-        throw new Error('Подключитесь к серверу в настройках');
+        throw new Error(t('common.connectToTheServerIn'));
       }
       if (!storageDirectory?.uri) {
-        throw new Error('Не настроена папка для сохранения книг');
+        throw new Error(t('downloadPipeline.noFolderIsSetFor'));
       }
       downloadQueue.enqueue(book);
     },
@@ -134,9 +135,9 @@ export function useDownloadPipeline(opts: {
       onComplete: async (book, content, buffer, native) => persistDownload(book, content, buffer, native),
       onSaved: (book) => {
         snackbarShowRef.current(
-          'Сохранено — Читать',
+          t('downloadPipeline.savedRead'),
           {
-            label: 'Читать',
+            label: t('common.readAction'),
             onClick: () => onOpenSavedRef.current?.(book),
           },
           'success',
@@ -147,7 +148,7 @@ export function useDownloadPipeline(opts: {
           onAuthExpiredRef.current?.();
         }
         snackbarShowRef.current(
-          `«${book.title || 'Книга'}»: ${error}`,
+          `«${book.title || t('common.book')}»: ${error}`,
           undefined,
           'error',
         );
@@ -160,7 +161,7 @@ export function useDownloadPipeline(opts: {
   React.useEffect(() => {
     mountedRef.current = true;
     return downloadQueue.subscribe(() => {
-      if (mountedRef.current) setQueueTick((t) => t + 1);
+      if (mountedRef.current) setQueueTick((n) => n + 1);
     });
   }, []);
   React.useEffect(() => () => {

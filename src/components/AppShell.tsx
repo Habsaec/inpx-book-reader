@@ -10,15 +10,16 @@ import DownloadQueueWidget from './DownloadQueueWidget';
 import HomeSearchBar from './HomeSearchBar';
 import { PageTitleProvider, usePageTitleTop, useShellSearchOpener } from '../ui/pageTitle';
 import type { ServerConfig } from '../types';
+import { t } from '../i18n';
 
 /** Internal ids kept for wiring; labels are storefront-style. */
 export type AppTab = 'home' | 'catalog' | 'library' | 'profile';
 
 const TABS = [
-  { id: 'home' as const, label: 'Главная', icon: Home },
-  { id: 'catalog' as const, label: 'Каталог', icon: Library },
-  { id: 'library' as const, label: 'Мои книги', icon: BookOpen },
-  { id: 'profile' as const, label: 'Профиль', icon: User },
+  { id: 'home' as const, label: t('common.home'), icon: Home },
+  { id: 'catalog' as const, label: t('common.catalog'), icon: Library },
+  { id: 'library' as const, label: t('appShell.myBooks'), icon: BookOpen },
+  { id: 'profile' as const, label: t('appShell.profile'), icon: User },
 ] as const;
 
 interface AppShellProps {
@@ -82,9 +83,9 @@ function ShellFrame({
   const showSearch = activeTab === 'home' || activeTab === 'catalog';
   const title = pageTitle?.title || (
     activeTab === 'home' ? siteName
-      : activeTab === 'catalog' ? 'Каталог'
-        : activeTab === 'library' ? 'Мои книги'
-          : 'Профиль'
+      : activeTab === 'catalog' ? t('common.catalog')
+        : activeTab === 'library' ? t('appShell.myBooks')
+          : t('appShell.profile')
   );
   const onBack = pageTitle?.onBack ?? null;
   const inlineSearch = (activeTab === 'home' || activeTab === 'catalog') && !onBack;
@@ -199,7 +200,7 @@ function ShellFrame({
         {onBack ? (
           <button
             type="button"
-            aria-label="Назад"
+            aria-label={t('common.back')}
             onClick={onBack}
             className={`w-12 h-12 shrink-0 inline-flex items-center justify-center ${radii.md} ${theme.focusRing} ${motionTokens.press}`}
           >
@@ -254,7 +255,7 @@ function ShellFrame({
           <button
             ref={searchToggleRef}
             type="button"
-            aria-label={searchOpen ? 'Закрыть поиск' : 'Поиск'}
+            aria-label={searchOpen ? t('appShell.closeSearch') : t('common.search')}
             onClick={() => {
               setSearchOpen((open) => {
                 const next = !open;
@@ -289,7 +290,7 @@ function ShellFrame({
           role="status"
         >
           <p className={`${textStyles.body} ${theme.textMuted} flex-1 min-w-0 leading-snug`}>
-            Нет связи — каталог и скачивание недоступны
+            {t('appShell.offlineTheCatalogAndDownloads')}
           </p>
           {onOpenConnectionSettings ? (
             <button
@@ -297,7 +298,7 @@ function ShellFrame({
               onClick={onOpenConnectionSettings}
               className={`${touchMin} shrink-0 px-3 ${textStyles.captionBold} ${theme.accentText} ${radii.button} ${theme.focusRing} ${motionTokens.press}`}
             >
-              Подключить
+              {t('common.connect')}
             </button>
           ) : null}
         </div>

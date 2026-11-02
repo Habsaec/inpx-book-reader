@@ -2,6 +2,7 @@ import { registerPlugin } from '@capacitor/core';
 import { APP_SETTING_KEYS, getAppSettingJson, setAppSettingJson } from './appSettings';
 import { isAndroid } from './platform';
 import { BookStorage } from './bookStoragePlugin';
+import { t } from '../i18n';
 
 export interface StorageDirectory {
   label: string;
@@ -18,7 +19,7 @@ interface FolderPickerPlugin {
 const FolderPicker = registerPlugin<FolderPickerPlugin>('FolderPicker');
 
 export const STORAGE_PERMISSION_REVOKED_MSG =
-  'Доступ к папке отозван. Выберите папку хранения в настройках.';
+  t('storageDirectory.accessToTheFolderWas');
 
 export function isStoragePermissionError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -159,9 +160,9 @@ export async function ensureStorageDirectory(
 export async function pickStorageDirectory(): Promise<StorageDirectory | null> {
   try {
     const result = await FolderPicker.pickFolder();
-    const directory = { label: result.label || 'Папка', uri: result.uri };
+    const directory = { label: result.label || t('common.folder'), uri: result.uri };
     if (!isValidStorageDirectory(directory)) {
-      throw new Error('Android вернул некорректный адрес папки');
+      throw new Error(t('storageDirectory.androidReturnedAnInvalidFolder'));
     }
     writeStoredStorageDirectory(directory);
     return directory;

@@ -26,6 +26,7 @@ import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, seriesVolumeLabe
 import { getHomeRecentMode } from '../lib/appSettings';
 import { isHomeSectionVisible, orderShelves, useHomeLayout, type HomeSectionId } from '../lib/homeLayout';
 import type { CatalogViewMode } from '../lib/catalogViewMode';
+import { t } from '../i18n';
 
 function HomeSectionHeader({
   title,
@@ -43,7 +44,7 @@ function HomeSectionHeader({
     <div className="flex min-h-12 items-center justify-between gap-3 -mb-1">
       <h3 className={`min-w-0 truncate ${textStyles.sectionLabel} ${theme.text}`}>{title}</h3>
       {onUnpin ? (
-        <IconButton label={`Убрать «${title}» с главной`} className={`ml-auto -mr-1 ${theme.textMuted}`} onClick={onUnpin}>
+        <IconButton label={t('homeTab.removeFromTheHomeScreen', { title })} className={`ml-auto -mr-1 ${theme.textMuted}`} onClick={onUnpin}>
           <PinOff className="w-5 h-5" aria-hidden />
         </IconButton>
       ) : null}
@@ -566,7 +567,7 @@ export default function HomeTab({
   if (loading && mergedRecent.length === 0) {
     return (
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div data-large-title="" className="flex-1 overflow-y-auto inpx-page-scroll px-5 py-5 space-y-8" aria-busy aria-label="Загрузка главной">
+        <div data-large-title="" className="flex-1 overflow-y-auto inpx-page-scroll px-5 py-5 space-y-8" aria-busy aria-label={t('homeTab.loadingTheHomeScreen')}>
           <Skeleton className="w-[7.5rem] aspect-[2/3]" />
           <div className="space-y-3">
             <Skeleton variant="block" blockSize="lg" className="max-w-[30%]" />
@@ -591,13 +592,13 @@ export default function HomeTab({
       {hero && heroBook && heroAction ? (
         <section
           className="relative flex w-full min-w-0 max-w-full gap-[1.125rem] pt-3"
-          aria-label={`Продолжить чтение: ${displayBookTitle(hero)}`}
+          aria-label={t('homeTab.continueReading', { hero: displayBookTitle(hero) })}
         >
           <button
             type="button"
             className={`w-28 min-[600px]:w-[9.5rem] shrink-0 self-start select-none touch-manipulation ${theme.focusRing} ${motion.press} disabled:opacity-70`}
             disabled={heroAction.disabled}
-            aria-label={`${heroAction.kind === 'reread' ? 'Читать снова' : heroAction.label}: ${displayBookTitle(hero)}`}
+            aria-label={`${heroAction.kind === 'reread' ? t('homeTab.readAgain') : heroAction.label}: ${displayBookTitle(hero)}`}
             {...heroPress}
           >
             <span className="book-cover w-full">
@@ -616,10 +617,10 @@ export default function HomeTab({
           </button>
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex items-start justify-between gap-2">
-              <p className={`${textStyles.microBold} ${theme.accentText}`}>Продолжить чтение</p>
+              <p className={`${textStyles.microBold} ${theme.accentText}`}>{t('common.continueReading')}</p>
               {onBookLongPress ? (
                 <IconButton
-                  label="Ещё действия"
+                  label={t('common.moreActions')}
                   className="-my-3 -mr-3 shrink-0"
                   onClick={() => onBookLongPress(heroBook, { fromReading: true })}
                 >
@@ -635,7 +636,7 @@ export default function HomeTab({
             ) : null}
             {heroSeriesName ? (
               <p className={`${textStyles.caption} ${theme.textMuted} line-clamp-1`}>
-                {heroSeriesName}{heroVolume ? ` · том ${heroVolume}` : ''}
+                {heroSeriesName}{heroVolume ? t('homeTab.vol', { heroVolume }) : ''}
               </p>
             ) : null}
             <div className="mt-auto pt-3 space-y-3">
@@ -647,7 +648,7 @@ export default function HomeTab({
                     aria-valuenow={Math.round(heroDownloadJob?.progress ?? 0)}
                     aria-valuemin={0}
                     aria-valuemax={100}
-                    aria-label="Прогресс скачивания"
+                    aria-label={t('common.downloadProgress')}
                   >
                     <div
                       className={`h-full ${theme.progress}`}
@@ -668,7 +669,7 @@ export default function HomeTab({
                 className={`min-h-12 px-5 ${radii.button} ${textStyles.bodyBold} inline-flex items-center gap-2 ${theme.accentBg} disabled:opacity-60 ${motion.press} ${theme.focusRing}`}
               >
                 <HeroActionIcon kind={heroAction.kind} />
-                {heroAction.kind === 'reread' ? 'Читать снова' : heroAction.label}
+                {heroAction.kind === 'reread' ? t('homeTab.readAgain') : heroAction.label}
               </button>
             </div>
           </div>
@@ -676,19 +677,19 @@ export default function HomeTab({
       ) : (
         <EmptyState
           icon={BookOpen}
-          title="Начните читать"
+          title={t('homeTab.startReading')}
           description={
             isOnline
-              ? 'Откройте каталог и выберите книгу'
-              : 'Подключите сервер, чтобы искать и скачивать книги'
+              ? t('homeTab.openTheCatalogAndPick')
+              : t('homeTab.connectAServerToSearch')
           }
           actionLabel={
             isOnline
               ? onGoCatalog
-                ? 'Открыть каталог'
+                ? t('homeTab.openTheCatalog')
                 : undefined
               : onGoProfile
-                ? 'Подключить сервер'
+                ? t('homeTab.connectAServer')
                 : undefined
           }
           onAction={isOnline ? onGoCatalog : onGoProfile}
@@ -696,8 +697,8 @@ export default function HomeTab({
         />
       )}
       {sideRecent.length > 0 ? (
-        <section className="pt-3" aria-label="Также читаете">
-          <p className={`${textStyles.microBold} ${theme.textMuted} mb-1`}>Также читаете</p>
+        <section className="pt-3" aria-label={t('homeTab.alsoReading')}>
+          <p className={`${textStyles.microBold} ${theme.textMuted} mb-1`}>{t('homeTab.alsoReading')}</p>
           {sideRecent.map((book) => (
             <SideRecentBook
               key={book.id}
@@ -718,7 +719,7 @@ export default function HomeTab({
     <>
       {moreRecent.length > 0 ? (
         <section className="space-y-4">
-          <HomeSectionHeader title="Недавно читали" />
+          <HomeSectionHeader title={t('common.recentlyRead')} />
           <HomeBookPreview
             books={moreRecent}
             maxRows={2}
@@ -740,8 +741,8 @@ export default function HomeTab({
       {isOnline && showNovinki && (
         <section className="space-y-4">
           <HomeSectionHeader
-            title={recentMode === 'fav' ? 'Новинки ваших авторов' : 'Новинки'}
-            actionLabel={recentMode === 'fav' ? 'Все новинки' : 'Все'}
+            title={recentMode === 'fav' ? t('homeTab.newFromYourAuthors') : t('common.newBooks')}
+            actionLabel={recentMode === 'fav' ? t('homeTab.allNewBooks') : t('common.all')}
             onAction={() => setSectionView('recent')}
           />
           {recentError && !recentLoading ? (
@@ -749,9 +750,9 @@ export default function HomeTab({
               compact
               tone="error"
               icon={AlertCircle}
-              title="Не удалось загрузить новинки"
-              description="Проверьте соединение с сервером."
-              actionLabel="Повторить"
+              title={t('homeTab.couldNotLoadNewBooks')}
+              description={t('common.checkTheConnectionToThe')}
+              actionLabel={t('common.retry')}
               actionVariant="secondary"
               onAction={() => setSectionKey((k) => k + 1)}
             />
@@ -769,8 +770,8 @@ export default function HomeTab({
               onBookLongPress={onBookLongPress}
               emptyLabel={
                 recentMode === 'fav' && recentServer.length > 0
-                  ? 'Нет новинок от авторов, которых вы уже читали'
-                  : 'Пока нет новинок'
+                  ? t('homeTab.noNewBooksFromAuthors')
+                  : t('homeTab.noNewBooksYet')
               }
             />
           )}
@@ -782,15 +783,15 @@ export default function HomeTab({
     <>
       {isOnline && (
         <section className="space-y-4">
-          <HomeSectionHeader title="Рекомендации" actionLabel="Все" onAction={() => setSectionView('recommended')} />
+          <HomeSectionHeader title={t('common.recommendations')} actionLabel={t('common.all')} onAction={() => setSectionView('recommended')} />
           {recError && !recLoading ? (
             <EmptyState
               compact
               tone="error"
               icon={AlertCircle}
-              title="Не удалось загрузить рекомендации"
-              description="Проверьте соединение с сервером."
-              actionLabel="Повторить"
+              title={t('homeTab.couldNotLoadRecommendations')}
+              description={t('common.checkTheConnectionToThe')}
+              actionLabel={t('common.retry')}
               actionVariant="secondary"
               onAction={() => setSectionKey((k) => k + 1)}
             />
@@ -806,7 +807,7 @@ export default function HomeTab({
               loading={recLoading}
               onBookClick={handleCatalogBookTap}
               onBookLongPress={onBookLongPress}
-              emptyLabel="Пока нечего предложить — читайте и добавляйте в избранное"
+              emptyLabel={t('homeTab.nothingToSuggestYetRead')}
             />
           )}
         </section>
@@ -817,7 +818,7 @@ export default function HomeTab({
     <>
       {isOnline && following.length > 0 && (
         <section className="space-y-4">
-          <HomeSectionHeader title="Новое у любимых" actionLabel="Все" onAction={() => setSectionView('following')} />
+          <HomeSectionHeader title={t('common.newFromFavorites')} actionLabel={t('common.all')} onAction={() => setSectionView('following')} />
           <HomeBookPreview
             books={following}
             viewMode={viewMode}
@@ -850,7 +851,7 @@ export default function HomeTab({
         <section key={shelf.key} className="space-y-4">
           <HomeSectionHeader
             title={shelf.ref.title}
-            actionLabel="Все"
+            actionLabel={t('common.all')}
             onAction={() => setOpenShelf(shelf.ref)}
             onUnpin={onUnpinShelf ? () => onUnpinShelf(shelf.ref) : undefined}
           />

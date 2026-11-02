@@ -8,7 +8,11 @@ import './index.css';
 import { installStablePress } from './lib/stablePress';
 import { installNativeSafeAreaVars } from './lib/safeArea';
 import { installUiFontScale } from './lib/uiFontScale';
+import { getLocale } from './i18n';
+import { syncNativeUiLocale } from './lib/readerNative';
 
+document.documentElement.lang = getLocale();
+syncNativeUiLocale(getLocale());
 installStablePress();
 installNativeSafeAreaVars();
 

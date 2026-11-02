@@ -20,6 +20,7 @@ import type { CatalogBookSort } from '../../lib/inpxClient';
 import { bookMatchesGenreCodes } from '../../lib/catalogBookPool';
 import { useCatalogViewMode } from '../../hooks/useCatalogViewMode';
 import type { CatalogFormatFilter, CatalogHasSeriesFilter, DemoBookSort } from './catalogTypes';
+import { t } from '../../i18n';
 
 interface CatalogBooksViewProps {
   /** «Сохранить как умную полку» in the filter sheet (server catalog search only). */
@@ -247,7 +248,7 @@ export default function CatalogBooksView({
           }`}
         >
           <Filter className="w-4 h-4" aria-hidden />
-          Фильтры
+          {t('common.filters')}
           {activeFilterCount > 0 ? (
             <span className={`min-w-5 h-5 px-1 rounded-full inline-flex items-center justify-center text-xs tabular-nums ${theme.accentActive}`}>{activeFilterCount}</span>
           ) : null}
@@ -262,15 +263,15 @@ export default function CatalogBooksView({
             options={
               authorHub
                 ? [
-                    { id: 'title', label: 'Название' },
-                    { id: 'count', label: 'Количество' },
+                    { id: 'title', label: t('common.title') },
+                    { id: 'count', label: t('catalogBooksView.count') },
                   ]
                 : [
-                    { id: 'recent', label: 'Новые' },
-                    { id: 'title', label: 'Название' },
-                    { id: 'author', label: 'Автор' },
-                    { id: 'series', label: selectedSeries ? 'Тома' : 'Серия' },
-                    { id: 'rating', label: 'Рейтинг' },
+                    { id: 'recent', label: t('common.new') },
+                    { id: 'title', label: t('common.title') },
+                    { id: 'author', label: t('common.author') },
+                    { id: 'series', label: selectedSeries ? t('catalogBooksView.volumes') : t('common.series') },
+                    { id: 'rating', label: t('common.rating') },
                   ]
             }
             onChange={(id) => onBookSortChange(id as CatalogBookSort)}
@@ -342,24 +343,24 @@ export default function CatalogBooksView({
           <EmptyState
             icon={WifiOff}
             tone="offline"
-            title="Нет подключения"
-            description="Подключитесь к серверу, чтобы искать книги в каталоге"
-            actionLabel={onGoLanding ? 'К разделам' : undefined}
+            title={t('catalogBooksView.noConnection')}
+            description={t('catalogBooksView.connectToTheServerTo')}
+            actionLabel={onGoLanding ? t('common.toSections') : undefined}
             onAction={onGoLanding}
             actionVariant="primary"
           />
         ) : (
           <EmptyState
             icon={Inbox}
-            title="Ничего не найдено"
-            description={hasActiveFilters ? 'Сбросьте фильтры или измените запрос.' : 'Попробуйте изменить запрос.'}
+            title={t('common.nothingFound')}
+            description={hasActiveFilters ? t('catalogBooksView.resetTheFiltersOrChange') : t('common.tryChangingTheQuery')}
             actionLabel={
               searchEmpty && onEditQuery
-                ? 'Изменить запрос'
+                ? t('common.changeTheQuery')
                 : onGoLanding
-                  ? 'К разделам'
+                  ? t('common.toSections')
                   : hasActiveFilters
-                    ? 'Сбросить'
+                    ? t('common.reset')
                     : undefined
             }
             onAction={

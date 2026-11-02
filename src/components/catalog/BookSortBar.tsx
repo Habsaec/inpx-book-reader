@@ -1,5 +1,6 @@
 import React from 'react';
 import ChoicePicker from '../../ui/ChoicePicker';
+import { t } from '../../i18n';
 
 export type BookSortOption = {
   id: string;
@@ -20,7 +21,7 @@ export default function BookSortBar({
   value,
   options,
   onChange,
-  ariaLabel = 'Сортировка',
+  ariaLabel = t('common.sort'),
   className = '',
 }: BookSortBarProps) {
   return (

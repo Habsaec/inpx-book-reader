@@ -1,5 +1,8 @@
 /** Pure helpers for AlReaderX-style 9-zone taps (short/long). */
 
+/** Reader dictionary lookup (window.__rt from the generated index*.html); the key itself outside the reader page. */
+const rtx = (key) => (typeof globalThis.__rt === 'function' ? globalThis.__rt(key) : key);
+
 export const TAP_ZONE_IDS = Object.freeze(['tl', 'tm', 'tr', 'ml', 'mm', 'mr', 'bl', 'bm', 'br']);
 
 export const TAP_ACTIONS = Object.freeze([
@@ -20,20 +23,20 @@ export const TAP_ACTIONS = Object.freeze([
 ]);
 
 export const TAP_ACTION_LABELS = Object.freeze({
-  none: 'Нет',
-  prevPage: 'Назад',
-  nextPage: 'Вперёд',
-  toggleChrome: 'Панель',
-  toc: 'Оглавление',
-  search: 'Поиск',
-  bookmark: 'Закладка',
-  settings: 'Настройки',
-  dayNight: 'День/ночь',
-  tts: 'Озвучка',
-  prevChapter: 'Пред. глава',
-  nextChapter: 'След. глава',
-  goto: 'Перейти…',
-  autoFlip: 'Автолист',
+  none: rtx('app.tapNone'),
+  prevPage: rtx('app.tapPrev'),
+  nextPage: rtx('app.tapNext'),
+  toggleChrome: rtx('app.tapChrome'),
+  toc: rtx('app.tapToc'),
+  search: rtx('app.tapSearch'),
+  bookmark: rtx('app.bookmark'),
+  settings: rtx('app.settings'),
+  dayNight: rtx('app.tapDayNight'),
+  tts: rtx('app.tts'),
+  prevChapter: rtx('app.tapPrevChapter'),
+  nextChapter: rtx('app.tapNextChapter'),
+  goto: rtx('app.tapGoto'),
+  autoFlip: rtx('app.tapAutoFlip'),
 });
 
 export function defaultTapZonesShort() {

@@ -4,6 +4,7 @@ import { theme } from '../lib/appTheme';
 import { seriesLabel } from '../lib/seriesLabel';
 import type { Book } from '../types';
 import { textStyles, semantic } from '../ui/tokens';
+import { t } from '../i18n';
 
 interface BookMetaSummaryProps {
   book: Book;
@@ -28,8 +29,8 @@ function yearLabel(book: Book): string {
 
 function sizeLabel(size?: number): string {
   if (!size || size <= 0) return '';
-  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} МБ`;
-  return `${Math.max(1, Math.round(size / 1024))} КБ`;
+  if (size >= 1024 * 1024) return t('common.mb', { p: (size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1) });
+  return t('common.kb', { n: Math.max(1, Math.round(size / 1024)) });
 }
 
 export default function BookMetaSummary({
@@ -84,7 +85,7 @@ export default function BookMetaSummary({
       )}
       <span className="flex flex-wrap items-center gap-1.5 mt-1">
         {rating > 0 && (
-          <span className={`inline-flex items-center gap-0.5 ${semantic.warning}`} aria-label={`Рейтинг ${rating} из 5`}>
+          <span className={`inline-flex items-center gap-0.5 ${semantic.warning}`} aria-label={t('common.ratingOf5', { rating })}>
             <Star className="w-3 h-3 fill-current" aria-hidden />
             <span className={textStyles.micro}>{rating}</span>
           </span>

@@ -62,6 +62,7 @@ import {
   type StorageNameStyle,
 } from '../lib/appSettings';
 import { motion as Motion } from 'motion/react';
+import { t, getLocale, getUiLanguagePref, localeForPref, setUiLanguagePref, type UiLanguagePref } from '../i18n';
 
 interface SyncSettingsTabProps {
   storageDirectory: StorageDirectory | null;
@@ -101,10 +102,10 @@ interface SyncSettingsTabProps {
 export type SettingsSection = 'connection' | 'appearance' | 'storage' | 'about';
 
 const SECTION_TITLES: Record<SettingsSection, string> = {
-  connection: 'Подключение',
-  appearance: 'Внешний вид',
-  storage: 'Хранилище',
-  about: 'О приложении',
+  connection: t('syncSettingsTab.connection'),
+  appearance: t('syncSettingsTab.appearance'),
+  storage: t('syncSettingsTab.storage'),
+  about: t('common.aboutTheApp'),
 };
 
 export default function SyncSettingsTab({
@@ -131,10 +132,11 @@ export default function SyncSettingsTab({
   active = true,
   rootEpoch = 0,
 }: SyncSettingsTabProps) {
-  usePageTitle('Настройки', undefined, !embedded);
+  usePageTitle(t('syncSettingsTab.settings'), undefined, !embedded);
   // Embedded in Profile: a short list of sections, each opens as its own page.
   // Standalone (no Profile header) keeps everything on one page.
   const [section, setSection] = React.useState<SettingsSection | null>(null);
+  const [uiLanguage, setUiLanguage] = React.useState<UiLanguagePref>(getUiLanguagePref);
   const shows = (id: SettingsSection) => !embedded || section === id;
   const closeSection = React.useCallback(() => setSection(null), []);
   const sectionOpen = embedded && active && section != null;
@@ -193,10 +195,10 @@ export default function SyncSettingsTab({
         setLibraryFolders(next);
         const def = defaultLibraryFolder(next);
         onChangeStorageDirectory({ label: def.label, uri: def.uri });
-        snackbar.show(next.folders.length === libraryFolders.folders.length ? 'Эта папка уже в списке' : 'Папка добавлена');
+        snackbar.show(next.folders.length === libraryFolders.folders.length ? t('syncSettingsTab.thisFolderIsAlreadyIn') : t('syncSettingsTab.folderAdded'));
       }
     } catch (error) {
-      snackbar.show(error instanceof Error ? error.message : 'Не удалось выбрать папку', undefined, 'error');
+      snackbar.show(error instanceof Error ? error.message : t('syncSettingsTab.couldNotChooseTheFolder'), undefined, 'error');
     } finally {
       setPickingFolder(false);
     }
@@ -205,10 +207,10 @@ export default function SyncSettingsTab({
   const handleForgetServer = async () => {
     if (scanning) return;
     const accepted = await dialog.confirm({
-      title: 'Выйти?',
-      message: 'Адрес сервера и данные входа будут удалены с этого устройства. Скачанные книги останутся.',
-      confirmLabel: 'Выйти',
-      cancelLabel: 'Отмена',
+      title: t('syncSettingsTab.signOut'),
+      message: t('syncSettingsTab.theServerAddressAndSign'),
+      confirmLabel: t('syncSettingsTab.signOutButton'),
+      cancelLabel: t('common.cancel'),
       destructive: true,
     });
     if (!accepted) return;
@@ -255,7 +257,7 @@ export default function SyncSettingsTab({
     } catch (error) {
       if (gen !== authActionGen.current) return;
       if (isQrScanCanceled(error)) return;
-      snackbar.show(error instanceof Error ? error.message : 'Не удалось войти по QR', undefined, 'error');
+      snackbar.show(error instanceof Error ? error.message : t('common.couldNotSignInWith'), undefined, 'error');
     } finally {
       if (gen === authActionGen.current) setScanning(false);
     }
@@ -326,14 +328,14 @@ export default function SyncSettingsTab({
   };
 
   const appearanceOptions: Array<{ id: AppAppearance; label: string; icon: typeof Sun }> = [
-    { id: 'light', label: 'День', icon: Sun },
-    { id: 'dark', label: 'Ночь', icon: Moon },
-    { id: 'auto', label: 'Авто', icon: Tv },
+    { id: 'light', label: t('syncSettingsTab.day'), icon: Sun },
+    { id: 'dark', label: t('syncSettingsTab.night'), icon: Moon },
+    { id: 'auto', label: t('syncSettingsTab.auto'), icon: Tv },
   ];
   const colorOptions: Array<{ id: AppColorSource; label: string }> = [
-    { id: 'app', label: 'Приложение' },
-    { id: 'library', label: 'Сервер' },
-    { id: 'system', label: 'Система' },
+    { id: 'app', label: t('syncSettingsTab.app') },
+    { id: 'library', label: t('common.server') },
+    { id: 'system', label: t('syncSettingsTab.system') },
   ];
 
   const sectionClass = `space-y-3`;
@@ -350,16 +352,16 @@ export default function SyncSettingsTab({
         {embedded && section == null ? (
           <>
             {scrollHeader}
-            <nav aria-label="Настройки" className={`border-t ${theme.divider}`}>
+            <nav aria-label={t('syncSettingsTab.settings')} className={`border-t ${theme.divider}`}>
               {([
                 {
                   id: 'connection' as const,
                   icon: Server,
                   hint: connecting
-                    ? 'Проверка…'
+                    ? t('common.checking')
                     : connected
-                      ? `Подключён · ${serverHostLabel(serverConfig.url)}`
-                      : 'Отключён',
+                      ? t('syncSettingsTab.connected', { url: serverHostLabel(serverConfig.url) })
+                      : t('syncSettingsTab.disconnected'),
                 },
                 {
                   id: 'appearance' as const,
@@ -369,9 +371,9 @@ export default function SyncSettingsTab({
                 {
                   id: 'storage' as const,
                   icon: FolderOpen,
-                  hint: defaultLibraryFolder(libraryFolders)?.label || 'Папка не выбрана',
+                  hint: defaultLibraryFolder(libraryFolders)?.label || t('syncSettingsTab.noFolderChosen'),
                 },
-                { id: 'about' as const, icon: Info, hint: 'Версия и обновления' },
+                { id: 'about' as const, icon: Info, hint: t('syncSettingsTab.versionAndUpdates') },
               ]).map(({ id, icon: Icon, hint }) => (
                 <button
                   key={id}
@@ -398,17 +400,17 @@ export default function SyncSettingsTab({
         {shows('connection') ? (<>
         <section id="settings-server" className={sectionClass}>
           <div className="flex justify-between items-baseline gap-3 select-none">
-            <h3 className={sectionTitle}>Сервер</h3>
+            <h3 className={sectionTitle}>{t('common.server')}</h3>
             <span className={`${textStyles.caption} ${
               connecting ? semantic.warning :
               serverConfig.connectionStatus === 'connected' ? semantic.success :
               theme.textMuted
             }`}>
               {connecting
-                ? 'Проверка…'
+                ? t('common.checking')
                 : serverConfig.connectionStatus === 'connected'
-                  ? 'Подключён'
-                  : 'Отключён'}
+                  ? t('syncSettingsTab.connectedShort')
+                  : t('syncSettingsTab.disconnected')}
             </span>
           </div>
 
@@ -421,23 +423,23 @@ export default function SyncSettingsTab({
           {showAccountSummary ? (
             <div className="space-y-4">
               <div className={`p-4 ${radii.lg} ${theme.card}`}>
-                <p className={`${textStyles.caption} ${themeTextMuted}`}>Вы вошли как</p>
+                <p className={`${textStyles.caption} ${themeTextMuted}`}>{t('syncSettingsTab.signedInAs')}</p>
                 <p className={`${textStyles.bodyBold} ${theme.text} truncate`}>{serverConfig.username || '—'}</p>
-                <p className={`mt-2 ${textStyles.caption} ${themeTextMuted}`}>Сервер</p>
+                <p className={`mt-2 ${textStyles.caption} ${themeTextMuted}`}>{t('common.server')}</p>
                 <p className={`${textStyles.body} ${theme.text} break-all`}>{serverConfig.url}</p>
               </div>
               <Button fullWidth variant="secondary" onClick={() => setEditingAccount(true)}>
-                Сменить сервер или аккаунт
+                {t('syncSettingsTab.changeTheServerOrAccount')}
               </Button>
               <Button variant="ghost" fullWidth className="!text-[var(--app-danger)]" onClick={() => void handleForgetServer()} loading={forgetting} disabled={forgetting}>
                 <LogOut className="w-4 h-4 inline mr-1" aria-hidden />
-                Выйти
+                {t('syncSettingsTab.signOutButton')}
               </Button>
             </div>
           ) : (
           <div className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="server-url" className={`${textStyles.caption} ${theme.textMuted}`}>Адрес сервера</label>
+              <label htmlFor="server-url" className={`${textStyles.caption} ${theme.textMuted}`}>{t('common.serverAddress')}</label>
               <input
                 id="server-url"
                 type="url"
@@ -459,7 +461,7 @@ export default function SyncSettingsTab({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <label htmlFor="server-username" className={`${textStyles.caption} ${theme.textMuted}`}>Логин</label>
+                <label htmlFor="server-username" className={`${textStyles.caption} ${theme.textMuted}`}>{t('common.login')}</label>
                 <input
                   id="server-username"
                   type="text"
@@ -470,7 +472,7 @@ export default function SyncSettingsTab({
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="server-password" className={`${textStyles.caption} ${theme.textMuted}`}>Пароль</label>
+                <label htmlFor="server-password" className={`${textStyles.caption} ${theme.textMuted}`}>{t('common.password')}</label>
                 <input
                   id="server-password"
                   type="password"
@@ -485,30 +487,30 @@ export default function SyncSettingsTab({
             {isAndroid() && (
               <p className={`${textStyles.caption} ${themeTextMuted} inline-flex items-center gap-2`}>
                 <ShieldCheck className={`w-4 h-4 shrink-0 ${themeAccentText}`} aria-hidden />
-                Пароль защищён Android Keystore
+                {t('syncSettingsTab.thePasswordIsProtectedBy')}
               </p>
             )}
 
             {isAndroid() && (
               <Button fullWidth variant="secondary" onClick={() => void handleScanQr()} loading={scanning} disabled={scanning || forgetting || connecting}>
                 <QrCode className="w-4 h-4 inline mr-1" aria-hidden />
-                Сканировать QR
+                {t('common.scanQr')}
               </Button>
             )}
 
             <Button fullWidth onClick={handleConnect} disabled={connecting || !canTestServerConnection(serverConfig)} loading={connecting}>
-              {connecting ? 'Подключение…' : 'Подключить'}
+              {connecting ? t('syncSettingsTab.connecting') : t('common.connect')}
             </Button>
 
             {connected && editingAccount ? (
               <Button variant="secondary" fullWidth onClick={() => setEditingAccount(false)}>
-                Отмена
+                {t('common.cancel')}
               </Button>
             ) : null}
 
             <Button variant="ghost" fullWidth className="!text-[var(--app-danger)]" onClick={() => void handleForgetServer()} loading={forgetting} disabled={forgetting || scanning || connecting}>
               <LogOut className="w-4 h-4 inline mr-1" aria-hidden />
-              Забыть сервер
+              {t('syncSettingsTab.forgetTheServer')}
             </Button>
           </div>
           )}
@@ -522,10 +524,10 @@ export default function SyncSettingsTab({
 
         {shows('appearance') ? (
         <section className={sectionClass}>
-          {embedded ? null : <h3 className={sectionTitle}>Внешний вид</h3>}
+          {embedded ? null : <h3 className={sectionTitle}>{t('syncSettingsTab.appearance')}</h3>}
           <div>
             <SettingsChoice
-              label="Тема"
+              label={t('syncSettingsTab.theme')}
               options={appearanceOptions.map((item) => {
                 const Icon = item.icon;
                 return {
@@ -538,7 +540,7 @@ export default function SyncSettingsTab({
               })}
             />
             <SettingsChoice
-              label="Цвет"
+              label={t('syncSettingsTab.color')}
               options={colorOptions.map((item) => ({
                 id: item.id,
                 label: item.label,
@@ -547,18 +549,38 @@ export default function SyncSettingsTab({
               }))}
             />
             <SettingsChoice
+              label={t('syncSettingsTab.language')}
+              hint={uiLanguage === 'auto' ? t('syncSettingsTab.languageAutoHint') : undefined}
+              options={([
+                { id: 'auto' as const, label: t('syncSettingsTab.auto') },
+                { id: 'ru' as const, label: 'Русский' },
+                { id: 'en' as const, label: 'English' },
+              ]).map((item) => ({
+                id: item.id,
+                label: item.label,
+                selected: uiLanguage === item.id,
+                onSelect: () => {
+                  if (item.id === uiLanguage) return;
+                  setUiLanguagePref(item.id);
+                  // Strings are picked at start-up: reload the app in the new language.
+                  if (localeForPref(item.id) !== getLocale()) window.location.reload();
+                  else setUiLanguage(item.id);
+                },
+              }))}
+            />
+            <SettingsChoice
               label="E-Ink"
               hint={
                 einkMode === 'auto'
-                  ? (einkDetected ? 'Обнаружено e-ink устройство' : 'Обычный экран')
+                  ? (einkDetected ? t('syncSettingsTab.eInkDeviceDetected') : t('syncSettingsTab.regularScreen'))
                   : einkMode === 'on'
-                    ? 'Высокий контраст, без анимаций'
-                    : 'Режим e-ink выключен'
+                    ? t('syncSettingsTab.highContrastNoAnimations')
+                    : t('syncSettingsTab.eInkModeIsOff')
               }
               options={([
-                { id: 'auto' as const, label: 'Авто' },
-                { id: 'on' as const, label: 'Вкл' },
-                { id: 'off' as const, label: 'Выкл' },
+                { id: 'auto' as const, label: t('syncSettingsTab.auto') },
+                { id: 'on' as const, label: t('syncSettingsTab.on') },
+                { id: 'off' as const, label: t('syncSettingsTab.off') },
               ]).map((item) => ({
                 id: item.id,
                 label: item.label,
@@ -570,15 +592,15 @@ export default function SyncSettingsTab({
               [
                 {
                   key: 'home',
-                  label: 'Главная',
-                  hint: 'Недавно, новинки и рекомендации на главной',
+                  label: t('common.home'),
+                  hint: t('syncSettingsTab.recentNewBooksAndRecommendations'),
                   value: homeViewMode,
                   onChange: setHomeViewMode,
                 },
                 {
                   key: 'books',
-                  label: 'Остальное',
-                  hint: 'Каталог, мои книги, новинки и рекомендации «Показать всё»',
+                  label: t('syncSettingsTab.everythingElse'),
+                  hint: t('syncSettingsTab.catalogMyBooksNewBooks'),
                   value: booksViewMode,
                   onChange: setBooksViewMode,
                 },
@@ -604,16 +626,16 @@ export default function SyncSettingsTab({
                   })
                   .catch(() => {
                     setHomeLayout(previous);
-                    snackbar.show('Не удалось сохранить главную на сервере', undefined, 'error');
+                    snackbar.show(t('syncSettingsTab.couldNotSaveTheHome'), undefined, 'error');
                   });
               }}
             />
             <SettingsChoice
-              label="Новинки"
-              hint="Все новинки или только авторов, которых вы читали"
+              label={t('common.newBooks')}
+              hint={t('syncSettingsTab.allNewBooksOrOnly')}
               options={([
-                ['on', 'Все'],
-                ['fav', 'Мои авторы'],
+                ['on', t('common.all')],
+                ['fav', t('syncSettingsTab.myAuthors')],
               ] as const).map(([id, label]) => ({
                 id,
                 label,
@@ -631,7 +653,7 @@ export default function SyncSettingsTab({
 
         {shows('storage') ? (<>
         <section className={sectionClass}>
-          <h3 className={sectionTitle}>Папки с книгами</h3>
+          <h3 className={sectionTitle}>{t('syncSettingsTab.bookFolders')}</h3>
           <div className="space-y-2 py-1">
             {libraryFolders.folders.map((folder) => {
               const isDefault = folder.id === libraryFolders.defaultId;
@@ -649,8 +671,8 @@ export default function SyncSettingsTab({
                     <p className={`${textStyles.body} ${theme.text} break-all`}>{folder.label}</p>
                     <p className={`${textStyles.caption} ${themeTextMuted}`}>
                       {isDefault
-                        ? (libraryFolders.hideDefaultInLocal ? 'Папка по умолчанию · скрыта в разделе «Папки»' : 'Папка по умолчанию')
-                        : 'Нажмите, чтобы сделать основной'}
+                        ? (libraryFolders.hideDefaultInLocal ? t('syncSettingsTab.defaultFolderHiddenInFolders') : t('common.defaultFolder'))
+                        : t('syncSettingsTab.tapToMakeItThe')}
                     </p>
                   </button>
                   {isDefault && (
@@ -662,7 +684,7 @@ export default function SyncSettingsTab({
                         window.dispatchEvent(new Event('inpx-settings'));
                       }}
                     >
-                      {libraryFolders.hideDefaultInLocal ? 'Показать' : 'Скрыть'}
+                      {libraryFolders.hideDefaultInLocal ? t('syncSettingsTab.show') : t('common.hide')}
                     </Button>
                   )}
                   {libraryFolders.folders.length > 1 && (
@@ -675,7 +697,7 @@ export default function SyncSettingsTab({
                         onChangeStorageDirectory({ label: def.label, uri: def.uri });
                       }}
                     >
-                      Убрать
+                      {t('common.remove')}
                     </Button>
                   )}
                 </div>
@@ -683,15 +705,15 @@ export default function SyncSettingsTab({
             })}
           </div>
           <Button className="w-full whitespace-nowrap" onClick={handlePickFolder} loading={pickingFolder} disabled={pickingFolder}>
-            Добавить папку
+            {t('syncSettingsTab.addAFolder')}
           </Button>
         </section>
 
         <section className={sectionClass}>
-          <h3 className={sectionTitle}>Файлы и настройки</h3>
+          <h3 className={sectionTitle}>{t('syncSettingsTab.filesAndSettings')}</h3>
           {connected ? (
             <SettingsChoice
-              label="Формат скачивания"
+              label={t('syncSettingsTab.downloadFormat')}
               hint={downloadFormatHint(downloadFormat)}
               options={APP_DOWNLOAD_FORMAT_OPTIONS.map(([id, label]) => ({
                 id: id || 'source',
@@ -705,18 +727,18 @@ export default function SyncSettingsTab({
                     .then((prefs) => setDownloadFormat(prefs.downloadFormat))
                     .catch(() => {
                       setDownloadFormat(previous);
-                      snackbar.show('Не удалось сохранить формат на сервере', undefined, 'error');
+                      snackbar.show(t('syncSettingsTab.couldNotSaveTheFormat'), undefined, 'error');
                     });
                 },
               }))}
             />
           ) : null}
           <SettingsChoice
-            label="Имена папок"
-            hint="Как называть автора и серию на диске"
+            label={t('syncSettingsTab.folderNames')}
+            hint={t('syncSettingsTab.howToNameTheAuthor')}
             options={([
-              ['original', 'Как в каталоге'],
-              ['translit', 'Латиницей'],
+              ['original', t('syncSettingsTab.asInTheCatalog')],
+              ['translit', t('syncSettingsTab.inLatinLetters')],
             ] as const).map(([id, label]) => ({
               id,
               label,
@@ -729,7 +751,7 @@ export default function SyncSettingsTab({
           />
           <div className="flex gap-2 pt-2">
             <Button className="min-w-0 flex-1" variant="secondary" onClick={() => void saveSettingsBackup(storageDirectory, snackbar.show)}>
-              Сохранить настройки
+              {t('syncSettingsTab.saveSettings')}
             </Button>
             <Button
               className="min-w-0 flex-1"
@@ -737,16 +759,16 @@ export default function SyncSettingsTab({
               onClick={() => {
                 void (async () => {
                   const accepted = await dialog.confirm({
-                    title: 'Восстановить настройки?',
-                    message: 'Текущие настройки приложения заменятся сохранёнными в папке книг.',
-                    confirmLabel: 'Восстановить',
-                    cancelLabel: 'Отмена',
+                    title: t('syncSettingsTab.restoreTheSettings'),
+                    message: t('syncSettingsTab.theCurrentAppSettingsWill'),
+                    confirmLabel: t('syncSettingsTab.restore'),
+                    cancelLabel: t('common.cancel'),
                   });
                   if (accepted) await loadSettingsBackup(storageDirectory, snackbar.show);
                 })();
               }}
             >
-              Восстановить
+              {t('syncSettingsTab.restore')}
             </Button>
           </div>
         </section>
@@ -769,7 +791,7 @@ type ShowSnackbar = ReturnType<typeof useSnackbar>['show'];
 
 async function saveSettingsBackup(dir: StorageDirectory | null, show: ShowSnackbar) {
   if (!dir?.uri) {
-    show('Сначала выберите папку книг', undefined, 'error');
+    show(t('syncSettingsTab.chooseTheBookFolderFirst'), undefined, 'error');
     return;
   }
   try {
@@ -778,16 +800,16 @@ async function saveSettingsBackup(dir: StorageDirectory | null, show: ShowSnackb
       path: SETTINGS_BACKUP_PATH,
       content: await exportAppSettingsJson(),
     });
-    show('Настройки записаны в папку книг', undefined, 'success');
+    show(t('syncSettingsTab.settingsWrittenToTheBook'), undefined, 'success');
   } catch (error) {
     console.warn('[SyncSettingsTab] settings backup failed:', error);
-    show('Не удалось сохранить настройки в папку книг', undefined, 'error');
+    show(t('syncSettingsTab.couldNotSaveTheSettings'), undefined, 'error');
   }
 }
 
 async function loadSettingsBackup(dir: StorageDirectory | null, show: ShowSnackbar) {
   if (!dir?.uri) {
-    show('Сначала выберите папку книг', undefined, 'error');
+    show(t('syncSettingsTab.chooseTheBookFolderFirst'), undefined, 'error');
     return;
   }
   let content: string;
@@ -795,31 +817,31 @@ async function loadSettingsBackup(dir: StorageDirectory | null, show: ShowSnackb
     ({ content } = await BookStorage.readTextFile({ treeUri: dir.uri, path: SETTINGS_BACKUP_PATH }));
   } catch (error) {
     console.warn('[SyncSettingsTab] settings backup read failed:', error);
-    show('В папке книг нет сохранённых настроек', undefined, 'error');
+    show(t('syncSettingsTab.noSavedSettingsInThe'), undefined, 'error');
     return;
   }
   try {
     const n = await importAppSettingsJson(content);
     window.dispatchEvent(new Event('inpx-settings'));
-    show(n > 0 ? 'Настройки восстановлены' : 'В файле нет настроек', undefined, n > 0 ? 'success' : 'default');
+    show(n > 0 ? t('syncSettingsTab.settingsRestored') : t('syncSettingsTab.noSettingsInTheFile'), undefined, n > 0 ? 'success' : 'default');
   } catch (error) {
-    show(error instanceof SyntaxError || !(error instanceof Error) ? 'Файл настроек повреждён' : error.message, undefined, 'error');
+    show(error instanceof SyntaxError || !(error instanceof Error) ? t('syncSettingsTab.theSettingsFileIsDamaged') : error.message, undefined, 'error');
   }
 }
 
 /** App-readable choices of the account «Формат скачивания» ('' = the original file). */
 const APP_DOWNLOAD_FORMAT_OPTIONS = [
-  ['', 'Исходный'],
+  ['', t('syncSettingsTab.original')],
   ['epub2', 'EPUB'],
   ['epub3', 'EPUB3'],
 ] as const;
 
 function downloadFormatHint(format: string): string {
-  if (!format) return 'Как в профиле на сайте. Книга сохраняется в том формате, что в библиотеке';
+  if (!format) return t('syncSettingsTab.asInTheWebsiteProfile');
   if (isAppReadableDownloadFormat(format)) {
-    return 'FB2 сервер конвертирует в EPUB — его откроют и другие читалки. Позиция чтения с сайтом совпадёт только примерно';
+    return t('syncSettingsTab.theServerConvertsFb2To');
   }
-  return `На сайте выбран ${format.toUpperCase()} — читалка его не открывает, скачивается исходный файл`;
+  return t('syncSettingsTab.theWebsiteHasSelectedThe', { format: format.toUpperCase() });
 }
 
 function SettingsChoice({

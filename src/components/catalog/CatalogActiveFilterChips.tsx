@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { touchMin, radii, motion } from '../../ui/tokens';
 import type { CatalogFormatFilter, CatalogHasSeriesFilter } from './catalogTypes';
+import { t } from '../../i18n';
 
 interface CatalogActiveFilterChipsProps {
   minRating: number;
@@ -37,7 +38,7 @@ function Chip({
       {label}
       <button
         type="button"
-        aria-label={`Убрать фильтр ${label}`}
+        aria-label={t('catalogActiveFilterChips.removeFilter', { label })}
         onClick={onRemove}
         className={`${touchMin} inline-flex items-center justify-center -m-1 ${radii.full} ${theme.focusRing} ${motion.press}`}
       >
@@ -83,9 +84,9 @@ export default function CatalogActiveFilterChips({
     chips.push({ key: 'year', label: String(yearFilter), onRemove: onClearYear });
   }
   if (hasSeriesFilter === 'yes') {
-    chips.push({ key: 'series-yes', label: 'В серии', onRemove: onClearHasSeries });
+    chips.push({ key: 'series-yes', label: t('common.inASeries'), onRemove: onClearHasSeries });
   } else if (hasSeriesFilter === 'no') {
-    chips.push({ key: 'series-no', label: 'Без серии', onRemove: onClearHasSeries });
+    chips.push({ key: 'series-no', label: t('common.notInASeries'), onRemove: onClearHasSeries });
   }
   if (formatFilter !== 'all') {
     chips.push({ key: 'format', label: formatFilter.toUpperCase(), onRemove: onClearFormat });
@@ -112,7 +113,7 @@ export default function CatalogActiveFilterChips({
         onClick={onClearAll}
         className={`min-h-12 px-4 text-xs font-semibold ${radii.button} ${theme.chip} ${theme.chipHover} ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
       >
-        Сбросить всё
+        {t('catalogActiveFilterChips.resetAll')}
       </button>
     </div>
   );

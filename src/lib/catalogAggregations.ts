@@ -1,4 +1,5 @@
 import type { Book } from '../types';
+import { t } from '../i18n';
 
 export type DemoBookSort = 'rating' | 'downloads' | 'title' | 'year' | 'size';
 export type AuthorSeriesSort = 'rating' | 'count' | 'name';
@@ -43,7 +44,7 @@ export function buildLocalAggregations(
   const genreTree: Record<string, LocalGenreAgg> = {};
 
   for (const book of booksList) {
-    const authorName = book.author || 'Неизвестный автор';
+    const authorName = book.author || t('common.unknownAuthor');
     const authorData = authorsMap.get(authorName) || { books: [], totalRating: 0, totalDownloads: 0 };
     authorData.books.push(book);
     authorData.totalRating += book.rating || 4.5;
@@ -58,8 +59,8 @@ export function buildLocalAggregations(
       seriesMap.set(book.series, seriesData);
     }
 
-    const parentGenre = book.genre || 'Другое';
-    const childGenre = book.subgenre || 'Разное';
+    const parentGenre = book.genre || t('common.genreOther');
+    const childGenre = book.subgenre || t('common.genreMisc');
 
     if (!genreTree[parentGenre]) {
       genreTree[parentGenre] = { name: parentGenre, count: 0, avgRating: 0, subgenres: {} };

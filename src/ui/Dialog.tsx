@@ -7,6 +7,7 @@ import { textStyles, elevation } from "./tokens";
 import Button from "./Button";
 import DragSheet from "./DragSheet";
 import { SheetDragHandle } from "./SheetChrome";
+import { t } from '../i18n';
 
 export interface DialogPositionCompare {
   localLabel: string;
@@ -168,7 +169,7 @@ function DialogModal({
             fullWidth
             onClick={() => onClose(false)}
           >
-            {state.cancelLabel ?? "Отмена"}
+            {state.cancelLabel ?? t('common.cancel')}
           </Button>
 
           <Button

@@ -14,6 +14,7 @@ import {
 } from '../lib/storageDirectory';
 import type { AppTab } from '../components/AppShell';
 import { useSnackbar } from '../ui/Snackbar';
+import { t, tn } from '../i18n';
 
 const RESCAN_TABS: AppTab[] = ['library', 'catalog'];
 
@@ -70,7 +71,7 @@ export function useLocalBookFileVerification(opts: {
           directory = fallback;
           onResolvedRef.current?.(fallback);
           snackbarShowRef.current(
-            'Доступ к выбранной папке отозван — используется папка по умолчанию.',
+            t('localBookFileVerification.accessToTheChosenFolder'),
             undefined,
             'error',
           );
@@ -104,10 +105,10 @@ export function useLocalBookFileVerification(opts: {
           const n = result.missingBookIds.length;
           const msg =
             n === 1
-              ? `Файл «${first?.title || 'книга'}» недоступен`
-              : `Недоступны файлы: ${n} книг`;
+              ? t('localBookFileVerification.theFileIsUnavailable', { p: first?.title || t('localBookFileVerification.aBook') })
+              : tn('localBookFileVerification.filesUnavailable', n);
           if (canDownloadRef.current && first && onPromptRef.current) {
-            snackbarShowRef.current(msg, { label: 'Скачать', onClick: () => onPromptRef.current?.(first) }, 'error');
+            snackbarShowRef.current(msg, { label: t('common.download'), onClick: () => onPromptRef.current?.(first) }, 'error');
           } else {
             snackbarShowRef.current(msg, undefined, 'error');
           }

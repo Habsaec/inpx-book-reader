@@ -19,6 +19,7 @@ import { useBarHeight } from '../../ui/useBarHeight';
 import { textStyles, touchMin, semantic, radii, motion, elevation } from '../../ui/tokens';
 import { useSnackbar } from '../../ui/Snackbar';
 import EmptyState from '../../ui/EmptyState';
+import { t } from '../../i18n';
 
 interface ReaderNotesPanelProps {
   annotations: LocalReaderAnnotationItem[];
@@ -59,7 +60,7 @@ export default function ReaderNotesPanel({
 
   const handleCopy = async (an: LocalReaderAnnotationItem) => {
     const ok = await copyTextToClipboard(formatAnnotationCopyText(an));
-    if (!ok) snackbar.show('Не удалось скопировать', undefined, 'error');
+    if (!ok) snackbar.show(t('readerNotesPanel.couldNotCopy'), undefined, 'error');
   };
 
   const startEdit = (an: LocalReaderAnnotationItem) => {
@@ -77,7 +78,7 @@ export default function ReaderNotesPanel({
   if (!annotations.length) {
     return (
       <div className="flex-1 overflow-y-auto inpx-page-scroll px-5">
-        <EmptyState icon={Highlighter} title="Заметок пока нет" description="Выделяйте фрагменты в читалке — они появятся здесь." />
+        <EmptyState icon={Highlighter} title={t('readerNotesPanel.noNotesYet')} description={t('readerNotesPanel.highlightPassagesInTheReader')} />
       </div>
     );
   }
@@ -91,10 +92,10 @@ export default function ReaderNotesPanel({
       >
         {bookOptions.length > 1 && (
           <ChoicePicker
-            title="Книга"
+            title={t('common.book')}
             value={bookFilter}
             onChange={setBookFilter}
-            options={[{ id: 'all', label: 'Все книги' }, ...bookOptions.map(([id, title]) => ({ id, label: title }))]}
+            options={[{ id: 'all', label: t('common.allBooks') }, ...bookOptions.map(([id, title]) => ({ id, label: title }))]}
             className="max-w-full"
           />
         )}
@@ -107,7 +108,7 @@ export default function ReaderNotesPanel({
               colorFilter === 'all' ? `${theme.accentActive} font-semibold` : `${theme.chip} ${theme.chipHover} font-medium`
             }`}
           >
-            Все
+            {t('common.all')}
           </button>
           {ANNOTATION_COLORS.map((c) => {
             const count = annotations.filter((a) => a.color === c).length;
@@ -133,7 +134,7 @@ export default function ReaderNotesPanel({
       <ul className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-[max(1.25rem,calc((100%_-_45rem)/2))] py-3 space-y-3">
         {filtered.length === 0 ? (
           <li className={`${textStyles.caption} ${theme.textMuted} text-center py-8`}>
-            Нет заметок с выбранным цветом
+            {t('readerNotesPanel.noNotesWithTheSelected')}
           </li>
         ) : (
           filtered.map((an) => {
@@ -155,7 +156,7 @@ export default function ReaderNotesPanel({
                         <p className={`${textStyles.body} mt-1 line-clamp-4`}>«{an.text}»</p>
                       ) : null}
                       {downloadedBookIds && !downloadedBookIds.includes(an.bookId) ? (
-                        <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>Не скачана</p>
+                        <p className={`${textStyles.caption} ${theme.textMuted} mt-1`}>{t('common.notDownloaded')}</p>
                       ) : null}
                     </button>
                     {isEditing ? (
@@ -164,11 +165,11 @@ export default function ReaderNotesPanel({
                           value={editNote}
                           onChange={(e) => setEditNote(e.target.value)}
                           rows={3}
-                          aria-label="Комментарий к выделению"
-                          placeholder="Комментарий к этому фрагменту"
+                          aria-label={t('readerNotesPanel.commentOnTheHighlight')}
+                          placeholder={t('readerNotesPanel.commentOnThisPassage')}
                           className={`w-full ${radii.lg} border px-3 py-2 ${textStyles.body} ${theme.input}`}
                         />
-                        <div className="flex flex-wrap gap-2" role="group" aria-label="Цвет выделения">
+                        <div className="flex flex-wrap gap-2" role="group" aria-label={t('readerNotesPanel.highlightColor')}>
                           {ANNOTATION_COLORS.map((c) => (
                             <button
                               key={c}
@@ -190,14 +191,14 @@ export default function ReaderNotesPanel({
                             onClick={saveEdit}
                             className={`min-h-11 px-4 ${radii.button} ${textStyles.captionBold} ${theme.accentBg} ${motion.press}`}
                           >
-                            Сохранить
+                            {t('common.save')}
                           </button>
                           <button
                             type="button"
                             onClick={() => setEditing(null)}
                             className={`min-h-11 px-4 ${radii.button} ${textStyles.caption} ${theme.chip} ${theme.focusRing} ${motion.press}`}
                           >
-                            Отмена
+                            {t('common.cancel')}
                           </button>
                         </div>
                       </div>
@@ -210,7 +211,7 @@ export default function ReaderNotesPanel({
                         {an.note ? (
                           <p className={`${textStyles.body} line-clamp-3`}>{an.note}</p>
                         ) : (
-                          <p className={`${textStyles.caption} ${theme.textMuted}`}>Добавить комментарий</p>
+                          <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('readerNotesPanel.addAComment')}</p>
                         )}
                       </button>
                     )}
@@ -218,7 +219,7 @@ export default function ReaderNotesPanel({
                       <div className="mt-2 flex gap-1">
                         <button
                           type="button"
-                          aria-label="Копировать"
+                          aria-label={t('readerNotesPanel.copy')}
                           onClick={() => void handleCopy(an)}
                           className={`${touchMin} inline-flex items-center justify-center ${radii.button} ${theme.textMuted} ${theme.focusRing} ${motion.press}`}
                         >
@@ -227,7 +228,7 @@ export default function ReaderNotesPanel({
                         {onRemoveAnnotation ? (
                           <button
                             type="button"
-                            aria-label="Удалить заметку"
+                            aria-label={t('readerNotesPanel.deleteTheNote')}
                             onClick={() => void onRemoveAnnotation(an.bookId, an.id)}
                             className={`${touchMin} inline-flex items-center justify-center ${radii.button} ${semantic.error} ${theme.focusRing} ${motion.press}`}
                           >

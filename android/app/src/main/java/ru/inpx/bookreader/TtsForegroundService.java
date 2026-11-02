@@ -107,7 +107,7 @@ public class TtsForegroundService extends Service {
         // speak() may start the service before JS pushes metadata — keep a placeholder.
         if (!snap.active) {
             TtsMediaState.update(
-                snap.title.isEmpty() ? "Озвучка" : snap.title,
+                snap.title.isEmpty() ? UiLocale.str(this, R.string.tts_title) : snap.title,
                 snap.artist,
                 true,
                 true
@@ -154,7 +154,7 @@ public class TtsForegroundService extends Service {
     private void publishSessionAndNotification(TtsMediaState.Snapshot snap) {
         if (mediaSession == null) return;
 
-        String title = snap.title != null && !snap.title.isEmpty() ? snap.title : "Озвучка";
+        String title = snap.title != null && !snap.title.isEmpty() ? snap.title : UiLocale.str(this, R.string.tts_title);
         String artist = snap.artist != null ? snap.artist : "";
         Bitmap cover = snap.cover;
 
@@ -200,7 +200,7 @@ public class TtsForegroundService extends Service {
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(artist.isEmpty() ? "Чтение книги" : artist)
+            .setContentText(artist.isEmpty() ? UiLocale.str(this, R.string.tts_reading_book) : artist)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(contentPi)
             .setOngoing(true)
@@ -221,24 +221,24 @@ public class TtsForegroundService extends Service {
         if (snap.playing) {
             builder.addAction(
                 android.R.drawable.ic_media_pause,
-                "Пауза",
+                UiLocale.str(this, R.string.tts_action_pause),
                 actionPendingIntent(ACTION_PAUSE, 1)
             );
         } else {
             builder.addAction(
                 android.R.drawable.ic_media_play,
-                "Играть",
+                UiLocale.str(this, R.string.tts_action_play),
                 actionPendingIntent(ACTION_PLAY, 2)
             );
         }
         builder.addAction(
             android.R.drawable.ic_media_next,
-            "Далее",
+            UiLocale.str(this, R.string.tts_action_next),
             actionPendingIntent(ACTION_NEXT, 3)
         );
         builder.addAction(
             android.R.drawable.ic_menu_close_clear_cancel,
-            "Стоп",
+            UiLocale.str(this, R.string.tts_action_stop),
             actionPendingIntent(ACTION_STOP, 4)
         );
 
@@ -297,10 +297,10 @@ public class TtsForegroundService extends Service {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID,
-            "Озвучка книги",
+            UiLocale.str(this, R.string.tts_channel),
             NotificationManager.IMPORTANCE_LOW
         );
-        channel.setDescription("Фоновое чтение вслух");
+        channel.setDescription(UiLocale.str(this, R.string.tts_channel_description));
         channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {

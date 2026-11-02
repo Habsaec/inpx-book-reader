@@ -83,6 +83,9 @@ public class FollowingWidgetProvider extends AppWidgetProvider {
 
     static void updateAppWidget(Context context, AppWidgetManager appWidgetManager, int appWidgetId) {
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_following);
+        // Layout texts follow the phone language; these follow the app's own choice.
+        views.setTextViewText(R.id.widget_following_label, UiLocale.str(context, R.string.widget_following_label));
+        views.setTextViewText(R.id.widget_following_empty, UiLocale.str(context, R.string.widget_following_empty));
         JSONArray books = readBooks(context);
         int count = Math.min(MAX_BOOKS, books.length());
 

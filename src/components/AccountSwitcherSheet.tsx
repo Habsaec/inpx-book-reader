@@ -18,6 +18,7 @@ import {
 } from '../lib/accounts';
 import { serverHostLabel } from '../lib/serverUrl';
 import type { ServerConfig } from '../types';
+import { t } from '../i18n';
 
 interface AccountSwitcherSheetProps {
   open: boolean;
@@ -60,16 +61,16 @@ export default function AccountSwitcherSheet({ open, onClose, serverConfig, onAd
       // The app reloads under the new account.
     } catch (error) {
       setSwitchingKey(null);
-      snackbar.show(error instanceof Error ? error.message : 'Не удалось сменить пользователя', undefined, 'error');
+      snackbar.show(error instanceof Error ? error.message : t('accountSwitcherSheet.couldNotSwitchTheUser'), undefined, 'error');
     }
   };
 
   const handleForget = async (account: SavedAccount) => {
     const accepted = await dialog.confirm({
-      title: `Убрать ${account.username}?`,
-      message: 'Аккаунт пропадёт из списка на этом устройстве. Его позиции и закладки на сервере останутся.',
-      confirmLabel: 'Убрать',
-      cancelLabel: 'Отмена',
+      title: t('accountSwitcherSheet.remove', { username: account.username }),
+      message: t('accountSwitcherSheet.theAccountDisappearsFromThe'),
+      confirmLabel: t('common.remove'),
+      cancelLabel: t('common.cancel'),
       destructive: true,
     });
     if (accepted) await forgetSavedAccount(account);
@@ -87,9 +88,9 @@ export default function AccountSwitcherSheet({ open, onClose, serverConfig, onAd
     >
       <div style={sheetPanelStyle()}>
         <SheetDragHandle />
-        <h2 id={titleId} className={`pt-2 pb-1 ${textStyles.sectionLabel} ${theme.text}`}>Пользователи</h2>
+        <h2 id={titleId} className={`pt-2 pb-1 ${textStyles.sectionLabel} ${theme.text}`}>{t('accountSwitcherSheet.users')}</h2>
         <p className={`pb-3 ${textStyles.caption} ${theme.textMuted}`}>
-          Скачанные книги общие, а позиции, закладки, заметки и полки у каждого свои
+          {t('accountSwitcherSheet.downloadedBooksAreSharedWhile')}
         </p>
         <ul className={`border-t ${theme.divider}`} aria-labelledby={titleId}>
           {accounts.map((account) => {
@@ -115,15 +116,15 @@ export default function AccountSwitcherSheet({ open, onClose, serverConfig, onAd
                       {account.username}
                     </span>
                     <span className={`block truncate ${textStyles.caption} ${theme.textMuted}`}>
-                      {current ? 'Сейчас' : serverHostLabel(account.url)}
+                      {current ? t('common.current') : serverHostLabel(account.url)}
                     </span>
                   </span>
-                  {busy ? <Loader2 className={`w-5 h-5 shrink-0 animate-spin ${theme.textMuted}`} aria-label="Переключение" /> : null}
+                  {busy ? <Loader2 className={`w-5 h-5 shrink-0 animate-spin ${theme.textMuted}`} aria-label={t('accountSwitcherSheet.switching')} /> : null}
                   {current ? <Check className={`w-5 h-5 shrink-0 ${theme.accentText}`} aria-hidden /> : null}
                 </button>
                 {!current ? (
                   <IconButton
-                    label={`Убрать ${account.username}`}
+                    label={t('accountSwitcherSheet.removeUser', { username: account.username })}
                     disabled={Boolean(switchingKey)}
                     onClick={() => void handleForget(account)}
                   >
@@ -143,7 +144,7 @@ export default function AccountSwitcherSheet({ open, onClose, serverConfig, onAd
           <span className="w-10 h-10 shrink-0 rounded-full inline-flex items-center justify-center border border-dashed border-[color:var(--app-border)]" aria-hidden>
             <UserPlus className={`w-5 h-5 ${theme.textMuted}`} />
           </span>
-          <span className={`${textStyles.body} ${theme.text}`}>Добавить пользователя</span>
+          <span className={`${textStyles.body} ${theme.text}`}>{t('accountSwitcherSheet.addAUser')}</span>
         </button>
       </div>
     </DragSheet>

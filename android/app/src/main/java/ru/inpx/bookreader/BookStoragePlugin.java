@@ -194,7 +194,7 @@ public class BookStoragePlugin extends Plugin {
             ret.put("data", Base64.encodeToString(bytes, Base64.NO_WRAP));
             call.resolve(ret);
         } catch (OutOfMemoryError oom) {
-            call.reject("Файл слишком большой, чтобы прочитать его целиком");
+            call.reject(UiLocale.str(getContext(), R.string.error_file_too_large));
         } catch (Exception e) {
             call.reject(e.getMessage(), e);
         }
@@ -468,7 +468,7 @@ public class BookStoragePlugin extends Plugin {
             ret.put("absolutePath", absolute);
             call.resolve(ret);
         } catch (OutOfMemoryError oom) {
-            call.reject("Не хватило памяти, чтобы открыть файл");
+            call.reject(UiLocale.str(getContext(), R.string.error_out_of_memory));
         } catch (Exception e) {
             call.reject(e.getMessage(), e);
         }

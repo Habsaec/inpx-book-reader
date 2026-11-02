@@ -11,6 +11,7 @@ import BookCover from './BookCover';
 import ReadMark from './ReadMark';
 import ReadProgressBar from './ReadProgressBar';
 import { getUiFontScale } from '../lib/uiFontScale';
+import { t } from '../i18n';
 
 /** Fallback tile width before first measure (CSS px). */
 export const BOOK_COVER_TILE_WIDTH_PX = 110;
@@ -156,7 +157,7 @@ export default function BookCoverTile({
       onPointerUp={clearLongPress}
       onPointerLeave={clearLongPress}
       onPointerCancel={clearLongPress}
-      aria-label={`${selected ? 'Выбрано: ' : 'Открыть: '}${displayBookTitle(book)}`}
+      aria-label={`${selected ? t('bookCoverTile.selected') : t('bookCoverTile.open')}${displayBookTitle(book)}`}
       aria-pressed={selected || undefined}
       className={`text-left flex flex-col min-w-0 ${isShelf ? 'shrink-0' : 'w-full'} ${theme.focusRing} ${motion.bookPress} ${motion.colors} ${className}`}
       style={isShelf ? { width: shelfW } : undefined}
@@ -181,7 +182,7 @@ export default function BookCoverTile({
           {isDownloading ? (
             <span
               className="absolute bottom-1.5 right-1.5 z-[6] rounded bg-black/70 px-1 py-px text-white tabular-nums leading-none"
-              aria-label={`Скачивание ${Math.round(downloadProgress)}%`}
+              aria-label={t('bookCoverTile.downloading', { n: Math.round(downloadProgress) })}
             >
               <span className={`${textStyles.microBold} text-[10px]`}>{Math.round(downloadProgress)}%</span>
             </span>
@@ -190,8 +191,8 @@ export default function BookCoverTile({
           {isDownloaded && !isDownloading ? (
             <span
               className="absolute z-[6] bottom-1.5 left-1.5 w-5 h-5 rounded-full bg-black/65 text-white inline-flex items-center justify-center"
-              title="На устройстве"
-              aria-label="На устройстве"
+              title={t('common.onTheDevice')}
+              aria-label={t('common.onTheDevice')}
             >
               <Smartphone className="w-3 h-3" strokeWidth={2.5} aria-hidden />
             </span>
@@ -217,7 +218,7 @@ export default function BookCoverTile({
           {rating > 0 || volumeText ? (
             <p className={`${textStyles.micro} ${theme.textMuted} inline-flex items-center gap-1.5 min-w-0`}>
               {rating > 0 ? (
-                <span className={`inline-flex items-center gap-1 font-semibold ${theme.text}`} aria-label={`Рейтинг ${rating} из 5`}>
+                <span className={`inline-flex items-center gap-1 font-semibold ${theme.text}`} aria-label={t('common.ratingOf5', { rating })}>
                   <Star className="w-3.5 h-3.5 fill-current text-[var(--app-star)]" aria-hidden />
                   <span className="tabular-nums">{rating}</span>
                 </span>

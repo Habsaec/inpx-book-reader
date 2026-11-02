@@ -3,6 +3,7 @@ import { GripVertical } from 'lucide-react';
 import { Reorder, useDragControls } from 'motion/react';
 import { theme } from '../lib/appTheme';
 import { impactLight } from '../lib/haptics';
+import { t } from '../i18n';
 
 /**
  * Order of a list reordered by dragging (`Reorder.Group` + `DragRow`): local while dragging,
@@ -78,7 +79,7 @@ export function DragRow<T extends string>({
         {disabled ? null : (
           <button
             type="button"
-            aria-label={`${label}: перетащите или нажимайте ↑↓, чтобы изменить порядок`}
+            aria-label={t('dragReorder.dragOrPressToReorder', { label })}
             className={`shrink-0 w-10 min-h-12 -ml-2 self-stretch inline-flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none ${theme.textMuted} ${theme.focusRing}`}
             onPointerDown={(e) => {
               impactLight();

@@ -52,7 +52,7 @@ public class FolderPickerPlugin extends Plugin {
             }
             getContext().getContentResolver().takePersistableUriPermission(uri, takeFlags);
         } catch (Exception e) {
-            call.reject("Не удалось закрепить постоянный доступ к папке. Выберите другую папку.");
+            call.reject(UiLocale.str(getContext(), R.string.error_folder_persist));
             return;
         }
 
@@ -70,7 +70,7 @@ public class FolderPickerPlugin extends Plugin {
                     Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 );
             } catch (Exception ignored) { /* best-effort */ }
-            call.reject("Система не сохранила доступ к папке. Выберите папку ещё раз.");
+            call.reject(UiLocale.str(getContext(), R.string.error_folder_not_saved));
             return;
         }
 
@@ -82,13 +82,13 @@ public class FolderPickerPlugin extends Plugin {
                     Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 );
             } catch (Exception ignored) { /* best-effort */ }
-            call.reject("Нет доступа на чтение и запись в выбранную папку");
+            call.reject(UiLocale.str(getContext(), R.string.error_folder_no_access));
             return;
         }
 
         String label = directory.getName();
         if (label == null || label.isEmpty()) {
-            label = "Папка";
+            label = UiLocale.str(getContext(), R.string.folder_default_label);
         }
 
         JSObject ret = new JSObject();

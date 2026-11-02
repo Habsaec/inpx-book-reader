@@ -85,6 +85,17 @@ public class ReaderNativePlugin extends Plugin {
         });
     }
 
+    /** In-app interface language for notifications and widgets: "ru", "en" or "" (phone language). */
+    @PluginMethod
+    public void setUiLocale(PluginCall call) {
+        if (UiLocale.save(getContext(), call.getString("locale", ""))) {
+            ContinueReadingWidgetProvider.refreshAll(getContext());
+            TtsRemoteWidgetProvider.refreshAll(getContext());
+            FollowingWidgetProvider.refreshAll(getContext());
+        }
+        call.resolve();
+    }
+
     @PluginMethod
     public void getFontScale(PluginCall call) {
         float scale = getContext().getResources().getConfiguration().fontScale;

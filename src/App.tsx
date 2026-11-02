@@ -95,6 +95,7 @@ import type { Book, Shelf } from './types';
 
 import FoliateReader from './components/FoliateReader';
 import { getHomeLayout, orderShelves, reorderShelfGroup, setHomeLayout, shelfOrderKey, useHomeLayout } from './lib/homeLayout';
+import { t } from './i18n';
 
 const CatalogTab = React.lazy(() => import('./components/CatalogTab'));
 
@@ -196,7 +197,7 @@ export default function App() {
   const [updateFocusEpoch, setUpdateFocusEpoch] = React.useState(0);
   const readerOriginTabRef = React.useRef<AppTab>('home');
 
-  const { resetExitPrompt } = useAppBackButton(() => snackbar.show('Ещё раз для выхода', undefined, 'default', 4000));
+  const { resetExitPrompt } = useAppBackButton(() => snackbar.show(t('app.pressAgainToExit'), undefined, 'default', 4000));
   // Смена вкладки между двумя Back отменяет окно «ещё раз для выхода».
   React.useEffect(() => {
     resetExitPrompt();
@@ -354,8 +355,8 @@ export default function App() {
   React.useEffect(() => {
     if (!bootError) return;
     snackbar.show(
-      'Не удалось открыть локальную библиотеку',
-      { label: 'Повторить', onClick: retryBoot },
+      t('app.couldNotOpenTheLocal'),
+      { label: t('common.retry'), onClick: retryBoot },
       'error',
     );
   }, [bootError, retryBoot, snackbar]);
@@ -459,7 +460,7 @@ export default function App() {
           writeStoredStorageDirectory(resolved);
           if (stored?.uri && !sameLibraryFolder(stored.uri, resolved.uri ?? '')) {
             storageNoticeRef.current(
-              `Нет доступа к папке «${stored.label}» — книги сохраняются в ${resolved.label}. Выберите папку заново в настройках.`,
+              t('app.noAccessToTheFolder', { label: stored.label, label2: resolved.label }),
             );
           }
         }
@@ -568,7 +569,7 @@ export default function App() {
   React.useEffect(() => {
     if (appearance !== 'auto') return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => setAutoThemeTick((t) => t + 1);
+    const onChange = () => setAutoThemeTick((n) => n + 1);
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, [appearance]);
@@ -708,7 +709,7 @@ export default function App() {
       try {
         await enqueueDownload(book);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Не удалось скачать книгу';
+        const msg = err instanceof Error ? err.message : t('app.couldNotDownloadTheBook');
         setDownloadPromptError(msg);
         snackbar.show(msg, undefined, 'error');
         throw err;
@@ -734,7 +735,7 @@ export default function App() {
     if (action.kind === 'downloading') return;
     if (action.kind === 'download') {
       if (!canReadOnline) {
-        snackbar.show('Нет связи — скачивание недоступно', undefined, 'error');
+        snackbar.show(t('app.offlineDownloadingIsUnavailable'), undefined, 'error');
         return;
       }
       void handleDownloadBookFromUi(book).catch(() => {});
@@ -869,7 +870,7 @@ export default function App() {
       setHomeLayout(next);
       void saveUserPreferences(serverConfig, { homeLayout: next }).catch(() => {
         setHomeLayout(current);
-        snackbar.show('Не удалось сохранить порядок полок на сервере', undefined, 'error');
+        snackbar.show(t('app.couldNotSaveTheShelf'), undefined, 'error');
       });
     },
     [libraryShelves, serverConfig, snackbar],
@@ -885,7 +886,7 @@ export default function App() {
         .then(() => setHomeShelvesEpoch((n) => n + 1))
         .catch(() => {
           setHomeLayout(current);
-          snackbar.show('Не удалось сохранить порядок подборок на сервере', undefined, 'error');
+          snackbar.show(t('app.couldNotSaveTheCollection'), undefined, 'error');
         });
     },
     [serverConfig, snackbar],
@@ -897,9 +898,9 @@ export default function App() {
       try {
         await inpxServer.setShelfOnHome(kind, shelfId, on);
         setHomeShelvesEpoch((n) => n + 1);
-        snackbar.show(on ? 'Полка будет на главной' : 'Полка убрана с главной');
+        snackbar.show(on ? t('app.theShelfWillBeOn') : t('app.theShelfWasRemovedFrom'));
       } catch {
-        snackbar.show('Не удалось изменить полку на сервере', undefined, 'error');
+        snackbar.show(t('app.couldNotChangeTheShelf'), undefined, 'error');
       }
     },
     [inpxServer.setShelfOnHome, snackbar],
@@ -910,10 +911,10 @@ export default function App() {
       try {
         const onHome = await setCollectionOnHomeApi(serverConfig, slug, on);
         setHomeShelvesEpoch((n) => n + 1);
-        snackbar.show(onHome ? 'Подборка будет на главной' : 'Подборка убрана с главной');
+        snackbar.show(onHome ? t('app.theCollectionWillBeOn') : t('app.theCollectionWasRemovedFrom'));
         return onHome;
       } catch {
-        snackbar.show('Не удалось изменить подборку на сервере', undefined, 'error');
+        snackbar.show(t('app.couldNotChangeTheCollection'), undefined, 'error');
         return null;
       }
     },
@@ -930,7 +931,7 @@ export default function App() {
   const handleAddBookToShelfFromUi = React.useCallback(
     async (bookId: string, shelfId: number | string) => {
       const added = await handleAddBookToShelf(bookId, String(shelfId));
-      if (added) snackbar.show('Добавлено на полку', undefined, 'success');
+      if (added) snackbar.show(t('app.addedToTheShelf'), undefined, 'success');
     },
     [handleAddBookToShelf, snackbar],
   );
@@ -1218,7 +1219,7 @@ export default function App() {
           await handleCloseReader();
           await handleContinueBook(next);
         } catch {
-          snackbar.show('Не удалось открыть следующую книгу серии', undefined, 'error');
+          snackbar.show(t('app.couldNotOpenTheNext'), undefined, 'error');
         }
       })();
     },
@@ -1281,8 +1282,8 @@ export default function App() {
         .then(({ result, prompt }) => {
           if (!result || !prompt || activeReaderRef.current) return;
           setAppSettingRaw(APP_SETTING_KEYS.appUpdatePrompted, result.latestVersion);
-          snackbarShowRef.current(`Доступна версия v${result.latestVersion}`, {
-            label: 'Обновить',
+          snackbarShowRef.current(t('app.versionVIsAvailable', { latestVersion: result.latestVersion }), {
+            label: t('app.update'),
             onClick: () => openAppUpdateRef.current(),
           });
         })

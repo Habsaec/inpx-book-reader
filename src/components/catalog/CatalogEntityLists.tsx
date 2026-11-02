@@ -11,6 +11,7 @@ import type { AuthorSeriesSort } from '../../lib/catalogAggregations';
 import type { CatalogSubTab } from './catalogTypes';
 import { motion, textStyles } from '../../ui/tokens';
 import EmptyState from '../../ui/EmptyState';
+import { t, tn } from '../../i18n';
 
 export interface CatalogEntityAuthor {
   key?: string;
@@ -58,9 +59,9 @@ interface CatalogEntityListsProps {
 }
 
 const ENTITY_SORT_OPTIONS: { id: AuthorSeriesSort; label: string }[] = [
-  { id: 'count', label: 'Книг' },
-  { id: 'rating', label: 'Рейтинг' },
-  { id: 'name', label: 'А-Я' },
+  { id: 'count', label: t('catalogEntityLists.books') },
+  { id: 'rating', label: t('common.rating') },
+  { id: 'name', label: t('catalogEntityLists.aZ') },
 ];
 
 function EntitySortBar({
@@ -118,14 +119,14 @@ export default function CatalogEntityLists({
     return (
       <div className="space-y-3 w-full max-w-[45rem] mx-auto">
         {!isServerBrowse && (
-          <EntitySortBar label="Сортировка авторов:" sortBy={authorSortBy} onChange={onAuthorSortChange} />
+          <EntitySortBar label={t('catalogEntityLists.sortAuthors')} sortBy={authorSortBy} onChange={onAuthorSortChange} />
         )}
         {authors.length === 0 ? (
           <EmptyState
             icon={User}
-            title="Ничего не найдено"
-            description="Попробуйте изменить запрос."
-            actionLabel={onEditQuery ? 'Изменить запрос' : onGoLanding ? 'К разделам' : undefined}
+            title={t('common.nothingFound')}
+            description={t('common.tryChangingTheQuery')}
+            actionLabel={onEditQuery ? t('common.changeTheQuery') : onGoLanding ? t('common.toSections') : undefined}
             onAction={onEditQuery || onGoLanding}
             actionVariant="primary"
           />
@@ -159,7 +160,7 @@ export default function CatalogEntityLists({
                       <div className="min-w-0">
                         <h3 className={`${textStyles.bodyBold} truncate`}>{author.name}</h3>
                         <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
-                          {author.bookCount} кн.
+                          {tn('common.booksShort', author.bookCount)}
                         </p>
                       </div>
                     </div>
@@ -190,14 +191,14 @@ export default function CatalogEntityLists({
     return (
       <div className="space-y-3 w-full max-w-[45rem] mx-auto">
         {!isServerBrowse && (
-          <EntitySortBar label="Сортировка серий:" sortBy={seriesSortBy} onChange={onSeriesSortChange} />
+          <EntitySortBar label={t('catalogEntityLists.sortSeries')} sortBy={seriesSortBy} onChange={onSeriesSortChange} />
         )}
         {series.length === 0 ? (
           <EmptyState
             icon={Library}
-            title="Ничего не найдено"
-            description="Попробуйте изменить запрос."
-            actionLabel={onEditQuery ? 'Изменить запрос' : onGoLanding ? 'К разделам' : undefined}
+            title={t('common.nothingFound')}
+            description={t('common.tryChangingTheQuery')}
+            actionLabel={onEditQuery ? t('common.changeTheQuery') : onGoLanding ? t('common.toSections') : undefined}
             onAction={onEditQuery || onGoLanding}
             actionVariant="primary"
           />
@@ -228,7 +229,7 @@ export default function CatalogEntityLists({
                   <div className="min-w-0">
                     <h3 className={`${textStyles.bodyBold} truncate`}>{item.name}</h3>
                     <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
-                      {item.bookCount} кн.
+                      {tn('common.booksShort', item.bookCount)}
                     </p>
                   </div>
                 </div>
@@ -263,9 +264,9 @@ export default function CatalogEntityLists({
         {genres.length === 0 ? (
           <EmptyState
             icon={Inbox}
-            title="Ничего не найдено"
-            description="Попробуйте изменить запрос."
-            actionLabel={onGoLanding ? 'К разделам' : undefined}
+            title={t('common.nothingFound')}
+            description={t('common.tryChangingTheQuery')}
+            actionLabel={onGoLanding ? t('common.toSections') : undefined}
             onAction={onGoLanding}
             actionVariant="primary"
           />
@@ -288,7 +289,7 @@ export default function CatalogEntityLists({
                   <div>
                     <h3 className={`${textStyles.bodyBold}`}>{genreItem.name}</h3>
                     <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
-                      {genreItem.count} кн. · {subgenresList.length} поджанров
+                      {tn('common.booksShort', genreItem.count)} · {tn('catalogEntityLists.subgenresCount', subgenresList.length)}
                     </p>
                   </div>
                 </div>
@@ -311,7 +312,7 @@ export default function CatalogEntityLists({
                     >
                       <div>
                         <span className={textStyles.bodyBold}>{sub.name}</span>
-                        <span className={`${textStyles.micro} ${theme.textMuted} ml-1.5`}>({sub.count} кн.)</span>
+                        <span className={`${textStyles.micro} ${theme.textMuted} ml-1.5`}>({tn('common.booksShort', sub.count)})</span>
                       </div>
                       <ChevronRight className={`w-4 h-4 shrink-0 ${theme.textMuted}`} aria-hidden />
                     </button>

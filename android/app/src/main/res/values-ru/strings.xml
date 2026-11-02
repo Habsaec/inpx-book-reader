@@ -1,0 +1,43 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="shortcut_continue">Продолжить</string>
+    <string name="shortcut_continue_long">Продолжить чтение</string>
+    <string name="widget_continue_label">Продолжить чтение</string>
+    <string name="widget_continue_empty">Откройте книгу в приложении</string>
+    <string name="widget_continue_description">Виджет продолжения чтения</string>
+    <string name="widget_tts_label">Озвучка</string>
+    <string name="widget_tts_description">Пульт озвучки: пауза, вперёд, назад и таймер сна</string>
+    <string name="widget_tts_idle">Слушать книгу</string>
+    <string name="widget_tts_playing">Читаю вслух</string>
+    <string name="widget_tts_paused">Пауза</string>
+    <string name="widget_tts_prev">Назад</string>
+    <string name="widget_tts_play">Слушать</string>
+    <string name="widget_tts_pause">Пауза</string>
+    <string name="widget_tts_next">Дальше</string>
+    <string name="widget_tts_sleep">Таймер сна: 15, 30, 60 минут или выключен</string>
+    <string name="widget_tts_stop">Остановить озвучку</string>
+    <string name="widget_following_label">Новое у любимых</string>
+    <string name="widget_following_description">Новые книги любимых авторов и серий</string>
+    <string name="widget_following_empty">Здесь появятся новые книги любимых авторов и серий</string>
+    <string name="light_hud_brightness">Подсветка %1$d/%2$d</string>
+    <string name="light_hud_warmth">Температура %1$d/%2$d</string>
+    <string name="download_title">Загрузка книг</string>
+    <string name="download_preparing">Подготовка…</string>
+    <string name="download_channel">Загрузка книг</string>
+    <string name="download_channel_description">Фоновая загрузка книг из библиотеки</string>
+    <string name="tts_title">Озвучка</string>
+    <string name="tts_reading_book">Чтение книги</string>
+    <string name="tts_action_pause">Пауза</string>
+    <string name="tts_action_play">Играть</string>
+    <string name="tts_action_next">Далее</string>
+    <string name="tts_action_stop">Стоп</string>
+    <string name="tts_channel">Озвучка книги</string>
+    <string name="tts_channel_description">Фоновое чтение вслух</string>
+    <string name="folder_default_label">Папка</string>
+    <string name="error_github_unreachable">Нет доступа к GitHub. Проверьте сеть или VPN.</string>
+    <string name="error_file_too_large">Файл слишком большой, чтобы прочитать его целиком</string>
+    <string name="error_out_of_memory">Не хватило памяти, чтобы открыть файл</string>
+    <string name="error_folder_persist">Не удалось закрепить постоянный доступ к папке. Выберите другую папку.</string>
+    <string name="error_folder_not_saved">Система не сохранила доступ к папке. Выберите папку ещё раз.</string>
+    <string name="error_folder_no_access">Нет доступа на чтение и запись в выбранную папку</string>
+</resources>

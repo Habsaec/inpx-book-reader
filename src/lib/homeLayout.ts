@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../i18n';
 
 /**
  * Home layout of the account — shared with the web «Профиль → Вид → Главная страница»
@@ -11,13 +12,13 @@ export const HOME_SECTION_IDS = ['continue', 'recent', 'novinki', 'recommended',
 export type HomeSectionId = (typeof HOME_SECTION_IDS)[number];
 
 export const HOME_SECTION_LABELS: Record<HomeSectionId, string> = {
-  continue: 'Продолжить чтение',
-  recent: 'Недавно читали',
-  novinki: 'Новинки',
-  recommended: 'Рекомендации',
-  following: 'Новое у любимых',
-  shelves: 'Закреплённые полки',
-  collections: 'Закреплённые подборки',
+  continue: t('common.continueReading'),
+  recent: t('common.recentlyRead'),
+  novinki: t('common.newBooks'),
+  recommended: t('common.recommendations'),
+  following: t('common.newFromFavorites'),
+  shelves: t('homeLayout.pinnedShelves'),
+  collections: t('homeLayout.pinnedCollections'),
 };
 
 export interface HomeLayout {

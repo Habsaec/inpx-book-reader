@@ -1,15 +1,16 @@
 import type { Book } from '../types';
 import { seriesVolumeSortKey } from './seriesVolumeSort';
+import { t } from '../i18n';
 
 /** `recent` keeps the incoming order (server lists are newest-first). */
 export type LocalBookSort = 'recent' | 'title' | 'author' | 'volume' | 'rating';
 
 export const LOCAL_BOOK_SORT_OPTIONS: Array<{ id: LocalBookSort; label: string }> = [
-  { id: 'recent', label: 'По дате добавления' },
-  { id: 'title', label: 'Название' },
-  { id: 'author', label: 'Автор' },
-  { id: 'volume', label: 'Номер тома' },
-  { id: 'rating', label: 'Рейтинг' },
+  { id: 'recent', label: t('localBookSort.byDateAdded') },
+  { id: 'title', label: t('common.title') },
+  { id: 'author', label: t('common.author') },
+  { id: 'volume', label: t('common.volumeNumber') },
+  { id: 'rating', label: t('common.rating') },
 ];
 
 export function sortBooksLocal(books: Book[], sort: LocalBookSort): Book[] {

@@ -3,6 +3,7 @@ import { theme } from '../lib/appTheme';
 import { textStyles, radii, motion } from '../ui/tokens';
 import ShelfCreateField from './shelves/ShelfCreateField';
 import type { UiShelf } from '../lib/inpxClient';
+import { t } from '../i18n';
 
 interface ShelfPickerProps {
   shelves: UiShelf[];
@@ -40,7 +41,7 @@ export default function ShelfPicker({
   return (
     <div className="flex flex-col gap-2">
       {visible.length === 0 && !creating ? (
-        <p className={`${textStyles.caption} ${theme.textMuted} px-1`}>Полок пока нет — создайте первую.</p>
+        <p className={`${textStyles.caption} ${theme.textMuted} px-1`}>{t('shelfPicker.noShelvesYetCreateThe')}</p>
       ) : (
         visible.map((s) => (
           <button

@@ -16,6 +16,7 @@ import { legacyStrippedBookIdFileKey, safeBookIdFileKey } from './bookRef';
 import { BookStorage } from './bookStoragePlugin';
 import { isNativeApp } from './platform';
 import { verifyStorageFileDigestNative } from './nativeDownload';
+import { t } from '../i18n';
 
 const META_DIR = '.inpx-reader';
 
@@ -63,9 +64,9 @@ export function transliterateFilePart(value: string): string {
 export function bookStorageRelativePath(book: Book): string {
   const style = getStorageNameStyle();
   const name = (value: string) => sanitizeFileName(style === 'translit' ? transliterateFilePart(value) : value);
-  const author = name(book.author || 'Неизвестный автор');
-  const series = name(book.seriesDisplay || book.series || 'Без серии');
-  const title = name(book.title || 'Без названия');
+  const author = name(book.author || t('common.unknownAuthor'));
+  const series = name(book.seriesDisplay || book.series || t('common.noSeries'));
+  const title = name(book.title || t('bookStorage.untitled'));
   const ext = (book.ext || 'fb2').replace(/^\./, '');
   // Distinct bookIds can share author/series/title — suffix keeps SAF paths unique.
   const idKey = safeBookIdFileKey(book.id);
@@ -174,7 +175,7 @@ export async function persistBookToDirectory(
   chaptersJson: string,
 ): Promise<{ localFileName: string; chaptersPath: string }> {
   if (!directory.uri) {
-    throw new Error('Не выбрана папка хранения');
+    throw new Error(t('common.noStorageFolderChosen'));
   }
 
   const localFileName = bookStorageRelativePath(book);
@@ -210,7 +211,7 @@ export async function persistBookMetadataToDirectory(
   chaptersJson: string,
 ): Promise<{ localFileName: string; chaptersPath: string }> {
   if (!directory.uri) {
-    throw new Error('Не выбрана папка хранения');
+    throw new Error(t('common.noStorageFolderChosen'));
   }
 
   const localFileName = bookStorageRelativePath(book);
@@ -246,7 +247,7 @@ export async function readBinaryFileFromDirectory(
   relativePath: string,
 ): Promise<ArrayBuffer> {
   if (!directory.uri) {
-    throw new Error('Не выбрана папка хранения');
+    throw new Error(t('common.noStorageFolderChosen'));
   }
   const result = await BookStorage.readBinaryFile({ treeUri: directory.uri, path: relativePath });
   return base64ToArrayBuffer(result.data);
@@ -335,12 +336,12 @@ export async function verifyBookFileIntegrity(
   const buf = await readBinaryFileFromDirectory(directory, relativePath);
   if (buf.byteLength !== expectedByteLength) {
     throw new Error(
-      `Проверка файла не пройдена: записано ${expectedByteLength} байт, прочитано ${buf.byteLength}`,
+      t('bookStorage.fileCheckFailedBytesWritten', { expectedByteLength, byteLength: buf.byteLength }),
     );
   }
   const digest = await computeBufferDigest(buf);
   if (digest !== expectedDigest) {
-    throw new Error('Проверка файла не пройдена: контрольная сумма не совпадает');
+    throw new Error(t('common.fileCheckFailedTheChecksum'));
   }
 }
 
@@ -353,7 +354,7 @@ export async function verifyBookFileSize(
   const buf = await readBinaryFileFromDirectory(directory, relativePath);
   if (buf.byteLength !== expectedByteLength) {
     throw new Error(
-      `Проверка файла не пройдена: записано ${expectedByteLength} байт, прочитано ${buf.byteLength}`,
+      t('bookStorage.fileCheckFailedBytesWritten', { expectedByteLength, byteLength: buf.byteLength }),
     );
   }
 }
@@ -363,7 +364,7 @@ export async function loadChaptersFromDirectory(
   chaptersPath: string,
 ): Promise<string> {
   if (!directory.uri) {
-    throw new Error('Не выбрана папка хранения');
+    throw new Error(t('common.noStorageFolderChosen'));
   }
   const result = await BookStorage.readTextFile({ treeUri: directory.uri, path: chaptersPath });
   return result.content;
