@@ -16,6 +16,7 @@ import {
   toggleBookRead,
   ensureBookReadState,
   toggleFavoriteAuthorApi,
+  setAuthorNotRecommendedApi,
   toggleFavoriteSeriesApi,
   createServerShelf,
   deleteServerShelf,
@@ -124,6 +125,8 @@ export function useInpxServer(
   const [readingProgress, setReadingProgress] = React.useState<Map<string, number>>(() => new Map());
   const [favoriteAuthors, setFavoriteAuthors] = React.useState<string[]>([]);
   const [favoriteSeries, setFavoriteSeries] = React.useState<string[]>([]);
+  /** «Не рекомендовать» authors; null = the server has no such feature (button hidden). */
+  const [notRecommendedAuthors, setNotRecommendedAuthors] = React.useState<string[] | null>(null);
   const [favoriteAuthorItems, setFavoriteAuthorItems] = React.useState<FavoriteAuthorItem[]>([]);
   const [favoriteSeriesItems, setFavoriteSeriesItems] = React.useState<FavoriteSeriesItem[]>([]);
   const [shelves, setShelves] = React.useState<ServerShelf[]>([]);
@@ -192,6 +195,7 @@ export function useInpxServer(
       setFavoriteSeriesItems(favs.series);
       setFavoriteAuthors(favs.authors.map((a) => a.name));
       setFavoriteSeries(favs.series.map((s) => s.name));
+      setNotRecommendedAuthors(favs.notRecommendedAuthors);
       if (shelfGen === shelfListGen.current) {
         shelfMembershipRef.current = `${shelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}#${smartShelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}`;
         setShelves(shelfList);
@@ -283,6 +287,7 @@ export function useInpxServer(
       setReadingProgress(new Map());
       setFavoriteAuthors([]);
       setFavoriteSeries([]);
+      setNotRecommendedAuthors(null);
       setFavoriteAuthorItems([]);
       setFavoriteSeriesItems([]);
       setShelves([]);
@@ -379,6 +384,17 @@ export function useInpxServer(
       return [...prev, { name, displayName: name }];
     });
     return favorite;
+  }, [config, online]);
+
+  const setAuthorNotRecommended = React.useCallback(async (name: string, on: boolean) => {
+    if (!online) return !on;
+    const excluded = await withAuthGuard(() => setAuthorNotRecommendedApi(config, name, on));
+    const key = name.toLowerCase();
+    setNotRecommendedAuthors((prev) => {
+      const rest = (prev ?? []).filter((a) => a.toLowerCase() !== key);
+      return excluded ? [...rest, name] : rest;
+    });
+    return excluded;
   }, [config, online]);
 
   const toggleFavoriteSeries = React.useCallback(async (name: string) => {
@@ -724,6 +740,7 @@ export function useInpxServer(
     readingProgress,
     favoriteAuthors,
     favoriteSeries,
+    notRecommendedAuthors,
     favoriteAuthorItems,
     favoriteSeriesItems,
     shelves,
@@ -738,6 +755,7 @@ export function useInpxServer(
     toggleRead,
     toggleWant,
     toggleFavoriteAuthor,
+    setAuthorNotRecommended,
     toggleFavoriteSeries,
     addShelf,
     removeShelf,

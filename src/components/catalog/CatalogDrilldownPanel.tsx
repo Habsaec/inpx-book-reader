@@ -1,8 +1,8 @@
 import React from 'react';
-import { ArrowLeft, BookOpen, Bookmark, CheckCircle2, Download, FolderPlus, Heart, Layers3, PenLine } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bookmark, CheckCircle2, Download, FolderPlus, Heart, Layers3, PenLine, ThumbsDown } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { Book, ServerConfig } from '../../types';
-import { displayAuthorName, type SeriesReadingProgress, type UiShelf } from '../../lib/inpxClient';
+import { displayAuthorName, type SeriesInfo, type SeriesReadingProgress, type UiShelf } from '../../lib/inpxClient';
 import { sameSeriesName } from '../../lib/seriesLabel';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
 import type { AuthorGroupedState } from '../../hooks/useCatalogData';
@@ -13,7 +13,7 @@ import FlibustaBookRow from './FlibustaBookRow';
 import QuickAction from './QuickAction';
 import ShelfPicker from '../ShelfPicker';
 import { textStyles, radii, elevation, motion as motionTokens } from '../../ui/tokens';
-import { t, tn, formatNumber } from '../../i18n';
+import { t, tn, formatNumber, getLocale } from '../../i18n';
 
 interface CatalogDrilldownPanelProps {
   selectedAuthor: string | null;
@@ -33,6 +33,9 @@ interface CatalogDrilldownPanelProps {
   onDrillDownBack: () => void;
   showBackBar?: boolean;
   onToggleFavoriteAuthor: (authorName: string) => void;
+  /** «Не рекомендовать» authors (server names); null hides the button. */
+  notRecommendedAuthors?: string[] | null;
+  onSetAuthorNotRecommended?: (authorName: string, on: boolean) => void | Promise<void>;
   onToggleFavoriteSeries: (seriesName: string) => void;
   onDownloadSeries?: () => void;
   seriesDownloadBusy?: boolean;
@@ -40,6 +43,10 @@ interface CatalogDrilldownPanelProps {
   seriesProgress?: SeriesReadingProgress | null;
   /** Opens the details of the next unread volume. */
   onOpenSeriesNext?: (bookId: string) => void;
+  /** Authors, genres, languages, years of the open series (`/api/series-info`); null hides the block. */
+  seriesInfo?: SeriesInfo | null;
+  /** Opens an author page (series authors). */
+  onOpenAuthor?: (authorName: string) => void;
   /** Series action row (book sheet order: хочу → прочитано → избранное → полка); online only. */
   onToggleSeriesWant?: () => void;
   onToggleSeriesRead?: () => void;
@@ -204,6 +211,67 @@ export function CatalogAuthorGroupedList({
   );
 }
 
+function languageName(code: string): string {
+  try {
+    const name = new Intl.DisplayNames([getLocale()], { type: 'language' }).of(code);
+    if (name && name.toLowerCase() !== code.toLowerCase()) return name.charAt(0).toUpperCase() + name.slice(1);
+  } catch { /* unknown code */ }
+  return code.toUpperCase();
+}
+
+/** Series facts like the web series hero: authors (open their pages), genres, languages, INPX years, volumes. */
+function SeriesInfoBlock({
+  info,
+  onOpenAuthor,
+}: {
+  info: SeriesInfo;
+  onOpenAuthor?: (authorName: string) => void;
+}) {
+  const years = info.yearFrom == null
+    ? ''
+    : info.yearTo != null && info.yearTo !== info.yearFrom ? `${info.yearFrom}–${info.yearTo}` : String(info.yearFrom);
+  const rows: Array<[string, string]> = [];
+  if (info.genres.length) rows.push([t('catalogDrilldownPanel.seriesGenres'), info.genres.map((g) => g.displayName).join(', ')]);
+  if (info.languages.length) rows.push([t('catalogDrilldownPanel.seriesLanguages'), info.languages.map((l) => languageName(l.code)).join(', ')]);
+  if (years) rows.push([t('catalogDrilldownPanel.seriesYears'), years]);
+  if (info.volumeCount > 0 && info.volumeCount !== info.bookCount) {
+    rows.push([t('catalogDrilldownPanel.seriesVolumes'), formatNumber(info.volumeCount)]);
+  }
+  const moreAuthors = info.authorCount - info.authors.length;
+  return (
+    <div className="mt-3 space-y-2">
+      {info.authors.length ? (
+        <div>
+          <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('catalogDrilldownPanel.seriesAuthors')}</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {info.authors.map((a) => (
+              <button
+                key={a.name}
+                type="button"
+                disabled={!onOpenAuthor}
+                onClick={() => onOpenAuthor?.(a.name)}
+                className={`min-h-10 px-3 rounded-full ${textStyles.captionBold} ${theme.accentText} ${theme.accentMuted} ${theme.focusRing} ${motionTokens.press}`}
+              >
+                {displayAuthorName(a.displayName || a.name)}
+              </button>
+            ))}
+            {moreAuthors > 0 ? (
+              <span className={`self-center ${textStyles.caption} ${theme.textMuted}`}>
+                {t('catalogDrilldownPanel.seriesMoreAuthors', { n: formatNumber(moreAuthors) })}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {rows.map(([label, value]) => (
+        <p key={label} className={`${textStyles.caption} ${theme.text}`}>
+          <span className={theme.textMuted}>{label}: </span>{value}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 /** Same numbers as the web series page: editions of one volume count once, unnumbered volumes last. */
 function SeriesProgressBlock({
   progress,
@@ -282,11 +350,15 @@ export default function CatalogDrilldownPanel({
   onDrillDownBack,
   showBackBar = true,
   onToggleFavoriteAuthor,
+  notRecommendedAuthors = null,
+  onSetAuthorNotRecommended,
   onToggleFavoriteSeries,
   onDownloadSeries,
   seriesDownloadBusy = false,
   seriesProgress = null,
   onOpenSeriesNext,
+  seriesInfo = null,
+  onOpenAuthor,
   onToggleSeriesWant,
   onToggleSeriesRead,
   shelves = [],
@@ -308,6 +380,11 @@ export default function CatalogDrilldownPanel({
   const seriesHub = Boolean(selectedSeries);
   const outsideHub = Boolean(authorOutsideSeries && selectedAuthor);
   const genreHub = Boolean(selectedSubgenre && !selectedAuthor && !selectedSeries);
+  // Server spelling of the author (`authorName` of the grouped list) is what the list stores.
+  const notRecommendName = authorGrouped?.authorName || selectedAuthor || '';
+  const notRecommended = Boolean(
+    notRecommendName && notRecommendedAuthors?.some((a) => a.toLowerCase() === notRecommendName.toLowerCase()),
+  );
 
   return (
     <>
@@ -359,6 +436,7 @@ export default function CatalogDrilldownPanel({
               </div>
             </div>
 
+            <div className="flex shrink-0 items-center">
             <button
               type="button"
               onClick={() => onToggleFavoriteAuthor(selectedAuthor!)}
@@ -371,6 +449,21 @@ export default function CatalogDrilldownPanel({
             >
               <Heart className={`w-5 h-5 ${favoriteAuthors.includes(selectedAuthor!) ? 'fill-[var(--app-danger)]' : ''}`} aria-hidden />
             </button>
+            {notRecommendedAuthors && onSetAuthorNotRecommended && isServerBrowse ? (
+              <button
+                type="button"
+                onClick={() => void onSetAuthorNotRecommended(notRecommendName, !notRecommended)}
+                aria-pressed={notRecommended}
+                aria-label={notRecommended ? t('catalogDrilldownPanel.notRecommended') : t('catalogDrilldownPanel.notRecommend')}
+                title={t('catalogDrilldownPanel.notRecommendHint')}
+                className={`min-h-12 min-w-12 inline-flex items-center justify-center rounded-full shrink-0 ${theme.focusRing} ${motionTokens.press} ${
+                  notRecommended ? theme.accentText : theme.textMuted
+                }`}
+              >
+                <ThumbsDown className={`w-5 h-5 ${notRecommended ? 'fill-current' : ''}`} aria-hidden />
+              </button>
+            ) : null}
+            </div>
           </div>
 
           {isServerBrowse && authorGrouped?.bioHtml ? (
@@ -406,6 +499,7 @@ export default function CatalogDrilldownPanel({
               </div>
             </div>
             </div>
+            {seriesInfo ? <SeriesInfoBlock info={seriesInfo} onOpenAuthor={onOpenAuthor} /> : null}
             {(() => {
               const favorite = favoriteSeries.some((name) => sameSeriesName(name, selectedSeries));
               const fullyRead = Boolean(seriesProgress && seriesProgress.total > 0 && !seriesProgress.next);

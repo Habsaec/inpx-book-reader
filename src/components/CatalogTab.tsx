@@ -8,6 +8,7 @@ import {
   fetchSearchGenres,
   fetchAllFacetBooks,
   fetchSeriesProgress,
+  fetchSeriesInfo,
   toggleSeriesWantApi,
   toggleSeriesReadApi,
   addSeriesToShelfApi,
@@ -15,6 +16,7 @@ import {
   type UiShelf,
   fetchBookMeta,
   type SeriesReadingProgress,
+  type SeriesInfo,
   mapServerBook,
   displayCoverUrl,
   bookContentUrl,
@@ -84,6 +86,9 @@ interface CatalogTabProps {
   onOpenBook: (book: Book) => void;
   favoriteAuthors: string[];
   onToggleFavoriteAuthor: (authorName: string) => void;
+  /** «Не рекомендовать» authors; null hides the button (offline / older server). */
+  notRecommendedAuthors?: string[] | null;
+  onSetAuthorNotRecommended?: (authorName: string, on: boolean) => void | Promise<void>;
   favoriteSeries: string[];
   onToggleFavoriteSeries: (seriesName: string) => void;
   bookmarkIds?: Set<string>;
@@ -140,6 +145,8 @@ export default function CatalogTab({
   onOpenBook,
   favoriteAuthors,
   onToggleFavoriteAuthor,
+  notRecommendedAuthors = null,
+  onSetAuthorNotRecommended,
   favoriteSeries,
   onToggleFavoriteSeries,
   bookmarkIds,
@@ -761,6 +768,19 @@ export default function CatalogTab({
     return () => { cancelled = true; };
   }, [selectedSeries, isServerConnected, serverConfig, readCount]);
 
+  /* Authors / genres / languages / years of the open series (null on older servers / offline).
+     Not keyed on read marks: the facts do not change when a volume is marked read. */
+  const [seriesInfo, setSeriesInfo] = React.useState<SeriesInfo | null>(null);
+  React.useEffect(() => {
+    setSeriesInfo(null);
+    if (!selectedSeries || !isServerConnected) return;
+    let cancelled = false;
+    fetchSeriesInfo(serverConfig, selectedSeries)
+      .then((info) => { if (!cancelled) setSeriesInfo(info); })
+      .catch(() => { /* optional block: hide on any error */ });
+    return () => { cancelled = true; };
+  }, [selectedSeries, isServerConnected, serverConfig]);
+
   /* Series action row: хочу → прочитано → избранное → полка (same order as the book sheet and the web). */
   const [seriesActionBusy, setSeriesActionBusy] = React.useState(false);
   const runSeriesAction = async (action: (series: string) => Promise<void>) => {
@@ -1209,6 +1229,8 @@ export default function CatalogTab({
             <CatalogDrilldownPanel
               seriesProgress={selectedSeries ? seriesProgress : null}
               onOpenSeriesNext={(bookId) => void openSeriesNextBook(bookId)}
+              seriesInfo={selectedSeries ? seriesInfo : null}
+              onOpenAuthor={openAuthorPage}
               onToggleSeriesWant={isServerConnected ? () => void toggleSeriesWant() : undefined}
               onToggleSeriesRead={isServerConnected ? () => void toggleSeriesRead() : undefined}
               shelves={shelves}
@@ -1235,6 +1257,8 @@ export default function CatalogTab({
               onDrillDownBack={handleDrillDownBack}
               showBackBar={false}
               onToggleFavoriteAuthor={onToggleFavoriteAuthor}
+              notRecommendedAuthors={notRecommendedAuthors}
+              onSetAuthorNotRecommended={onSetAuthorNotRecommended}
               onToggleFavoriteSeries={onToggleFavoriteSeries}
               onDownloadSeries={
                 selectedSeries

@@ -82,6 +82,7 @@ import {
   displayCoverUrl,
   fetchLibraryView,
   fetchReaderActivitySyncMeta,
+  isAuthError,
   mapServerBook,
   saveUserPreferences,
   setCollectionOnHomeApi,
@@ -548,6 +549,16 @@ export default function App() {
   const profileError = isOnline ? inpxServer.error : '';
   const activeFavoriteAuthors = isOnline ? inpxServer.favoriteAuthors : favoriteAuthors;
   const activeFavoriteSeries = isOnline ? inpxServer.favoriteSeries : favoriteSeries;
+
+  /** «Не рекомендовать» автора (online only, same server list as the web author page). */
+  const handleSetAuthorNotRecommended = React.useCallback(async (name: string, on: boolean) => {
+    try {
+      const excluded = await inpxServer.setAuthorNotRecommended(name, on);
+      snackbar.show(t(excluded ? 'app.authorNotRecommended' : 'app.authorRecommendedAgain'));
+    } catch (e) {
+      if (!isAuthError(e)) snackbar.show(t('app.authorNotRecommendError'), undefined, 'error');
+    }
+  }, [inpxServer, snackbar]);
 
   const [systemPalettes, setSystemPalettes] = React.useState<SystemPalettes | null>(null);
   React.useEffect(() => {
@@ -1407,6 +1418,8 @@ export default function App() {
                 storageDirectory={storageDirectory}
                 favoriteAuthors={activeFavoriteAuthors}
                 onToggleFavoriteAuthor={handleToggleFavoriteAuthor}
+                notRecommendedAuthors={isOnline ? inpxServer.notRecommendedAuthors : null}
+                onSetAuthorNotRecommended={isOnline ? handleSetAuthorNotRecommended : undefined}
                 favoriteSeries={activeFavoriteSeries}
                 onToggleFavoriteSeries={handleToggleFavoriteSeries}
                 bookmarkIds={isOnline ? inpxServer.bookmarkIds : undefined}

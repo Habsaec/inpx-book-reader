@@ -570,12 +570,18 @@ function normalizePreviewBookIds(raw: unknown): string[] {
 export async function fetchFavorites(config: ServerConfig): Promise<{
   authors: FavoriteAuthorItem[];
   series: FavoriteSeriesItem[];
+  /** «Не рекомендовать» author names (server `authors.name`); null = older server without the feature. */
+  notRecommendedAuthors: string[] | null;
 }> {
   const data = await apiJson<{
     authors?: FavoriteAuthorItem[];
     series?: FavoriteSeriesItem[];
+    notRecommendedAuthors?: Array<{ name?: string }>;
   }>(config, '/api/favorites');
   return {
+    notRecommendedAuthors: Array.isArray(data.notRecommendedAuthors)
+      ? data.notRecommendedAuthors.map((a) => String(a?.name ?? '')).filter(Boolean)
+      : null,
     authors: (data.authors ?? []).map((a) => ({
       name: String(a.name ?? ''),
       displayName: a.displayName != null ? String(a.displayName) : undefined,
@@ -702,6 +708,66 @@ export async function fetchSeriesProgress(config: ServerConfig, seriesName: stri
       `/api/series-progress?name=${encodeURIComponent(seriesName)}`,
     );
     return normalizeSeriesProgress(data);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** Series page facts (`GET /api/series-info`): profile languages apply; editions of one volume count once. */
+export interface SeriesInfo {
+  name: string;
+  displayName: string;
+  bookCount: number;
+  volumeCount: number;
+  /** Distinct authors; `authors` holds at most 24 (most books first). */
+  authorCount: number;
+  authors: Array<{ name: string; displayName: string; bookCount: number }>;
+  genres: Array<{ name: string; displayName: string; displayNameEn?: string; bookCount: number }>;
+  languages: Array<{ code: string; bookCount: number }>;
+  /** Range of INPX catalog dates (years); null when no book is dated. */
+  yearFrom: number | null;
+  yearTo: number | null;
+}
+
+/** Authors, genres, languages, years of a series; `null` on older servers (no route) or an empty series. */
+export async function fetchSeriesInfo(config: ServerConfig, seriesName: string): Promise<SeriesInfo | null> {
+  try {
+    const data = await apiJson<Partial<SeriesInfo>>(
+      config,
+      `/api/series-info?name=${encodeURIComponent(seriesName)}`,
+    );
+    const bookCount = Number(data.bookCount) || 0;
+    if (!bookCount) return null;
+    const year = (v: unknown) => (Number.isFinite(Number(v)) && v != null ? Number(v) : null);
+    const authors = Array.isArray(data.authors)
+      ? data.authors.filter((a) => a && a.name).map((a) => ({
+        name: String(a.name),
+        displayName: String(a.displayName || a.name),
+        bookCount: Number(a.bookCount) || 0,
+      }))
+      : [];
+    return {
+      name: String(data.name || seriesName),
+      displayName: String(data.displayName || data.name || seriesName),
+      bookCount,
+      volumeCount: Number(data.volumeCount) || bookCount,
+      authorCount: Math.max(Number(data.authorCount) || 0, authors.length),
+      authors,
+      genres: localizeGenreRows(Array.isArray(data.genres)
+        ? data.genres.filter((g) => g && g.name).map((g) => ({
+          name: String(g.name),
+          displayName: String(g.displayName || g.name),
+          displayNameEn: g.displayNameEn ? String(g.displayNameEn) : undefined,
+          bookCount: Number(g.bookCount) || 0,
+        }))
+        : []),
+      languages: Array.isArray(data.languages)
+        ? data.languages.filter((l) => l && l.code).map((l) => ({ code: String(l.code), bookCount: Number(l.bookCount) || 0 }))
+        : [],
+      yearFrom: year(data.yearFrom),
+      yearTo: year(data.yearTo),
+    };
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
@@ -850,6 +916,12 @@ export async function ensureBookReadState(
 export async function toggleFavoriteAuthorApi(config: ServerConfig, name: string): Promise<boolean> {
   const data = await apiPostJson<{ favorite: boolean }>(config, '/api/favorites/authors', { name });
   return data.favorite;
+}
+
+/** «Не рекомендовать» автора: `on` sets the state; returns it (the author's books leave the recommendations). */
+export async function setAuthorNotRecommendedApi(config: ServerConfig, name: string, on: boolean): Promise<boolean> {
+  const data = await apiPostJson<{ excluded: boolean }>(config, '/api/recommendations/excluded-authors', { name, on });
+  return Boolean(data.excluded);
 }
 
 export async function toggleFavoriteSeriesApi(config: ServerConfig, name: string): Promise<boolean> {
