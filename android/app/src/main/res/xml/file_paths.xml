@@ -2,4 +2,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!-- Books opened in another app (DJVU, CBR, RTF, DOCX…): BookStoragePlugin.openWithExternalApp. -->
+    <files-path name="book_cache" path="book-cache/" />
 </paths>

@@ -3,10 +3,12 @@ package ru.inpx.bookreader;
 import android.util.Base64;
 import android.os.Environment;
 import android.os.StatFs;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
 import android.provider.Settings;
 import androidx.activity.result.ActivityResult;
+import androidx.core.content.FileProvider;
 import java.io.File;
 import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
@@ -472,6 +474,49 @@ public class BookStoragePlugin extends Plugin {
         } catch (Exception e) {
             call.reject(e.getMessage(), e);
         }
+    }
+
+    /**
+     * «Открыть в другом приложении»: форматы, которые встроенная читалка не открывает (DJVU, CBR, RTF,
+     * DOCX…). Файл копируется в book-cache (как для читалки) и отдаётся через FileProvider в ACTION_VIEW;
+     * нет подходящего приложения — reject с кодом NO_APP.
+     */
+    @PluginMethod
+    public void openWithExternalApp(PluginCall call) {
+        String treeUri = call.getString("treeUri");
+        String path = call.getString("path");
+        String mimeType = call.getString("mimeType", "application/octet-stream");
+        if (treeUri == null || path == null) {
+            call.reject("Missing arguments");
+            return;
+        }
+        listExecutor.execute(() -> {
+            try {
+                String absolute = BookStorageAccess.copyStorageFileToBookCache(getContext(), treeUri, path);
+                Uri uri = FileProvider.getUriForFile(
+                    getContext(),
+                    getContext().getPackageName() + ".fileprovider",
+                    new File(absolute)
+                );
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(uri, mimeType == null || mimeType.isEmpty() ? "application/octet-stream" : mimeType);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().runOnUiThread(() -> {
+                    try {
+                        getActivity().startActivity(intent);
+                        call.resolve();
+                    } catch (ActivityNotFoundException e) {
+                        call.reject("No app for " + mimeType, "NO_APP");
+                    } catch (Exception e) {
+                        call.reject(e.getMessage(), e);
+                    }
+                });
+            } catch (OutOfMemoryError oom) {
+                call.reject(UiLocale.str(getContext(), R.string.error_out_of_memory));
+            } catch (Exception e) {
+                call.reject(e.getMessage(), e);
+            }
+        });
     }
 
     @PluginMethod

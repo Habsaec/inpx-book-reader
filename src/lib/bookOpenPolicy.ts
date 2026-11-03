@@ -4,7 +4,7 @@ import { t } from '../i18n';
  * Secondary actions (favourite, read, delete, about) live in BookActionsSheet.
  */
 
-export type BookPrimaryKind = 'download' | 'downloading' | 'read' | 'continue' | 'reread';
+export type BookPrimaryKind = 'download' | 'downloading' | 'read' | 'continue' | 'reread' | 'open-external';
 
 export type BookPrimaryAction = {
   kind: BookPrimaryKind;
@@ -18,6 +18,7 @@ const LABELS: Record<BookPrimaryKind, string> = {
   read: t('common.readAction'),
   continue: t('common.continue'),
   reread: t('common.readAction'),
+  'open-external': t('common.openInAnotherApp'),
 };
 
 export function resolveBookPrimaryAction(input: {
@@ -25,6 +26,8 @@ export function resolveBookPrimaryAction(input: {
   isDownloading?: boolean;
   progress?: number;
   isRead?: boolean;
+  /** false: DJVU / CBR / RTF / DOCX — the built-in reader cannot open it (see bookFormats.ts). */
+  readable?: boolean;
 }): BookPrimaryAction {
   const progress = Math.max(0, Math.min(100, Math.round(Number(input.progress) || 0)));
 
@@ -33,6 +36,10 @@ export function resolveBookPrimaryAction(input: {
       return { kind: 'downloading', label: LABELS.downloading, disabled: true };
     }
     return { kind: 'download', label: LABELS.download, disabled: false };
+  }
+
+  if (input.readable === false) {
+    return { kind: 'open-external', label: LABELS['open-external'], disabled: false };
   }
 
   if (progress > 0 && progress < 99) {

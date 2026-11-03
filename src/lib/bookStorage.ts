@@ -293,6 +293,25 @@ export async function resolveStorageFileUrl(
   }
 }
 
+/**
+ * «Открыть в другом приложении» for a downloaded book the built-in reader cannot open
+ * (DJVU, CBR, RTF, DOCX). Resolves 'opened' | 'no-app'; other failures throw.
+ */
+export async function openBookFileInExternalApp(
+  directory: StorageDirectory,
+  relativePath: string,
+  mimeType: string,
+): Promise<'opened' | 'no-app'> {
+  if (!isNativeApp() || !directory.uri || !relativePath) throw new Error('Not available outside the app');
+  try {
+    await BookStorage.openWithExternalApp({ treeUri: directory.uri, path: relativePath, mimeType });
+    return 'opened';
+  } catch (err) {
+    if ((err as { code?: string } | null)?.code === 'NO_APP') return 'no-app';
+    throw err;
+  }
+}
+
 export type BookFileState = 'exists' | 'missing' | 'unknown';
 
 /**

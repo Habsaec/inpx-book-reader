@@ -1,7 +1,8 @@
 import React from 'react';
 import { Book, Bookmark, Highlight, ReadingProgress, ServerConfig, Shelf } from '../types';
 import { debugSessionLog } from '../lib/debugSessionLog';
-import { extFromStoragePath, removeBookFromDirectory } from '../lib/bookStorage';
+import { extFromStoragePath, openBookFileInExternalApp, removeBookFromDirectory } from '../lib/bookStorage';
+import { bookMimeType, isAppReaderFormat, normalizeBookExt } from '../lib/bookFormats';
 import { resolveLocalBookFileDetailed, clearLocalFileMeta } from '../lib/localBookAccess';
 import { writeStoredStorageDirectory } from '../lib/storageDirectory';
 import { sameLibraryFolder } from '../lib/libraryFolders';
@@ -324,6 +325,23 @@ export function useBookActions(opts: {
       }
       if (openSyncGenRef.current !== openGen) return;
       const resolvedExt = (resolved.ext || extFromStoragePath(loc.localFileName) || 'fb2').replace(/^\./, '');
+      // DJVU, CBR, RTF, DOCX (Calibre libraries, folder sources): the built-in reader cannot open them —
+      // every «open» (sheet, Home, Мои книги, widgets) hands the downloaded file to another app instead.
+      if (!isAppReaderFormat(resolvedExt)) {
+        const format = normalizeBookExt(resolvedExt).toUpperCase();
+        try {
+          const result = await openBookFileInExternalApp(loc.directory, loc.localFileName, bookMimeType(resolvedExt));
+          if (result === 'no-app') snackbar.show(t('common.noAppForFormat', { format }), undefined, 'error');
+        } catch (err) {
+          if (isStoragePermissionError(err)) {
+            snackbar.show(STORAGE_PERMISSION_REVOKED_MSG, undefined, 'error');
+            return;
+          }
+          console.warn('[useBookActions] open in another app failed:', err);
+          snackbar.show(t('common.couldNotOpenInAnotherApp'), undefined, 'error');
+        }
+        return;
+      }
       migrateOfflineReaderPositionForFormat(resolved.id, resolvedExt);
       const pendingForBook =
         pendingOpenRef.current?.bookId === resolved.id ? pendingOpenRef.current.position : null;

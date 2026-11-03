@@ -1,5 +1,6 @@
 import React from 'react';
-import { BookOpen, AlertCircle, ChevronRight, Download, MoreVertical, Play, Loader2, PinOff } from 'lucide-react';
+import { BookOpen, AlertCircle, ChevronRight, Download, ExternalLink, MoreVertical, Play, Loader2, PinOff } from 'lucide-react';
+import { isAppReaderFormat } from '../lib/bookFormats';
 import { theme } from '../lib/appTheme';
 import { InpxProfile, mapServerBook, fetchLibraryView, fetchHomeShelves, isAuthError, isUnreachableServerError } from '../lib/inpxClient';
 import { Book, ServerConfig } from '../types';
@@ -65,6 +66,7 @@ function HomeSectionHeader({
 function HeroActionIcon({ kind }: { kind: BookPrimaryKind }) {
   if (kind === 'downloading') return <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />;
   if (kind === 'download') return <Download className="w-4 h-4 shrink-0" aria-hidden />;
+  if (kind === 'open-external') return <ExternalLink className="w-4 h-4 shrink-0" aria-hidden />;
   return <Play className="w-4 h-4 fill-current shrink-0" aria-hidden />;
 }
 
@@ -377,6 +379,7 @@ export default function HomeTab({
         isDownloading: heroDownloading,
         progress: heroProgress,
         isRead: readIds?.has(hero.id),
+        readable: isAppReaderFormat(hero.ext),
       })
     : null;
   const heroDownloadJob = hero

@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Bookmark, CheckCircle2, ChevronLeft, Download, FolderPlus, Heart, MoreHorizontal, Star } from 'lucide-react';
+import { BookOpen, Bookmark, CheckCircle2, ChevronLeft, Download, ExternalLink, FolderPlus, Heart, MoreHorizontal, Star } from 'lucide-react';
 import { theme } from '../../lib/appTheme';
 import { textStyles, semantic, radii, motion as motionTokens } from '../../ui/tokens';
 import Button from '../../ui/Button';
@@ -14,6 +14,7 @@ import { looksLikeHtml, sanitizeHtml } from '../../lib/sanitizeHtml';
 import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, seriesVolumeLabel } from '../../lib/seriesLabel';
 import { booksAfterInSeries, seriesPageForVolume, seriesVolumeSortKey } from '../../lib/seriesVolumeSort';
 import { isBookDownloadInFlight, isBookFinished, resolveBookPrimaryAction } from '../../lib/bookOpenPolicy';
+import { isAppReaderFormat, normalizeBookExt } from '../../lib/bookFormats';
 import ReadMark from '../ReadMark';
 import type { StorageDirectory } from '../../lib/storageDirectory';
 import BookCover from '../BookCover';
@@ -490,8 +491,10 @@ export default function BookDetailsSheet({
         isDownloading: isBookDownloadInFlight(book.id, downloadingId, queuedBookIds),
         progress: readingProgressByBookId?.[book.id] ?? book.readProgress ?? 0,
         isRead: readIds?.has(book.id),
+        readable: isAppReaderFormat(book.ext),
       })
     : null;
+  const opensElsewhere = Boolean(book && !isAppReaderFormat(book.ext));
   const progress = book
     ? Math.max(0, Math.min(100, Math.round(Number(readingProgressByBookId?.[book.id] ?? book.readProgress) || 0)))
     : 0;
@@ -618,6 +621,11 @@ export default function BookDetailsSheet({
                 {primaryAction?.kind === 'download' && !isServerConnected ? (
                   <p className={`${textStyles.caption} ${themeTextMuted}`}>{t('bookDetailsSheet.internetIsNeededToDownload')}</p>
                 ) : null}
+                {opensElsewhere && primaryAction?.kind !== 'open-external' ? (
+                  <p className={`${textStyles.caption} ${themeTextMuted}`}>
+                    {t('common.formatOpensInAnotherApp', { format: normalizeBookExt(book?.ext).toUpperCase() })}
+                  </p>
+                ) : null}
                 <div className="flex items-stretch">
                   {primaryAction ? (
                     <Button
@@ -643,6 +651,7 @@ export default function BookDetailsSheet({
                       {primaryAction.kind === 'read' || primaryAction.kind === 'continue' || primaryAction.kind === 'reread'
                         ? <BookOpen className="w-4 h-4 shrink-0" aria-hidden />
                         : null}
+                      {primaryAction.kind === 'open-external' ? <ExternalLink className="w-4 h-4 shrink-0" aria-hidden /> : null}
                       {primaryAction.label}
                     </Button>
                   ) : null}

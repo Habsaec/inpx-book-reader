@@ -47,6 +47,8 @@ export interface BookStoragePlugin {
     treeUri: string;
     path: string;
   }): Promise<{ absolutePath: string }>;
+  /** Copy the book into the app cache and hand it to another app (ACTION_VIEW); rejects with code NO_APP. */
+  openWithExternalApp(options: { treeUri: string; path: string; mimeType: string }): Promise<void>;
   /** Recover a persisted SAF grant for Download/<folder> after JS forgot the content:// URI. */
   getPersistedDownloadsTree(options?: { folder?: string }): Promise<{ uri: string | null }>;
   extractBookCover(options: { treeUri: string; path: string }): Promise<{ data: string }>;
