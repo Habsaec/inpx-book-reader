@@ -47,6 +47,8 @@ interface CatalogDrilldownPanelProps {
   seriesInfo?: SeriesInfo | null;
   /** Opens an author page (series authors). */
   onOpenAuthor?: (authorName: string) => void;
+  /** Series opened from an author page: drop the author filter and show every volume. */
+  onOpenFullSeries?: () => void;
   /** Series action row (book sheet order: хочу → прочитано → избранное → полка); online only. */
   onToggleSeriesWant?: () => void;
   onToggleSeriesRead?: () => void;
@@ -358,6 +360,7 @@ export default function CatalogDrilldownPanel({
   seriesProgress = null,
   onOpenSeriesNext,
   seriesInfo = null,
+  onOpenFullSeries,
   onOpenAuthor,
   onToggleSeriesWant,
   onToggleSeriesRead,
@@ -496,6 +499,15 @@ export default function CatalogDrilldownPanel({
                   {selectedAuthor ? ' · ' : ''}
                   {tn('common.booksCount', bookCount)}
                 </p>
+                {selectedAuthor && onOpenFullSeries ? (
+                  <button
+                    type="button"
+                    onClick={onOpenFullSeries}
+                    className={`${textStyles.captionBold} mt-1.5 underline underline-offset-2 ${theme.accentText}`}
+                  >
+                    {t('catalogDrilldownPanel.seriesFull')}
+                  </button>
+                ) : null}
               </div>
             </div>
             </div>

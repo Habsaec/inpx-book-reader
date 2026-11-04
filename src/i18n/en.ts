@@ -297,6 +297,7 @@ export const en: Record<EnKey, string> = {
   'catalogDrilldownPanel.seriesLanguages': 'Languages',
   'catalogDrilldownPanel.seriesYears': 'Years',
   'catalogDrilldownPanel.seriesVolumes': 'Volumes',
+  'catalogDrilldownPanel.seriesFull': 'Whole series',
   'catalogDrilldownPanel.readOf': 'Read {{read}} of {{total}}',
   'catalogDrilldownPanel.readTheNextOne': 'Read the next one',
   'catalogDrilldownPanel.noAuthorBiographyInThe': 'No author biography in the library.',

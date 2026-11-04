@@ -291,6 +291,7 @@ export const ru = {
   'catalogDrilldownPanel.seriesLanguages': 'Языки',
   'catalogDrilldownPanel.seriesYears': 'Годы',
   'catalogDrilldownPanel.seriesVolumes': 'Томов',
+  'catalogDrilldownPanel.seriesFull': 'Вся серия',
   'catalogDrilldownPanel.readOf': 'Прочитано {{read}} из {{total}}',
   'catalogDrilldownPanel.readTheNextOne': 'Читать следующую',
   'catalogDrilldownPanel.noAuthorBiographyInThe': 'Биография автора не найдена в библиотеке.',

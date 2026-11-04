@@ -1231,6 +1231,7 @@ export default function CatalogTab({
               onOpenSeriesNext={(bookId) => void openSeriesNextBook(bookId)}
               seriesInfo={selectedSeries ? seriesInfo : null}
               onOpenAuthor={openAuthorPage}
+              onOpenFullSeries={selectedSeries && selectedAuthor ? () => setSelectedAuthor(null) : undefined}
               onToggleSeriesWant={isServerConnected ? () => void toggleSeriesWant() : undefined}
               onToggleSeriesRead={isServerConnected ? () => void toggleSeriesRead() : undefined}
               shelves={shelves}
