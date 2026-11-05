@@ -891,7 +891,6 @@ export default function MyBooksTab({
                             serverConfig={isOnline ? serverConfig : null}
                             storageDirectory={storageDirectory}
                             authorKey={a.name}
-                            coverBookId={a.coverBookId}
                             onClick={() => onOpenAuthor?.(a.name)}
                           />
                         ))}
