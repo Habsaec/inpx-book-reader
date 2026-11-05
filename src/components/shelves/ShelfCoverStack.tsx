@@ -17,7 +17,7 @@ export default function ShelfCoverStack({
   serverConfig: ServerConfig;
   storageDirectory?: StorageDirectory | null;
 }) {
-  const ids = bookIds.map(String).filter(Boolean).slice(0, 4);
+  const ids = bookIds.map(String).filter(Boolean).slice(0, 6);
   if (!ids.length) return null;
 
   return (

@@ -1,5 +1,4 @@
 import React from 'react';
-import { User } from 'lucide-react';
 import { ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import {
@@ -10,11 +9,22 @@ import {
   resolveCoverUrl,
 } from '../lib/coverCache';
 
-function authorInitials(name: string): string {
-  const parts = name.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
-  if (!parts.length) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+/**
+ * Placeholder letters: first letter of the NAME + first letter of the SURNAME. The author key is the INPX form
+ * `Surname,Name,Patronymic` (→ «ФД» for Достоевский,Фёдор); a plain «Name Surname» uses its first two words;
+ * a single word gives its first two letters (same rule as the web `authorInitials`).
+ */
+export function authorInitials(name: string): string {
+  const raw = (name || '').split(':')[0].trim();
+  const letter = (word: string | undefined) => (word ?? '').match(/\p{L}/u)?.[0]?.toLocaleUpperCase() ?? '';
+  if (raw.includes(',')) {
+    const [surname, given] = raw.split(',').map((part) => part.trim());
+    const pair = `${letter(given)}${letter(surname)}`;
+    if (pair) return pair;
+  }
+  const words = raw.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return `${letter(words[0])}${letter(words[1])}`;
+  return (words[0] ?? '').replace(/[^\p{L}]/gu, '').slice(0, 2).toLocaleUpperCase() || '?';
 }
 
 interface AuthorPortraitProps {
@@ -207,11 +217,7 @@ export default function AuthorPortrait({
         className="absolute inset-0 flex items-center justify-center font-semibold text-[var(--app-muted)]"
         style={{ fontSize: Math.max(10, Math.round(size * 0.28)) }}
       >
-        {portraitFailed ? (
-          <User style={{ width: size * 0.45, height: size * 0.45 }} className="opacity-60" />
-        ) : (
-          authorInitials(authorName)
-        )}
+        {authorInitials(authorName)}
       </span>
     </AvatarFrame>
   );
