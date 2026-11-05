@@ -10,16 +10,16 @@ import {
 } from '../lib/coverCache';
 
 /**
- * Placeholder letters: first letter of the NAME + first letter of the SURNAME. The author key is the INPX form
- * `Surname,Name,Patronymic` (→ «ФД» for Достоевский,Фёдор); a plain «Name Surname» uses its first two words;
- * a single word gives its first two letters (same rule as the web `authorInitials`).
+ * Placeholder letters in the order the name is written on the card: the author key is the INPX form
+ * `Surname,Name,Patronymic` and reads «Головачев Василий» → «ГВ»; a plain label uses its first two words; a single
+ * word gives its first two letters (same rule as the web `authorInitials`).
  */
 export function authorInitials(name: string): string {
   const raw = (name || '').split(':')[0].trim();
   const letter = (word: string | undefined) => (word ?? '').match(/\p{L}/u)?.[0]?.toLocaleUpperCase() ?? '';
   if (raw.includes(',')) {
     const [surname, given] = raw.split(',').map((part) => part.trim());
-    const pair = `${letter(given)}${letter(surname)}`;
+    const pair = `${letter(surname)}${letter(given)}`;
     if (pair) return pair;
   }
   const words = raw.split(/\s+/).filter(Boolean);
