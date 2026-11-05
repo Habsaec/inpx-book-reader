@@ -1747,6 +1747,39 @@ export async function fetchAuthors(
   return apiJson(config, `/api/browse/authors?${params}`);
 }
 
+export interface AlphaIndexResult {
+  kind: 'authors' | 'series';
+  prefix: string;
+  total: number;
+  /** Next-letter groups (`prefix` one or more letters longer); empty once `items` are listed. */
+  groups: Array<{ prefix: string; count: number }>;
+  items: Array<{ name: string; displayName: string; bookCount: number }>;
+}
+
+/** Alphabet index (`/api/browse/index`); `null` on older servers (no route). */
+export async function fetchAlphaIndex(
+  config: ServerConfig,
+  kind: 'authors' | 'series',
+  prefix: string,
+): Promise<AlphaIndexResult | null> {
+  try {
+    const params = new URLSearchParams({ kind, prefix });
+    const data = await apiJson<Partial<AlphaIndexResult>>(config, `/api/browse/index?${params}`);
+    return {
+      kind,
+      prefix: String(data.prefix ?? prefix),
+      total: Number(data.total) || 0,
+      groups: Array.isArray(data.groups) ? data.groups.map((g) => ({ prefix: String(g.prefix), count: Number(g.count) || 0 })) : [],
+      items: Array.isArray(data.items)
+        ? data.items.map((i) => ({ name: String(i.name), displayName: String(i.displayName || i.name), bookCount: Number(i.bookCount) || 0 }))
+        : [],
+    };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 export async function fetchSeries(
   config: ServerConfig,
   q = '',

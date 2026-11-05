@@ -5,6 +5,7 @@ import { theme } from '../../lib/appTheme';
 import type { StorageDirectory } from '../../lib/storageDirectory';
 import LiteEntityRow from '../LiteEntityRow';
 import CatalogPagination from './CatalogPagination';
+import AlphaIndexPanel from './AlphaIndexPanel';
 import BookSortBar from './BookSortBar';
 import type { LocalGenreAgg } from '../../lib/catalogAggregations';
 import type { AuthorSeriesSort } from '../../lib/catalogAggregations';
@@ -114,14 +115,27 @@ export default function CatalogEntityLists({
   onGoLanding,
   onEditQuery,
 }: CatalogEntityListsProps) {
+  // Alphabet index above the server lists (not while a search query is shown); an open letter replaces the list.
+  const [indexActive, setIndexActive] = React.useState(false);
+  const showIndex = isServerBrowse && !onEditQuery;
+  const alphaIndex = (kind: 'authors' | 'series') => (showIndex ? (
+    <AlphaIndexPanel
+      kind={kind}
+      serverConfig={serverConfig}
+      onOpen={kind === 'authors' ? onOpenAuthor : onOpenSeries}
+      onActiveChange={setIndexActive}
+    />
+  ) : null);
+  const hideList = showIndex && indexActive;
 
   if (subTab === 'authors' && !selectedAuthor) {
     return (
       <div className="space-y-3 w-full max-w-[45rem] mx-auto">
+        {alphaIndex('authors')}
         {!isServerBrowse && (
           <EntitySortBar label={t('catalogEntityLists.sortAuthors')} sortBy={authorSortBy} onChange={onAuthorSortChange} />
         )}
-        {authors.length === 0 ? (
+        {hideList ? null : authors.length === 0 ? (
           <EmptyState
             icon={User}
             title={t('common.nothingFound')}
@@ -190,10 +204,11 @@ export default function CatalogEntityLists({
   if (subTab === 'series' && !selectedSeries) {
     return (
       <div className="space-y-3 w-full max-w-[45rem] mx-auto">
+        {alphaIndex('series')}
         {!isServerBrowse && (
           <EntitySortBar label={t('catalogEntityLists.sortSeries')} sortBy={seriesSortBy} onChange={onSeriesSortChange} />
         )}
-        {series.length === 0 ? (
+        {hideList ? null : series.length === 0 ? (
           <EmptyState
             icon={Library}
             title={t('common.nothingFound')}
