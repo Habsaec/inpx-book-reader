@@ -45,6 +45,8 @@ interface CatalogDrilldownPanelProps {
   onOpenSeriesNext?: (bookId: string) => void;
   /** Authors, genres, languages, years of the open series (`/api/series-info`); null hides the block. */
   seriesInfo?: SeriesInfo | null;
+  /** First volume's annotation of an author's series. */
+  seriesAnnotation?: { text: string; html: boolean } | null;
   /** Opens an author page (series authors). */
   onOpenAuthor?: (authorName: string) => void;
   /** Series opened from an author page: drop the author filter and show every volume. */
@@ -360,6 +362,7 @@ export default function CatalogDrilldownPanel({
   seriesProgress = null,
   onOpenSeriesNext,
   seriesInfo = null,
+  seriesAnnotation = null,
   onOpenFullSeries,
   onOpenAuthor,
   onToggleSeriesWant,
@@ -511,6 +514,16 @@ export default function CatalogDrilldownPanel({
               </div>
             </div>
             </div>
+            {seriesAnnotation ? (
+              seriesAnnotation.html ? (
+                <div
+                  className={`mt-3 font-serif ${textStyles.caption} ${theme.text} select-text prose prose-sm`}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(seriesAnnotation.text) }}
+                />
+              ) : (
+                <p className={`mt-3 font-serif ${textStyles.caption} ${theme.text} select-text whitespace-pre-line`}>{seriesAnnotation.text}</p>
+              )
+            ) : null}
             {seriesInfo ? <SeriesInfoBlock info={seriesInfo} onOpenAuthor={onOpenAuthor} /> : null}
             {(() => {
               const favorite = favoriteSeries.some((name) => sameSeriesName(name, selectedSeries));

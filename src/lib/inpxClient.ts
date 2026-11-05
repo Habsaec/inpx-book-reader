@@ -728,6 +728,8 @@ export interface SeriesInfo {
   /** Range of INPX catalog dates (years); null when no book is dated. */
   yearFrom: number | null;
   yearTo: number | null;
+  /** Author's series (newer servers): first volume, its annotation is shown on the series screen. */
+  firstBookId?: string | null;
 }
 
 /** Authors, genres, languages, years of a series; `null` on older servers (no route) or an empty series. */
@@ -767,6 +769,7 @@ export async function fetchSeriesInfo(config: ServerConfig, seriesName: string):
         : [],
       yearFrom: year(data.yearFrom),
       yearTo: year(data.yearTo),
+      firstBookId: data.firstBookId ? String(data.firstBookId) : null,
     };
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;

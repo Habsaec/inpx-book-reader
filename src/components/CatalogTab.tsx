@@ -9,6 +9,7 @@ import {
   fetchAllFacetBooks,
   fetchSeriesProgress,
   fetchSeriesInfo,
+  fetchBookDetails,
   toggleSeriesWantApi,
   toggleSeriesReadApi,
   addSeriesToShelfApi,
@@ -781,6 +782,22 @@ export default function CatalogTab({
     return () => { cancelled = true; };
   }, [selectedSeries, isServerConnected, serverConfig]);
 
+  /* Author's series: the first volume's annotation under the series facts (as on the web series page). */
+  const [seriesAnnotation, setSeriesAnnotation] = React.useState<{ text: string; html: boolean } | null>(null);
+  React.useEffect(() => {
+    setSeriesAnnotation(null);
+    const firstBookId = seriesInfo?.firstBookId;
+    if (!firstBookId || !isServerConnected) return;
+    let cancelled = false;
+    fetchBookDetails(serverConfig, firstBookId)
+      .then((d) => {
+        const text = String(d?.annotation || '').trim();
+        if (!cancelled && text) setSeriesAnnotation({ text, html: Boolean(d.annotationIsHtml) });
+      })
+      .catch(() => { /* optional */ });
+    return () => { cancelled = true; };
+  }, [seriesInfo, isServerConnected, serverConfig]);
+
   /* Series action row: хочу → прочитано → избранное → полка (same order as the book sheet and the web). */
   const [seriesActionBusy, setSeriesActionBusy] = React.useState(false);
   const runSeriesAction = async (action: (series: string) => Promise<void>) => {
@@ -1230,6 +1247,7 @@ export default function CatalogTab({
               seriesProgress={selectedSeries ? seriesProgress : null}
               onOpenSeriesNext={(bookId) => void openSeriesNextBook(bookId)}
               seriesInfo={selectedSeries ? seriesInfo : null}
+              seriesAnnotation={selectedSeries ? seriesAnnotation : null}
               onOpenAuthor={openAuthorPage}
               onOpenFullSeries={selectedSeries && selectedAuthor ? () => setSelectedAuthor(null) : undefined}
               onToggleSeriesWant={isServerConnected ? () => void toggleSeriesWant() : undefined}
