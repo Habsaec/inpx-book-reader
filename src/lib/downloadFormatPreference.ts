@@ -54,6 +54,73 @@ export function useDownloadFormat(): string {
   return React.useSyncExternalStore(subscribe, () => value, () => value);
 }
 
+/*
+ * Formats the server offers for FB2 books right now (`availableDownloadFormats` of `/api/profile`
+ * `user` and `/api/preferences`); null = unknown (older server) — then nothing is reported.
+ * An admin can switch EPUB / EPUB3 off: the app then quietly saved the FB2 and nobody knew why.
+ */
+const SERVER_FORMATS_KEY = 'inpx_server_download_formats';
+let serverFormats: string[] | null = readServerFormats();
+const serverListeners = new Set<() => void>();
+
+function readServerFormats(): string[] | null {
+  try {
+    const raw = localStorage.getItem(SERVER_FORMATS_KEY);
+    const list = raw ? JSON.parse(raw) : null;
+    return Array.isArray(list) ? list.map((f) => String(f).toLowerCase()) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setServerDownloadFormats(next: unknown): void {
+  if (!Array.isArray(next)) return; // older server: keep what we knew
+  const list = next.map((f) => String(f || '').toLowerCase()).filter(Boolean);
+  if (serverFormats && serverFormats.length === list.length && serverFormats.every((f, i) => f === list[i])) return;
+  serverFormats = list;
+  try {
+    localStorage.setItem(SERVER_FORMATS_KEY, JSON.stringify(list));
+  } catch {
+    /* storage unavailable — keep the in-memory value */
+  }
+  for (const listener of serverListeners) listener();
+}
+
+export function getServerDownloadFormats(): string[] | null {
+  return serverFormats;
+}
+
+function subscribeServerFormats(listener: () => void): () => void {
+  serverListeners.add(listener);
+  return () => serverListeners.delete(listener);
+}
+
+export function useServerDownloadFormats(): string[] | null {
+  return React.useSyncExternalStore(subscribeServerFormats, () => serverFormats, () => serverFormats);
+}
+
+/** The preference is a format the app would download, but the server does not offer it now. */
+export function isDownloadFormatOffOnServer(format: string, available: string[] | null = serverFormats): boolean {
+  const code = String(format || '').toLowerCase();
+  if (!APP_READABLE_FORMATS[code] || !available) return false;
+  return !available.includes(code);
+}
+
+/**
+ * The account asks for an EPUB-family format, the book is FB2, yet this book's server formats lack it
+ * (switched off by the admin, no fb2cng): the original file is saved instead — the caller tells the user.
+ */
+export function downloadFormatFallback(
+  book: Pick<Book, 'ext' | 'downloadFormats'>,
+  preference = value,
+): string | null {
+  const format = String(preference || '').toLowerCase();
+  if (!APP_READABLE_FORMATS[format]) return null;
+  const source = String(book.ext || 'fb2').replace(/^\./, '').toLowerCase();
+  if (source !== 'fb2' || !book.downloadFormats) return null;
+  return book.downloadFormats.includes(format) ? null : format;
+}
+
 /** True when the app downloads this preference as is (otherwise it keeps the original file). */
 export function isAppReadableDownloadFormat(format: string): boolean {
   return Boolean(APP_READABLE_FORMATS[String(format || '').toLowerCase()]);

@@ -133,9 +133,11 @@ export function useDownloadPipeline(opts: {
       storageDirectory,
       canDownload: canReadOnline && Boolean(storageDirectory?.uri),
       onComplete: async (book, content, buffer, native) => persistDownload(book, content, buffer, native),
-      onSaved: (book) => {
+      onSaved: (book, info) => {
         snackbarShowRef.current(
-          t('downloadPipeline.savedRead'),
+          info?.formatFallback
+            ? t('downloadPipeline.savedOriginalFormatOff', { format: info.formatFallback.toUpperCase() })
+            : t('downloadPipeline.savedRead'),
           {
             label: t('common.readAction'),
             onClick: () => onOpenSavedRef.current?.(book),

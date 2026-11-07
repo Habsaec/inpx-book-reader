@@ -382,6 +382,7 @@ export const ru = {
   'downloadPipeline.noFolderIsSetFor': 'Не настроена папка для сохранения книг',
   'downloadPipeline.couldNotGetTheBook': 'Не удалось получить файл книги',
   'downloadPipeline.savedRead': 'Сохранено — Читать',
+  'downloadPipeline.savedOriginalFormatOff': 'Сохранено в исходном формате: {{format}} выключен на сервере',
 
   'downloadQueue.noConnectionToTheServer': 'Нет подключения к серверу',
   'downloadQueue.cancelled': 'Отменено',
@@ -779,6 +780,8 @@ export const ru = {
   'syncSettingsTab.original': 'Исходный',
   'syncSettingsTab.asInTheWebsiteProfile': 'Как в профиле на сайте. Книга сохраняется в том формате, что в библиотеке',
   'syncSettingsTab.theServerConvertsFb2To': 'FB2 сервер конвертирует в EPUB — его откроют и другие читалки. Позиция чтения с сайтом совпадёт только примерно',
+  'syncSettingsTab.downloadFormatOffOnServer': '{{format}} сейчас выключен на сервере — книги скачиваются в исходном формате (FB2). Включить его может администратор: «Конвертация → Скачивание»',
+  'syncSettingsTab.downloadFormatOffLabel': '{{format}} (выключен)',
   'syncSettingsTab.theWebsiteHasSelectedThe': 'На сайте выбран {{format}} — читалка его не открывает, скачивается исходный файл',
 
   'syncStats.history': 'История',

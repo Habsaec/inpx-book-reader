@@ -48,7 +48,7 @@ import { applyServerActivitySyncMeta } from '../lib/readerActivitySync';
 import { sameSeriesName } from '../lib/seriesLabel';
 import { setHideRead } from '../lib/hideReadPreference';
 import { ensurePersonalDataOwner, isPersonalDataOwner, rememberAccount } from '../lib/accounts';
-import { setDownloadFormat } from '../lib/downloadFormatPreference';
+import { setDownloadFormat, setServerDownloadFormats } from '../lib/downloadFormatPreference';
 import { getHomeLayout, setHomeLayout, toggleHomeSection } from '../lib/homeLayout';
 import { APP_SETTING_KEYS, getHomeRecentMode, setAppSettingRaw } from '../lib/appSettings';
 import { dropQueuedToggleReadOps, processSyncQueue } from '../lib/syncQueueProcessor';
@@ -179,6 +179,8 @@ export function useInpxServer(
       setHideRead(typeof prof.user?.hideRead === 'boolean' ? prof.user.hideRead : null);
       // «Формат скачивания»: same account preference as the web profile (older servers: keep the cached one).
       if (typeof prof.user?.downloadFormat === 'string') setDownloadFormat(prof.user.downloadFormat);
+      // Formats the server offers now (an admin may switch EPUB off) — the app warns instead of silently saving FB2.
+      setServerDownloadFormats(prof.user?.availableDownloadFormats);
       // «Главная страница» of the account (older servers: keep the local layout).
       if (prof.user?.homeLayout !== undefined) {
         setHomeLayout(prof.user.homeLayout);

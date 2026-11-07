@@ -38,10 +38,12 @@ export interface UserPreferences {
   telegramDigest: boolean;
   /** Additive: home blocks order / hidden (`src/lib/homeLayout.ts`); absent on older servers. */
   homeLayout?: unknown;
+  /** Additive: formats the server offers for FB2 books now (admin can switch EPUB off); absent on older servers. */
+  availableDownloadFormats?: string[];
 }
 
 export interface InpxProfile {
-  user: { username: string; role: string; email?: string; hideRead?: boolean; downloadFormat?: string; telegramDigest?: boolean; homeLayout?: unknown };
+  user: { username: string; role: string; email?: string; hideRead?: boolean; downloadFormat?: string; telegramDigest?: boolean; homeLayout?: unknown; availableDownloadFormats?: string[] };
   userStats: {
     readingCount: number;
     bookmarkCount: number;
@@ -841,6 +843,7 @@ export async function fetchUserPreferences(config: ServerConfig): Promise<UserPr
       hideRead: Boolean(data.hideRead),
       downloadFormat: String(data.downloadFormat ?? ''),
       telegramDigest: Boolean(data.telegramDigest),
+      availableDownloadFormats: Array.isArray(data.availableDownloadFormats) ? data.availableDownloadFormats.map(String) : undefined,
     };
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;
@@ -855,6 +858,7 @@ export async function saveUserPreferences(config: ServerConfig, patch: Partial<U
     downloadFormat: String(data.downloadFormat ?? ''),
     telegramDigest: Boolean(data.telegramDigest),
     homeLayout: data.homeLayout,
+    availableDownloadFormats: Array.isArray(data.availableDownloadFormats) ? data.availableDownloadFormats.map(String) : undefined,
   };
 }
 

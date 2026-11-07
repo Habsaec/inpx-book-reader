@@ -35,7 +35,14 @@ import {
 import { insecureHttpWarning, serverHostLabel } from '../lib/serverUrl';
 import { clearServerCredentials } from '../lib/secureServerConfig';
 import { parsePairingQrPayload, redeemPairingCode, saveUserPreferences } from '../lib/inpxClient';
-import { isAppReadableDownloadFormat, setDownloadFormat, useDownloadFormat } from '../lib/downloadFormatPreference';
+import {
+  isAppReadableDownloadFormat,
+  isDownloadFormatOffOnServer,
+  setDownloadFormat,
+  setServerDownloadFormats,
+  useDownloadFormat,
+  useServerDownloadFormats,
+} from '../lib/downloadFormatPreference';
 import { setHomeLayout, useHomeLayout } from '../lib/homeLayout';
 import { forgetAccountForConfig } from '../lib/accounts';
 import HomeLayoutSettings from './HomeLayoutSettings';
@@ -163,6 +170,7 @@ export default function SyncSettingsTab({
   const { viewMode: booksViewMode, setViewMode: setBooksViewMode } = useCatalogViewMode('books');
   const snackbar = useSnackbar();
   const downloadFormat = useDownloadFormat();
+  const serverDownloadFormats = useServerDownloadFormats();
   const homeLayout = useHomeLayout();
   const [homeRecent, setHomeRecent] = React.useState(getHomeRecentMode);
   const [libraryFolders, setLibraryFolders] = React.useState(() => readLibraryFolders(storageDirectory));
@@ -714,17 +722,22 @@ export default function SyncSettingsTab({
           {connected ? (
             <SettingsChoice
               label={t('syncSettingsTab.downloadFormat')}
-              hint={downloadFormatHint(downloadFormat)}
+              hint={downloadFormatHint(downloadFormat, serverDownloadFormats)}
               options={APP_DOWNLOAD_FORMAT_OPTIONS.map(([id, label]) => ({
                 id: id || 'source',
-                label,
+                label: isDownloadFormatOffOnServer(id, serverDownloadFormats)
+                  ? t('syncSettingsTab.downloadFormatOffLabel', { format: label })
+                  : label,
                 selected: downloadFormat === id,
                 onSelect: () => {
                   if (downloadFormat === id) return;
                   const previous = downloadFormat;
                   setDownloadFormat(id);
                   void saveUserPreferences(serverConfig, { downloadFormat: id })
-                    .then((prefs) => setDownloadFormat(prefs.downloadFormat))
+                    .then((prefs) => {
+                      setDownloadFormat(prefs.downloadFormat);
+                      setServerDownloadFormats(prefs.availableDownloadFormats);
+                    })
                     .catch(() => {
                       setDownloadFormat(previous);
                       snackbar.show(t('syncSettingsTab.couldNotSaveTheFormat'), undefined, 'error');
@@ -836,8 +849,12 @@ const APP_DOWNLOAD_FORMAT_OPTIONS = [
   ['epub3', 'EPUB3'],
 ] as const;
 
-function downloadFormatHint(format: string): string {
+function downloadFormatHint(format: string, available: string[] | null): string {
   if (!format) return t('syncSettingsTab.asInTheWebsiteProfile');
+  // Switched off by the admin (or no converter on the server): books keep coming as FB2.
+  if (isDownloadFormatOffOnServer(format, available)) {
+    return t('syncSettingsTab.downloadFormatOffOnServer', { format: format.toUpperCase() });
+  }
   if (isAppReadableDownloadFormat(format)) {
     return t('syncSettingsTab.theServerConvertsFb2To');
   }

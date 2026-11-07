@@ -17,7 +17,7 @@ import {
   type NativeBookDownloadResult,
 } from './nativeDownload';
 import { bookStorageRelativePath, removeBookFromDirectory } from './bookStorage';
-import { resolveBookDownloadFormat } from './downloadFormatPreference';
+import { downloadFormatFallback, resolveBookDownloadFormat } from './downloadFormatPreference';
 import { t } from '../i18n';
 
 export type DownloadStatus = 'queued' | 'downloading' | 'saving' | 'saved' | 'error' | 'cancelled';
@@ -70,7 +70,8 @@ class DownloadQueueManager {
         native?: NativeBookDownloadResult,
       ) => Promise<Book | void>)
     | null = null;
-  private onSaved: ((book: Book) => void) | null = null;
+  /** `formatFallback`: the account's «Формат скачивания» the server did not offer — the original file was saved. */
+  private onSaved: ((book: Book, info?: { formatFallback?: string | null }) => void) | null = null;
   private onError: ((book: Book, error: string) => void) | null = null;
   private canDownload = false;
   /** Hydrate once — remounting Home/widget must not reset in-flight jobs to queued. */
@@ -174,7 +175,7 @@ class DownloadQueueManager {
       buffer: ArrayBuffer | undefined,
       native?: NativeBookDownloadResult,
     ) => Promise<Book | void>;
-    onSaved?: (book: Book) => void;
+    onSaved?: (book: Book, info?: { formatFallback?: string | null }) => void;
     onError?: (book: Book, error: string) => void;
   }): void {
     const prevCanDownload = this.canDownload;
@@ -425,6 +426,7 @@ class DownloadQueueManager {
       const fileFormat = resolveBookDownloadFormat(meta);
       const enriched = fileFormat ? { ...meta, ext: fileFormat.ext } : meta;
       const format = fileFormat?.format ?? null;
+      const formatFallback = fileFormat ? null : downloadFormatFallback(meta);
 
       let chaptersJson = '[]';
       let nativeResult: NativeBookDownloadResult | undefined;
@@ -457,7 +459,7 @@ class DownloadQueueManager {
             savedBook && typeof savedBook === 'object' && 'id' in savedBook
               ? (savedBook as Book)
               : enriched;
-          this.onSaved?.(openBook);
+          this.onSaved?.(openBook, { formatFallback });
         } catch {
           /* ignore UI callback errors */
         }
@@ -489,7 +491,7 @@ class DownloadQueueManager {
           savedBook && typeof savedBook === 'object' && 'id' in savedBook
             ? (savedBook as Book)
             : enriched;
-        this.onSaved?.(openBook);
+        this.onSaved?.(openBook, { formatFallback });
       } catch {
         /* ignore UI callback errors */
       }
