@@ -4810,7 +4810,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     const bumpFontSize = (delta) => {
       const sl = $('rs-font-size');
       if (!sl) return;
-      const next = Math.min(32, Math.max(12, (Number(sl.value) || 18) + delta));
+      const next = Math.min(48, Math.max(12, (Number(sl.value) || 18) + delta));
       sl.value = String(next);
       sl.dispatchEvent(new Event('input', { bubbles: true }));
       const quickVal = $('rq-font-val');
@@ -5331,7 +5331,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
       return;
     }
     if (e.data?.type === 'inpx-set-font-size' && Number.isFinite(Number(e.data.size))) {
-      S.fontSize = Math.min(28, Math.max(14, Number(e.data.size)));
+      S.fontSize = Math.min(48, Math.max(12, Number(e.data.size)));
       applySettings();
       refreshSettingsUI();
       return;
@@ -7048,7 +7048,7 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     let pinchPendingSize = 0;
     function touchDistPinch(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
     function applyPinchFontSize(size) {
-      const next = Math.round(Math.min(32, Math.max(12, size)));
+      const next = Math.round(Math.min(48, Math.max(12, size)));
       pinchPendingSize = next;
       if (next === S.fontSize) return;
       S.fontSize = next;
