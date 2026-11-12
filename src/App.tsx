@@ -100,6 +100,9 @@ import { t } from './i18n';
 
 const CatalogTab = React.lazy(() => import('./components/CatalogTab'));
 
+/** Shelf list poll while Home / «Мои книги» is open (also runs on tab entry and on return to the app). */
+const SHELVES_POLL_MS = 30_000;
+
 function sameNames(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((name, i) => name === b[i]);
 }
@@ -316,7 +319,7 @@ export default function App() {
     serverConfigReady,
     connectionError,
     setConnectionError,
-    markServerDisconnected,
+    reportConnectionLost,
     markAuthExpired,
     handleServerConfigChange,
     handleTestConnection,
@@ -324,7 +327,7 @@ export default function App() {
     isVerifyingConnection,
   } = useServerConnection();
 
-  const inpxServer = useInpxServer(serverConfig, markServerDisconnected, markAuthExpired);
+  const inpxServer = useInpxServer(serverConfig, reportConnectionLost, markAuthExpired);
   const isOnline = inpxServer.online;
   const canReadOnline = isOnline;
 
@@ -399,7 +402,7 @@ export default function App() {
     document.addEventListener('visibilitychange', pull);
     window.addEventListener('focus', pull);
     pull();
-    timer = window.setInterval(pull, 8000);
+    timer = window.setInterval(pull, SHELVES_POLL_MS);
     return () => {
       document.removeEventListener('visibilitychange', pull);
       window.removeEventListener('focus', pull);
@@ -640,7 +643,7 @@ export default function App() {
     inpxServer,
     profile,
     onAuthExpired: markAuthExpired,
-    onConnectionLost: markServerDisconnected,
+    onConnectionLost: reportConnectionLost,
   });
 
   const {
@@ -680,6 +683,23 @@ export default function App() {
     handleUpdateReaderBookmark,
     registerDownloadedBook,
   } = bookActions;
+
+  // The open reader reports its position after every page turn. Re-rendering the whole (hidden)
+  // shell and the widget each time made page turns stutter: the lists are brought up to date when
+  // the book closes (closeReader) or the app goes to the background.
+  const readerStorePendingRef = React.useRef(false);
+  const handleReaderStoreSynced = React.useCallback(() => {
+    readerStorePendingRef.current = true;
+  }, []);
+  React.useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState !== 'hidden' || !readerStorePendingRef.current) return;
+      readerStorePendingRef.current = false;
+      bumpReaderLocal();
+    };
+    document.addEventListener('visibilitychange', flush);
+    return () => document.removeEventListener('visibilitychange', flush);
+  }, [bumpReaderLocal]);
 
   const handleConsumePendingSearch = React.useCallback(() => {
     setCatalogPendingSearch(null);
@@ -937,6 +957,35 @@ export default function App() {
       void handleSetShelfOnHome(shelf.kind === 'smart' ? 'smart' : 'shelf', shelf.id, !shelf.onHome);
     },
     [handleSetShelfOnHome],
+  );
+
+  // Stable identity: «Мои книги» reloads the open shelf whenever this function changes, and an
+  // inline one changed on every render of App (a request per render while a shelf was open).
+  const localShelvesRef = React.useRef(localShelves);
+  localShelvesRef.current = localShelves;
+  const downloadedBooksWithFileRef = React.useRef(downloadedBooksWithFile);
+  downloadedBooksWithFileRef.current = downloadedBooksWithFile;
+  const loadRemoteShelfBooks = inpxServer.loadShelfBooks;
+  const loadLibraryShelfBooks = React.useCallback(
+    async (shelfId: number | string): Promise<Book[]> => {
+      const localBooks = () => {
+        const shelf = localShelvesRef.current.find((s) => String(s.id) === String(shelfId));
+        if (!shelf) return [];
+        const ids = new Set(shelf.bookIds);
+        return downloadedBooksWithFileRef.current.filter((b) => ids.has(b.id));
+      };
+      if (!isOnline || !/^\d+$/.test(String(shelfId))) return localBooks();
+      try {
+        const remote = await loadRemoteShelfBooks(Number(shelfId));
+        const seen = new Set(remote.map((book) => book.id));
+        return [...remote, ...localBooks().filter((book) => !seen.has(book.id))];
+      } catch (err) {
+        const local = localBooks();
+        if (local.length > 0) return local;
+        throw err;
+      }
+    },
+    [isOnline, loadRemoteShelfBooks],
   );
 
   const handleAddBookToShelfFromUi = React.useCallback(
@@ -1397,7 +1446,7 @@ export default function App() {
               } : undefined}
               readIds={isOnline ? inpxServer.readIds : undefined}
               onAuthExpired={markAuthExpired}
-              onConnectionLost={markServerDisconnected}
+              onConnectionLost={reportConnectionLost}
               siteName={siteName}
             />
           </TabScreenPanel>
@@ -1449,7 +1498,7 @@ export default function App() {
                   setDownloadPromptError(null);
                 }}
                 onAuthExpired={markAuthExpired}
-                onConnectionLost={markServerDisconnected}
+                onConnectionLost={reportConnectionLost}
                 onSetCollectionOnHome={isOnline ? handleSetCollectionOnHome : undefined}
                 onReorderCollections={isOnline ? handleReorderCollections : undefined}
               />
@@ -1479,24 +1528,7 @@ export default function App() {
               favoriteAuthorItems={isOnline ? inpxServer.favoriteAuthorItems : undefined}
               favoriteSeriesItems={isOnline ? inpxServer.favoriteSeriesItems : undefined}
               fetchSectionBooks={isOnline ? inpxServer.fetchSectionBooks : undefined}
-              loadShelfBooks={async (shelfId) => {
-                const localBooks = () => {
-                  const shelf = localShelves.find((s) => String(s.id) === String(shelfId));
-                  if (!shelf) return [];
-                  const ids = new Set(shelf.bookIds);
-                  return downloadedBooksWithFile.filter((b) => ids.has(b.id));
-                };
-                if (!isOnline || !/^\d+$/.test(String(shelfId))) return localBooks();
-                try {
-                  const remote = await inpxServer.loadShelfBooks(Number(shelfId));
-                  const seen = new Set(remote.map((book) => book.id));
-                  return [...remote, ...localBooks().filter((book) => !seen.has(book.id))];
-                } catch (err) {
-                  const local = localBooks();
-                  if (local.length > 0) return local;
-                  throw err;
-                }
-              }}
+              loadShelfBooks={loadLibraryShelfBooks}
               onOpenBook={handleBookPrimaryAction}
               onContinueBook={handleContinueBook}
               onRegisterBook={registerDownloadedBook}
@@ -1609,7 +1641,7 @@ export default function App() {
                 nextInSeries={readerNextInSeries}
                 autoStartTtsToken={ttsAutostart?.bookId === activeReader.bookId ? ttsAutostart.token : 0}
                 onClose={() => { void handleCloseReader(); }}
-                onStoreSynced={bumpReaderLocal}
+                onStoreSynced={handleReaderStoreSynced}
                 onOpenNextInSeries={handleOpenNextInSeriesFromReader}
             />
           </div>

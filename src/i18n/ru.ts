@@ -822,6 +822,9 @@ export const ru = {
   'localBookFileVerification.filesUnavailable.one': 'Недоступны файлы: {{n}} книга',
   'localBookFileVerification.filesUnavailable.few': 'Недоступны файлы: {{n}} книги',
   'localBookFileVerification.filesUnavailable.many': 'Недоступны файлы: {{n}} книг',
+  'bookActions.couldNotAddToShelf': 'Не удалось добавить на полку',
+  'bookActions.smartShelfNeedsConnection': 'Удалить умную полку можно только при подключении к серверу',
+  'homeTab.recommendationsAreBeingPrepared': 'Рекомендации ещё подбираются — загляните чуть позже',
 } as const;
 
 export type MessageKey = keyof typeof ru;

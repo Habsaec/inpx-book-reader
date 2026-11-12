@@ -19,7 +19,7 @@ import Skeleton, { BookListSkeleton, BookShelfSkeleton } from '../ui/Skeleton';
 import EmptyState from '../ui/EmptyState';
 import IconButton from '../ui/IconButton';
 import { useCatalogViewMode } from '../hooks/useCatalogViewMode';
-import { useDownloadQueue } from '../hooks/useDownloadQueue';
+import { useBookDownloadProgress, useDownloadQueue } from '../hooks/useDownloadQueue';
 import { useLongPress } from '../hooks/useLongPress';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { textStyles, motion, radii, spacing } from '../ui/tokens';
@@ -265,6 +265,8 @@ export default function HomeTab({
   const [following, setFollowing] = React.useState<Book[]>([]);
   const [recLoading, setRecLoading] = React.useState(true);
   const [recError, setRecError] = React.useState(false);
+  /** The server is still building the pool after the polls ran out (not an error). */
+  const [recPending, setRecPending] = React.useState(false);
   const [recentServer, setRecentServer] = React.useState<Book[]>([]);
   const [recentLoading, setRecentLoading] = React.useState(false);
   const [recentError, setRecentError] = React.useState(false);
@@ -389,6 +391,7 @@ export default function HomeTab({
           (job.status === 'queued' || job.status === 'downloading' || job.status === 'saving'),
       )
     : undefined;
+  const heroDownloadProgress = useBookDownloadProgress(hero?.id ?? '', Boolean(heroDownloadJob));
   const handleHeroTap = React.useCallback(() => {
     if (!heroBook || heroAction?.disabled) return;
     onOpenBook(heroBook);
@@ -404,6 +407,7 @@ export default function HomeTab({
     let pollTimer: number | undefined;
     setRecLoading(true);
     setRecError(false);
+    setRecPending(false);
 
     const load = async (attempt = 0) => {
       let waitingForPoll = false;
@@ -421,9 +425,10 @@ export default function HomeTab({
             return;
           }
           setRecommended([]);
-          setRecError(true);
+          setRecPending(true);
           return;
         }
+        setRecPending(false);
         setRecommended((res.items || []).slice(0, 8).map((b) => mapServerBook(b, serverConfig)));
         setRecError(false);
       } catch (e) {
@@ -648,18 +653,18 @@ export default function HomeTab({
                   <div
                     className="flex-1 min-w-0 h-1 rounded-full bg-[var(--app-progress-track,var(--app-border))] overflow-hidden"
                     role="progressbar"
-                    aria-valuenow={Math.round(heroDownloadJob?.progress ?? 0)}
+                    aria-valuenow={Math.round(heroDownloadProgress)}
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-label={t('common.downloadProgress')}
                   >
                     <div
                       className={`h-full ${theme.progress}`}
-                      style={{ width: `${Math.max(4, heroDownloadJob?.progress ?? 0)}%` }}
+                      style={{ width: `${Math.max(4, heroDownloadProgress)}%` }}
                     />
                   </div>
                   <span className={`shrink-0 ${textStyles.microBold} tabular-nums ${theme.textMuted}`}>
-                    {Math.round(heroDownloadJob?.progress ?? 0)}%
+                    {Math.round(heroDownloadProgress)}%
                   </span>
                 </div>
               ) : (
@@ -810,7 +815,7 @@ export default function HomeTab({
               loading={recLoading}
               onBookClick={handleCatalogBookTap}
               onBookLongPress={onBookLongPress}
-              emptyLabel={t('homeTab.nothingToSuggestYetRead')}
+              emptyLabel={recPending ? t('homeTab.recommendationsAreBeingPrepared') : t('homeTab.nothingToSuggestYetRead')}
             />
           )}
         </section>

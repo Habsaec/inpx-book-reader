@@ -434,11 +434,25 @@ export default function CatalogTab({
   React.useEffect(() => {
     const el = catalogScrollRef.current;
     if (!el || !isTabActive) return;
-    const onScroll = () => {
+    // sessionStorage is synchronous: writing it on every scroll event made scrolling stutter.
+    let timer = 0;
+    let pending = false;
+    const flush = () => {
+      timer = 0;
+      if (!pending) return;
+      pending = false;
       sessionStorage.setItem(scrollStorageKey, String(el.scrollTop));
     };
+    const onScroll = () => {
+      pending = true;
+      if (!timer) timer = window.setTimeout(flush, 250);
+    };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (timer) window.clearTimeout(timer);
+      flush();
+    };
   }, [scrollStorageKey, isTabActive]);
 
   React.useEffect(() => {

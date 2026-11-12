@@ -415,6 +415,7 @@ export async function getAllBooks(): Promise<Book[]> {
 
 export async function upsertBook(book: Book): Promise<void> {
   const json = JSON.stringify(book);
+  persistedLibrary?.books.set(book.id, json);
   if (sqliteConn) {
     await execSql('INSERT OR REPLACE INTO books (id, json) VALUES (?, ?)', [book.id, json]);
   } else {
@@ -423,6 +424,7 @@ export async function upsertBook(book: Book): Promise<void> {
 }
 
 export async function deleteBook(id: string): Promise<void> {
+  persistedLibrary?.books.delete(id);
   if (sqliteConn) {
     await execSql('DELETE FROM books WHERE id = ?', [id]);
   } else {
@@ -775,6 +777,44 @@ export async function purgeLegacyPositionConflicts(): Promise<void> {
 /** Persist full library snapshot (replace missing rows — books deleted in UI must leave DB). */
 let persistLibraryChain: Promise<void> = Promise.resolve();
 
+/**
+ * What the last `persistLibrarySnapshot` left in the tables (id → JSON). The next call writes
+ * only the rows that differ: the old «read five tables, upsert every row» pass was one bridge
+ * call per row on every change of the library (hundreds for a few hundred books).
+ * null = unknown (first call after start, account swap) → one full pass.
+ */
+interface PersistedLibrary {
+  books: Map<string, string>;
+  progress: Map<string, string>;
+  bookmarks: Map<string, string>;
+  highlights: Map<string, string>;
+  shelves: Map<string, string>;
+}
+let persistedLibrary: PersistedLibrary | null = null;
+
+async function syncLibraryTable<T>(
+  prev: Map<string, string>,
+  rows: T[],
+  idOf: (row: T) => string,
+  upsert: (row: T) => Promise<void>,
+  remove: (id: string) => Promise<void>,
+  keepMissing?: (id: string) => boolean,
+): Promise<Map<string, string>> {
+  const next = new Map<string, string>();
+  for (const row of rows) {
+    const id = idOf(row);
+    const json = JSON.stringify(row);
+    next.set(id, json);
+    if (prev.get(id) !== json) await upsert(row);
+  }
+  for (const id of prev.keys()) {
+    if (next.has(id)) continue;
+    if (keepMissing?.(id)) continue;
+    await remove(id);
+  }
+  return next;
+}
+
 export async function persistLibrarySnapshot(data: {
   books: Book[];
   progress: ReadingProgress[];
@@ -783,43 +823,41 @@ export async function persistLibrarySnapshot(data: {
   shelves: Shelf[];
 }): Promise<void> {
   const run = async () => {
-    const keepBooks = new Set(data.books.map((b) => b.id));
-    const keepProgress = new Set(data.progress.map((p) => p.bookId));
-    const keepBookmarks = new Set(data.bookmarks.map((bm) => bm.id));
-    const keepHighlights = new Set(data.highlights.map((h) => h.id));
-    const keepShelves = new Set(data.shelves.map((s) => s.id));
-
-    const [existingBooks, existingProgress, existingBookmarks, existingHighlights, existingShelves] =
-      await Promise.all([
-        getAllBooks(),
-        getAllProgress(),
-        getAllBookmarks(),
-        getAllHighlights(),
-        getAllShelves(),
-      ]);
-
-    for (const b of existingBooks) {
-      // local:* пишется отдельно (папка/ZIP) и может не успеть попасть в React-снимок.
-      if (!keepBooks.has(b.id) && !String(b.id).startsWith('local:')) await deleteBook(b.id);
+    let prev = persistedLibrary;
+    if (!prev) {
+      const [existingBooks, existingProgress, existingBookmarks, existingHighlights, existingShelves] =
+        await Promise.all([
+          getAllBooks(),
+          getAllProgress(),
+          getAllBookmarks(),
+          getAllHighlights(),
+          getAllShelves(),
+        ]);
+      const toMap = <T,>(rows: T[], idOf: (row: T) => string) =>
+        new Map(rows.map((row) => [idOf(row), JSON.stringify(row)] as [string, string]));
+      prev = {
+        books: toMap(existingBooks, (b) => b.id),
+        progress: toMap(existingProgress, (p) => p.bookId),
+        bookmarks: toMap(existingBookmarks, (bm) => bm.id),
+        highlights: toMap(existingHighlights, (h) => h.id),
+        shelves: toMap(existingShelves, (sh) => sh.id),
+      };
     }
-    for (const p of existingProgress) {
-      if (!keepProgress.has(p.bookId) && !String(p.bookId).startsWith('local:')) await deleteProgress(p.bookId);
-    }
-    for (const bm of existingBookmarks) {
-      if (!keepBookmarks.has(bm.id)) await deleteBookmark(bm.id);
-    }
-    for (const h of existingHighlights) {
-      if (!keepHighlights.has(h.id)) await deleteHighlight(h.id);
-    }
-    for (const s of existingShelves) {
-      if (!keepShelves.has(s.id)) await deleteShelf(s.id);
-    }
-
-    for (const b of data.books) await upsertBook(b);
-    for (const p of data.progress) await upsertProgress(p);
-    for (const bm of data.bookmarks) await upsertBookmark(bm);
-    for (const h of data.highlights) await upsertHighlight(h);
-    for (const s of data.shelves) await upsertShelf(s);
+    // A failed write leaves the map unknown: the next call compares with the tables again.
+    persistedLibrary = null;
+    // local:* пишется отдельно (папка/ZIP) и может не успеть попасть в React-снимок.
+    const isLocalOnly = (id: string) => String(id).startsWith('local:');
+    const next: PersistedLibrary = {
+      books: await syncLibraryTable(prev.books, data.books, (b) => b.id, upsertBook, deleteBook, isLocalOnly),
+      progress: await syncLibraryTable(prev.progress, data.progress, (p) => p.bookId, upsertProgress, deleteProgress, isLocalOnly),
+      bookmarks: await syncLibraryTable(prev.bookmarks, data.bookmarks, (bm) => bm.id, upsertBookmark, deleteBookmark),
+      highlights: await syncLibraryTable(prev.highlights, data.highlights, (h) => h.id, upsertHighlight, deleteHighlight),
+      shelves: await syncLibraryTable(prev.shelves, data.shelves, (sh) => sh.id, upsertShelf, deleteShelf),
+    };
+    // Rows kept although missing from the snapshot (local:*) stay known.
+    for (const [id, json] of prev.books) if (!next.books.has(id) && isLocalOnly(id)) next.books.set(id, json);
+    for (const [id, json] of prev.progress) if (!next.progress.has(id) && isLocalOnly(id)) next.progress.set(id, json);
+    if (!writesFrozen) persistedLibrary = next;
   };
 
   const next = persistLibraryChain.then(run, run);
@@ -907,6 +945,7 @@ export async function exportPersonalData(): Promise<PersonalDataSnapshot> {
 /** Wipes the personal tables (ignores the write freeze — used only by the account swap). */
 export async function clearPersonalData(): Promise<void> {
   await initLocalDb();
+  persistedLibrary = null;
   if (sqliteConn) {
     const set = PERSONAL_TABLES.map((table) => ({ statement: `DELETE FROM ${table}`, values: [] as unknown[] }));
     set.push({ statement: `DELETE FROM app_meta WHERE key IN (${metaKeyPlaceholders})`, values: PERSONAL_APP_META_KEYS });
@@ -921,6 +960,7 @@ export async function clearPersonalData(): Promise<void> {
 export async function importPersonalData(snapshot: PersonalDataSnapshot | null | undefined): Promise<void> {
   if (!snapshot) return;
   await initLocalDb();
+  persistedLibrary = null;
   if (sqliteConn && snapshot.sqlite) {
     const allowed = new Set<string>([...PERSONAL_TABLES, 'app_meta']);
     const statements: Array<{ statement: string; values: unknown[] }> = [];
@@ -954,6 +994,7 @@ export async function __resetLocalDbForTests(): Promise<void> {
   sqliteConn = null;
   useIndexedDb = false;
   writesFrozen = false;
+  persistedLibrary = null;
   persistLibraryChain = Promise.resolve();
   try {
     const allKeys = await keys();

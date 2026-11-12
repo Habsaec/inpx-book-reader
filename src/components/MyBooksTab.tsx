@@ -87,8 +87,8 @@ interface MyBooksTabProps {
   onBookLongPress?: (book: Book, context?: { shelfId?: number | string; shelfName?: string; fromReading?: boolean }) => void;
   /** «Читаю» on this device (books with local progress); merged with the server's `/api/library/continue`. */
   localRecentReading?: LocalRecentReadingItem[];
-  onRemoveBooks?: (bookIds: string[]) => void | Promise<void>;
-  onAddBooksToShelf?: (shelfId: number | string, bookIds: string[]) => void | Promise<void>;
+  onRemoveBooks?: (bookIds: string[]) => void | boolean | Promise<void | boolean>;
+  onAddBooksToShelf?: (shelfId: number | string, bookIds: string[]) => void | boolean | Promise<void | boolean>;
   onAddShelf?: (name: string) => Promise<number | string | null>;
   onOpenAuthor?: (name: string) => void;
   onOpenSeries?: (name: string) => void;
@@ -286,6 +286,22 @@ export default function MyBooksTab({
     setNewShelfOpen(false);
   }, []);
 
+  // The tab stays mounted and keeps its section, so «load when the section changes» alone showed
+  // a list as it was at the first visit: reload when the section comes on screen again and when
+  // the matching marks change elsewhere (catalog, book page, another device after a sync).
+  const sectionOnScreen = isTabActive && (wide || collectionOpen);
+  const [visitEpoch, setVisitEpoch] = React.useState(0);
+  React.useEffect(() => {
+    if (sectionOnScreen) setVisitEpoch((n) => n + 1);
+  }, [sectionOnScreen]);
+  const sectionMarksStamp = seg === 'read'
+    ? readIds?.size ?? -1
+    : seg === 'favorites'
+      ? bookmarkIds?.size ?? -1
+      : seg === 'want'
+        ? wantIds?.size ?? -1
+        : 0;
+
   React.useEffect(() => {
     if (seg !== 'favorites' && seg !== 'read' && seg !== 'want' && seg !== 'rated' && seg !== 'reading') return;
     if (!fetchSectionBooks || !isOnline) {
@@ -297,15 +313,16 @@ export default function MyBooksTab({
     setSectionLoading(true);
     setSectionError(false);
     const request = (async () => {
-      // /api/library/* pages are capped at 24 on the server; asking for 48 stopped after page 1.
-      const pageSize = key === 'favorites' ? 48 : 24;
+      // Servers before 2.14 cap /api/library/* at 24 rows and answer 24 whatever is asked:
+      // the loop counts what came back instead of trusting the page size.
+      const pageSize = 500;
       const items: InpxBookItem[] = [];
-      for (let page = 1; page <= 80; page += 1) {
+      for (let page = 1; page <= 2000; page += 1) {
         const res = key === 'favorites'
           ? await fetchBookmarkedBooks(serverConfig, page, pageSize)
           : await fetchLibraryView(serverConfig, key === 'reading' ? 'continue' : key, page, pageSize);
         items.push(...res.items);
-        if (!res.items.length || items.length >= (res.total || items.length) || res.items.length < pageSize) break;
+        if (cancelled || !res.items.length || items.length >= (Number(res.total) || 0)) break;
       }
       return items;
     })();
@@ -337,7 +354,7 @@ export default function MyBooksTab({
     return () => {
       cancelled = true;
     };
-  }, [seg, fetchSectionBooks, serverConfig, isOnline, onAuthExpired, sectionRetry]);
+  }, [seg, fetchSectionBooks, serverConfig, isOnline, onAuthExpired, sectionRetry, visitEpoch, sectionMarksStamp]);
 
   React.useEffect(() => {
     if ((seg !== 'bookmarks' && seg !== 'notes') || !isOnline) return;
@@ -364,7 +381,7 @@ export default function MyBooksTab({
     return () => {
       cancelled = true;
     };
-  }, [seg, isOnline, serverConfig, onAuthExpired, readerListsRetry]);
+  }, [seg, isOnline, serverConfig, onAuthExpired, readerListsRetry, visitEpoch]);
 
   const displayBookmarks = React.useMemo(
     () => mergeReaderBookmarkLists(serverBookmarks ?? [], localReaderBookmarks),

@@ -12,7 +12,7 @@ interface DownloadQueueWidgetProps {
 }
 
 export default function DownloadQueueWidget({ onOpenQueue }: DownloadQueueWidgetProps) {
-  const jobs = useDownloadQueue();
+  const jobs = useDownloadQueue(true);
   const active = jobs.filter((j) => j.status === 'queued' || j.status === 'downloading' || j.status === 'saving');
   const errors = jobs.filter((j) => j.status === 'error');
   if (active.length === 0 && errors.length === 0) return null;

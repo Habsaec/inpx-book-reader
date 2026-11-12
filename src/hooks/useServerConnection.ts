@@ -64,6 +64,31 @@ export function useServerConnection() {
     );
   }, []);
 
+  /**
+   * A request failed in a way that looks like «no server» (timeout, network error). One slow
+   * endpoint used to switch the whole app to offline, so the server is asked once more through
+   * `/health` (no database work there) and only a silent one is marked disconnected.
+   */
+  const lostProbeRef = React.useRef<Promise<void> | null>(null);
+  const reportConnectionLost = React.useCallback(() => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      markServerDisconnected();
+      return;
+    }
+    if (lostProbeRef.current) return;
+    const snapshot = serverConfigRef.current;
+    if (snapshot.connectionStatus !== 'connected') return;
+    lostProbeRef.current = probeServerHealth(snapshot, 4000)
+      .then((alive) => {
+        if (alive) return;
+        // Only if the app still talks to the same address.
+        if (serverConfigRef.current.url === snapshot.url) markServerDisconnected();
+      })
+      .finally(() => {
+        lostProbeRef.current = null;
+      });
+  }, [markServerDisconnected]);
+
   const markAuthExpired = React.useCallback(() => {
     setConnectionError(t('common.theDeviceSessionHasExpired'));
     const next: ServerConfig = {
@@ -377,6 +402,7 @@ export function useServerConnection() {
     connectionError,
     setConnectionError,
     markServerDisconnected,
+    reportConnectionLost,
     markAuthExpired,
     handleServerConfigChange,
     handleTestConnection,

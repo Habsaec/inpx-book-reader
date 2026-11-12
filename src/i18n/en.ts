@@ -820,4 +820,7 @@ export const en: Record<EnKey, string> = {
   'localBookFileVerification.aBook': 'book',
   'localBookFileVerification.filesUnavailable.one': 'Files unavailable: {{n}} book',
   'localBookFileVerification.filesUnavailable.other': 'Files unavailable: {{n}} books',
+  'bookActions.couldNotAddToShelf': 'Could not add to the shelf',
+  'bookActions.smartShelfNeedsConnection': 'A smart shelf can be deleted only while connected to the server',
+  'homeTab.recommendationsAreBeingPrepared': 'Recommendations are still being prepared — check back a little later',
 };

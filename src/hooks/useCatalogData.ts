@@ -160,6 +160,23 @@ export function useCatalogData({
   const genresSortRef = React.useRef<CatalogEntitySort | null>(null);
   const listFilterKeyRef = React.useRef('');
 
+  // Leaving the catalog tab (or opening a book) pauses fetching. The pause is not an effect
+  // dependency: coming back used to reload the list / the author or series page every time.
+  // Only a fetch that was skipped while paused runs on return.
+  const pausedRef = React.useRef(pauseListFetch);
+  pausedRef.current = pauseListFetch;
+  const pendingListFetchRef = React.useRef(false);
+  const pendingFacetFetchRef = React.useRef(false);
+  const [listResumeTick, setListResumeTick] = React.useState(0);
+  const [facetResumeTick, setFacetResumeTick] = React.useState(0);
+  /** Bumped by pull-to-refresh: reloads the open author / series / genre page too. */
+  const [facetRefreshTick, setFacetRefreshTick] = React.useState(0);
+  React.useEffect(() => {
+    if (pauseListFetch) return;
+    if (pendingListFetchRef.current) setListResumeTick((n) => n + 1);
+    if (pendingFacetFetchRef.current) setFacetResumeTick((n) => n + 1);
+  }, [pauseListFetch]);
+
   const [serverAuthors, setServerAuthors] = React.useState<CatalogAuthorRow[]>([]);
   const [serverSeries, setServerSeries] = React.useState<CatalogSeriesRow[]>([]);
   const [serverGenreGroups, setServerGenreGroups] = React.useState<
@@ -193,6 +210,7 @@ export function useCatalogData({
     listPageRef.current = 1;
     setListPage(1);
     setPaginationVersion((v) => v + 1);
+    setFacetRefreshTick((v) => v + 1);
     if (subTab === 'genres') {
       genresLoadedRef.current = false;
       genresSortRef.current = null;
@@ -225,14 +243,16 @@ export function useCatalogData({
       setIsRefreshing(false);
       return;
     }
-    if (pauseListFetch) {
+    if (pausedRef.current) {
       dataRequestRef.current += 1;
       setBooksLoading(false);
       setBooksLoadingMore(false);
       setBrowseLoading(false);
       setIsRefreshing(false);
+      pendingListFetchRef.current = true;
       return;
     }
+    pendingListFetchRef.current = false;
 
     let append = appendBooksRef.current;
     appendBooksRef.current = false;
@@ -396,7 +416,7 @@ export function useCatalogData({
     genreFilter,
     yearFilter,
     hasSeriesFilter,
-    pauseListFetch,
+    listResumeTick,
     handleFetchError,
     hideReadEpoch,
   ]);
@@ -441,10 +461,16 @@ export function useCatalogData({
       setAuthorOutsideSeries(false);
       return;
     }
-    if (!isServerConnected || pauseListFetch) {
+    if (!isServerConnected) {
       setFacetLoading(false);
       return;
     }
+    if (pausedRef.current) {
+      setFacetLoading(false);
+      pendingFacetFetchRef.current = true;
+      return;
+    }
+    pendingFacetFetchRef.current = false;
 
     let cancelled = false;
     void (async () => {
@@ -528,7 +554,8 @@ export function useCatalogData({
     selectedSeries,
     selectedSubgenre,
     isServerConnected,
-    pauseListFetch,
+    facetResumeTick,
+    facetRefreshTick,
     serverConfig,
     catalogSort,
     facetPage,

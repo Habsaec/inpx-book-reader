@@ -45,6 +45,47 @@ let portraitFetchActive = 0;
 const portraitFetchWaiters: Array<() => void> = [];
 let idbLruChain: Promise<void> = Promise.resolve();
 
+/** Cover downloads at once: a grid of covers must not open dozens of connections (server 7z queue). */
+const COVER_FETCH_CONCURRENCY = 6;
+/** A book the server has no cover for is not asked again for this long. */
+const COVER_MISS_TTL_MS = 10 * 60_000;
+const MAX_COVER_MISS_ENTRIES = 2000;
+let coverFetchActive = 0;
+const coverFetchWaiters: Array<() => void> = [];
+const coverMissUntil = new Map<string, number>();
+
+async function withCoverFetchSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (coverFetchActive >= COVER_FETCH_CONCURRENCY) {
+    await new Promise<void>((resolve) => {
+      coverFetchWaiters.push(resolve);
+    });
+  }
+  coverFetchActive += 1;
+  try {
+    return await fn();
+  } finally {
+    coverFetchActive = Math.max(0, coverFetchActive - 1);
+    coverFetchWaiters.shift()?.();
+  }
+}
+
+function rememberCoverMiss(memKey: string): void {
+  coverMissUntil.set(memKey, Date.now() + COVER_MISS_TTL_MS);
+  while (coverMissUntil.size > MAX_COVER_MISS_ENTRIES) {
+    const first = coverMissUntil.keys().next().value;
+    if (first === undefined) break;
+    coverMissUntil.delete(first);
+  }
+}
+
+function isCoverMissFresh(memKey: string): boolean {
+  const until = coverMissUntil.get(memKey);
+  if (!until) return false;
+  if (until > Date.now()) return true;
+  coverMissUntil.delete(memKey);
+  return false;
+}
+
 function touchCacheKey(key: string): void {
   const idx = cacheOrder.indexOf(key);
   if (idx >= 0) cacheOrder.splice(idx, 1);
@@ -492,13 +533,19 @@ export async function resolveCoverUrl(options: {
       return null;
     }
 
+    if (isCoverMissFresh(memKey)) {
+      if (variant === 'full') return fallbackFullCoverToThumb(bookId, memKey, config);
+      return null;
+    }
+
     try {
       if (isNativeApp()) {
-        const outcome = await downloadUrlToAppCacheNative(
+        const outcome = await withCoverFetchSlot(() => downloadUrlToAppCacheNative(
           coverUrl(config!, bookId, variant),
           appPath,
           authHeader(config!),
-        );
+        ));
+        if (outcome === 'miss') rememberCoverMiss(memKey);
         if (outcome === 'ok') {
           rememberAppCacheExists(appPath, true);
           const fileUrl = await appCacheDisplayUrl(appPath);
@@ -507,7 +554,7 @@ export async function resolveCoverUrl(options: {
         if (variant === 'full') return fallbackFullCoverToThumb(bookId, memKey, config);
         return null;
       }
-      const blob = await fetchCoverBlob(config!, bookId, variant);
+      const blob = await withCoverFetchSlot(() => fetchCoverBlob(config!, bookId, variant));
       if (!blob || blob.size < 32) {
         if (variant === 'full') return fallbackFullCoverToThumb(bookId, memKey, config);
         return null;
@@ -634,6 +681,7 @@ export async function removeCoverFromDirectory(
   for (const variant of ['thumb-sd', 'thumb-hd', 'full'] as const) {
     const memKey = coverMemKey(bookId, variant);
     coverTombstones.add(memKey);
+    coverMissUntil.delete(memKey);
     const pending = inflight.get(memKey);
     if (pending) await pending.catch(() => null);
     const prev = memoryCache.get(memKey);

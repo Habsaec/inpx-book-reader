@@ -11,25 +11,26 @@ import { bookTitleWithoutVolume, seriesLabel, seriesVolumeLabel } from '../../li
 import { bookAuthorLabel } from '../../lib/importExternalBook';
 import { isBookFinished } from '../../lib/bookOpenPolicy';
 import ReadMark from '../ReadMark';
+import { useBookDownloadProgress } from '../../hooks/useDownloadQueue';
 import { t } from '../../i18n';
 
 const COVER_W = 56;
 const COVER_H = 84;
 
 /** Cover list row — 120px: title, author, series, file, progress. */
-export default function FlibustaBookRow({
+function FlibustaBookRow({
   book,
   serverConfig,
   storageDirectory,
   isDownloaded,
   isDownloading,
-  downloadProgress = 0,
   readProgress = 0,
   isRead = false,
   isSelected = false,
-  showFileExt = false,
-  onClick,
-  onLongPress,
+  onClick: onClickProp,
+  onLongPress: onLongPressProp,
+  onBookClick,
+  onBookLongPress,
 }: {
   book: Book;
   serverConfig?: ServerConfig | null;
@@ -41,9 +42,15 @@ export default function FlibustaBookRow({
   isRead?: boolean;
   isSelected?: boolean;
   showFileExt?: boolean;
-  onClick: () => void;
+  onClick?: () => void;
   onLongPress?: () => void;
+  /** Stable per-list handlers (called with the book) — keep the memoized row from re-rendering. */
+  onBookClick?: (book: Book) => void;
+  onBookLongPress?: (book: Book) => void;
 }) {
+  const downloadProgress = useBookDownloadProgress(book.id, Boolean(isDownloading));
+  const onClick = onBookClick ? () => onBookClick(book) : onClickProp;
+  const onLongPress = onBookLongPress ? () => onBookLongPress(book) : onLongPressProp;
   const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = React.useRef(false);
 
@@ -79,7 +86,7 @@ export default function FlibustaBookRow({
             longPressFired.current = false;
             return;
           }
-          onClick();
+          onClick?.();
         }}
         onPointerDown={() => {
           if (!onLongPress) return;
@@ -182,3 +189,5 @@ export default function FlibustaBookRow({
     </div>
   );
 }
+
+export default React.memo(FlibustaBookRow);

@@ -17,6 +17,11 @@ import { useSnackbar } from '../ui/Snackbar';
 import { t, tn } from '../i18n';
 
 const RESCAN_TABS: AppTab[] = ['library', 'catalog'];
+/**
+ * A pass makes up to four storage calls per downloaded book. Entering a tab or returning to the
+ * app repeats it only after this long; start and a changed folder always check.
+ */
+const RESCAN_MIN_GAP_MS = 5 * 60_000;
 
 export function useLocalBookFileVerification(opts: {
   enabled: boolean;
@@ -56,8 +61,11 @@ export function useLocalBookFileVerification(opts: {
   const canDownloadRef = React.useRef(canDownloadOnline);
   canDownloadRef.current = canDownloadOnline;
 
-  const verify = React.useCallback(async () => {
+  const lastRunAtRef = React.useRef(0);
+  const verify = React.useCallback(async (force = false) => {
     if (runningRef.current) return;
+    if (!force && Date.now() - lastRunAtRef.current < RESCAN_MIN_GAP_MS) return;
+    lastRunAtRef.current = Date.now();
     const books = booksRef.current;
     if (!books.some((b) => b.localFileName?.trim())) return;
 
@@ -127,7 +135,7 @@ export function useLocalBookFileVerification(opts: {
 
   React.useEffect(() => {
     if (!enabled) return;
-    void verify();
+    void verify(true);
   }, [enabled, verify, storageDirectory?.uri]);
 
   React.useEffect(() => {

@@ -4,6 +4,7 @@ import type { StorageDirectory } from '../lib/storageDirectory';
 import BookCoverTile from './BookCoverTile';
 import { sortBooksBySeriesVolume } from '../lib/seriesVolumeSort';
 import { getUiFontScale } from '../lib/uiFontScale';
+import { useIncrementalRender } from '../hooks/useIncrementalRender';
 
 export { sortBooksBySeriesVolume, seriesVolumeSortKey } from '../lib/seriesVolumeSort';
 export { BOOK_COVER_TILE_WIDTH_PX } from './BookCoverTile';
@@ -21,6 +22,7 @@ interface BookCoverGridProps {
   onBookLongPress?: (book: Book) => void;
   selectedBookIds?: Set<string>;
   downloadingBookIds?: Set<string>;
+  /** @deprecated tiles read the live percent themselves. */
   downloadProgressByBookId?: Record<string, number>;
   renderTileExtra?: (book: Book) => React.ReactNode;
 }
@@ -65,7 +67,6 @@ export default function BookCoverGrid({
   onBookLongPress,
   selectedBookIds,
   downloadingBookIds,
-  downloadProgressByBookId,
   renderTileExtra,
 }: BookCoverGridProps) {
   const ordered = React.useMemo(
@@ -73,13 +74,23 @@ export default function BookCoverGrid({
     [books, showSeriesVolume],
   );
   const cols = useBookGridColumns();
+  const downloadedSet = React.useMemo(() => new Set(downloadedBookIds), [downloadedBookIds]);
+  // One stable function per grid: tiles are memoized and skip the render when nothing of theirs changed.
+  const clickRef = React.useRef(onBookClick);
+  clickRef.current = onBookClick;
+  const longPressRef = React.useRef(onBookLongPress);
+  longPressRef.current = onBookLongPress;
+  const handleClick = React.useCallback((book: Book) => clickRef.current(book), []);
+  const handleLongPress = React.useCallback((book: Book) => longPressRef.current?.(book), []);
+  const { visible, sentinel } = useIncrementalRender(ordered);
 
   return (
+    <>
     <div
       className="grid gap-4 w-full min-w-0"
       style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
     >
-      {ordered.map((book) => (
+      {visible.map((book) => (
         <div key={book.id} className="relative min-w-0 w-full">
           <BookCoverTile
             book={book}
@@ -90,16 +101,17 @@ export default function BookCoverGrid({
             storageDirectory={storageDirectory}
             readProgress={readingProgressByBookId?.[book.id] ?? book.readProgress}
             isRead={readIds?.has(book.id)}
-            isDownloaded={downloadedBookIds.includes(book.id)}
+            isDownloaded={downloadedSet.has(book.id)}
             isDownloading={downloadingBookIds?.has(book.id)}
-            downloadProgress={downloadProgressByBookId?.[book.id] ?? 0}
             selected={selectedBookIds?.has(book.id)}
-            onClick={() => onBookClick(book)}
-            onLongPress={onBookLongPress ? () => onBookLongPress(book) : undefined}
+            onBookClick={handleClick}
+            onBookLongPress={onBookLongPress ? handleLongPress : undefined}
           />
           {renderTileExtra?.(book)}
         </div>
       ))}
     </div>
+    {sentinel}
+    </>
   );
 }

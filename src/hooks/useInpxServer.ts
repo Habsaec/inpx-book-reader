@@ -25,6 +25,7 @@ import {
   fetchShelfBooks,
   type ServerSmartShelf,
   addBookToServerShelf,
+  addBooksToServerShelf,
   removeBookFromServerShelf,
   recordReadingHistory,
   fetchReadingPosition,
@@ -60,37 +61,43 @@ export function isServerOnline(config: ServerConfig): boolean {
   return config.connectionStatus === 'connected' && Boolean(config.url);
 }
 
+/**
+ * Rows asked per request for the «all ids» dumps. Servers before 2.14 cap `/api/library/*` at 24
+ * and answer 24 whatever is asked, so the loops below count what actually came back.
+ */
+const IDS_PAGE_SIZE = 500;
+const IDS_MAX_PAGES = 2000;
+
+async function loadAllPages<T>(
+  loader: (page: number, pageSize: number) => Promise<{ items: T[]; total: number }>,
+  onItem: (item: T) => void,
+): Promise<void> {
+  let loaded = 0;
+  for (let page = 1; page <= IDS_MAX_PAGES; page += 1) {
+    const res = await loader(page, IDS_PAGE_SIZE);
+    res.items.forEach(onItem);
+    loaded += res.items.length;
+    if (res.items.length === 0 || loaded >= (Number(res.total) || 0)) break;
+  }
+}
+
 async function loadAllIds(
-  config: ServerConfig,
-  loader: (page: number) => Promise<{ items: { id: string }[]; total: number }>
+  loader: (page: number, pageSize: number) => Promise<{ items: { id: string }[]; total: number }>
 ): Promise<Set<string>> {
   const ids = new Set<string>();
-  let page = 1;
-  let total = Infinity;
-  while ((page - 1) * 24 < total) {
-    const res = await loader(page);
-    res.items.forEach((b) => ids.add(toLocalBookId(b.id)));
-    total = res.total;
-    if (res.items.length === 0) break;
-    page++;
-  }
+  await loadAllPages(loader, (b) => ids.add(toLocalBookId(b.id)));
   return ids;
 }
 
 async function loadReadingProgressMap(config: ServerConfig): Promise<Map<string, number>> {
   const map = new Map<string, number>();
-  let page = 1;
-  let total = Infinity;
-  while ((page - 1) * 50 < total) {
-    const res = await fetchLibraryView(config, 'continue', page, 50);
-    for (const item of res.items) {
+  await loadAllPages(
+    (page, pageSize) => fetchLibraryView(config, 'continue', page, pageSize),
+    (item) => {
       const progress = Math.round(Number(item.readProgress) || 0);
       if (progress > 0) map.set(toLocalBookId(item.id), progress);
-    }
-    total = res.total;
-    if (res.items.length === 0) break;
-    page++;
-  }
+    },
+  );
   return map;
 }
 
@@ -142,8 +149,13 @@ export function useInpxServer(
   const shelfListGen = React.useRef(0);
   const lastShelfFetchAt = React.useRef(0);
   const shelfMembershipRef = React.useRef('');
+  /** Everything last put into `shelves` / `smartShelves`: an unchanged poll must not re-render the app. */
+  const shelfDataRef = React.useRef('');
   /** Bumped on bookmark/read toggles so slow-path dumps don't clobber optimistic UI. */
   const collectionsMutationEpoch = React.useRef(0);
+
+  const readIdsRef = React.useRef(readIds);
+  readIdsRef.current = readIds;
 
   const refresh = React.useCallback(async () => {
     if (!online) return;
@@ -200,6 +212,7 @@ export function useInpxServer(
       setNotRecommendedAuthors(favs.notRecommendedAuthors);
       if (shelfGen === shelfListGen.current) {
         shelfMembershipRef.current = `${shelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}#${smartShelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}`;
+        shelfDataRef.current = JSON.stringify([shelfList, smartShelfList]);
         setShelves(shelfList);
         setSmartShelves(smartShelfList);
       }
@@ -209,7 +222,14 @@ export function useInpxServer(
         const progress = Math.round(Number(book.readProgress) || 0);
         if (progress > 0) quickProgress.set(book.id, progress);
       });
-      setReadingProgress(quickProgress);
+      // Add to the known map: replacing it dropped the progress of every older book until the
+      // slow id dump below finished (and for good when that dump was skipped).
+      setReadingProgress((prev) => {
+        if (quickProgress.size === 0) return prev;
+        const next = new Map(prev);
+        quickProgress.forEach((pct, id) => next.set(id, pct));
+        return next;
+      });
 
       if (activityMeta) applyServerActivitySyncMeta(activityMeta);
       setLoading(false);
@@ -231,11 +251,11 @@ export function useInpxServer(
     const collectionsEpoch = collectionsMutationEpoch.current;
     try {
       const [bmIds, rdIds, progressMap, wtIds] = await Promise.all([
-        loadAllIds(config, (p) => fetchBookmarkedBooks(config, p, 24)),
-        loadAllIds(config, (p) => fetchLibraryView(config, 'read', p, 24)),
+        loadAllIds((p, size) => fetchBookmarkedBooks(config, p, size)),
+        loadAllIds((p, size) => fetchLibraryView(config, 'read', p, size)),
         loadReadingProgressMap(config),
         // Older servers have no «Хочу прочитать»: a 404 here must not fail the whole sync.
-        loadAllIds(config, (p) => fetchLibraryView(config, 'want', p, 24)).catch(() => null),
+        loadAllIds((p, size) => fetchLibraryView(config, 'want', p, size)).catch(() => null),
       ]);
       if (!isCurrent()) return;
 
@@ -244,16 +264,19 @@ export function useInpxServer(
         setReadIds(rdIds);
         if (wtIds) setWantIds(wtIds);
         setCollectionsReady(true);
-        const mergedProgress = new Map(progressMap);
-        prof.recentBooks.forEach((book) => {
-          const progress = Math.round(Number(book.readProgress) || 0);
-          if (progress > 0) mergedProgress.set(book.id, progress);
-        });
+      }
+      // Progress is independent of the bookmark / read toggles that make the id sets stale.
+      const mergedProgress = new Map(progressMap);
+      prof.recentBooks.forEach((book) => {
+        const progress = Math.round(Number(book.readProgress) || 0);
+        if (progress > 0) mergedProgress.set(book.id, progress);
+      });
+      if (collectionsEpoch === collectionsMutationEpoch.current) {
         rdIds.forEach((id) => {
           if (!mergedProgress.has(id)) mergedProgress.set(id, 100);
         });
-        setReadingProgress(mergedProgress);
       }
+      setReadingProgress(mergedProgress);
       setLastSynced(new Date().toLocaleTimeString(intlLocale()));
       setSyncStatus('success');
     } catch (err: unknown) {
@@ -279,6 +302,7 @@ export function useInpxServer(
     setReadIds(new Set());
     setWantIds(new Set());
     setCollectionsReady(false);
+    setReadingProgress(new Map());
     setLastSynced(null);
   }, [accountKey]);
 
@@ -339,6 +363,38 @@ export function useInpxServer(
     if (read) dropWantLocally(bookId);
     return read;
   }, [config, online]);
+
+  /**
+   * Set the read mark to a wanted state. A blind toggle went the wrong way whenever the local
+   * `readIds` did not match the server (right after start they are still empty).
+   */
+  const setRead = React.useCallback(async (bookId: string, read: boolean) => {
+    if (!online) return !read;
+    collectionsMutationEpoch.current += 1;
+    await withAuthGuard(() => ensureBookReadState(config, bookId, read));
+    void dropQueuedToggleReadOps(bookId).catch(() => {});
+    const changed = readIdsRef.current.has(bookId) !== read;
+    setReadIds((prev) => {
+      if (prev.has(bookId) === read) return prev;
+      const next = new Set(prev);
+      if (read) next.add(bookId);
+      else next.delete(bookId);
+      return next;
+    });
+    setProfile((p) =>
+      p && changed
+        ? {
+            ...p,
+            userStats: {
+              ...p.userStats,
+              readBooksCount: Math.max(0, p.userStats.readBooksCount + (read ? 1 : -1)),
+            },
+          }
+        : p,
+    );
+    if (read) dropWantLocally(bookId);
+    return read;
+  }, [config, online, withAuthGuard]);
 
   /** Server drops «Хочу прочитать» on open / mark-read; mirror it locally. */
   function dropWantLocally(bookId: string) {
@@ -420,6 +476,7 @@ export function useInpxServer(
     if (!online) return null;
     const id = await withAuthGuard(() => createServerShelf(config, name));
     shelfListGen.current += 1;
+    shelfDataRef.current = '';
     setShelves((prev) => {
       if (prev.some((s) => s.id === id)) return prev;
       return [...prev, { id, name, bookCount: 0, previewBookIds: [] }];
@@ -429,17 +486,19 @@ export function useInpxServer(
 
   const removeShelf = React.useCallback(async (shelfId: number) => {
     if (!online) return;
-    refreshRequestId.current += 1;
+    // No refreshRequestId bump here: it orphaned a refresh in flight, which then never cleared
+    // `loading`. shelfListGen below already keeps an older shelf list from coming back.
     await withAuthGuard(() => deleteServerShelf(config, shelfId));
     shelfListGen.current += 1;
+    shelfDataRef.current = '';
     setShelves((prev) => prev.filter((s) => s.id !== shelfId));
   }, [config, online]);
 
   const removeSmartShelf = React.useCallback(async (shelfId: number) => {
     if (!online) return;
-    refreshRequestId.current += 1;
     await withAuthGuard(() => deleteSmartShelf(config, shelfId));
     shelfListGen.current += 1;
+    shelfDataRef.current = '';
     setSmartShelves((prev) => prev.filter((s) => s.id !== shelfId));
   }, [config, online]);
 
@@ -448,6 +507,7 @@ export function useInpxServer(
     if (!online) return false;
     const apply = (value: boolean) => {
       shelfListGen.current += 1;
+      shelfDataRef.current = '';
       if (kind === 'smart') setSmartShelves((prev) => prev.map((s) => (s.id === shelfId ? { ...s, onHome: value } : s)));
       else setShelves((prev) => prev.map((s) => (s.id === shelfId ? { ...s, onHome: value } : s)));
     };
@@ -473,6 +533,7 @@ export function useInpxServer(
   const removeFromShelf = React.useCallback(async (shelfId: number, bookId: string) => {
     if (!online) return;
     await withAuthGuard(() => removeBookFromServerShelf(config, shelfId, bookId));
+    shelfDataRef.current = '';
     setShelves((prev) =>
       prev.map((s) => {
         if (s.id !== shelfId) return s;
@@ -486,6 +547,7 @@ export function useInpxServer(
   const addToShelf = React.useCallback(async (shelfId: number, bookId: string) => {
     if (!online) return;
     await withAuthGuard(() => addBookToServerShelf(config, shelfId, bookId));
+    shelfDataRef.current = '';
     setShelves((prev) =>
       prev.map((s) => {
         if (s.id !== shelfId) return s;
@@ -500,6 +562,25 @@ export function useInpxServer(
       }),
     );
   }, [config, online]);
+
+  /** Several books onto a shelf (multi-select) → number of added entries. */
+  const addBooksToShelf = React.useCallback(async (shelfId: number, bookIds: string[]) => {
+    if (!online) return 0;
+    const added = await withAuthGuard(() => addBooksToServerShelf(config, shelfId, bookIds));
+    shelfDataRef.current = '';
+    setShelves((prev) =>
+      prev.map((s) => {
+        if (s.id !== shelfId) return s;
+        const preview = s.previewBookIds || [];
+        return {
+          ...s,
+          bookCount: (s.bookCount ?? 0) + added,
+          previewBookIds: [...bookIds.filter((id) => !preview.includes(id)), ...preview].slice(0, 4),
+        };
+      }),
+    );
+    return added;
+  }, [config, online, withAuthGuard]);
 
   const touchReadingHistory = React.useCallback(
     async (bookId: string) => {
@@ -708,8 +789,12 @@ export function useInpxServer(
       const membership = `${shelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}#${smartShelfList.map((s) => `${s.id}\0${s.name}\0${s.onHome ? 1 : 0}`).join('|')}`;
       const changed = membership !== shelfMembershipRef.current;
       shelfMembershipRef.current = membership;
-      setShelves(shelfList);
-      setSmartShelves(smartShelfList);
+      const data = JSON.stringify([shelfList, smartShelfList]);
+      if (data !== shelfDataRef.current) {
+        shelfDataRef.current = data;
+        setShelves(shelfList);
+        setSmartShelves(smartShelfList);
+      }
       return changed;
     } catch {
       if (gen === shelfListGen.current) lastShelfFetchAt.current = 0;
@@ -755,6 +840,7 @@ export function useInpxServer(
     refreshShelves,
     toggleBookmark,
     toggleRead,
+    setRead,
     toggleWant,
     toggleFavoriteAuthor,
     setAuthorNotRecommended,
@@ -765,6 +851,7 @@ export function useInpxServer(
     setShelfOnHome,
     loadShelfBooks,
     addToShelf,
+    addBooksToShelf,
     removeFromShelf,
     touchReadingHistory,
     loadPosition,

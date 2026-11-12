@@ -11,6 +11,7 @@ import BookCover from './BookCover';
 import ReadMark from './ReadMark';
 import ReadProgressBar from './ReadProgressBar';
 import { getUiFontScale } from '../lib/uiFontScale';
+import { useBookDownloadProgress } from '../hooks/useDownloadQueue';
 import { t } from '../i18n';
 
 /** Fallback tile width before first measure (CSS px). */
@@ -80,15 +81,22 @@ export interface BookCoverTileProps {
   tileWidthPx?: number;
   selected?: boolean;
   isDownloading?: boolean;
+  /** @deprecated the tile reads the live percent itself while `isDownloading`. */
   downloadProgress?: number;
   onClick?: () => void;
   onLongPress?: () => void;
+  /**
+   * Same as `onClick` / `onLongPress` but called with the book: lists pass one stable function
+   * for every tile, so an unchanged tile is not rendered again (the component is memoized).
+   */
+  onBookClick?: (book: Book) => void;
+  onBookLongPress?: (book: Book) => void;
   className?: string;
 }
 
 const LONG_PRESS_MS = 420;
 
-export default function BookCoverTile({
+function BookCoverTile({
   book,
   serverConfig,
   storageDirectory,
@@ -102,11 +110,15 @@ export default function BookCoverTile({
   tileWidthPx,
   selected = false,
   isDownloading = false,
-  downloadProgress = 0,
-  onClick,
-  onLongPress,
+  onClick: onClickProp,
+  onLongPress: onLongPressProp,
+  onBookClick,
+  onBookLongPress,
   className = '',
 }: BookCoverTileProps) {
+  const downloadProgress = useBookDownloadProgress(book.id, isDownloading);
+  const onClick = onBookClick ? () => onBookClick(book) : onClickProp;
+  const onLongPress = onBookLongPress ? () => onBookLongPress(book) : onLongPressProp;
   const progress = Math.max(0, Math.min(100, Math.round(readProgress || book.readProgress || 0)));
   const finished = isBookFinished(progress, isRead);
   const rating = Math.max(0, Math.min(5, Math.round(Number(book.rating) || 0)));
@@ -238,3 +250,5 @@ export default function BookCoverTile({
     </button>
   );
 }
+
+export default React.memo(BookCoverTile);

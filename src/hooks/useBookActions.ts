@@ -522,18 +522,20 @@ export function useBookActions(opts: {
   const handleRemoveBooks = React.useCallback(
     async (bookIds: string[]) => {
       const ids = [...new Set(bookIds.filter(Boolean))];
-      if (ids.length === 0) return;
+      if (ids.length === 0) return false;
       const ok = await dialog.confirm({
         title: t('bookActions.deleteTheFiles'),
         message: tn('bookActions.deleteFilesMessage', ids.length),
         confirmLabel: t('common.delete'),
         destructive: true,
       });
-      if (!ok) return;
+      // false = cancelled: the caller keeps its selection.
+      if (!ok) return false;
       for (const id of ids) {
         if (removingBookIds.has(id)) continue;
         await performRemoveBook(id);
       }
+      return true;
     },
     [dialog, performRemoveBook, removingBookIds],
   );
@@ -656,7 +658,7 @@ export function useBookActions(opts: {
 
       if (isOnline) {
         try {
-          await inpxServer.toggleRead(bookId);
+          await inpxServer.setRead(bookId, desiredRead);
         } catch (e) {
           if (isAuthError(e)) {
             onAuthExpiredRef.current?.();
@@ -673,21 +675,11 @@ export function useBookActions(opts: {
           onClick: () => {
             void (async () => {
               await dropQueuedToggleReadOps(bookId).catch(() => {});
-              // Restore absolute prior state — blind toggle breaks after a failed API+queue path.
-              if (inpxServer.readIds.has(bookId) !== wasRead) {
-                try {
-                  await inpxServer.toggleRead(bookId);
-                } catch {
-                  await enqueueSyncOp('toggle_read', bookId, { markRead: wasRead });
-                  touchReadBooksLocalRev();
-                }
-              } else {
-                try {
-                  await ensureBookReadState(serverConfig, bookId, wasRead);
-                } catch {
-                  await enqueueSyncOp('toggle_read', bookId, { markRead: wasRead });
-                  touchReadBooksLocalRev();
-                }
+              try {
+                await inpxServer.setRead(bookId, wasRead);
+              } catch {
+                await enqueueSyncOp('toggle_read', bookId, { markRead: wasRead });
+                touchReadBooksLocalRev();
               }
             })();
           },
@@ -1213,13 +1205,35 @@ export function useBookActions(opts: {
   );
 
   const handleAddBooksToShelf = React.useCallback(
-    async (shelfId: number | string, bookIds: string[]) => {
+    async (shelfId: number | string, bookIds: string[]): Promise<boolean> => {
       const ids = [...new Set(bookIds.filter(Boolean))];
-      for (const id of ids) {
-        await handleAddBookToShelf(id, String(shelfId));
+      if (ids.length === 0) return false;
+      const shelfKey = String(shelfId);
+      const serverShelfId = /^\d+$/.test(shelfKey) ? Number(shelfKey) : null;
+      try {
+        if (isOnline && serverShelfId != null) {
+          // One request per 20 books; books of the device's own folders are unknown to the server.
+          const serverIds = ids.filter((id) => !isLocalOnlyBookId(id));
+          if (serverIds.length > 0) await inpxServer.addBooksToShelf(serverShelfId, serverIds);
+          setShelves((prev) =>
+            prev.map((s) => (
+              s.id === shelfKey
+                ? { ...s, bookIds: [...s.bookIds, ...ids.filter((id) => !s.bookIds.includes(id))] }
+                : s
+            )),
+          );
+        } else {
+          for (const id of ids) await handleAddBookToShelf(id, shelfKey);
+        }
+      } catch (e) {
+        if (isAuthError(e)) onAuthExpiredRef.current?.();
+        else snackbar.show(t('bookActions.couldNotAddToShelf'), undefined, 'error');
+        return false;
       }
+      snackbar.show(t('app.addedToTheShelf'), undefined, 'success');
+      return true;
     },
-    [handleAddBookToShelf],
+    [handleAddBookToShelf, inpxServer, isOnline, setShelves, snackbar],
   );
 
   const handleRemoveBookFromShelf = React.useCallback(
@@ -1266,6 +1280,11 @@ export function useBookActions(opts: {
   const handleRemoveShelfConfirmed = React.useCallback(
     async (shelfId: string, kind: 'shelf' | 'smart' = 'shelf') => {
       const smart = kind === 'smart';
+      // A smart shelf lives only on the server: say so before asking, not after «Удалить».
+      if (smart && !(isOnline && /^\d+$/.test(shelfId))) {
+        snackbar.show(t('bookActions.smartShelfNeedsConnection'), undefined, 'error');
+        return false;
+      }
       const ok = await dialog.confirm({
         title: t('bookActions.deleteTheShelf'),
         message: smart
@@ -1276,7 +1295,6 @@ export function useBookActions(opts: {
       });
       if (!ok) return false;
       if (smart) {
-        if (!(isOnline && /^\d+$/.test(shelfId))) return false;
         try {
           await inpxServer.removeSmartShelf(Number(shelfId));
         } catch (e) {
@@ -1316,7 +1334,7 @@ export function useBookActions(opts: {
       }
       return true;
     },
-    [dialog, inpxServer, isOnline, setShelves],
+    [dialog, inpxServer, isOnline, setShelves, snackbar],
   );
 
   return {

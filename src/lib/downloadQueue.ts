@@ -55,6 +55,8 @@ const FINISHED_HISTORY_MS = 60_000;
 class DownloadQueueManager {
   private jobs: DownloadJob[] = [];
   private listeners = new Set<Listener>();
+  /** Told about byte progress too (a few times a second); `listeners` only hear about status changes. */
+  private progressListeners = new Set<Listener>();
   private activeCount = 0;
   private cancelledIds = new Set<string>();
   private abortControllers = new Map<string, AbortController>();
@@ -150,15 +152,26 @@ class DownloadQueueManager {
     this.notify();
   }
 
-  /** Прогресс приходит на каждый чанк — IDB-запись и re-render не чаще ~3/сек. */
+  /**
+   * Прогресс приходит на каждый чанк — IDB-запись не чаще ~3/сек. Only progress listeners are
+   * told: a status change re-renders the lists, a percent only the tile that shows it.
+   */
   private persistThrottled(): void {
     if (Date.now() - this.lastPersistAt < 300) return;
-    this.persist();
+    this.lastPersistAt = Date.now();
+    void set(QUEUE_STORAGE_KEY, this.jobs).catch(() => {});
+    this.progressListeners.forEach((fn) => fn());
   }
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  /** Byte progress of running downloads (and nothing else). */
+  subscribeProgress(fn: Listener): () => void {
+    this.progressListeners.add(fn);
+    return () => this.progressListeners.delete(fn);
   }
 
   private notify(): void {

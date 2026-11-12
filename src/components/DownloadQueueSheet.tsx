@@ -31,7 +31,7 @@ interface DownloadQueueSheetProps {
 }
 
 export default function DownloadQueueSheet({ open, onClose, onOpenSaved }: DownloadQueueSheetProps) {
-  const jobs = useDownloadQueue();
+  const jobs = useDownloadQueue(true);
 
   const visible = jobs.filter(
     (j) =>

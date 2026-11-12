@@ -815,6 +815,24 @@ export async function addSeriesToShelfApi(config: ServerConfig, shelfId: number,
   return Number(data.added) || 0;
 }
 
+/** Server limit of `POST /api/shelves/batch-add-books` (BATCH_DOWNLOAD_MAX). */
+const SHELF_BATCH_MAX = 20;
+
+/** Several books onto one shelf in a few requests instead of one per book. → added shelf entries. */
+export async function addBooksToServerShelf(config: ServerConfig, shelfId: number, bookIds: string[]): Promise<number> {
+  const ids = [...new Set(bookIds.map((id) => toServerBookId(id)).filter(Boolean))];
+  let added = 0;
+  for (let i = 0; i < ids.length; i += SHELF_BATCH_MAX) {
+    const data = await apiPostJson<{ added?: number }>(
+      config,
+      '/api/shelves/batch-add-books',
+      { shelfIds: [shelfId], bookIds: ids.slice(i, i + SHELF_BATCH_MAX) },
+    );
+    added += Number(data.added) || 0;
+  }
+  return added;
+}
+
 /** Personal rating 1–5, 0 = none; `null` when the server has no rating API yet. */
 export async function fetchBookRating(config: ServerConfig, bookId: string): Promise<number | null> {
   try {

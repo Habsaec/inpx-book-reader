@@ -47,8 +47,9 @@ interface DeviceLibraryTabProps {
   /** Tap opens the book page, same as catalog and home. */
   onOpenDetails?: (book: Book) => void;
   onBookLongPress?: (book: Book) => void;
-  onRemoveBooks?: (bookIds: string[]) => void | Promise<void>;
-  onAddBooksToShelf?: (shelfId: number | string, bookIds: string[]) => void | Promise<void>;
+  /** Resolves `false` when nothing was done (dialog cancelled, request failed): the selection stays. */
+  onRemoveBooks?: (bookIds: string[]) => void | boolean | Promise<void | boolean>;
+  onAddBooksToShelf?: (shelfId: number | string, bookIds: string[]) => void | boolean | Promise<void | boolean>;
   onGoCatalog?: () => void;
   onGoProfile?: () => void;
   embedded?: boolean;
@@ -131,8 +132,8 @@ export default function DeviceLibraryTab({
     if (!onRemoveBooks || selected.size === 0) return;
     setBusy(true);
     try {
-      await onRemoveBooks([...selected]);
-      exitSelect();
+      const done = await onRemoveBooks([...selected]);
+      if (done !== false) exitSelect();
     } finally {
       setBusy(false);
     }
@@ -143,8 +144,8 @@ export default function DeviceLibraryTab({
       if (!onAddBooksToShelf || selected.size === 0) return;
       setBusy(true);
       try {
-        await onAddBooksToShelf(shelfId, [...selected]);
-        exitSelect();
+        const done = await onAddBooksToShelf(shelfId, [...selected]);
+        if (done !== false) exitSelect();
       } finally {
         setBusy(false);
       }
