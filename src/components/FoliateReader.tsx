@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Share } from '@capacitor/share';
 import { StatusBar } from '@capacitor/status-bar';
+import { restoreAppStatusBar, syncReaderStatusBar } from '../lib/androidChrome';
 import { resolveStorageFileUrl } from '../lib/bookStorage';
 import {
   isStoragePermissionError,
@@ -333,7 +334,8 @@ export default function FoliateReader({
       }
       void ReaderNative.setBrightness({ level: -1 }).catch(() => {});
       // Bump so in-flight immersive hide/show from the old mount is ignored.
-      if (statusBarOwnerSeq === statusOwner) {
+      const lastOwner = statusBarOwnerSeq === statusOwner;
+      if (lastOwner) {
         statusBarOwnerSeq += 1;
       }
       void (async () => {
@@ -343,6 +345,8 @@ export default function FoliateReader({
         } catch {
           // ignore
         }
+        // Only the last open reader returns the bar to the app theme.
+        if (lastOwner) await restoreAppStatusBar();
       })();
     };
   }, []);
@@ -876,6 +880,14 @@ export default function FoliateReader({
         lastHapticAtRef.current = now;
         const kind = event.data.kind === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light;
         void Haptics.impact({ style: kind }).catch(() => {});
+        return;
+      }
+
+      if (
+        event.data?.type === 'inpx-reader-status-bar'
+        && isTrustedReaderMessage(event)
+      ) {
+        if (typeof event.data.color === 'string') void syncReaderStatusBar(event.data.color);
         return;
       }
 

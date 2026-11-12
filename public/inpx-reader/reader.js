@@ -1048,6 +1048,19 @@ import { collapse, isMalformedLocationCfi } from '/foliate/epubcfi.js';
     }
     if (view) view.style.background = hasImg ? 'transparent' : '';
     applyPaginatorWallpaper();
+    postAppStatusBarColor(color);
+  }
+
+  // Android-приложение красит системную строку состояния в фон темы чтения.
+  let lastStatusBarColor = '';
+  function postAppStatusBarColor(color) {
+    if (!(document.documentElement.dataset.inpxApp === '1' || window.__READER_APP)) return;
+    const c = String(color || '').toLowerCase();
+    if (!c || c === lastStatusBarColor) return;
+    lastStatusBarColor = c;
+    try {
+      window.parent?.postMessage({ type: 'inpx-reader-status-bar', color: c }, '*');
+    } catch { /* */ }
   }
 
   function getEffectiveLinkColor() {
