@@ -45,7 +45,8 @@ import {
 } from '../lib/downloadFormatPreference';
 import { setHomeLayout, useHomeLayout } from '../lib/homeLayout';
 import { forgetAccountForConfig } from '../lib/accounts';
-import HomeLayoutSettings from './HomeLayoutSettings';
+import HomeLayoutSettings, { HomeDeviceBlocksSettings } from './HomeLayoutSettings';
+import LauncherSettings from './LauncherSettings';
 import { scanAppPairingQr, isQrScanCanceled } from '../lib/scanAppPairingQr';
 import type { AppAppearance, AppColorSource } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
@@ -596,6 +597,7 @@ export default function SyncSettingsTab({
                 onSelect: () => onChangeEinkMode(item.id),
               }))}
             />
+            <LauncherSettings />
             {(
               [
                 {
@@ -638,6 +640,7 @@ export default function SyncSettingsTab({
                   });
               }}
             />
+            <HomeDeviceBlocksSettings />
             <SettingsChoice
               label={t('common.newBooks')}
               hint={t('syncSettingsTab.allNewBooksOrOnly')}

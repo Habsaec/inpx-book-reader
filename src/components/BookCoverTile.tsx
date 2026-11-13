@@ -203,8 +203,8 @@ function BookCoverTile({
           {isDownloaded && !isDownloading ? (
             <span
               className="absolute z-[6] bottom-1.5 left-1.5 w-5 h-5 rounded-full bg-black/65 text-white inline-flex items-center justify-center"
-              title={t('common.onTheDevice')}
-              aria-label={t('common.onTheDevice')}
+              title={t('common.bookDownloaded')}
+              aria-label={t('common.bookDownloaded')}
             >
               <Smartphone className="w-3 h-3" strokeWidth={2.5} aria-hidden />
             </span>

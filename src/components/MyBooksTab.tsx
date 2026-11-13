@@ -112,7 +112,8 @@ interface MyBooksTabProps {
   /** Bumped when Library tab is re-selected — return to «Загрузки». */
   libraryRootEpoch?: number;
   /** Open a collection from outside (Profile stat tiles); `n` makes repeats count. */
-  openRequest?: { seg: LibrarySeg; n: number } | null;
+  /** `folderId` (with seg `local`): open that library folder — the home «Папки» block. */
+  openRequest?: { seg: LibrarySeg; n: number; folderId?: string } | null;
   onAuthExpired?: () => void;
 }
 
@@ -277,7 +278,11 @@ export default function MyBooksTab({
     if (!openRequest || openRequest.n === openRequestSeen.current) return;
     openRequestSeen.current = openRequest.n;
     openCollection(openRequest.seg);
+    if (openRequest.seg === 'local' && openRequest.folderId) {
+      setOpenFolderRequest({ id: openRequest.folderId, n: openRequest.n });
+    }
   }, [openRequest, openCollection]);
+  const [openFolderRequest, setOpenFolderRequest] = React.useState<{ id: string; n: number } | null>(null);
 
   const closeCollection = React.useCallback(() => {
     setCollectionOpen(false);
@@ -690,6 +695,7 @@ export default function MyBooksTab({
               readIds={readIds}
               onOpenBook={onContinueBook}
               onRegisterBook={onRegisterBook}
+              openFolderRequest={openFolderRequest}
             />
           </div>
         ) : seg === 'downloaded' ? (

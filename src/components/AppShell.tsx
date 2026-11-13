@@ -1,8 +1,8 @@
 import React from 'react';
-import { ChevronLeft, Home, Library, BookOpen, User, Search, X } from 'lucide-react';
+import { ChevronLeft, Home, Library, BookOpen, User, Search, X, Grid3x3 } from 'lucide-react';
 import { motion, useMotionValue, useTransform } from 'motion/react';
 import { theme } from '../lib/appTheme';
-import { motion as motionTokens, textStyles, radii, touchMin } from '../ui/tokens';
+import { motion as motionTokens, textStyles, radii } from '../ui/tokens';
 import { useCalmMotion } from '../hooks/useCalmMotion';
 import { useFollowSpring } from '../ui/useFollowSpring';
 import { useBackHandler } from '../hooks/useBackHandler';
@@ -28,6 +28,7 @@ interface AppShellProps {
   siteName: string;
   logoSrc: string | null;
   isOnline: boolean;
+  /** No longer drawn (the offline banner is gone); kept so callers need no change. */
   isVerifyingConnection: boolean;
   onOpenConnectionSettings?: () => void;
   onOpenQueue?: () => void;
@@ -36,8 +37,15 @@ interface AppShellProps {
   onSearchAuthor: (name: string) => void;
   onSearchSeries: (name: string) => void;
   onSearchBook: (book: { id: string; title: string; authors?: string; authorsDisplay?: string }) => void;
+  /**
+   * «Домашний экран»: the Profile tab becomes «Приложения» (Profile is opened from the apps list).
+   * `appsOpen` highlights that tab while the list — or Profile reached from it — is shown.
+   */
+  launcherTabs?: { appsOpen: boolean; onOpenApps: () => void } | null;
   children: React.ReactNode;
 }
+
+const LAUNCHER_APPS_TAB = { id: 'apps' as const, label: t('launcherHome.apps'), icon: Grid3x3 };
 
 export default function AppShell(props: AppShellProps) {
   return (
@@ -53,14 +61,13 @@ function ShellFrame({
   siteName,
   logoSrc,
   isOnline,
-  isVerifyingConnection,
-  onOpenConnectionSettings,
   onOpenQueue,
   serverConfig,
   onSearchSubmit,
   onSearchAuthor,
   onSearchSeries,
   onSearchBook,
+  launcherTabs = null,
   children,
 }: AppShellProps) {
   const calm = useCalmMotion();
@@ -77,8 +84,8 @@ function ShellFrame({
   const searchZoneRef = React.useRef<HTMLDivElement>(null);
   const searchToggleRef = React.useRef<HTMLButtonElement>(null);
   const pageTitle = usePageTitleTop();
-  const showOfflineBanner =
-    !isOnline && !isVerifyingConnection && (activeTab === 'catalog' || activeTab === 'home');
+  // No «Нет связи» banner: it hid during every reconnect attempt and slid back in, over and over;
+  // offline, network blocks simply stay hidden and the catalog shows its own «Нет подключения».
   // Shell search looks up the server catalog — not offered where it would read as «search my books».
   const showSearch = activeTab === 'home' || activeTab === 'catalog';
   const title = pageTitle?.title || (
@@ -103,7 +110,7 @@ function ShellFrame({
     if (headerRef.current) ro?.observe(headerRef.current);
     if (tabRef.current) ro?.observe(tabRef.current);
     return () => ro?.disconnect();
-  }, [showOfflineBanner, searchOpen]);
+  }, [searchOpen]);
 
   React.useLayoutEffect(() => {
     searchOpenRef.current = searchOpen;
@@ -284,25 +291,6 @@ function ShellFrame({
           />
         </div>
       ) : null}
-      {showOfflineBanner && (
-        <div
-          className={`inpx-shell-notice px-5 py-3 shrink-0 flex items-center gap-3 border-b border-[color:var(--app-border)] ${theme.header}`}
-          role="status"
-        >
-          <p className={`${textStyles.body} ${theme.textMuted} flex-1 min-w-0 leading-snug`}>
-            {t('appShell.offlineTheCatalogAndDownloads')}
-          </p>
-          {onOpenConnectionSettings ? (
-            <button
-              type="button"
-              onClick={onOpenConnectionSettings}
-              className={`${touchMin} shrink-0 px-3 ${textStyles.captionBold} ${theme.accentText} ${radii.button} ${theme.focusRing} ${motionTokens.press}`}
-            >
-              {t('common.connect')}
-            </button>
-          ) : null}
-        </div>
-      )}
 
       <DownloadQueueWidget onOpenQueue={onOpenQueue} />
       </div>
@@ -313,14 +301,21 @@ function ShellFrame({
         className="inpx-chrome inpx-chrome-bottom absolute inset-x-0 bottom-0 z-30 px-2 pt-1.5 flex justify-around items-stretch select-none min-[600px]:justify-center min-[600px]:gap-4"
         style={{ paddingBottom: 'max(0.5rem, var(--safe-bottom))' }}
       >
-        {TABS.map((tab) => {
+        {(launcherTabs ? [...TABS.slice(0, 3), LAUNCHER_APPS_TAB] : TABS).map((tab) => {
           const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
+          const isActive = launcherTabs
+            ? tab.id === 'apps'
+              ? launcherTabs.appsOpen || activeTab === 'profile'
+              : activeTab === tab.id && !launcherTabs.appsOpen
+            : activeTab === tab.id;
           return (
             <button
               key={tab.id}
               type="button"
-              onClick={() => onTabChange(tab.id)}
+              onClick={() => {
+                if (tab.id === 'apps') launcherTabs?.onOpenApps();
+                else onTabChange(tab.id);
+              }}
               aria-label={tab.label}
               aria-current={isActive ? 'page' : undefined}
               className={`relative flex flex-col items-center justify-center gap-0.5 min-w-0 flex-1 min-h-14 py-1 min-[600px]:flex-none min-[600px]:w-32 ${theme.focusRing} ${motionTokens.press} ${

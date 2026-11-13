@@ -682,16 +682,27 @@ html[data-eink="1"] button.inpx-switch:active {
   background: #fff !important;
   color: #000 !important;
 }
+/* The knob is placed by `left` only: the Tailwind `translate-x-*` of the colour UI added to it
+   pushed the «on» knob past the track's right edge. Tailwind v4 writes it as the separate
+   `translate` property, so `transform: none` alone does not cancel it. Inner track = 3rem − 2 × 2px.
+   Check the minified CSS in android/app/src/main/assets/public, not the dev server. */
 html[data-eink="1"] button.inpx-switch span {
-  top: 1px !important;
+  top: 2px !important;
+  left: 2px !important;
   width: 1.25rem !important;
   height: 1.25rem !important;
   border: 2px solid #000 !important;
   background: #000 !important;
   box-shadow: none !important;
+  transform: none !important;
+  /* Not `translate: none`: the production minifier folds it into `transform: translate(0)` and the
+     utility's own `translate: var(--tw-translate-x) …` survives. Zero the variables it reads instead. */
+  --tw-translate-x: 0px !important;
+  --tw-translate-y: 0px !important;
+  transition: none !important;
 }
 html[data-eink="1"] button.inpx-switch[aria-checked="true"] span {
-  left: 1.35rem !important;
+  left: calc(100% - 1.25rem - 2px) !important;
   background: #fff !important;
   border-color: #000 !important;
 }

@@ -46,7 +46,8 @@ export function getStorageNameStyle(): StorageNameStyle {
   return getAppSettingString(APP_SETTING_KEYS.storageNames, 'original') === 'translit' ? 'translit' : 'original';
 }
 
-const SETTINGS_BACKUP_SKIP = new Set(['server_theme_cache', 'server_background']);
+// Per-device / per-account caches never go into the settings file (launcher: `launcherHome.ts`).
+const SETTINGS_BACKUP_SKIP = new Set(['server_theme_cache', 'server_background', 'launcher_last_default']);
 
 export async function exportAppSettingsJson(): Promise<string> {
   const keys = await getAllAppSettingKeys();

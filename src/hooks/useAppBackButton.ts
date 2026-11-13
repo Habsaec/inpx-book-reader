@@ -17,10 +17,13 @@ const EXIT_WINDOW_MS = 4000;
  * Системная кнопка / жест «Назад» (Capacitor) и клавиша Escape в браузере.
  * На корне: первый Back показывает подсказку (`onExitPrompt`), второй за EXIT_WINDOW_MS — выход.
  */
-export function useAppBackButton(onExitPrompt?: () => void) {
+export function useAppBackButton(onExitPrompt?: () => void, onRootBack?: () => boolean) {
   const lastBackAt = React.useRef(0);
   const onExitPromptRef = React.useRef(onExitPrompt);
   onExitPromptRef.current = onExitPrompt;
+  /** «Домашний экран»: Back on the root never leaves the app (a launcher has nowhere to exit to). */
+  const onRootBackRef = React.useRef(onRootBack);
+  onRootBackRef.current = onRootBack;
 
   // Сброс окна «ещё раз для выхода»: любая навигация/оверлей между двумя Back
   // означает, что второй Back — не подтверждение выхода.
@@ -33,6 +36,10 @@ export function useAppBackButton(onExitPrompt?: () => void) {
 
     const subPromise = CapApp.addListener('backButton', () => {
       if (consumeAppBack()) {
+        lastBackAt.current = 0;
+        return;
+      }
+      if (onRootBackRef.current?.()) {
         lastBackAt.current = 0;
         return;
       }

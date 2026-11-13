@@ -70,7 +70,8 @@ function extFromLocalName(name: string): string {
   return (lower.match(/\.([a-z0-9]+)$/)?.[1] || 'fb2');
 }
 
-function FolderCells({
+/** Folder tiles / rows (also the home «Папки» block). */
+export function FolderCells({
   viewMode,
   items,
 }: {
@@ -326,6 +327,7 @@ export default function LocalFolderBrowser({
   readIds,
   onOpenBook,
   onRegisterBook,
+  openFolderRequest = null,
 }: {
   storageDirectory: StorageDirectory | null;
   serverConfig: ServerConfig;
@@ -337,11 +339,24 @@ export default function LocalFolderBrowser({
   readIds?: Set<string>;
   onOpenBook: (book: Book) => void;
   onRegisterBook?: (book: Book) => void;
+  /** Home «Папки» tile: open this library folder at its root (`n` changes per request). */
+  openFolderRequest?: { id: string; n: number } | null;
 }) {
   const [, setFolderListTick] = React.useState(0);
   const set = readLibraryFolders(storageDirectory);
-  const [folder, setFolder] = React.useState<LibraryFolder | null>(null);
+  const [folder, setFolder] = React.useState<LibraryFolder | null>(
+    () => (openFolderRequest ? set.folders.find((f) => f.id === openFolderRequest.id) ?? null : null),
+  );
   const [trail, setTrail] = React.useState<{ name: string; path: string }[]>([]);
+  const openFolderSeen = React.useRef(openFolderRequest?.n ?? 0);
+  React.useEffect(() => {
+    if (!openFolderRequest || openFolderRequest.n === openFolderSeen.current) return;
+    openFolderSeen.current = openFolderRequest.n;
+    const target = readLibraryFolders(storageDirectory).folders.find((f) => f.id === openFolderRequest.id);
+    if (!target) return;
+    setFolder(target);
+    setTrail([]);
+  }, [openFolderRequest, storageDirectory]);
   const [entries, setEntries] = React.useState<DirEntry[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);

@@ -29,15 +29,15 @@ export default function DownloadStatusLabel({
   }
 
   if (isDownloaded) {
-    /* Contexts that spell out «На сервере» get the matching «На устройстве» text; compact rows stay icon-only. */
+    /* Contexts that spell out «На сервере» get the matching «Скачана» text; compact rows stay icon-only. */
     return (
       <span
         className={`inline-flex items-center gap-1 ${showNotDownloaded ? textStyles.microBold : ''} ${theme.textMuted} ${className}`}
-        title={t('common.onTheDevice')}
-        aria-label={t('common.onTheDevice')}
+        title={t('common.bookDownloaded')}
+        aria-label={t('common.bookDownloaded')}
       >
         <Smartphone className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} aria-hidden />
-        {showNotDownloaded ? t('common.onTheDevice') : null}
+        {showNotDownloaded ? t('common.bookDownloaded') : null}
       </span>
     );
   }

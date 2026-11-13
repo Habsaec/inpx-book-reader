@@ -11,6 +11,7 @@ import {
   type HomeLayout,
   type HomeSectionId,
 } from '../lib/homeLayout';
+import { setHomeDeviceBlocks, useHomeDeviceBlocks, type HomeDeviceBlocks } from '../lib/homeDeviceBlocks';
 import { t } from '../i18n';
 
 interface HomeLayoutSettingsProps {
@@ -72,6 +73,51 @@ export default function HomeLayoutSettings({ layout, onChange, disabled = false 
           );
         })}
       </Reorder.Group>
+    </div>
+  );
+}
+
+/**
+ * «Скачанные» / «Папки» on the home screen: this device only (not part of the account layout,
+ * the server never sees them), shown right after «Продолжить чтение».
+ */
+export function HomeDeviceBlocksSettings() {
+  const blocks = useHomeDeviceBlocks();
+  const rows: { key: keyof HomeDeviceBlocks; label: string }[] = [
+    { key: 'downloaded', label: t('common.onTheDevice') },
+    { key: 'folders', label: t('libraryCollections.folders') },
+  ];
+  return (
+    <div className="py-3 border-b border-[color:var(--app-border)]">
+      <p className={`${textStyles.body} ${theme.text}`}>{t('homeLayoutSettings.deviceBlocks')}</p>
+      <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>{t('homeLayoutSettings.deviceBlocksHint')}</p>
+      <ul className="mt-2">
+        {rows.map(({ key, label }) => {
+          const on = blocks[key];
+          return (
+            <li key={key} className="flex items-center gap-3 min-h-12">
+              <span className={`flex-1 min-w-0 ${textStyles.body} ${on ? theme.text : theme.textMuted}`}>{label}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={on}
+                aria-label={t('homeLayoutSettings.show', { label })}
+                onClick={() => {
+                  impactLight();
+                  setHomeDeviceBlocks({ ...blocks, [key]: !on });
+                }}
+                className={`inpx-switch relative ml-1 h-7 w-12 shrink-0 rounded-full ${theme.focusRing} ${on ? theme.accentBg : theme.panel}`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform duration-200 ease-out ${
+                    on ? 'translate-x-[1.125rem]' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

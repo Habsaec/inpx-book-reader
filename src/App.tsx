@@ -29,6 +29,7 @@ import { useAndroidLaunch } from './hooks/useAndroidLaunch';
 import { useServerBranding } from './hooks/useServerBranding';
 import { useServerConnection } from './hooks/useServerConnection';
 import { useEinkMode } from './hooks/useEinkMode';
+import { useLauncherSettings, useLauncherState } from './lib/launcherHome';
 import { useLocalLibrary } from './hooks/useLocalLibrary';
 import { useDownloadPipeline } from './hooks/useDownloadPipeline';
 import { useAppSync } from './hooks/useAppSync';
@@ -194,14 +195,33 @@ export default function App() {
   /** Bumped on Profile tab re-tap — back to the settings section list. */
   const [profileRootEpoch, setProfileRootEpoch] = React.useState(0);
   /** Profile stat tile → open this «Мои книги» collection. */
-  const [libraryOpenRequest, setLibraryOpenRequest] = React.useState<{ seg: LibrarySeg; n: number } | null>(null);
+  const [libraryOpenRequest, setLibraryOpenRequest] = React.useState<{ seg: LibrarySeg; n: number; folderId?: string } | null>(null);
   /** Bumped when the header status icon opens connection settings. */
   const [connectionFocusEpoch, setConnectionFocusEpoch] = React.useState(0);
   /** Bumped by «Обновить» in the new-version snackbar — scroll Profile to the update block. */
   const [updateFocusEpoch, setUpdateFocusEpoch] = React.useState(0);
   const readerOriginTabRef = React.useRef<AppTab>('home');
 
-  const { resetExitPrompt } = useAppBackButton(() => snackbar.show(t('app.pressAgainToExit'), undefined, 'default', 4000));
+  const launcherState = useLauncherState();
+  const launcherSettings = useLauncherSettings();
+  /** The app is the device's home screen right now («Профиль → Домашний экран»). */
+  const launcherActive = launcherState.isDefault;
+  const launcherActiveRef = React.useRef(launcherActive);
+  launcherActiveRef.current = launcherActive;
+  /** Launcher «Все приложения» (bottom tab «Приложения»); shown inside the Home tab. */
+  const [launcherAppsOpen, setLauncherAppsOpen] = React.useState(false);
+  const activeTabRef = React.useRef<AppTab>('home');
+  const goHomeTabRef = React.useRef<() => void>(() => {});
+
+  const { resetExitPrompt } = useAppBackButton(
+    () => snackbar.show(t('app.pressAgainToExit'), undefined, 'default', 4000),
+    () => {
+      if (!launcherActiveRef.current) return false;
+      // Launcher: Back on another tab goes Home, on Home it does nothing.
+      if (activeTabRef.current !== 'home') goHomeTabRef.current();
+      return true;
+    },
+  );
   // Смена вкладки между двумя Back отменяет окно «ещё раз для выхода».
   React.useEffect(() => {
     resetExitPrompt();
@@ -291,8 +311,11 @@ export default function App() {
       }
     }
 
+    setLauncherAppsOpen(false);
     setActiveTab(tab);
   }, [activeTab, clearCatalogDrilldown]);
+  activeTabRef.current = activeTab;
+  goHomeTabRef.current = () => handleTabChange('home');
 
   const handleOpenConnectionSettings = React.useCallback(() => {
     handleTabChange('profile');
@@ -718,6 +741,11 @@ export default function App() {
     // Widget taps that lead elsewhere leave an open book first.
     onOpenScreen: (tab) => {
       if (activeReaderRef.current) void handleCloseReader();
+      // Widget / launcher «Домой»: a book page, actions or queue sheet must not stay on top.
+      setActionsTarget(null);
+      setQueueSheetOpen(false);
+      setDownloadPromptBook(null);
+      setDownloadPromptError(null);
       handleTabChange(tab);
     },
     onOpenBookDetails: (book) => {
@@ -1409,6 +1437,13 @@ export default function App() {
           onSearchAuthor={(name) => handleNavigateToCatalog(CATALOG_BROWSE_ROOT, name, null, activeTab === 'catalog' ? null : activeTab)}
           onSearchSeries={(name) => handleNavigateToCatalog(CATALOG_BROWSE_ROOT, null, name, activeTab === 'catalog' ? null : activeTab)}
           onSearchBook={handleHomeSearchBook}
+          launcherTabs={launcherActive ? {
+            appsOpen: launcherAppsOpen && activeTab === 'home',
+            onOpenApps: () => {
+              if (activeTab !== 'home') handleTabChange('home');
+              setLauncherAppsOpen(true);
+            },
+          } : null}
         >
           <TabScreenPanel active={activeTab === 'home'}>
             <HomeTab
@@ -1448,6 +1483,28 @@ export default function App() {
               onAuthExpired={markAuthExpired}
               onConnectionLost={reportConnectionLost}
               siteName={siteName}
+              launcher={launcherActive ? {
+                blocks: launcherSettings.blocks,
+                pinnedApps: launcherSettings.pinnedApps,
+                appsOpen: launcherAppsOpen,
+                onAppsOpenChange: setLauncherAppsOpen,
+                onOpenProfile: () => handleTabChange('profile'),
+              } : null}
+              device={{
+                downloadedBooks: downloadedBooksWithFile,
+                onGoDownloaded: () => {
+                  handleTabChange('library');
+                  setLibraryOpenRequest((prev) => ({ seg: 'downloaded', n: (prev?.n ?? 0) + 1 }));
+                },
+                onGoFolders: () => {
+                  handleTabChange('library');
+                  setLibraryOpenRequest((prev) => ({ seg: 'local', n: (prev?.n ?? 0) + 1 }));
+                },
+                onOpenFolder: (folderId) => {
+                  handleTabChange('library');
+                  setLibraryOpenRequest((prev) => ({ seg: 'local', n: (prev?.n ?? 0) + 1, folderId }));
+                },
+              }}
             />
           </TabScreenPanel>
 
