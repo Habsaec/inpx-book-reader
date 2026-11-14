@@ -31,6 +31,10 @@ describe('storedBooks', () => {
       ext: 'fb2',
     });
     expect(parseStoredBookPath('Автор/Без серии/Книга.8_1.fb2')?.series).toBeUndefined();
+    // Outside a series a leading «N-» belongs to the title, it is not a volume number.
+    expect(parseStoredBookPath('Автор/Без серии/13-й воин.8_1.fb2')).toMatchObject({ title: '13-й воин' });
+    expect(parseStoredBookPath('Кинг Стивен/Без серии/11-22-63.8_2.epub')).toMatchObject({ title: '11-22-63' });
+    expect(parseStoredBookPath('Автор/Без серии/13-й воин.8_1.fb2')?.seriesNo).toBeUndefined();
     // A file another reader put into the folder: no id in the name → not ours.
     expect(parseStoredBookPath('Толстой/Война и мир.fb2')).toBeNull();
   });

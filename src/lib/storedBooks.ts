@@ -69,14 +69,15 @@ export function parseStoredBookPath(path: string): StoredBookFile | null {
   if (!id) return null;
   let title = stem.slice(0, dot);
   let seriesNo: number | undefined;
-  const numbered = /^(\d{1,5})-(.+)$/.exec(title);
+  const skip = placeholderNames();
+  const author = parts.length >= 2 && !skip.has(parts[0]!.toLowerCase()) ? parts[0]! : '';
+  const series = parts.length >= 3 && !skip.has(parts[1]!.toLowerCase()) ? parts[1]! : undefined;
+  // «N-» is a volume number only inside a series folder: «13-й воин», «11-22-63» are whole titles.
+  const numbered = series ? /^(\d{1,5})-(.+)$/.exec(title) : null;
   if (numbered) {
     seriesNo = Number(numbered[1]);
     title = numbered[2]!;
   }
-  const skip = placeholderNames();
-  const author = parts.length >= 2 && !skip.has(parts[0]!.toLowerCase()) ? parts[0]! : '';
-  const series = parts.length >= 3 && !skip.has(parts[1]!.toLowerCase()) ? parts[1]! : undefined;
   file = parts.join('/');
   return {
     id,
