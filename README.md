@@ -61,6 +61,7 @@ To change the server later: **Profile → Connection**.
 - The phone and the server are on the same network (or the server is reachable from outside).
 - On Windows, allow incoming connections on port `3000` in the firewall.
 - Plain HTTP without HTTPS is allowed on a home network.
+- HTTPS with a certificate from your own CA (mkcert etc.): install the root certificate in Android (Settings → Security → Install a certificate → CA certificate) — the app trusts the user certificate store. Certificate and host name checks stay on.
 
 </details>
 
