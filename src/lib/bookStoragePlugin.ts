@@ -69,6 +69,8 @@ export interface BookStoragePlugin {
   canListFast(options: { treeUri: string }): Promise<{ fast: boolean }>;
   requestAllFilesAccess(): Promise<{ granted: boolean }>;
   listBookFiles(options: { treeUri: string }): Promise<{ paths: string[] }>;
+  /** «name (N)» copies with their original next to them (Download/ / file:// folders); delete=true removes them. */
+  cleanupDuplicateFiles(options: { treeUri: string; delete?: boolean }): Promise<{ count: number; bytes: number; deleted: number }>;
   readStorageFileHeader(options: {
     treeUri: string;
     path: string;

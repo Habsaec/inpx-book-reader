@@ -7,7 +7,7 @@
 
 import React from 'react';
 import type { Book } from '../types';
-import { getAppSettingJson, setAppSettingJson } from './appSettings';
+import { APP_SETTINGS_HYDRATED_EVENT, getAppSettingJson, setAppSettingJson } from './appSettings';
 import { isFolderLocalBookId } from './importExternalBook';
 
 export const HOME_DEVICE_BLOCKS_KEY = 'home_device_blocks';
@@ -40,7 +40,12 @@ export function useHomeDeviceBlocks(): HomeDeviceBlocks {
   React.useEffect(() => {
     const onChange = () => setValue(getHomeDeviceBlocks());
     window.addEventListener(EVENT, onChange);
-    return () => window.removeEventListener(EVENT, onChange);
+    window.addEventListener(APP_SETTINGS_HYDRATED_EVENT, onChange);
+    onChange();
+    return () => {
+      window.removeEventListener(EVENT, onChange);
+      window.removeEventListener(APP_SETTINGS_HYDRATED_EVENT, onChange);
+    };
   }, []);
   return value;
 }

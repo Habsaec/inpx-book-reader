@@ -8,7 +8,7 @@ import React from 'react';
 import { registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { isNativeApp } from './platform';
-import { getAppSettingJson, getAppSettingString, setAppSettingJson, setAppSettingRaw } from './appSettings';
+import { APP_SETTINGS_HYDRATED_EVENT, getAppSettingJson, getAppSettingString, setAppSettingJson, setAppSettingRaw } from './appSettings';
 
 export interface LauncherState {
   supported: boolean;
@@ -18,6 +18,14 @@ export interface LauncherState {
   isDefault: boolean;
   /** Устройство Onyx BOOX: его автозаморозка снимает роль главного экрана — настройки предупреждают. */
   onyx?: boolean;
+  /** Android's battery optimisation is off for the app (other firmwares unload background apps through it). */
+  unrestricted?: boolean;
+  /** Android 10+: the system «make it the home screen» dialog is available. */
+  canRequestRole?: boolean;
+  /** BOOX: its app-freeze screen can be opened directly. */
+  canOpenFreeze?: boolean;
+  /** The reader was the home screen, the user did not switch away on purpose, and now it is not (BOOX freeze, an update…). */
+  lost?: boolean;
 }
 
 export interface LauncherApp {
@@ -26,11 +34,16 @@ export interface LauncherApp {
   label: string;
   /** data:image/png;base64,… */
   icon?: string;
+  /** Suspended by BOOX (the whole package is off): launching asks BOOX to unfreeze it first. */
+  frozen?: boolean;
 }
 
 interface LauncherHomePluginApi {
   getState(): Promise<LauncherState>;
   openHomeSettings(): Promise<{ ok: boolean }>;
+  requestHomeRole(): Promise<unknown>;
+  requestUnrestricted(): Promise<unknown>;
+  openFreezeSettings(): Promise<{ ok: boolean }>;
   openOtherLauncher(): Promise<{ ok: boolean; label?: string }>;
   listApps(opts?: { iconSize?: number }): Promise<{ items: LauncherApp[] }>;
   launchApp(opts: { packageName: string; activityName?: string }): Promise<{ ok: boolean }>;
@@ -42,8 +55,12 @@ const OFF_STATE: LauncherState = { supported: false, enabled: false, isDefault: 
 const STATE_EVENT = 'inpx-launcher-state';
 /** Last known «is the home screen»: a cold start as home draws the launcher layout at once (no extra E-Ink refresh). */
 const LAST_DEFAULT_KEY = 'launcher_last_default';
+/** '1' once the reader was the home screen; '0' after the user switched away on purpose. Drives the `lost` flag. */
+const WANTED_KEY = 'launcher_wanted';
 
 let lastState: LauncherState | null = null;
+/** True once the native plugin answered: a guess from the cached flag never overrides it. */
+let lastStateFromNative = false;
 
 export function getLastLauncherState(): LauncherState {
   if (!lastState) {
@@ -57,11 +74,18 @@ export async function readLauncherState(): Promise<LauncherState> {
   if (!isNativeApp()) return OFF_STATE;
   try {
     const state = await LauncherHome.getState();
+    lastStateFromNative = true;
+    const isDefault = Boolean(state?.isDefault);
+    if (isDefault && getAppSettingString(WANTED_KEY) !== '1') setAppSettingRaw(WANTED_KEY, '1');
     lastState = {
       supported: Boolean(state?.supported),
       enabled: Boolean(state?.enabled),
-      isDefault: Boolean(state?.isDefault),
+      isDefault,
       onyx: Boolean(state?.onyx),
+      unrestricted: Boolean(state?.unrestricted),
+      canRequestRole: Boolean(state?.canRequestRole),
+      canOpenFreeze: Boolean(state?.canOpenFreeze),
+      lost: !isDefault && Boolean(state?.enabled) && getAppSettingString(WANTED_KEY) === '1',
     };
   } catch {
     // Старая сборка без плагина.
@@ -73,19 +97,64 @@ export async function readLauncherState(): Promise<LauncherState> {
   return lastState;
 }
 
+/** The system dialog «make INPX Reader the home screen» (Settings on old systems); then the state again. */
+export async function requestHomeRole(): Promise<LauncherState> {
+  try {
+    await LauncherHome.requestHomeRole();
+  } catch {
+    /* old build */
+  }
+  return readLauncherState();
+}
+
+/** The system dialog «allow running in the background without limits». */
+export async function requestUnrestricted(): Promise<LauncherState> {
+  try {
+    await LauncherHome.requestUnrestricted();
+  } catch {
+    /* old build */
+  }
+  return readLauncherState();
+}
+
+export async function openFreezeSettings(): Promise<boolean> {
+  try {
+    return Boolean((await LauncherHome.openFreezeSettings())?.ok);
+  } catch {
+    return false;
+  }
+}
+
+/** The user leaves the home screen mode on purpose: no «it got lost» prompt afterwards. */
+export function forgetLauncherHome(): void {
+  setAppSettingRaw(WANTED_KEY, '0');
+  if (lastState?.lost) {
+    lastState = { ...lastState, lost: false };
+    window.dispatchEvent(new Event(STATE_EVENT));
+  }
+}
+
 /** Состояние режима; перечитывается при возврате в приложение (после системного выбора главного экрана). */
 export function useLauncherState(): LauncherState {
   const [state, setState] = React.useState<LauncherState>(getLastLauncherState);
   React.useEffect(() => {
     if (!isNativeApp()) return;
     const onChange = () => setState(getLastLauncherState());
+    // Read before the settings were loaded: guess again from the cached flag.
+    const onHydrated = () => {
+      if (lastStateFromNative) return;
+      lastState = null;
+      onChange();
+    };
     window.addEventListener(STATE_EVENT, onChange);
+    window.addEventListener(APP_SETTINGS_HYDRATED_EVENT, onHydrated);
     void readLauncherState();
     const sub = CapApp.addListener('appStateChange', ({ isActive }) => {
       if (isActive) void readLauncherState();
     });
     return () => {
       window.removeEventListener(STATE_EVENT, onChange);
+      window.removeEventListener(APP_SETTINGS_HYDRATED_EVENT, onHydrated);
       void sub.then((h) => h.remove()).catch(() => {});
     };
   }, []);
@@ -164,7 +233,12 @@ export function useLauncherSettings(): { blocks: LauncherBlocks; pinnedApps: str
   React.useEffect(() => {
     const onChange = () => setValue(read());
     window.addEventListener(SETTINGS_EVENT, onChange);
-    return () => window.removeEventListener(SETTINGS_EVENT, onChange);
+    window.addEventListener(APP_SETTINGS_HYDRATED_EVENT, onChange);
+    onChange();
+    return () => {
+      window.removeEventListener(SETTINGS_EVENT, onChange);
+      window.removeEventListener(APP_SETTINGS_HYDRATED_EVENT, onChange);
+    };
   }, []);
   return value;
 }

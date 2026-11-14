@@ -1909,6 +1909,81 @@ public final class BookStorageAccess {
         return listSafChildren(context, persisted, safRel);
     }
 
+    /** «name (2).fb2» — the copy Android makes when a write meets a file the app cannot see. */
+    private static final Pattern DUP_BEFORE_EXT =
+        Pattern.compile("^(.+) \\((\\d{1,4})\\)(\\.[A-Za-z0-9]{1,8}(?:\\.zip)?)$");
+    /** «cover.jpg (2)» — the same for names MediaStore did not recognise. */
+    private static final Pattern DUP_AFTER_EXT =
+        Pattern.compile("^(.+\\.[A-Za-z0-9]{1,8}) \\((\\d{1,4})\\)$");
+
+    /** Disk folder behind the library folder (Download/&lt;name&gt; or file://); null for SAF trees. */
+    private static File diskRootOf(String treeUri) {
+        if (treeUri == null) return null;
+        String downloadsFolder = effectiveDownloadsFolder(treeUri);
+        if (downloadsFolder != null) {
+            return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), downloadsFolder);
+        }
+        if (isFileUri(treeUri)) {
+            String path = Uri.parse(treeUri).getPath();
+            return path == null ? null : new File(path);
+        }
+        return null;
+    }
+
+    /**
+     * Copies «name (N).ext» / «name.ext (N)» inside the library folder (also .inpx-reader) whose
+     * original «name.ext» lies next to them. They piled up after reinstalls: the new install could
+     * not see the old files and every write made a new copy. Only copies with an original count.
+     * @return { count, bytes, deleted }
+     */
+    public static long[] cleanupDuplicateFiles(String treeUri, boolean delete) {
+        long[] acc = new long[3];
+        File root = diskRootOf(treeUri);
+        if (root != null && root.isDirectory()) walkDuplicates(root, acc, delete, 0);
+        return acc;
+    }
+
+    /**
+     * The name with every «(N)» copy suffix stripped: copies of copies exist («x_thumb (1).jpg (1)»),
+     * and their nearest «original» is itself a copy that the same pass may remove — so the check is
+     * against the real original. Returns the name itself when it is not a copy.
+     */
+    static String originalNameOf(String name) {
+        String current = name;
+        for (int i = 0; i < 8; i++) {
+            Matcher before = DUP_BEFORE_EXT.matcher(current);
+            if (before.matches()) {
+                current = before.group(1) + before.group(3);
+                continue;
+            }
+            Matcher after = DUP_AFTER_EXT.matcher(current);
+            if (after.matches()) {
+                current = after.group(1);
+                continue;
+            }
+            break;
+        }
+        return current;
+    }
+
+    private static void walkDuplicates(File dir, long[] acc, boolean delete, int depth) {
+        if (depth > 6) return;
+        File[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (File child : kids) {
+            if (child.isDirectory()) {
+                walkDuplicates(child, acc, delete, depth + 1);
+                continue;
+            }
+            String name = child.getName();
+            String original = originalNameOf(name);
+            if (original.equals(name) || !new File(dir, original).isFile()) continue;
+            acc[0]++;
+            acc[1] += child.length();
+            if (delete && child.delete()) acc[2]++;
+        }
+    }
+
     /** fb2/epub/fbz already in the library folder (other readers, old downloads). Depth and count are capped. */
     public static ArrayList<String> listBookRelPaths(Context context, String treeUri) throws Exception {
         requireStorageAccess(context, treeUri);

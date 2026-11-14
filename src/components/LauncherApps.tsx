@@ -1,5 +1,6 @@
 import React from 'react';
-import { Grid3x3, Home, Pin, PinOff, User } from 'lucide-react';
+import { Grid3x3, Home, Pin, PinOff, Snowflake, User } from 'lucide-react';
+import { App as CapApp } from '@capacitor/app';
 import { theme } from '../lib/appTheme';
 import { textStyles, motion, radii } from '../ui/tokens';
 import IconButton from '../ui/IconButton';
@@ -51,8 +52,17 @@ function useLauncherApps(refreshKey = 0) {
     void loadApps(refreshKey > 0).then((list) => {
       if (!cancelled) setApps(list);
     });
+    // BOOX suspends / unfreezes apps while the reader is in the background (and an app may have been
+    // installed or removed): read the list again on return, so the snowflakes and entries are current.
+    const sub = CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) return;
+      void loadApps(true).then((list) => {
+        if (!cancelled) setApps(list);
+      });
+    });
     return () => {
       cancelled = true;
+      void sub.then((h) => h.remove()).catch(() => {});
     };
   }, [refreshKey]);
   return apps;
@@ -66,11 +76,24 @@ function launch(app: LauncherApp, onFail: () => void) {
     .catch(onFail);
 }
 
+/** Suspended by BOOX: a snowflake on the icon, like BOOX's own launcher; a tap still opens the app. */
 function AppIcon({ app, size = 'w-12 h-12' }: { app: LauncherApp; size?: string }) {
-  return app.icon ? (
-    <img src={app.icon} alt="" className={`${size} shrink-0 object-contain`} draggable={false} />
-  ) : (
-    <span className={`${size} shrink-0 ${radii.button} bg-[var(--app-panel-soft)]`} aria-hidden />
+  return (
+    <span className={`relative ${size} shrink-0`}>
+      {app.icon ? (
+        <img src={app.icon} alt="" className={`${size} object-contain`} draggable={false} />
+      ) : (
+        <span className={`block ${size} ${radii.button} bg-[var(--app-panel-soft)]`} aria-hidden />
+      )}
+      {app.frozen ? (
+        <span
+          className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border border-[color:var(--app-border)] bg-[var(--app-surface)] inline-flex items-center justify-center"
+          title={t('launcherHome.suspended')}
+        >
+          <Snowflake className={`w-3.5 h-3.5 ${theme.text}`} aria-hidden />
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -160,19 +183,7 @@ export function LauncherAppsPanel({
   return (
     <div className="flex-1 min-h-0 overflow-y-auto inpx-page-scroll px-5 py-4 min-[600px]:px-8">
       <div className="mx-auto w-full max-w-[60rem]">
-        <PanelRow
-          icon={<User className="w-6 h-6" aria-hidden />}
-          title={t('launcherHome.profileAndSettings')}
-          hint={t('launcherHome.profileAndSettingsHint')}
-          onClick={onOpenProfile}
-        />
-        <PanelRow
-          icon={<Home className="w-6 h-6" aria-hidden />}
-          title={t('launcherHome.otherLauncher')}
-          hint={t('launcherHome.otherLauncherHint')}
-          onClick={openOther}
-        />
-        <p className={`mt-3 mb-1 ${textStyles.caption} ${theme.textMuted}`}>
+        <p className={`mb-1 ${textStyles.caption} ${theme.textMuted}`}>
           {t('launcherHome.pinHint', { max: LAUNCHER_PINNED_APPS_MAX })}
         </p>
         {apps == null ? (
@@ -220,6 +231,21 @@ export function LauncherAppsPanel({
             })}
           </ul>
         )}
+        {/* Service rows go last: the apps are what this list is opened for. */}
+        <div className="mt-4 border-t border-[color:var(--app-border)]">
+          <PanelRow
+            icon={<User className="w-6 h-6" aria-hidden />}
+            title={t('launcherHome.profileAndSettings')}
+            hint={t('launcherHome.profileAndSettingsHint')}
+            onClick={onOpenProfile}
+          />
+          <PanelRow
+            icon={<Home className="w-6 h-6" aria-hidden />}
+            title={t('launcherHome.otherLauncher')}
+            hint={t('launcherHome.otherLauncherHint')}
+            onClick={openOther}
+          />
+        </div>
       </div>
     </div>
   );

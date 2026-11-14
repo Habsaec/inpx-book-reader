@@ -47,7 +47,7 @@ export function getStorageNameStyle(): StorageNameStyle {
 }
 
 // Per-device / per-account caches never go into the settings file (launcher: `launcherHome.ts`).
-const SETTINGS_BACKUP_SKIP = new Set(['server_theme_cache', 'server_background', 'launcher_last_default']);
+const SETTINGS_BACKUP_SKIP = new Set(['server_theme_cache', 'server_background', 'launcher_last_default', 'launcher_wanted', 'stored_books_asked']);
 
 export async function exportAppSettingsJson(): Promise<string> {
   const keys = await getAllAppSettingKeys();
@@ -137,10 +137,15 @@ export async function hydrateAppSettings(): Promise<void> {
       }
       await migrateLegacySettings();
       hydrated = true;
+      // The UI renders before this finishes: hooks that read settings at mount re-read on this event
+      // (a list read as empty and then saved would wipe the stored one — pinned launcher apps did).
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event(APP_SETTINGS_HYDRATED_EVENT));
     })();
   }
   return hydratePromise;
 }
+
+export const APP_SETTINGS_HYDRATED_EVENT = 'inpx-app-settings-hydrated';
 
 export function isAppSettingsHydrated(): boolean {
   return hydrated;

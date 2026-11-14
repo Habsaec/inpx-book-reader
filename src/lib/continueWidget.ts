@@ -36,10 +36,15 @@ export function widgetCoverCachePath(bookId: string): string {
   return `covers/${safeBookIdFileKey(bookId)}_thumb.jpg`;
 }
 
-async function resolveCoverPath(bookId: string): Promise<string> {
+/**
+ * Absolute path of a cached cover file (app cache `covers/<key>_<variant>.jpg`), for native code.
+ * Widgets prefer the small thumb; the BOOX sleep picture prefers the full cover.
+ */
+export async function resolveCoverPath(bookId: string, prefer: 'thumb' | 'full' = 'thumb'): Promise<string> {
   if (!bookId) return '';
   const key = safeBookIdFileKey(bookId);
-  for (const suffix of ['thumb', 'full'] as const) {
+  const order = prefer === 'full' ? (['full', 'thumb'] as const) : (['thumb', 'full'] as const);
+  for (const suffix of order) {
     try {
       const path = `covers/${key}_${suffix}.jpg`;
       const exists = await BookStorage.appCacheFileExists({ path });

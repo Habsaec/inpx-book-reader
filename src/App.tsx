@@ -29,7 +29,23 @@ import { useAndroidLaunch } from './hooks/useAndroidLaunch';
 import { useServerBranding } from './hooks/useServerBranding';
 import { useServerConnection } from './hooks/useServerConnection';
 import { useEinkMode } from './hooks/useEinkMode';
-import { useLauncherSettings, useLauncherState } from './lib/launcherHome';
+import {
+  forgetLauncherHome,
+  openFreezeSettings,
+  requestHomeRole,
+  requestUnrestricted,
+  useLauncherSettings,
+  useLauncherState,
+} from './lib/launcherHome';
+import { useDialog } from './ui/Dialog';
+import {
+  STORED_BOOKS_ASKED_KEY,
+  STORED_BOOKS_RESCAN_EVENT,
+  hasStoredFilesAccess,
+  isDownloadsLibraryFolder,
+  reattachStoredBooks,
+  requestStoredFilesAccess,
+} from './lib/storedBooks';
 import { useLocalLibrary } from './hooks/useLocalLibrary';
 import { useDownloadPipeline } from './hooks/useDownloadPipeline';
 import { useAppSync } from './hooks/useAppSync';
@@ -72,6 +88,7 @@ import { resolveNextInSeries, type NextInSeriesResult } from './lib/seriesNaviga
 import {
   FOLLOWING_WIDGET_MAX_BOOKS,
   isFollowingWidgetPlaced,
+  resolveCoverPath,
   syncContinueReadingWidget,
   syncFollowingWidget,
 } from './lib/continueWidget';
@@ -91,7 +108,8 @@ import {
 } from './lib/inpxClient';
 import { recentRemovedOnServer, withoutFinishedReading } from './lib/localReadingProgress';
 import { clearOfflineReadingHistory } from './lib/offlineReaderStore';
-import { warmCoverCache } from './lib/coverCache';
+import { resolveCoverUrl, warmCoverCache } from './lib/coverCache';
+import { setSleepScreenStatus, syncSleepScreen, useSleepScreenSettings } from './lib/sleepScreen';
 import { isBookDownloadInFlight, resolveBookPrimaryAction } from './lib/bookOpenPolicy';
 import type { Book, Shelf } from './types';
 
@@ -1191,6 +1209,119 @@ export default function App() {
         : null,
     );
   }, [localRecentReading, downloadedBooksWithFile, inpxServer.readIds, readingProgressByBookId]);
+
+  // Books already in the library folder that the app does not know (a reinstall wipes its list, the
+  // files stay): found from their file names and registered again instead of being downloaded twice.
+  const downloadedBooksRef = React.useRef(downloadedBooks);
+  downloadedBooksRef.current = downloadedBooks;
+  const runStoredBooksScan = React.useCallback(
+    async (opts: { announceNone?: boolean; askAccess?: boolean } = {}) => {
+      if (!isAndroid() || !storageDirectory?.uri) return;
+      if (isDownloadsLibraryFolder(storageDirectory) && !(await hasStoredFilesAccess())) {
+        if (!opts.askAccess) return;
+        // Android 11+: the old files are invisible to a new install until «All files access» is on.
+        if (!(await requestStoredFilesAccess())) {
+          snackbar.show(t('storedBooks.noAccess'));
+          return;
+        }
+      }
+      const added = await reattachStoredBooks({
+        directory: storageDirectory,
+        known: downloadedBooksRef.current,
+        config: serverConfig,
+        register: registerDownloadedBook,
+      });
+      if (added > 0) snackbar.show(t('storedBooks.found', { n: added }));
+      else if (opts.announceNone) snackbar.show(t('storedBooks.noneFound'));
+    },
+    [storageDirectory, serverConfig, registerDownloadedBook, snackbar],
+  );
+  const storedBooksScannedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!libraryReady || !storageDirectoryReady || !storageDirectory?.uri || storedBooksScannedRef.current) return;
+    storedBooksScannedRef.current = true;
+    void (async () => {
+      // A fresh install that already has a library folder in Download/: ask once for the access that
+      // lets it see the old files; every other start just picks up what it can see.
+      const fresh = downloadedBooksRef.current.length === 0;
+      const asked = getAppSettingString(STORED_BOOKS_ASKED_KEY) === '1';
+      if (fresh && !asked && isDownloadsLibraryFolder(storageDirectory) && !(await hasStoredFilesAccess())) {
+        setAppSettingRaw(STORED_BOOKS_ASKED_KEY, '1');
+        const ok = await dialog.confirm({
+          title: t('storedBooks.askTitle'),
+          message: t('storedBooks.askMessage'),
+          confirmLabel: t('storedBooks.allow'),
+          cancelLabel: t('storedBooks.notNow'),
+        });
+        if (ok) await runStoredBooksScan({ askAccess: true, announceNone: true });
+        return;
+      }
+      await runStoredBooksScan();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per start, when the library is loaded
+  }, [libraryReady, storageDirectoryReady, storageDirectory?.uri]);
+  // Profile → Хранилище «Найти скачанные книги» (also asks for access when it is missing).
+  React.useEffect(() => {
+    const onRescan = () => void runStoredBooksScan({ askAccess: true, announceNone: true });
+    window.addEventListener(STORED_BOOKS_RESCAN_EVENT, onRescan);
+    return () => window.removeEventListener(STORED_BOOKS_RESCAN_EVENT, onRescan);
+  }, [runStoredBooksScan]);
+
+  // The reader was the home screen and stopped being it without the user choosing another one
+  // (BOOX auto-freeze, an update, a firmware reset): say so once per start and offer the system
+  // dialog to take it back. «Не надо» = the user is fine without it, never asked again.
+  const dialog = useDialog();
+  const launcherLostAskedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!launcherState.lost || !libraryReady || launcherLostAskedRef.current) return;
+    launcherLostAskedRef.current = true;
+    const onyx = Boolean(launcherState.onyx);
+    void dialog
+      .confirm({
+        title: t('launcherLost.title'),
+        message: onyx ? t('launcherLost.messageBoox') : t('launcherLost.message'),
+        confirmLabel: t('launcherLost.restore'),
+        cancelLabel: t('launcherLost.notNow'),
+      })
+      .then(async (ok) => {
+        if (!ok) {
+          forgetLauncherHome();
+          return;
+        }
+        const next = await requestHomeRole();
+        if (next.onyx && next.canOpenFreeze) {
+          snackbar.show(t('launcherLost.freezeSnack'), { label: t('launcherSettings.open'), onClick: () => void openFreezeSettings() });
+        } else if (!next.onyx && !next.unrestricted) {
+          snackbar.show(t('launcherLost.backgroundSnack'), { label: t('launcherSettings.allow'), onClick: () => void requestUnrestricted() });
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per start, when the loss is seen
+  }, [launcherState.lost, libraryReady]);
+
+  // BOOX sleep picture: the same current book as the widget (device setting, Profile → Внешний вид).
+  const sleepScreenSettings = useSleepScreenSettings();
+  React.useEffect(() => {
+    if (!sleepScreenSettings.enabled) return;
+    const hero = withoutFinishedReading(localRecentReading, inpxServer.readIds, readingProgressByBookId)[0];
+    const onDisk = hero
+      ? downloadedBooksWithFile.some((b) => b.id === hero.id && Boolean(b.localFileName?.trim()))
+      : false;
+    if (!hero || !onDisk) {
+      // Nothing to draw (e.g. right after a reinstall): the old picture stays; the setting says why.
+      if (libraryReady) setSleepScreenStatus({ state: 'no-book' });
+      return;
+    }
+    const progress = readingProgressByBookId[hero.id] ?? hero.readProgress;
+    const series = hero.series ? `${hero.series}${hero.seriesNo ? ` · ${hero.seriesNo}` : ''}` : '';
+    void syncSleepScreen(
+      { id: hero.id, title: hero.title, author: hero.authorsDisplay, series, progress },
+      async (bookId) => {
+        // The full cover looks far better at full screen; fetched once when online, else the thumb.
+        await resolveCoverUrl({ bookId, variant: 'full', directory: storageDirectory, config: serverConfig }).catch(() => null);
+        return resolveCoverPath(bookId, 'full');
+      },
+    );
+  }, [sleepScreenSettings, localRecentReading, downloadedBooksWithFile, inpxServer.readIds, readingProgressByBookId, storageDirectory, serverConfig, libraryReady]);
 
   // Web «Убрать» from «Читаю» deletes the server history row, but a downloaded book with local
   // progress kept coming back here. When the server history changes, hide those books locally.

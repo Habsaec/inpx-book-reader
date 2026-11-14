@@ -47,6 +47,8 @@ import { setHomeLayout, useHomeLayout } from '../lib/homeLayout';
 import { forgetAccountForConfig } from '../lib/accounts';
 import HomeLayoutSettings, { HomeDeviceBlocksSettings } from './HomeLayoutSettings';
 import LauncherSettings from './LauncherSettings';
+import SleepScreenSettings from './SleepScreenSettings';
+import StoredBooksSettings from './StoredBooksSettings';
 import { scanAppPairingQr, isQrScanCanceled } from '../lib/scanAppPairingQr';
 import type { AppAppearance, AppColorSource } from '../lib/serverTheme';
 import type { EinkModePref } from '../lib/einkMode';
@@ -598,6 +600,7 @@ export default function SyncSettingsTab({
               }))}
             />
             <LauncherSettings />
+            <SleepScreenSettings />
             {(
               [
                 {
@@ -718,6 +721,7 @@ export default function SyncSettingsTab({
           <Button className="w-full whitespace-nowrap" onClick={handlePickFolder} loading={pickingFolder} disabled={pickingFolder}>
             {t('syncSettingsTab.addAFolder')}
           </Button>
+          <StoredBooksSettings storageDirectory={storageDirectory} />
         </section>
 
         <section className={sectionClass}>

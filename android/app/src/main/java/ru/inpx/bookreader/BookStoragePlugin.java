@@ -727,4 +727,25 @@ public class BookStoragePlugin extends Plugin {
             call.reject(e.getMessage(), e);
         }
     }
+
+    /** Counts (delete=false) or removes (delete=true) «name (N)» copies that have their original next to them. */
+    @PluginMethod
+    public void cleanupDuplicateFiles(PluginCall call) {
+        final String treeUri = call.getString("treeUri");
+        final boolean delete = Boolean.TRUE.equals(call.getBoolean("delete", false));
+        getBridge().execute(() -> {
+            JSObject ret = new JSObject();
+            try {
+                long[] acc = BookStorageAccess.cleanupDuplicateFiles(treeUri, delete);
+                ret.put("count", acc[0]);
+                ret.put("bytes", acc[1]);
+                ret.put("deleted", acc[2]);
+            } catch (Exception e) {
+                ret.put("count", 0);
+                ret.put("bytes", 0);
+                ret.put("deleted", 0);
+            }
+            call.resolve(ret);
+        });
+    }
 }
