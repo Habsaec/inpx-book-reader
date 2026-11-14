@@ -32,7 +32,6 @@ export const APP_SETTING_KEYS = {
   homeRecent: 'home_recent',
   storageNames: 'storage_names',
   libraryFolders: 'library_folders',
-  downloadedGrouping: 'downloaded_grouping',
 } as const;
 
 export type HomeRecentMode = 'on' | 'off' | 'fav';

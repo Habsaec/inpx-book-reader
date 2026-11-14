@@ -50,46 +50,67 @@ export function filterBooksLocal(books: Book[], query: string): Book[] {
   });
 }
 
-/** «Скачанные» grouping: one flat list, a section per author, or a section per series. */
-export type LocalBookGrouping = 'none' | 'author' | 'series';
-
+/** A section of «Скачанные»: an author, or a series of an author's books. */
 export interface LocalBookGroup {
   key: string;
   label: string;
   books: Book[];
 }
 
-function bySeriesVolume(a: Book, b: Book): number {
-  const sa = (a.seriesDisplay || a.series || '').trim();
-  const sb = (b.seriesDisplay || b.series || '').trim();
-  if (!sa !== !sb) return sa ? -1 : 1;
-  return sa.localeCompare(sb, 'ru') || seriesVolumeSortKey(a) - seriesVolumeSortKey(b) || a.title.localeCompare(b.title, 'ru');
+/** One name per person: `authors` when the book has them, else the joined line split on commas. */
+export function bookAuthorNames(book: Book): string[] {
+  const list = (book.authors?.length ? book.authors : (book.author || '').split(','))
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return [...new Set(list)];
+}
+
+function sortGroups(groups: LocalBookGroup[]): LocalBookGroup[] {
+  return groups.sort((a, b) => {
+    if (!a.key !== !b.key) return a.key ? -1 : 1;
+    return a.label.localeCompare(b.label, 'ru');
+  });
+}
+
+function byVolume(a: Book, b: Book): number {
+  return seriesVolumeSortKey(a) - seriesVolumeSortKey(b) || a.title.localeCompare(b.title, 'ru');
 }
 
 /**
- * Sections for «Скачанные». Authors: the book's author line as written (co-authors stay one group,
- * so a book is never listed twice), books by series and volume inside. Series: books by volume,
- * books outside a series in one last section. Sections are sorted by name; the unnamed one goes last.
+ * «Скачанные» like the catalog: one entry per author (a co-written book is listed under each
+ * of its authors), sorted by name, «Неизвестный автор» last.
  */
-export function groupBooksLocal(books: Book[], grouping: LocalBookGrouping): LocalBookGroup[] {
-  if (grouping === 'none') return [{ key: '', label: '', books }];
+export function groupBooksByAuthor(books: Book[]): LocalBookGroup[] {
   const map = new Map<string, LocalBookGroup>();
-  const fallback = grouping === 'author' ? t('common.unknownAuthor') : t('common.noSeries');
   for (const book of books) {
-    const raw = grouping === 'author' ? (book.author || '').trim() : (book.seriesDisplay || book.series || '').trim();
-    const key = raw.toLocaleLowerCase('ru');
+    const names = bookAuthorNames(book);
+    for (const name of names.length ? names : ['']) {
+      const key = name.toLocaleLowerCase('ru');
+      let group = map.get(key);
+      if (!group) {
+        group = { key, label: name || t('common.unknownAuthor'), books: [] };
+        map.set(key, group);
+      }
+      group.books.push(book);
+    }
+  }
+  return sortGroups([...map.values()]);
+}
+
+/** An author's books by series (volume order), books outside a series in a last «Вне серий» section. */
+export function groupBooksBySeries(books: Book[]): LocalBookGroup[] {
+  const map = new Map<string, LocalBookGroup>();
+  for (const book of books) {
+    const name = (book.seriesDisplay || book.series || '').trim();
+    const key = name.toLocaleLowerCase('ru');
     let group = map.get(key);
     if (!group) {
-      group = { key, label: raw || fallback, books: [] };
+      group = { key, label: name || t('common.outsideSeries'), books: [] };
       map.set(key, group);
     }
     group.books.push(book);
   }
-  const groups = [...map.values()];
-  for (const group of groups) group.books.sort(bySeriesVolume);
-  groups.sort((a, b) => {
-    if (!a.key !== !b.key) return a.key ? -1 : 1;
-    return a.label.localeCompare(b.label, 'ru');
-  });
+  const groups = sortGroups([...map.values()]);
+  for (const group of groups) group.books.sort(byVolume);
   return groups;
 }
