@@ -12,8 +12,9 @@ import { useOverlayBackHandler } from '../hooks/useBackHandler';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import type { UiShelf } from '../lib/inpxClient';
 import Button from '../ui/Button';
-import { filterBooksLocal, groupBooksByAuthor, groupBooksBySeries, sortBooksLocal } from '../lib/localBookSort';
-import LiteEntityRow from './LiteEntityRow';
+import { filterBooksLocal, sortBooksLocal } from '../lib/localBookSort';
+import { downloadedFolderView, existingDownloadedPath } from '../lib/downloadedFolders';
+import { FolderCells } from './mybooks/LocalFolderBrowser';
 import LocalBookFilter from './mybooks/LocalBookFilter';
 import { usePageTitle } from '../ui/pageTitle';
 import { useBarHeight } from '../ui/useBarHeight';
@@ -64,7 +65,7 @@ export default function DeviceLibraryTab({
   resetEpoch = 0,
 }: DeviceLibraryTabProps) {
   usePageTitle(t('common.onTheDevice'), undefined, !embedded);
-  const [openAuthor, setOpenAuthor] = React.useState<string | null>(null);
+  const [path, setPath] = React.useState<string[]>([]);
   const [selectMode, setSelectMode] = React.useState(false);
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [shelfPickerOpen, setShelfPickerOpen] = React.useState(false);
@@ -74,36 +75,37 @@ export default function DeviceLibraryTab({
   const { viewMode, setViewMode } = useCatalogViewMode('books');
   const resetEpochSeen = React.useRef(resetEpoch);
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
-  const authorsScrollTop = React.useRef(0);
+  const scrollByDepth = React.useRef<number[]>([]);
 
-  // Like the catalog: authors → an author's books by series. A search shows the matching books flat.
+  // As the books lie in the library folder (Автор/Серия/файл). A search shows the matching books flat.
   const sorted = books;
-  const authors = React.useMemo(() => groupBooksByAuthor(books), [books]);
-  const current = openAuthor == null ? null : authors.find((g) => g.key === openAuthor) ?? null;
-  const seriesGroups = React.useMemo(() => (current ? groupBooksBySeries(current.books) : []), [current]);
+  const view = React.useMemo(() => downloadedFolderView(books, path), [books, path]);
   const searchHits = React.useMemo(
     () => (query.trim() ? sortBooksLocal(filterBooksLocal(books, query), 'title') : null),
     [books, query],
   );
   const downloadedIds = React.useMemo(() => books.map((b) => b.id), [books]);
-  const showBooks = Boolean(searchHits || current);
+  const shownBooks = searchHits ?? view.books;
 
-  // The open author lost every book (files deleted): back to the authors.
+  // A folder emptied by a delete: go up to the nearest one that still has books.
   React.useEffect(() => {
-    if (openAuthor != null && !current) setOpenAuthor(null);
-  }, [openAuthor, current]);
+    const p = existingDownloadedPath(books, path);
+    if (p.length !== path.length) setPath(p);
+  }, [books, path]);
 
-  useOverlayBackHandler(openAuthor != null && !searchHits, () => setOpenAuthor(null));
-
-  // An author opens at the top; back to the authors returns to where the list was.
-  const openAuthorPage = React.useCallback((key: string) => {
-    authorsScrollTop.current = scrollRef.current?.scrollTop ?? 0;
-    setOpenAuthor(key);
-  }, []);
+  const openFolder = React.useCallback((name: string) => {
+    scrollByDepth.current[path.length] = scrollRef.current?.scrollTop ?? 0;
+    scrollByDepth.current.length = path.length + 1;
+    setPath((p) => [...p, name]);
+  }, [path.length]);
+  const goUp = React.useCallback(() => setPath((p) => p.slice(0, -1)), []);
+  // A folder opens at the top; going up returns to where its parent list was.
   React.useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = openAuthor == null ? authorsScrollTop.current : 0;
-  }, [openAuthor]);
+    if (el) el.scrollTop = scrollByDepth.current[path.length] ?? 0;
+  }, [path]);
+
+  useOverlayBackHandler(path.length > 0 && !searchHits, goUp);
 
   const exitSelect = React.useCallback(() => {
     setSelectMode(false);
@@ -115,17 +117,17 @@ export default function DeviceLibraryTab({
   useOverlayBackHandler(selectMode, exitSelect);
   useOverlayBackHandler(shelfPickerOpen, () => setShelfPickerOpen(false));
 
-  // Selection belongs to the list on screen: leaving or opening an author drops it.
-  React.useEffect(() => {
-    exitSelect();
-  }, [openAuthor, exitSelect]);
-
   React.useEffect(() => {
     if (resetEpochSeen.current === resetEpoch) return;
     resetEpochSeen.current = resetEpoch;
     exitSelect();
-    setOpenAuthor(null);
+    setPath([]);
   }, [resetEpoch, exitSelect]);
+
+  // Selection belongs to the folder on screen.
+  React.useEffect(() => {
+    exitSelect();
+  }, [path, exitSelect]);
 
   const toggleSelected = React.useCallback((bookId: string) => {
     setSelected((prev) => {
@@ -208,100 +210,68 @@ export default function DeviceLibraryTab({
         {searchHits ? (
           searchHits.length === 0 ? (
             <p className={`py-8 text-center ${textStyles.body} ${theme.textMuted}`}>{t('common.nothingFound')}</p>
-          ) : (
-            <CatalogBookList
-              books={searchHits}
-              viewMode={viewMode}
-              serverConfig={serverConfig}
-              storageDirectory={storageDirectory}
-              downloadedBookIds={downloadedIds}
-              readingProgressByBookId={readingProgressByBookId}
-              readIds={readIds}
-              selectedBookIds={selectMode ? selected : undefined}
-              virtualizeList={false}
-              onBookClick={(book) => {
-                if (selectMode) {
-                  toggleSelected(book.id);
-                  return;
-                }
-                if (onOpenDetails) {
-                  onOpenDetails(book);
-                  return;
-                }
-                onOpenBook(book);
-              }}
-              onBookLongPress={
-                selectMode
-                  ? (book) => toggleSelected(book.id)
-                  : onBookLongPress
-              }
-            />
-          )
-        ) : current ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setOpenAuthor(null)}
-              className={`${touchMin} -ml-1 px-1 inline-flex items-center gap-2 ${textStyles.captionBold} ${theme.accentText} ${theme.focusRing}`}
-            >
-              <ArrowLeft className="w-5 h-5" aria-hidden /> {t('common.back')}
-            </button>
-            <div className="mt-1 mb-3">
-              <p className={`${textStyles.caption} ${theme.textMuted}`}>{t('common.author')}</p>
-              <h2 className={`${textStyles.bookTitle} ${theme.text}`}>{current.label}</h2>
-            </div>
-            <div className="flex flex-col gap-5">
-              {seriesGroups.map((group) => (
-                <section key={group.key || '_'} className="min-w-0">
-                  <div className="mb-1 flex items-baseline justify-between gap-2 min-h-10 px-0.5">
-                    <h3 className={`${textStyles.bookTitle} truncate`}>{group.label}</h3>
-                    <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted} tabular-nums`}>
-                      {tn('common.booksShort', group.books.length)}
-                    </span>
-                  </div>
-                  <CatalogBookList
-                    books={group.books}
-                    viewMode={viewMode}
-                    serverConfig={serverConfig}
-                    storageDirectory={storageDirectory}
-                    downloadedBookIds={downloadedIds}
-                    readingProgressByBookId={readingProgressByBookId}
-                    readIds={readIds}
-                    selectedBookIds={selectMode ? selected : undefined}
-                    virtualizeList={false}
-                    onBookClick={(book) => {
-                      if (selectMode) {
-                        toggleSelected(book.id);
-                        return;
-                      }
-                      if (onOpenDetails) {
-                        onOpenDetails(book);
-                        return;
-                      }
-                      onOpenBook(book);
-                    }}
-                    onBookLongPress={
-                      selectMode
-                        ? (book) => toggleSelected(book.id)
-                        : onBookLongPress
-                    }
-                  />
-                </section>
-              ))}
-            </div>
-          </>
+          ) : null
         ) : (
-          <div>
-            {authors.map((group) => (
-              <LiteEntityRow
-                key={group.key || '_'}
-                name={group.label}
-                count={group.books.length}
-                onClick={() => openAuthorPage(group.key)}
-              />
-            ))}
-          </div>
+          <>
+            {path.length > 0 ? (
+              <div className="mb-3">
+                <button
+                  type="button"
+                  onClick={goUp}
+                  className={`${touchMin} -ml-1 px-1 inline-flex items-center gap-2 ${textStyles.captionBold} ${theme.accentText} ${theme.focusRing}`}
+                >
+                  <ArrowLeft className="w-5 h-5" aria-hidden /> {t('common.back')}
+                </button>
+                <h2 className={`${textStyles.bookTitle} ${theme.text} break-words`}>{path[path.length - 1]}</h2>
+                {path.length > 1 ? (
+                  <p className={`${textStyles.caption} ${theme.textMuted} truncate`}>{path.slice(0, -1).join(' › ')}</p>
+                ) : null}
+              </div>
+            ) : null}
+            {view.folders.length > 0 ? (
+              <div className={view.books.length ? 'mb-4' : ''}>
+                <FolderCells
+                  viewMode={viewMode}
+                  items={view.folders.map((folder) => ({
+                    key: folder.name,
+                    label: folder.name,
+                    hint: tn('common.booksCount', folder.count),
+                    onClick: () => openFolder(folder.name),
+                  }))}
+                />
+              </div>
+            ) : null}
+          </>
         )}
+        {shownBooks.length > 0 ? (
+          <CatalogBookList
+            books={shownBooks}
+            viewMode={viewMode}
+            serverConfig={serverConfig}
+            storageDirectory={storageDirectory}
+            downloadedBookIds={downloadedIds}
+            readingProgressByBookId={readingProgressByBookId}
+            readIds={readIds}
+            selectedBookIds={selectMode ? selected : undefined}
+            virtualizeList={false}
+            onBookClick={(book) => {
+              if (selectMode) {
+                toggleSelected(book.id);
+                return;
+              }
+              if (onOpenDetails) {
+                onOpenDetails(book);
+                return;
+              }
+              onOpenBook(book);
+            }}
+            onBookLongPress={
+              selectMode
+                ? (book) => toggleSelected(book.id)
+                : onBookLongPress
+            }
+          />
+        ) : null}
       </div>
       <div
         ref={setToolEl}
@@ -309,10 +279,10 @@ export default function DeviceLibraryTab({
         style={{ top: 'calc(var(--app-header-offset, 4rem) + var(--inpx-under, 0px))' }}
       >
         {sorted.length > 1 ? <LocalBookFilter value={query} onChange={setQuery} /> : null}
-        {showBooks ? (
         <div className="flex items-center justify-end gap-3">
           <div className="flex items-center shrink-0">
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            {shownBooks.length > 0 || selectMode ? (
             <button
               type="button"
               className={`${touchMin} px-2 inline-flex items-center gap-1.5 ${textStyles.captionBold} ${theme.accentText} ${theme.focusRing}`}
@@ -324,9 +294,9 @@ export default function DeviceLibraryTab({
             >
               {selectMode ? t('common.cancel') : t('deviceLibraryTab.select')}
             </button>
+            ) : null}
           </div>
         </div>
-        ) : null}
         {selectMode && (
           <div className="flex items-center gap-2 flex-wrap">
             <p className={`${textStyles.caption} ${theme.textMuted}`}>
