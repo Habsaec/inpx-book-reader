@@ -380,6 +380,10 @@ export const en: Record<EnKey, string> = {
   'deviceLibraryTab.noDownloadsYet': 'No downloads yet',
   'deviceLibraryTab.booksYouDownloadFromThe': 'Books you download from the catalog will appear here.',
   'deviceLibraryTab.select': 'Select',
+  'deviceLibraryTab.grouping': 'Grouping',
+  'deviceLibraryTab.groupNone': 'All books',
+  'deviceLibraryTab.groupByAuthor': 'By author',
+  'deviceLibraryTab.groupBySeries': 'By series',
   'deviceLibraryTab.selected': 'Selected:',
   'deviceLibraryTab.deleteFiles': 'Delete files',
 

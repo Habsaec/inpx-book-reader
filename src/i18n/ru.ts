@@ -374,6 +374,10 @@ export const ru = {
   'deviceLibraryTab.noDownloadsYet': 'Загрузок пока нет',
   'deviceLibraryTab.booksYouDownloadFromThe': 'Здесь появятся книги, которые вы скачаете из каталога.',
   'deviceLibraryTab.select': 'Выбрать',
+  'deviceLibraryTab.grouping': 'Группировка',
+  'deviceLibraryTab.groupNone': 'Все книги',
+  'deviceLibraryTab.groupByAuthor': 'По авторам',
+  'deviceLibraryTab.groupBySeries': 'По сериям',
   'deviceLibraryTab.selected': 'Выбрано:',
   'deviceLibraryTab.deleteFiles': 'Удалить файлы',
 

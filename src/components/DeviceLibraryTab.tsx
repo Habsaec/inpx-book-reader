@@ -1,5 +1,5 @@
 import React from 'react';
-import { HardDrive, Trash2, FolderPlus } from 'lucide-react';
+import { HardDrive, Trash2, FolderPlus, ChevronDown } from 'lucide-react';
 import { theme } from '../lib/appTheme';
 import { textStyles, touchMin, radii } from '../ui/tokens';
 import { Book, ServerConfig } from '../types';
@@ -14,7 +14,14 @@ import type { UiShelf } from '../lib/inpxClient';
 import Button from '../ui/Button';
 import { readOfflineReaderData } from '../lib/offlineReaderStore';
 import { parseSyncTs } from '../lib/readerActivitySync';
-import { filterBooksLocal, sortBooksLocal } from '../lib/localBookSort';
+import { filterBooksLocal, groupBooksLocal, sortBooksLocal, type LocalBookGrouping } from '../lib/localBookSort';
+import ChoicePicker from '../ui/ChoicePicker';
+import {
+  APP_SETTING_KEYS,
+  APP_SETTINGS_HYDRATED_EVENT,
+  getAppSettingString,
+  setAppSettingRaw,
+} from '../lib/appSettings';
 import LocalBookFilter from './mybooks/LocalBookFilter';
 import { usePageTitle } from '../ui/pageTitle';
 import { useBarHeight } from '../ui/useBarHeight';
@@ -30,6 +37,32 @@ const DEVICE_SORT_OPTIONS: Array<{ id: DeviceSort; label: string }> = [
   { id: 'volume', label: t('common.volumeNumber') },
   { id: 'rating', label: t('common.rating') },
 ];
+
+const DEVICE_GROUP_OPTIONS: Array<{ id: LocalBookGrouping; label: string }> = [
+  { id: 'none', label: t('deviceLibraryTab.groupNone') },
+  { id: 'author', label: t('deviceLibraryTab.groupByAuthor') },
+  { id: 'series', label: t('deviceLibraryTab.groupBySeries') },
+];
+
+function readGrouping(): LocalBookGrouping {
+  const raw = getAppSettingString(APP_SETTING_KEYS.downloadedGrouping, 'none');
+  return raw === 'author' || raw === 'series' ? raw : 'none';
+}
+
+/** Grouping of «Скачанные», a device setting (app_meta): re-read once the settings are loaded. */
+function useDownloadedGrouping(): [LocalBookGrouping, (g: LocalBookGrouping) => void] {
+  const [grouping, setGrouping] = React.useState<LocalBookGrouping>(readGrouping);
+  React.useEffect(() => {
+    const onHydrated = () => setGrouping(readGrouping());
+    window.addEventListener(APP_SETTINGS_HYDRATED_EVENT, onHydrated);
+    return () => window.removeEventListener(APP_SETTINGS_HYDRATED_EVENT, onHydrated);
+  }, []);
+  const update = React.useCallback((g: LocalBookGrouping) => {
+    setGrouping(g);
+    setAppSettingRaw(APP_SETTING_KEYS.downloadedGrouping, g);
+  }, []);
+  return [grouping, update];
+}
 
 interface DeviceLibraryTabProps {
   books: Book[];
@@ -82,6 +115,8 @@ export default function DeviceLibraryTab({
   const [shelfPickerOpen, setShelfPickerOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [query, setQuery] = React.useState('');
+  const [grouping, setGrouping] = useDownloadedGrouping();
+  const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
   const [setToolEl, toolH] = useBarHeight();
   const { viewMode, setViewMode } = useCatalogViewMode('books');
   const resetEpochSeen = React.useRef(resetEpoch);
@@ -102,6 +137,21 @@ export default function DeviceLibraryTab({
   }, [books, readingProgressByBookId, sort]);
 
   const visible = React.useMemo(() => filterBooksLocal(sorted, query), [sorted, query]);
+  const groups = React.useMemo(() => groupBooksLocal(visible, grouping), [visible, grouping]);
+  const downloadedIds = React.useMemo(() => sorted.map((b) => b.id), [sorted]);
+
+  React.useEffect(() => {
+    setCollapsed(new Set());
+  }, [grouping]);
+
+  const toggleGroup = React.useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const exitSelect = React.useCallback(() => {
     setSelectMode(false);
@@ -200,33 +250,57 @@ export default function DeviceLibraryTab({
         {visible.length === 0 ? (
           <p className={`py-8 text-center ${textStyles.body} ${theme.textMuted}`}>{t('common.nothingFound')}</p>
         ) : null}
-        <CatalogBookList
-          books={visible}
-          viewMode={viewMode}
-          serverConfig={serverConfig}
-          storageDirectory={storageDirectory}
-          downloadedBookIds={sorted.map((b) => b.id)}
-          readingProgressByBookId={readingProgressByBookId}
-          readIds={readIds}
-          selectedBookIds={selectMode ? selected : undefined}
-          virtualizeList={false}
-          onBookClick={(book) => {
-            if (selectMode) {
-              toggleSelected(book.id);
-              return;
-            }
-            if (onOpenDetails) {
-              onOpenDetails(book);
-              return;
-            }
-            onOpenBook(book);
-          }}
-          onBookLongPress={
-            selectMode
-              ? (book) => toggleSelected(book.id)
-              : onBookLongPress
-          }
-        />
+        {groups.map((group) => {
+          const open = !collapsed.has(group.key);
+          return (
+            <section key={group.key || '_'} className={grouping === 'none' ? '' : 'mb-4'}>
+              {grouping !== 'none' ? (
+                <button
+                  type="button"
+                  className={`w-full flex items-center gap-2 py-2 text-left ${theme.focusRing}`}
+                  aria-expanded={open}
+                  onClick={() => toggleGroup(group.key)}
+                >
+                  <ChevronDown
+                    className={`w-4 h-4 shrink-0 ${theme.textMuted} ${open ? '' : '-rotate-90'}`}
+                    aria-hidden
+                  />
+                  <span className={`flex-1 min-w-0 truncate ${textStyles.bodyBold} ${theme.text}`}>{group.label}</span>
+                  <span className={`shrink-0 ${textStyles.caption} ${theme.textMuted}`}>{group.books.length}</span>
+                </button>
+              ) : null}
+              {open ? (
+              <CatalogBookList
+                books={group.books}
+                viewMode={viewMode}
+                serverConfig={serverConfig}
+                storageDirectory={storageDirectory}
+                downloadedBookIds={downloadedIds}
+                readingProgressByBookId={readingProgressByBookId}
+                readIds={readIds}
+                selectedBookIds={selectMode ? selected : undefined}
+                virtualizeList={false}
+                onBookClick={(book) => {
+                  if (selectMode) {
+                    toggleSelected(book.id);
+                    return;
+                  }
+                  if (onOpenDetails) {
+                    onOpenDetails(book);
+                    return;
+                  }
+                  onOpenBook(book);
+                }}
+                onBookLongPress={
+                  selectMode
+                    ? (book) => toggleSelected(book.id)
+                    : onBookLongPress
+                }
+              />
+              ) : null}
+            </section>
+          );
+        })}
       </div>
       <div
         ref={setToolEl}
@@ -235,11 +309,22 @@ export default function DeviceLibraryTab({
       >
         {sorted.length > 1 ? <LocalBookFilter value={query} onChange={setQuery} /> : null}
         <div className="flex items-center justify-between gap-3">
-          <BookSortBar
-            value={sort}
-            options={DEVICE_SORT_OPTIONS}
-            onChange={(id) => setSort(id as DeviceSort)}
-          />
+          <div className="flex items-center gap-2 min-w-0">
+            <ChoicePicker
+              value={grouping}
+              options={DEVICE_GROUP_OPTIONS}
+              onChange={(id) => setGrouping(id as LocalBookGrouping)}
+              title={t('deviceLibraryTab.grouping')}
+              className="max-w-[9rem]"
+            />
+            {grouping === 'none' ? (
+              <BookSortBar
+                value={sort}
+                options={DEVICE_SORT_OPTIONS}
+                onChange={(id) => setSort(id as DeviceSort)}
+              />
+            ) : null}
+          </div>
           <div className="flex items-center shrink-0">
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
             <button
