@@ -835,9 +835,8 @@ export const en: Record<EnKey, string> = {
   'launcherHome.unpin': 'Remove “{{label}}” from the home screen',
   'launcherHome.pinLimit': 'The home screen holds at most {{max}} apps',
   'launcherSettings.title': 'Home screen',
-  'launcherSettings.offHint': 'The reader can replace the device home screen — handy on e-readers',
-  'launcherSettings.defaultHint': 'The reader is the home screen: the Home button opens its home',
-  'launcherSettings.notDefaultHint': 'On, but another app is the home screen — pick the reader in Android settings',
+  'launcherSettings.offHint': 'The reader can be the device home screen — handy on e-readers. Tap “Choose home screen” and pick it',
+  'launcherSettings.defaultHint': 'The reader is the home screen: the Home button opens its home. To go back, use “Choose home screen”',
   'launcherSettings.chooseHome': 'Choose home screen',
   'launcherSettings.couldNotOpenSettings': 'Could not open Android settings',
   'launcherSettings.appsHint': 'A row of pinned apps at the bottom of the home screen; the full list is the “Apps” tab',
@@ -849,4 +848,5 @@ export const en: Record<EnKey, string> = {
   'homeTab.noFolders': 'No library folders yet — add them in the profile',
   'homeLayoutSettings.deviceBlocks': 'From this device',
   'homeLayoutSettings.deviceBlocksHint': 'Shown after “Continue reading”, work offline. This device only',
+  'launcherSettings.onyxFreezeHint': 'BOOX: turn off auto-freeze for INPX Reader (BOOX “Apps” screen → the snowflake icon in the top right corner). Otherwise after a few minutes in the background BOOX disables the app and brings its own home screen back',
 };

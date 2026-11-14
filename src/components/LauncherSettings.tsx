@@ -8,7 +8,6 @@ import {
   LauncherHome,
   getLauncherBlocks,
   setLauncherBlocks,
-  setLauncherEnabled,
   useLauncherSettings,
   useLauncherState,
   type LauncherBlocks,
@@ -74,35 +73,30 @@ export default function LauncherSettings() {
     setLauncherBlocks({ ...getLauncherBlocks(), [key]: value });
   };
 
-  const hint = !state.enabled
-    ? t('launcherSettings.offHint')
-    : state.isDefault
-      ? t('launcherSettings.defaultHint')
-      : t('launcherSettings.notDefaultHint');
-
+  // The HOME activity is always available (like any launcher): turning the mode on or off is the
+  // system «Главный экран» choice — pick the reader, or pick BOOX back.
   return (
     <div>
-      <Row label={t('launcherSettings.title')} hint={hint}>
-        <Switch
-          checked={state.enabled}
-          label={t('launcherSettings.title')}
-          onChange={(next) => {
-            const wasDefault = state.isDefault;
-            void setLauncherEnabled(next).then((s) => {
-              // Turned on: the system screen picks the default home app.
-              if (next && s.enabled && !s.isDefault) openHomeSettings();
-              // Turned off while it was the home screen: hand the screen back to the other launcher.
-              if (!next && wasDefault) void LauncherHome.openOtherLauncher().catch(() => {});
-            });
-          }}
-        />
-      </Row>
-      {state.enabled ? (
-        <>
-          <div className="flex flex-wrap gap-2 py-3 border-b border-[color:var(--app-border)]">
-            <button type="button" className={linkButton} onClick={openHomeSettings}>
-              {t('launcherSettings.chooseHome')}
-            </button>
+      <div className="py-3 border-b border-[color:var(--app-border)]">
+        <p className={`${textStyles.body} ${theme.text}`}>{t('launcherSettings.title')}</p>
+        <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
+          {state.isDefault ? t('launcherSettings.defaultHint') : t('launcherSettings.offHint')}
+        </p>
+        {state.onyx ? (
+          // BOOX freezes the app after a few idle minutes (whole package disabled) and Android then
+          // drops the HOME role; Google Play / Chrome are not frozen by default, third-party apps are.
+          <p
+            role="note"
+            className={`mt-2 px-3 py-2 ${radii.button} border border-[color:var(--app-border)] ${textStyles.caption} ${theme.text}`}
+          >
+            {t('launcherSettings.onyxFreezeHint')}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-2 mt-3">
+          <button type="button" className={linkButton} onClick={openHomeSettings}>
+            {t('launcherSettings.chooseHome')}
+          </button>
+          {state.isDefault ? (
             <button
               type="button"
               className={linkButton}
@@ -116,11 +110,13 @@ export default function LauncherSettings() {
             >
               {t('launcherHome.otherLauncher')}
             </button>
-          </div>
-          <Row label={t('launcherHome.apps')} hint={t('launcherSettings.appsHint')}>
-            <Switch checked={blocks.apps} label={t('launcherHome.apps')} onChange={(v) => setBlock('apps', v)} />
-          </Row>
-        </>
+          ) : null}
+        </div>
+      </div>
+      {state.isDefault ? (
+        <Row label={t('launcherHome.apps')} hint={t('launcherSettings.appsHint')}>
+          <Switch checked={blocks.apps} label={t('launcherHome.apps')} onChange={(v) => setBlock('apps', v)} />
+        </Row>
       ) : null}
     </div>
   );

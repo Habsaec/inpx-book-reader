@@ -837,9 +837,8 @@ export const ru = {
   'launcherHome.unpin': 'Убрать «{{label}}» с главной',
   'launcherHome.pinLimit': 'На главной помещается не больше {{max}} приложений',
   'launcherSettings.title': 'Домашний экран',
-  'launcherSettings.offHint': 'Читалка может заменить главный экран устройства — удобно на электронных книгах',
-  'launcherSettings.defaultHint': 'Читалка — главный экран: кнопка «Домой» открывает её главную',
-  'launcherSettings.notDefaultHint': 'Включено, но главный экран другой — выберите читалку в настройках Android',
+  'launcherSettings.offHint': 'Читалку можно сделать главным экраном устройства — удобно на электронных книгах. Нажмите «Выбрать главный экран» и выберите её',
+  'launcherSettings.defaultHint': 'Читалка — главный экран: кнопка «Домой» открывает её главную. Вернуть прежний — «Выбрать главный экран»',
   'launcherSettings.chooseHome': 'Выбрать главный экран',
   'launcherSettings.couldNotOpenSettings': 'Не удалось открыть настройки Android',
   'launcherSettings.appsHint': 'Ряд закреплённых приложений внизу главной; весь список — вкладка «Приложения»',
@@ -851,6 +850,7 @@ export const ru = {
   'homeTab.noFolders': 'Папки библиотеки не добавлены — их можно добавить в профиле',
   'homeLayoutSettings.deviceBlocks': 'С этого устройства',
   'homeLayoutSettings.deviceBlocksHint': 'Показываются после «Продолжить чтение» и работают без сети. Только на этом устройстве',
+  'launcherSettings.onyxFreezeHint': 'BOOX: отключите автозаморозку для INPX Reader (экран «Приложения» BOOX → значок снежинки в правом верхнем углу). Иначе через несколько минут в фоне BOOX отключит приложение и вернёт свой главный экран',
 } as const;
 
 export type MessageKey = keyof typeof ru;

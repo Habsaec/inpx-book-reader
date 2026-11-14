@@ -12,10 +12,12 @@ import { getAppSettingJson, getAppSettingString, setAppSettingJson, setAppSettin
 
 export interface LauncherState {
   supported: boolean;
-  /** Компонент HOME включён (пользователь включил режим). */
+  /** Компонент HOME доступен (в манифесте всегда включён). */
   enabled: boolean;
   /** Читалка — главный экран по умолчанию прямо сейчас. */
   isDefault: boolean;
+  /** Устройство Onyx BOOX: его автозаморозка снимает роль главного экрана — настройки предупреждают. */
+  onyx?: boolean;
 }
 
 export interface LauncherApp {
@@ -28,7 +30,6 @@ export interface LauncherApp {
 
 interface LauncherHomePluginApi {
   getState(): Promise<LauncherState>;
-  setEnabled(opts: { enabled: boolean }): Promise<LauncherState>;
   openHomeSettings(): Promise<{ ok: boolean }>;
   openOtherLauncher(): Promise<{ ok: boolean; label?: string }>;
   listApps(opts?: { iconSize?: number }): Promise<{ items: LauncherApp[] }>;
@@ -60,6 +61,7 @@ export async function readLauncherState(): Promise<LauncherState> {
       supported: Boolean(state?.supported),
       enabled: Boolean(state?.enabled),
       isDefault: Boolean(state?.isDefault),
+      onyx: Boolean(state?.onyx),
     };
   } catch {
     // Старая сборка без плагина.
@@ -69,15 +71,6 @@ export async function readLauncherState(): Promise<LauncherState> {
   if (getAppSettingString(LAST_DEFAULT_KEY) !== flag) setAppSettingRaw(LAST_DEFAULT_KEY, flag);
   window.dispatchEvent(new Event(STATE_EVENT));
   return lastState;
-}
-
-export async function setLauncherEnabled(enabled: boolean): Promise<LauncherState> {
-  try {
-    await LauncherHome.setEnabled({ enabled });
-  } catch {
-    /* state below */
-  }
-  return readLauncherState();
 }
 
 /** Состояние режима; перечитывается при возврате в приложение (после системного выбора главного экрана). */

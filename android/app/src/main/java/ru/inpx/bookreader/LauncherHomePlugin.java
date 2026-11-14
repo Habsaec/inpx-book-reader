@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Режим «домашний экран»: включение {@link LauncherHomeActivity}, системный выбор главного экрана,
+ * Режим «домашний экран» ({@link LauncherHomeActivity} всегда включён): состояние, системный выбор главного экрана,
  * список и запуск установленных приложений, выход в другой лаунчер (BOOX).
  */
 @CapacitorPlugin(name = "LauncherHome")
@@ -40,9 +40,32 @@ public class LauncherHomePlugin extends Plugin {
         return new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
     }
 
+    /**
+     * The HOME activity is enabled in the manifest (always offered, like any launcher). Builds before
+     * that switched it on / off at runtime; a stored «disabled» from them would hide it for good, so it
+     * goes back to the manifest value. A stored «enabled» equals the manifest and is left alone:
+     * touching a home component's state can make the system pick the default home again.
+     */
+    @Override
+    public void load() {
+        super.load();
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            if (pm.getComponentEnabledSetting(homeComponent()) == PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
+                pm.setComponentEnabledSetting(
+                    homeComponent(),
+                    PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
+                    PackageManager.DONT_KILL_APP
+                );
+            }
+        } catch (RuntimeException ignored) {
+            // never block the app start on this
+        }
+    }
+
     private boolean isEnabled() {
-        int state = getContext().getPackageManager().getComponentEnabledSetting(homeComponent());
-        return state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+        return getContext().getPackageManager().getComponentEnabledSetting(homeComponent())
+            != PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
     }
 
     private boolean isDefaultHome() {
@@ -57,24 +80,14 @@ public class LauncherHomePlugin extends Plugin {
         obj.put("supported", true);
         obj.put("enabled", isEnabled());
         obj.put("isDefault", isEnabled() && isDefaultHome());
+        // BOOX: the launcher's per-app auto-freeze disables the whole package after a few idle minutes
+        // and Android then drops the HOME role — the settings screen warns about it.
+        obj.put("onyx", OnyxFrontLight.isLikelyOnyxDevice());
         return obj;
     }
 
     @PluginMethod
     public void getState(PluginCall call) {
-        call.resolve(state());
-    }
-
-    @PluginMethod
-    public void setEnabled(PluginCall call) {
-        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
-        getContext().getPackageManager().setComponentEnabledSetting(
-            homeComponent(),
-            enabled
-                ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-            PackageManager.DONT_KILL_APP
-        );
         call.resolve(state());
     }
 

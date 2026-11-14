@@ -78,10 +78,10 @@
 
         </activity>
 
-        <!-- «Домашний экран»: выключен, пока пользователь не включит его в профиле -->
+        <!-- «Домашний экран»: всегда включён, как у обычного лаунчера. Включённый только программно
+             компонент BOOX Go 7 не оставлял главным экраном после перезагрузки (Lawnchair оставался). -->
         <activity
             android:name=".LauncherHomeActivity"
-            android:enabled="false"
             android:exported="true"
             android:excludeFromRecents="true"
             android:noHistory="true"
