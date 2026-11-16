@@ -27,11 +27,10 @@ import { bookTitleWithoutVolume, displayBookTitle, seriesLabel, seriesVolumeLabe
 import { getHomeRecentMode } from '../lib/appSettings';
 import { isHomeSectionVisible, orderShelves, useHomeLayout, type HomeSectionId } from '../lib/homeLayout';
 import type { CatalogViewMode } from '../lib/catalogViewMode';
-import type { LauncherBlocks } from '../lib/launcherHome';
 import { homeDownloadedBooks, useHomeDeviceBlocks } from '../lib/homeDeviceBlocks';
 import { defaultLibraryFolder, readLibraryFolders } from '../lib/libraryFolders';
 import { FolderCells } from './mybooks/LocalFolderBrowser';
-import { LauncherAppsPanel, LauncherAppsRow } from './LauncherApps';
+import { LauncherAppsPanel } from './LauncherApps';
 import { t } from '../i18n';
 
 function HomeSectionHeader({
@@ -237,8 +236,7 @@ interface HomeTabProps {
   /** Library name from the server, shown in the home header. */
   siteName: string;
   /**
-   * «Домашний экран» (the app is the device launcher): the same home as in the app, plus the pinned
-   * apps row at the end; «Новое у любимых» shows its last list when offline.
+   * «Домашний экран» (the app is the device launcher): the same home as in the app; «Новое у любимых» shows its last list when offline.
    */
   /**
    * «Скачанные» / «Папки» (Профиль → «Блоки главной», device-only switches): what is on this device,
@@ -251,8 +249,6 @@ interface HomeTabProps {
     onOpenFolder: (folderId: string) => void;
   };
   launcher?: {
-    blocks: LauncherBlocks;
-    pinnedApps: string[];
     /** «Все приложения» (bottom tab «Приложения»): owned by App so the tab bar can open it. */
     appsOpen: boolean;
     onAppsOpenChange: (open: boolean) => void;
@@ -261,7 +257,7 @@ interface HomeTabProps {
   } | null;
 }
 
-type HomeBlockId = HomeSectionId | 'apps' | 'downloaded' | 'folders';
+type HomeBlockId = HomeSectionId | 'downloaded' | 'folders';
 
 export default function HomeTab({
   profile,
@@ -570,7 +566,6 @@ export default function HomeTab({
   if (launcher && appsOpen) {
     return (
       <LauncherAppsPanel
-        pinnedApps={launcher.pinnedApps}
         isTabActive={isTabActive}
         onClose={closeApps}
         onOpenProfile={launcher.onOpenProfile}
@@ -682,9 +677,6 @@ export default function HomeTab({
           <p className={`${textStyles.caption} ${theme.textMuted} py-2`}>{t('homeTab.noFolders')}</p>
         )}
       </section>
-    ) : null,
-    apps: launcher && launcher.blocks.apps ? (
-      <LauncherAppsRow pinnedApps={launcher.pinnedApps} />
     ) : null,
     continue: (
     <>
@@ -972,7 +964,7 @@ export default function HomeTab({
 
   const scrollInner = (
     <>
-      {/* Launcher mode: the same blocks and order as the app home, plus the pinned apps row at the end. */}
+      {/* Launcher mode: the same blocks and order as the app home. */}
       {/* Device blocks («Скачанные», «Папки») come right after «Продолжить чтение» (or first when it is hidden). */}
       {homeLayout.order
         .filter((id) => isHomeSectionVisible(homeLayout, id))
@@ -983,7 +975,6 @@ export default function HomeTab({
           return [id];
         })
         .concat(homeLayout.order.some((id) => isHomeSectionVisible(homeLayout, id)) ? [] : ['downloaded', 'folders'])
-        .concat(launcher ? ['apps'] : [])
         .map((id) => <React.Fragment key={id}>{homeBlocks[id]}</React.Fragment>)}
     </>
   );

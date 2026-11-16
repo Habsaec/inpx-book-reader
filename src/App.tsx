@@ -34,7 +34,6 @@ import {
   openFreezeSettings,
   requestHomeRole,
   requestUnrestricted,
-  useLauncherSettings,
   useLauncherState,
 } from './lib/launcherHome';
 import { useDialog } from './ui/Dialog';
@@ -221,7 +220,6 @@ export default function App() {
   const readerOriginTabRef = React.useRef<AppTab>('home');
 
   const launcherState = useLauncherState();
-  const launcherSettings = useLauncherSettings();
   /** The app is the device's home screen right now («Профиль → Домашний экран»). */
   const launcherActive = launcherState.isDefault;
   const launcherActiveRef = React.useRef(launcherActive);
@@ -1534,7 +1532,9 @@ export default function App() {
             className="h-10 w-auto max-w-[14rem] object-contain"
           />
         </div>
-      ) : showOnboarding ? (
+      ) : showOnboarding && !launcherActive ? (
+        // As the home screen the app never hides behind the first-run wizard: without the shell there is
+        // no «Приложения» tab, and the device settings (Wi-Fi) could not be reached to finish the wizard.
         <TabScreenPanel active>
         <OnboardingFlow
           serverConfig={serverConfig}
@@ -1615,8 +1615,6 @@ export default function App() {
               onConnectionLost={reportConnectionLost}
               siteName={siteName}
               launcher={launcherActive ? {
-                blocks: launcherSettings.blocks,
-                pinnedApps: launcherSettings.pinnedApps,
                 appsOpen: launcherAppsOpen,
                 onAppsOpenChange: setLauncherAppsOpen,
                 onOpenProfile: () => handleTabChange('profile'),

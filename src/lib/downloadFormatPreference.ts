@@ -5,7 +5,8 @@ import type { Book } from '../types';
  * «Формат скачивания» — the account preference shared with the web UI
  * (`/api/preferences.downloadFormat`, '' = original file). The app follows it only for
  * formats its own reader opens (EPUB family, converted from FB2 by the server's fb2cng);
- * FB2.ZIP / KFX / AZW8 still download the original file. A converted EPUB syncs its reading
+ * FB2.ZIP / KFX / AZW8 / AZW3 (Kindle formats, AZW3 since fbc 2.0) still download the original
+ * file — the FB2 reads better here than a KF8 built from it. A converted EPUB syncs its reading
  * position with the FB2 read on the web only approximately (by percentage).
  */
 const STORAGE_KEY = 'inpx_download_format';

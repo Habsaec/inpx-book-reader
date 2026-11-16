@@ -1,11 +1,11 @@
 /**
  * «Домашний экран» — режим лаунчера для читалок (BOOX и др.).
- * Только приложение: сервер и API не меняются. Настройки блоков и закреплённые приложения — локальные.
+ * Только приложение: сервер и API не меняются.
  * @see LauncherHomePlugin.java, LauncherHomeActivity.java
  */
 
 import React from 'react';
-import { registerPlugin } from '@capacitor/core';
+import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { isNativeApp } from './platform';
 import { APP_SETTINGS_HYDRATED_EVENT, getAppSettingJson, getAppSettingString, setAppSettingJson, setAppSettingRaw } from './appSettings';
@@ -36,7 +36,18 @@ export interface LauncherApp {
   icon?: string;
   /** Suspended by BOOX (the whole package is off): launching asks BOOX to unfreeze it first. */
   frozen?: boolean;
+  /** Preinstalled: cannot be removed. */
+  system?: boolean;
+  /** Serial of another profile of this user (work profile); absent for the user's own apps. */
+  user?: number;
 }
+
+export interface LauncherShortcut {
+  id: string;
+  label: string;
+}
+
+type LauncherAppRef = { packageName: string; activityName?: string; user?: number };
 
 interface LauncherHomePluginApi {
   getState(): Promise<LauncherState>;
@@ -46,7 +57,13 @@ interface LauncherHomePluginApi {
   openFreezeSettings(): Promise<{ ok: boolean }>;
   openOtherLauncher(): Promise<{ ok: boolean; label?: string }>;
   listApps(opts?: { iconSize?: number }): Promise<{ items: LauncherApp[] }>;
-  launchApp(opts: { packageName: string; activityName?: string }): Promise<{ ok: boolean }>;
+  launchApp(opts: LauncherAppRef): Promise<{ ok: boolean }>;
+  openAppInfo(opts: LauncherAppRef): Promise<{ ok: boolean }>;
+  uninstallApp(opts: { packageName: string }): Promise<{ ok: boolean }>;
+  getShortcuts(opts: { packageName: string }): Promise<{ items: LauncherShortcut[] }>;
+  startShortcut(opts: { packageName: string; id: string }): Promise<{ ok: boolean }>;
+  /** An app was installed, removed, updated, suspended or unfrozen. */
+  addListener(event: 'appsChanged', listener: () => void): Promise<PluginListenerHandle>;
 }
 
 export const LauncherHome = registerPlugin<LauncherHomePluginApi>('LauncherHome');
@@ -161,84 +178,104 @@ export function useLauncherState(): LauncherState {
   return state;
 }
 
-// --- Local settings (device only) ---
-
-export const LAUNCHER_SETTING_KEYS = {
-  blocks: 'launcher_blocks',
-  apps: 'launcher_apps',
-} as const;
-
-/** Only the launcher's own block; the rest of the home follows the account «Блоки главной». */
-export interface LauncherBlocks {
-  /** Ряд закреплённых приложений внизу главной. */
-  apps: boolean;
+/** Ключ приложения: `package/activity` (+ `#profile` for an app of another profile). */
+export function launcherAppKey(app: Pick<LauncherApp, 'packageName' | 'activityName' | 'user'>): string {
+  const key = `${app.packageName}/${app.activityName}`;
+  return app.user == null ? key : `${key}#${app.user}`;
 }
 
-const DEFAULT_BLOCKS: LauncherBlocks = { apps: true };
-const SETTINGS_EVENT = 'inpx-launcher-settings';
+// --- Apps screen: hidden and recently opened apps (device only, app_meta) ---
 
-export function normalizeLauncherBlocks(raw: unknown): LauncherBlocks {
-  const obj = raw && typeof raw === 'object' ? (raw as Partial<Record<keyof LauncherBlocks, unknown>>) : {};
-  return {
-    apps: typeof obj.apps === 'boolean' ? obj.apps : DEFAULT_BLOCKS.apps,
-  };
-}
+const HIDDEN_APPS_KEY = 'launcher_hidden_apps';
+const RECENT_APPS_KEY = 'launcher_recent_apps';
+const APP_PREFS_EVENT = 'inpx-launcher-app-prefs';
+export const LAUNCHER_RECENT_APPS_MAX = 5;
+const HIDDEN_APPS_MAX = 500;
 
-export function getLauncherBlocks(): LauncherBlocks {
-  return normalizeLauncherBlocks(getAppSettingJson<unknown>(LAUNCHER_SETTING_KEYS.blocks, null));
-}
-
-export function setLauncherBlocks(next: LauncherBlocks): void {
-  setAppSettingJson(LAUNCHER_SETTING_KEYS.blocks, normalizeLauncherBlocks(next));
-  window.dispatchEvent(new Event(SETTINGS_EVENT));
-}
-
-/** Ключ приложения: `package/activity`. */
-export function launcherAppKey(app: Pick<LauncherApp, 'packageName' | 'activityName'>): string {
-  return `${app.packageName}/${app.activityName}`;
-}
-
-export const LAUNCHER_PINNED_APPS_MAX = 8;
-
-export function normalizePinnedApps(raw: unknown): string[] {
+export function normalizeAppKeys(raw: unknown, max: number): string[] {
   if (!Array.isArray(raw)) return [];
   const out: string[] = [];
   for (const item of raw) {
     if (typeof item !== 'string' || !item.includes('/') || out.includes(item)) continue;
     out.push(item);
-    if (out.length >= LAUNCHER_PINNED_APPS_MAX) break;
+    if (out.length >= max) break;
   }
   return out;
 }
 
-export function getPinnedApps(): string[] {
-  return normalizePinnedApps(getAppSettingJson<unknown>(LAUNCHER_SETTING_KEYS.apps, []));
+/** The app just opened goes first; the list keeps the last few. */
+export function pushRecentApp(list: string[], key: string): string[] {
+  return [key, ...list.filter((k) => k !== key)].slice(0, LAUNCHER_RECENT_APPS_MAX);
 }
 
-/** Закрепить / открепить; при переполнении новое не добавляется. Возвращает новый список. */
-export function togglePinnedApp(list: string[], key: string): string[] {
-  if (list.includes(key)) return list.filter((k) => k !== key);
-  if (list.length >= LAUNCHER_PINNED_APPS_MAX) return list;
-  return [...list, key];
+export function toggleAppKey(list: string[], key: string): string[] {
+  return list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
 }
 
-export function setPinnedApps(next: string[]): void {
-  setAppSettingJson(LAUNCHER_SETTING_KEYS.apps, normalizePinnedApps(next));
-  window.dispatchEvent(new Event(SETTINGS_EVENT));
+/** Every word of the query must occur in the app name (any case). */
+export function filterLauncherApps<T extends { label: string }>(apps: T[], query: string): T[] {
+  const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return apps;
+  return apps.filter((app) => {
+    const label = app.label.toLocaleLowerCase();
+    return words.every((word) => label.includes(word));
+  });
 }
 
-export function useLauncherSettings(): { blocks: LauncherBlocks; pinnedApps: string[] } {
-  const read = () => ({ blocks: getLauncherBlocks(), pinnedApps: getPinnedApps() });
-  const [value, setValue] = React.useState(read);
+/**
+ * What the apps screen shows: the visible apps with the recently opened among them first, and the
+ * hidden apps apart — they live in the «Скрытые» folder only. A search looks through the list on
+ * screen (the apps, or the folder when it is open) and shows no «recent» row.
+ */
+export function arrangeLauncherApps<T extends Pick<LauncherApp, 'packageName' | 'activityName' | 'user' | 'label'>>(
+  apps: T[],
+  opts: { hidden: string[]; recent: string[]; query: string },
+): { recent: T[]; all: T[]; hidden: T[] } {
+  const hiddenKeys = new Set(opts.hidden);
+  const hidden = apps.filter((app) => hiddenKeys.has(launcherAppKey(app)));
+  const visible = apps.filter((app) => !hiddenKeys.has(launcherAppKey(app)));
+  if (opts.query.trim()) {
+    return { recent: [], all: filterLauncherApps(visible, opts.query), hidden: filterLauncherApps(hidden, opts.query) };
+  }
+  const byKey = new Map(visible.map((app) => [launcherAppKey(app), app]));
+  const recent = opts.recent.map((key) => byKey.get(key)).filter((app): app is T => Boolean(app));
+  return { recent, all: visible, hidden };
+}
+
+function readAppPrefs(): { hidden: string[]; recent: string[] } {
+  return {
+    hidden: normalizeAppKeys(getAppSettingJson<unknown>(HIDDEN_APPS_KEY, []), HIDDEN_APPS_MAX),
+    recent: normalizeAppKeys(getAppSettingJson<unknown>(RECENT_APPS_KEY, []), LAUNCHER_RECENT_APPS_MAX),
+  };
+}
+
+export function setHiddenApp(key: string, hide: boolean): void {
+  const { hidden } = readAppPrefs();
+  if (hidden.includes(key) === hide) return;
+  setAppSettingJson(HIDDEN_APPS_KEY, normalizeAppKeys(toggleAppKey(hidden, key), HIDDEN_APPS_MAX));
+  window.dispatchEvent(new Event(APP_PREFS_EVENT));
+}
+
+export function noteAppOpened(key: string): void {
+  const { recent } = readAppPrefs();
+  if (recent[0] === key) return;
+  setAppSettingJson(RECENT_APPS_KEY, pushRecentApp(recent, key));
+  window.dispatchEvent(new Event(APP_PREFS_EVENT));
+}
+
+/** Hidden / recent apps; re-read once app_meta is loaded (a list read empty and saved would wipe the stored one). */
+export function useLauncherAppPrefs(): { hidden: string[]; recent: string[] } {
+  const [value, setValue] = React.useState(readAppPrefs);
   React.useEffect(() => {
-    const onChange = () => setValue(read());
-    window.addEventListener(SETTINGS_EVENT, onChange);
+    const onChange = () => setValue(readAppPrefs());
+    window.addEventListener(APP_PREFS_EVENT, onChange);
     window.addEventListener(APP_SETTINGS_HYDRATED_EVENT, onChange);
     onChange();
     return () => {
-      window.removeEventListener(SETTINGS_EVENT, onChange);
+      window.removeEventListener(APP_PREFS_EVENT, onChange);
       window.removeEventListener(APP_SETTINGS_HYDRATED_EVENT, onChange);
     };
   }, []);
   return value;
 }
+

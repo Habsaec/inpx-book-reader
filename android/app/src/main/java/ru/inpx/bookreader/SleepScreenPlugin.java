@@ -374,29 +374,30 @@ public class SleepScreenPlugin extends Plugin {
     }
 
     /**
-     * The picture is always the portrait design, as the device is held normally. BOOX shows the file in
-     * the coordinates of the rotation it sleeps in and centre-crops it to that shape, so in landscape
-     * (or upside down) the portrait drawing is turned back by the display rotation into a file of the
-     * logical size: on the panel it then stands upright in portrait, whole. Display rotation R means the
-     * system renders R° clockwise (device turned R° counter-clockwise), so the content turns −R°.
+     * The picture is always the portrait design. BOOX shows the file in the coordinates of the rotation
+     * it sleeps in and centre-crops it to that shape, so in landscape the portrait drawing is turned
+     * back by the display rotation into a file of the logical size: on the panel it then stands upright
+     * in portrait, whole. Display rotation R means the system renders R° clockwise (device turned R°
+     * counter-clockwise), so the content turns −R°.
+     *
+     * Upside down (180°) is portrait too, only held the other way: BOOX turns its clock, date and status
+     * line with the screen, so the drawing goes as is and turns with them. Turned back, the cover stood
+     * on its head for the reader and BOOX's clock was drawn over its lower part instead of the strip
+     * kept free for it.
      */
     private static Bitmap renderForRotation(Spec spec, int pw, int ph, int rotation) {
         Bitmap portrait = render(spec, pw, ph);
-        if (rotation == Surface.ROTATION_0) return portrait;
-        boolean landscape = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270;
-        int lw = landscape ? ph : pw;
-        int lh = landscape ? pw : ph;
+        if (rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180) return portrait;
+        int lw = ph;
+        int lh = pw;
         Bitmap out = Bitmap.createBitmap(lw, lh, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(out);
         if (rotation == Surface.ROTATION_90) {
             canvas.translate(0, lh);
             canvas.rotate(-90);
-        } else if (rotation == Surface.ROTATION_270) {
+        } else {
             canvas.translate(lw, 0);
             canvas.rotate(90);
-        } else {
-            canvas.translate(lw, lh);
-            canvas.rotate(180);
         }
         canvas.drawBitmap(portrait, 0, 0, null);
         portrait.recycle();

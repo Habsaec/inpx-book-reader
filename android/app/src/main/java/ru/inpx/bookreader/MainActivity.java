@@ -12,6 +12,7 @@ import android.view.Menu;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
@@ -21,6 +22,7 @@ import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PluginHandle;
+import com.getcapacitor.WebViewListener;
 
 public class MainActivity extends BridgeActivity {
 
@@ -56,6 +58,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // До любого вызова Onyx DeviceController (blacklist на Android 13 / BOOX 4.2)
         OnyxFrontLight.applyHiddenApiExemptions();
+        LauncherBootGuard.onStart(this);
         splashIsDark = SplashThemeResolver.useDarkSplash(this);
         setTheme(
             splashIsDark
@@ -78,6 +81,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         lightSwipe = new FrontLightSwipe(this, lightSwipeHost);
         installWebViewFileChooser();
+        installRenderProcessRecovery();
         showNativeSplashOverlay();
         splashHandler.post(splashPollRunnable);
         splashTimeoutRunnable = this::hideNativeSplashOverlay;
@@ -96,12 +100,31 @@ public class MainActivity extends BridgeActivity {
             "(function(){return window.__INPX_APP_READY__===true;})()",
             value -> {
                 if ("true".equals(value)) {
+                    LauncherBootGuard.onReady(this);
                     hideNativeSplashOverlay();
                 } else if (splashOverlay != null) {
                     splashHandler.postDelayed(splashPollRunnable, 80);
                 }
             }
         );
+    }
+
+    /**
+     * The WebView's renderer process was killed (low memory) or crashed. Unhandled, that kills the
+     * whole app — or leaves a blank screen, which for a home screen means a dead device. The activity
+     * is rebuilt with a fresh WebView instead.
+     */
+    private void installRenderProcessRecovery() {
+        if (getBridge() == null) return;
+        getBridge().addWebViewListener(new WebViewListener() {
+            @Override
+            public boolean onRenderProcessGone(WebView webView, RenderProcessGoneDetail detail) {
+                splashHandler.post(() -> {
+                    if (!isFinishing() && !isDestroyed()) recreate();
+                });
+                return true;
+            }
+        });
     }
 
     /**

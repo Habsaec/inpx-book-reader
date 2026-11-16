@@ -7,14 +7,10 @@ import { isNativeApp } from '../lib/platform';
 import {
   LauncherHome,
   forgetLauncherHome,
-  getLauncherBlocks,
   openFreezeSettings,
   requestHomeRole,
   requestUnrestricted,
-  setLauncherBlocks,
-  useLauncherSettings,
   useLauncherState,
-  type LauncherBlocks,
 } from '../lib/launcherHome';
 import { t } from '../i18n';
 
@@ -56,7 +52,10 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
-const linkButton = `min-h-12 px-4 ${radii.button} ${textStyles.bodyBold} inline-flex items-center border border-[color:var(--app-border)] ${theme.text} ${theme.focusRing} ${motion.press}`;
+const buttonBase = `min-h-12 px-4 ${radii.button} ${textStyles.bodyBold} inline-flex items-center border ${theme.focusRing} ${motion.press}`;
+const linkButton = `${buttonBase} border-[color:var(--app-border)] ${theme.text}`;
+/** Filled button: its own text colour. Adding it on top of `linkButton` left two text colours, and the page one won — black on black in E-Ink. */
+const primaryButton = `${buttonBase} ${theme.accentBg}`;
 
 /**
  * What keeps the home screen alive: on BOOX its app-freeze list (opened directly when the firmware
@@ -103,7 +102,6 @@ export function LauncherKeepAliveRow() {
 /** Профиль → Внешний вид → «Домашний экран» (лаунчер для читалок; только приложение). */
 export default function LauncherSettings() {
   const state = useLauncherState();
-  const { blocks } = useLauncherSettings();
   const snackbar = useSnackbar();
   if (!isNativeApp() || !state.supported) return null;
 
@@ -115,9 +113,6 @@ export default function LauncherSettings() {
       .catch(() => snackbar.show(t('launcherSettings.couldNotOpenSettings'), undefined, 'error'));
   };
 
-  const setBlock = (key: keyof LauncherBlocks, value: boolean) => {
-    setLauncherBlocks({ ...getLauncherBlocks(), [key]: value });
-  };
 
   // The HOME activity is always available (like any launcher). Becoming the home screen is the
   // system's own dialog (RoleManager, Android 10+); leaving it is the system home choice.
@@ -157,18 +152,13 @@ export default function LauncherSettings() {
               </button>
             </>
           ) : (
-            <button type="button" className={`${linkButton} ${theme.accentBg}`} onClick={() => void requestHomeRole()}>
+            <button type="button" className={primaryButton} onClick={() => void requestHomeRole()}>
               {t('launcherSettings.makeHome')}
             </button>
           )}
         </div>
       </div>
       {state.isDefault || state.lost || state.onyx ? <LauncherKeepAliveRow /> : null}
-      {state.isDefault ? (
-        <Row label={t('launcherHome.apps')} hint={t('launcherSettings.appsHint')}>
-          <Switch checked={blocks.apps} label={t('launcherHome.apps')} onChange={(v) => setBlock('apps', v)} />
-        </Row>
-      ) : null}
     </div>
   );
 }

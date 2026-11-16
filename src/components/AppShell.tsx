@@ -87,7 +87,8 @@ function ShellFrame({
   // No «Нет связи» banner: it hid during every reconnect attempt and slid back in, over and over;
   // offline, network blocks simply stay hidden and the catalog shows its own «Нет подключения».
   // Shell search looks up the server catalog — not offered where it would read as «search my books».
-  const showSearch = activeTab === 'home' || activeTab === 'catalog';
+  // «Приложения» (launcher) has its own field that filters the apps: a catalog search there would mislead.
+  const showSearch = (activeTab === 'home' || activeTab === 'catalog') && !launcherTabs?.appsOpen;
   const title = pageTitle?.title || (
     activeTab === 'home' ? siteName
       : activeTab === 'catalog' ? t('common.catalog')

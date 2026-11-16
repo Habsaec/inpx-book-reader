@@ -166,6 +166,8 @@
     <!-- Onyx/BOOX frontlight via DeviceController / system settings -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- «Домашний экран»: «Удалить» в меню приложения открывает системный диалог удаления -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- «Домашний экран»: системный запрос «работать без ограничений», чтобы прошивка не выгружала главный экран -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />

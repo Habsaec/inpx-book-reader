@@ -2,21 +2,31 @@ package ru.inpx.bookreader;
 
 import android.app.role.RoleManager;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.LauncherActivityInfo;
+import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.pm.ShortcutInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
+import android.os.Process;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.provider.Settings;
 import android.util.Base64;
 import androidx.activity.result.ActivityResult;
+import androidx.core.content.ContextCompat;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -66,6 +76,43 @@ public class LauncherHomePlugin extends Plugin {
         } catch (RuntimeException ignored) {
             // never block the app start on this
         }
+        watchPackages();
+    }
+
+    private BroadcastReceiver packageReceiver;
+
+    /** An app was installed, removed, updated, suspended or unfrozen: the apps screen reloads its list. */
+    private void watchPackages() {
+        if (packageReceiver != null) return;
+        packageReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                notifyListeners("appsChanged", new JSObject());
+            }
+        };
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_PACKAGE_ADDED);
+        filter.addAction(Intent.ACTION_PACKAGE_REMOVED);
+        filter.addAction(Intent.ACTION_PACKAGE_CHANGED);
+        filter.addDataScheme("package");
+        try {
+            ContextCompat.registerReceiver(getContext(), packageReceiver, filter, ContextCompat.RECEIVER_EXPORTED);
+        } catch (RuntimeException e) {
+            packageReceiver = null;
+        }
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (packageReceiver != null) {
+            try {
+                getContext().unregisterReceiver(packageReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // already gone
+            }
+            packageReceiver = null;
+        }
+        super.handleOnDestroy();
     }
 
     private boolean isEnabled() {
@@ -236,9 +283,18 @@ public class LauncherHomePlugin extends Plugin {
      */
     @PluginMethod
     public void openOtherLauncher(PluginCall call) {
-        PackageManager pm = getContext().getPackageManager();
+        String label = startOtherLauncher(getContext());
+        JSObject res = new JSObject();
+        res.put("ok", label != null);
+        if (label != null) res.put("label", label);
+        call.resolve(res);
+    }
+
+    /** Starts another home screen; its label, or null when there is none. Also the crash-loop exit of {@link LauncherHomeActivity}. */
+    static String startOtherLauncher(Context ctx) {
+        PackageManager pm = ctx.getPackageManager();
         List<ResolveInfo> list = pm.queryIntentActivities(homeIntent(), 0);
-        String own = getContext().getPackageName();
+        String own = ctx.getPackageName();
         ResolveInfo best = null;
         for (ResolveInfo info : list) {
             ActivityInfo ai = info.activityInfo;
@@ -250,23 +306,16 @@ public class LauncherHomePlugin extends Plugin {
                 if (ai.packageName.toLowerCase(Locale.ROOT).contains("onyx")) break;
             }
         }
-        JSObject res = new JSObject();
-        if (best == null) {
-            res.put("ok", false);
-            call.resolve(res);
-            return;
-        }
+        if (best == null) return null;
         try {
             Intent intent = homeIntent()
                 .setComponent(new ComponentName(best.activityInfo.packageName, best.activityInfo.name))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(intent);
-            res.put("ok", true);
-            res.put("label", String.valueOf(best.loadLabel(pm)));
+            ctx.startActivity(intent);
+            return String.valueOf(best.loadLabel(pm));
         } catch (RuntimeException e) {
-            res.put("ok", false);
+            return null;
         }
-        call.resolve(res);
     }
 
     /** BOOX: «open a suspended app» — its launcher unfreezes the package, then starts it (snowflake tap). */
@@ -311,14 +360,164 @@ public class LauncherHomePlugin extends Plugin {
                 app.put("activityName", ai.name);
                 app.put("label", String.valueOf(info.loadLabel(pm)));
                 if (off) app.put("frozen", true);
+                // Preinstalled: cannot be removed, so the menu offers no «Удалить».
+                if (ai.applicationInfo != null && (ai.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
+                    app.put("system", true);
+                }
                 String icon = iconPng(info.loadIcon(pm), iconPx);
                 if (icon != null) app.put("icon", "data:image/png;base64," + icon);
                 items.put(app);
             }
+            addProfileApps(items, iconPx);
             JSObject res = new JSObject();
             res.put("items", items);
             call.resolve(res);
         });
+    }
+
+    /** Apps of other profiles of this user (a work profile), as every launcher lists them; user = profile serial. */
+    private void addProfileApps(JSArray items, int iconPx) {
+        try {
+            LauncherApps la = (LauncherApps) getContext().getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            UserManager um = (UserManager) getContext().getSystemService(Context.USER_SERVICE);
+            if (la == null || um == null) return;
+            PackageManager pm = getContext().getPackageManager();
+            UserHandle me = Process.myUserHandle();
+            for (UserHandle user : la.getProfiles()) {
+                if (user == null || user.equals(me)) continue;
+                long serial = um.getSerialNumberForUser(user);
+                for (LauncherActivityInfo info : la.getActivityList(null, user)) {
+                    ComponentName cn = info.getComponentName();
+                    if (cn == null) continue;
+                    JSObject app = new JSObject();
+                    app.put("packageName", cn.getPackageName());
+                    app.put("activityName", cn.getClassName());
+                    app.put("label", String.valueOf(pm.getUserBadgedLabel(info.getLabel(), user)));
+                    app.put("user", (int) serial);
+                    String icon = iconPng(info.getBadgedIcon(0), iconPx);
+                    if (icon != null) app.put("icon", "data:image/png;base64," + icon);
+                    items.put(app);
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // no profiles / not allowed: the list of this user's apps is enough
+        }
+    }
+
+    private UserHandle profileOf(PluginCall call) {
+        Integer serial = call.getInt("user");
+        if (serial == null) return null;
+        UserManager um = (UserManager) getContext().getSystemService(Context.USER_SERVICE);
+        return um != null ? um.getUserForSerialNumber(serial) : null;
+    }
+
+    private static JSObject okResult(boolean ok) {
+        JSObject res = new JSObject();
+        res.put("ok", ok);
+        return res;
+    }
+
+    /** The system «О приложении» screen. */
+    @PluginMethod
+    public void openAppInfo(PluginCall call) {
+        String pkg = call.getString("packageName", "");
+        if (pkg == null || pkg.isEmpty()) {
+            call.resolve(okResult(false));
+            return;
+        }
+        try {
+            UserHandle profile = profileOf(call);
+            String activity = call.getString("activityName", "");
+            if (profile != null && activity != null && !activity.isEmpty()) {
+                LauncherApps la = (LauncherApps) getContext().getSystemService(Context.LAUNCHER_APPS_SERVICE);
+                la.startAppDetailsActivity(new ComponentName(pkg, activity), profile, null, null);
+            } else {
+                getContext().startActivity(
+                    new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                );
+            }
+            call.resolve(okResult(true));
+        } catch (RuntimeException e) {
+            call.resolve(okResult(false));
+        }
+    }
+
+    /** The system «Удалить приложение?» dialog (needs REQUEST_DELETE_PACKAGES); the list follows the package broadcast. */
+    @PluginMethod
+    public void uninstallApp(PluginCall call) {
+        String pkg = call.getString("packageName", "");
+        if (pkg == null || pkg.isEmpty() || pkg.equals(getContext().getPackageName())) {
+            call.resolve(okResult(false));
+            return;
+        }
+        try {
+            getContext().startActivity(
+                new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            );
+            call.resolve(okResult(true));
+        } catch (RuntimeException e) {
+            call.resolve(okResult(false));
+        }
+    }
+
+    private static final int MAX_SHORTCUTS = 6;
+
+    /** App shortcuts («Новая вкладка» …): only the default home screen may read them (Android 7.1+). */
+    @PluginMethod
+    public void getShortcuts(PluginCall call) {
+        JSArray items = new JSArray();
+        JSObject res = new JSObject();
+        res.put("items", items);
+        String pkg = call.getString("packageName", "");
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1 || pkg == null || pkg.isEmpty()) {
+            call.resolve(res);
+            return;
+        }
+        try {
+            LauncherApps la = (LauncherApps) getContext().getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            if (la != null && la.hasShortcutHostPermission()) {
+                LauncherApps.ShortcutQuery query = new LauncherApps.ShortcutQuery();
+                query.setPackage(pkg);
+                query.setQueryFlags(
+                    LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC | LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST
+                );
+                List<ShortcutInfo> list = la.getShortcuts(query, Process.myUserHandle());
+                if (list != null) {
+                    for (ShortcutInfo info : list) {
+                        if (!info.isEnabled()) continue;
+                        CharSequence label = info.getShortLabel();
+                        if (label == null || label.length() == 0) label = info.getLongLabel();
+                        if (label == null || label.length() == 0) continue;
+                        JSObject item = new JSObject();
+                        item.put("id", info.getId());
+                        item.put("label", label.toString());
+                        items.put(item);
+                        if (items.length() >= MAX_SHORTCUTS) break;
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // not the default home any more, or the app is suspended: no shortcuts
+        }
+        call.resolve(res);
+    }
+
+    @PluginMethod
+    public void startShortcut(PluginCall call) {
+        String pkg = call.getString("packageName", "");
+        String id = call.getString("id", "");
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1 || pkg == null || pkg.isEmpty() || id == null || id.isEmpty()) {
+            call.resolve(okResult(false));
+            return;
+        }
+        try {
+            LauncherApps la = (LauncherApps) getContext().getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            la.startShortcut(pkg, id, null, null, Process.myUserHandle());
+            call.resolve(okResult(true));
+        } catch (RuntimeException e) {
+            call.resolve(okResult(false));
+        }
     }
 
     @PluginMethod
@@ -328,6 +527,19 @@ public class LauncherHomePlugin extends Plugin {
         JSObject res = new JSObject();
         if (pkg == null || pkg.isEmpty()) {
             res.put("ok", false);
+            call.resolve(res);
+            return;
+        }
+        UserHandle profile = profileOf(call);
+        if (profile != null && activity != null && !activity.isEmpty()) {
+            // An app of another profile (work profile) starts through LauncherApps only.
+            try {
+                LauncherApps la = (LauncherApps) getContext().getSystemService(Context.LAUNCHER_APPS_SERVICE);
+                la.startMainActivity(new ComponentName(pkg, activity), profile, null, null);
+                res.put("ok", true);
+            } catch (RuntimeException e) {
+                res.put("ok", false);
+            }
             call.resolve(res);
             return;
         }
