@@ -319,30 +319,8 @@ foliate-view{
   display:block;position:absolute;inset:0;width:100%;height:100%;z-index:1;
   box-sizing:border-box;
 }
-/* Soft edge fade — immersion without covering text controls */
-#reader-body::before,
-#reader-body::after{
-  content:"";
-  position:absolute;
-  top:0;bottom:0;
-  width:min(28px, 6vw);
-  z-index:2;
-  pointer-events:none;
-}
-#reader-body::before{
-  left:0;
-  background:linear-gradient(to right, var(--r-bg), transparent);
-}
-#reader-body::after{
-  right:0;
-  background:linear-gradient(to left, var(--r-bg), transparent);
-}
-html[data-eink="1"] #reader-body::before,
-html[data-eink="1"] #reader-body::after,
-html.has-bg-image #reader-body::before,
-html.has-bg-image #reader-body::after,
-html.is-fixed-layout #reader-body::before,
-html.is-fixed-layout #reader-body::after{display:none}
+/* No edge fade over the page: it looked like a shadow at the left / right edges
+   and dimmed text on narrow margins (the web reader never had it). */
 html.is-fixed-layout #reader-body{
   bottom: var(--r-bottom-reserve);
 }
