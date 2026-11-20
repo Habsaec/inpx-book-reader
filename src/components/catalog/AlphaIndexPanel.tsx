@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { ServerConfig } from '../../types';
 import { theme } from '../../lib/appTheme';
 import { displayAuthorName, fetchAlphaIndex, type AlphaIndexResult } from '../../lib/inpxClient';
@@ -7,8 +7,10 @@ import { textStyles, motion } from '../../ui/tokens';
 import { t, formatNumber, getLocale } from '../../i18n';
 
 /* Alphabet index of authors / series, as on the web /authors?idx= pages: a letter opens its next-letter groups with
-   counts («Ка 4235 · Ко 5622 …»), a group deepens until it holds ≤ 300 names, which are then listed A–Z.
-   The open prefix survives leaving the list (an author page and back) for the rest of the session. */
+   counts («Ка 4235 · Ко 5622 …»), a group deepens until it holds ≤ 60 names, which are then listed A–Z (with the chips still above
+   a list of more than 8, so the prefix narrows down to a whole surname).
+   The open prefix survives leaving the list (an author page and back) for the rest of the session.
+   While a letter is open the two letter rows fold into one «Алфавит» chip — on a phone they took most of the screen. */
 const lastPrefix: Record<'authors' | 'series', string> = { authors: '', series: '' };
 
 const cap = (s: string) => s.replace(/^./u, (c) => c.toUpperCase()).replace(/ $/, ' …');
@@ -29,10 +31,12 @@ export default function AlphaIndexPanel({
   const [root, setRoot] = React.useState<AlphaIndexResult | null>(null);
   const [current, setCurrent] = React.useState<AlphaIndexResult | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [lettersOpen, setLettersOpen] = React.useState(false);
 
   const setPrefix = (next: string) => {
     lastPrefix[kind] = next;
     setPrefixState(next);
+    setLettersOpen(false);
   };
 
   React.useEffect(() => {
@@ -74,6 +78,18 @@ export default function AlphaIndexPanel({
   const chip = `min-h-9 px-3 rounded-full ${textStyles.captionBold} ${theme.focusRing} ${motion.press}`;
   return (
     <div className="space-y-3 pb-1">
+      {prefix ? (
+        <button
+          type="button"
+          onClick={() => setLettersOpen((v) => !v)}
+          aria-expanded={lettersOpen}
+          className={`inline-flex items-center gap-1 ${chip} border ${theme.divider} ${theme.text}`}
+        >
+          {t('alphaIndex.letters')}
+          <ChevronDown className={`w-4 h-4 transition-transform ${lettersOpen ? 'rotate-180' : ''}`} aria-hidden />
+        </button>
+      ) : null}
+      {!prefix || lettersOpen ? (
       <div className="space-y-1" aria-label={t('alphaIndex.title')}>
         {rows.map((row, i) => (
           <div key={i} className="flex flex-wrap gap-1">
@@ -92,6 +108,7 @@ export default function AlphaIndexPanel({
           </div>
         ))}
       </div>
+      ) : null}
       {prefix ? (
         <>
           <div className={`flex flex-wrap items-center gap-1 ${textStyles.body}`}>

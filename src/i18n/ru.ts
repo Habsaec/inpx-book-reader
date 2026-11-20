@@ -291,6 +291,7 @@ export const ru = {
   'catalogDrilldownPanel.seriesLanguages': 'Языки',
   'catalogDrilldownPanel.seriesYears': 'Годы',
   'alphaIndex.title': 'Алфавитный указатель',
+  'alphaIndex.letters': 'Алфавит',
   'alphaIndex.close': 'Сбросить',
   'alphaIndex.loading': 'Загрузка…',
   'catalogDrilldownPanel.seriesVolumes': 'Томов',
