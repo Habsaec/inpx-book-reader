@@ -10,6 +10,7 @@ import { isAuthError } from '../lib/inpxClient';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { useSnackbar } from '../ui/Snackbar';
 import { t } from '../i18n';
+import { downloadFormatLabel } from '../lib/downloadFormatPreference';
 
 function looksLikeAuthDownloadError(message: string): boolean {
   return /401|403|устарела|недостаточно прав/i.test(message);
@@ -136,7 +137,7 @@ export function useDownloadPipeline(opts: {
       onSaved: (book, info) => {
         snackbarShowRef.current(
           info?.formatFallback
-            ? t('downloadPipeline.savedOriginalFormatOff', { format: info.formatFallback.toUpperCase() })
+            ? t('downloadPipeline.savedOriginalFormatOff', { format: downloadFormatLabel(info.formatFallback) })
             : t('downloadPipeline.savedRead'),
           {
             label: t('common.readAction'),

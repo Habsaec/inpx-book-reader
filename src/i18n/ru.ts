@@ -781,6 +781,7 @@ export const ru = {
   'syncSettingsTab.original': 'Исходный',
   'syncSettingsTab.asInTheWebsiteProfile': 'Как в профиле на сайте. Книга сохраняется в том формате, что в библиотеке',
   'syncSettingsTab.theServerConvertsFb2To': 'FB2 сервер конвертирует в EPUB — его откроют и другие читалки. Позиция чтения с сайтом совпадёт только примерно',
+  'syncSettingsTab.fb2ZipKeepsTheBook': 'Та же книга FB2, только сжатая — места на телефоне в 2–4 раза меньше. Позиция чтения с сайтом совпадает точно',
   'syncSettingsTab.downloadFormatOffOnServer': '{{format}} сейчас выключен на сервере — книги скачиваются в исходном формате (FB2). Включить его может администратор: «Конвертация → Скачивание»',
   'syncSettingsTab.downloadFormatOffLabel': '{{format}} (выключен)',
   'syncSettingsTab.theWebsiteHasSelectedThe': 'На сайте выбран {{format}} — читалка его не открывает, скачивается исходный файл',

@@ -36,8 +36,10 @@ import { insecureHttpWarning, serverHostLabel } from '../lib/serverUrl';
 import { clearServerCredentials } from '../lib/secureServerConfig';
 import { parsePairingQrPayload, redeemPairingCode, saveUserPreferences } from '../lib/inpxClient';
 import {
+  downloadFormatLabel,
   isAppReadableDownloadFormat,
   isDownloadFormatOffOnServer,
+  isFb2ZipDownloadFormat,
   setDownloadFormat,
   setServerDownloadFormats,
   useDownloadFormat,
@@ -854,18 +856,20 @@ const APP_DOWNLOAD_FORMAT_OPTIONS = [
   ['', t('syncSettingsTab.original')],
   ['epub2', 'EPUB'],
   ['epub3', 'EPUB3'],
+  ['fb2zip', 'FB2.ZIP'],
 ] as const;
 
 function downloadFormatHint(format: string, available: string[] | null): string {
   if (!format) return t('syncSettingsTab.asInTheWebsiteProfile');
   // Switched off by the admin (or no converter on the server): books keep coming as FB2.
   if (isDownloadFormatOffOnServer(format, available)) {
-    return t('syncSettingsTab.downloadFormatOffOnServer', { format: format.toUpperCase() });
+    return t('syncSettingsTab.downloadFormatOffOnServer', { format: downloadFormatLabel(format) });
   }
+  if (isFb2ZipDownloadFormat(format)) return t('syncSettingsTab.fb2ZipKeepsTheBook');
   if (isAppReadableDownloadFormat(format)) {
     return t('syncSettingsTab.theServerConvertsFb2To');
   }
-  return t('syncSettingsTab.theWebsiteHasSelectedThe', { format: format.toUpperCase() });
+  return t('syncSettingsTab.theWebsiteHasSelectedThe', { format: downloadFormatLabel(format) });
 }
 
 function SettingsChoice({

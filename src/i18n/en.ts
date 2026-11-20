@@ -787,6 +787,7 @@ export const en: Record<EnKey, string> = {
   'syncSettingsTab.original': 'Original',
   'syncSettingsTab.asInTheWebsiteProfile': 'As in the website profile. The book is saved in the format it has in the library',
   'syncSettingsTab.theServerConvertsFb2To': 'The server converts FB2 to EPUB — other readers open it too. The reading position matches the website only roughly',
+  'syncSettingsTab.fb2ZipKeepsTheBook': 'The same FB2 book, just zipped — 2–4× less space on the phone. The reading position matches the website exactly',
   'syncSettingsTab.downloadFormatOffOnServer': '{{format}} is switched off on the server — books are downloaded in their original format (FB2). An administrator can switch it on: «Conversion → Downloads»',
   'syncSettingsTab.downloadFormatOffLabel': '{{format}} (off)',
   'syncSettingsTab.theWebsiteHasSelectedThe': 'The website has {{format}} selected — the reader cannot open it, the original file is downloaded',

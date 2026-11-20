@@ -4,10 +4,11 @@ import type { Book } from '../types';
 /**
  * «Формат скачивания» — the account preference shared with the web UI
  * (`/api/preferences.downloadFormat`, '' = original file). The app follows it only for
- * formats its own reader opens (EPUB family, converted from FB2 by the server's fb2cng);
- * FB2.ZIP / KFX / AZW8 / AZW3 (Kindle formats, AZW3 since fbc 2.0) still download the original
- * file — the FB2 reads better here than a KF8 built from it. A converted EPUB syncs its reading
- * position with the FB2 read on the web only approximately (by percentage).
+ * formats its own reader opens: the EPUB family (converted from FB2 by the server's fb2cng) and
+ * FB2.ZIP (the same FB2 zipped, 2–4× smaller on the phone; Foliate reads it as FBZ, so the exact
+ * reading position is kept). KFX / AZW8 / AZW3 (Kindle formats, AZW3 since fbc 2.0) still download
+ * the original file — the FB2 reads better here than a KF8 built from it. A converted EPUB syncs its
+ * reading position with the FB2 read on the web only approximately (by percentage).
  */
 const STORAGE_KEY = 'inpx_download_format';
 
@@ -16,7 +17,21 @@ const APP_READABLE_FORMATS: Record<string, string> = {
   epub2: 'epub',
   epub3: 'epub',
   kepub: 'epub',
+  fb2zip: 'fb2.zip',
 };
+
+const FORMAT_LABELS: Record<string, string> = { fb2zip: 'FB2.ZIP', epub2: 'EPUB' };
+
+/** Label of a server format code for messages (`fb2zip` → `FB2.ZIP`). */
+export function downloadFormatLabel(format: string | null | undefined): string {
+  const code = String(format || '').toLowerCase();
+  return FORMAT_LABELS[code] || code.toUpperCase();
+}
+
+/** True for the account choice that keeps the FB2 text (zipped), not a converted EPUB. */
+export function isFb2ZipDownloadFormat(format: string | null | undefined): boolean {
+  return String(format || '').toLowerCase() === 'fb2zip';
+}
 
 let value = readStored();
 const listeners = new Set<() => void>();

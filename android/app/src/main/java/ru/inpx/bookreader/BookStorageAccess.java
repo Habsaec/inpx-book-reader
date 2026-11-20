@@ -2045,6 +2045,10 @@ public final class BookStorageAccess {
         String nameOnly = displayName;
         String ext = "";
         int dot = displayName.lastIndexOf('.');
+        // «Книга.fb2.zip»: the copy must stay «Книга (2).fb2.zip», not «Книга.fb2 (2).zip».
+        if (displayName.toLowerCase(Locale.US).endsWith(".fb2.zip") && displayName.length() > 8) {
+            dot = displayName.length() - 8;
+        }
         if (dot > 0 && dot < displayName.length() - 1) {
             nameOnly = displayName.substring(0, dot);
             ext = displayName.substring(dot);

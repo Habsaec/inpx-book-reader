@@ -138,7 +138,7 @@ export async function resolveUnknownServerBooks(
   const lastReadById = new Map(progress.map((p) => [String(p.bookId), Number(p.lastRead) || 0]));
   const refs = pending.map((id) => {
     const book = bookById.get(id);
-    return { id, title: book?.title || '', authors: bookAuthors(book), ext: book?.ext || '' };
+    return { id, title: book?.title || '', authors: bookAuthors(book), ext: String(book?.ext || '').replace(/\.zip$/i, '') };
   });
   const items = await resolveServerBookIds(config, refs);
 

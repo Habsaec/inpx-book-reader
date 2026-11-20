@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   downloadFormatFallback,
+  downloadFormatLabel,
   getServerDownloadFormats,
   isDownloadFormatOffOnServer,
   normalizeDownloadFormats,
@@ -24,10 +25,19 @@ describe('resolveBookDownloadFormat', () => {
     expect(resolveBookDownloadFormat(fb2, 'epub3')).toEqual({ format: 'epub3', ext: 'epub' });
   });
 
+  it('saves FB2.ZIP as .fb2.zip when the server offers it', () => {
+    expect(resolveBookDownloadFormat(fb2, 'fb2zip')).toEqual({ format: 'fb2zip', ext: 'fb2.zip' });
+    expect(resolveBookDownloadFormat({ ext: 'fb2', downloadFormats: ['fb2'] }, 'fb2zip')).toBeNull();
+    expect(resolveBookDownloadFormat({ ext: 'epub', downloadFormats: ['epub', 'fb2zip'] }, 'fb2zip')).toBeNull();
+    expect(downloadFormatFallback({ ext: 'fb2', downloadFormats: ['fb2', 'epub2'] }, 'fb2zip')).toBe('fb2zip');
+    expect(isDownloadFormatOffOnServer('fb2zip', ['fb2', 'epub2'])).toBe(true);
+    expect(downloadFormatLabel('fb2zip')).toBe('FB2.ZIP');
+    expect(downloadFormatLabel('epub3')).toBe('EPUB3');
+  });
+
   it('keeps the original file otherwise', () => {
     expect(resolveBookDownloadFormat(fb2, '')).toBeNull();
     expect(resolveBookDownloadFormat(fb2, 'kfx')).toBeNull();
-    expect(resolveBookDownloadFormat(fb2, 'fb2zip')).toBeNull();
     expect(resolveBookDownloadFormat({ ext: 'fb2', downloadFormats: ['fb2', 'fb2zip'] }, 'epub2')).toBeNull();
     expect(resolveBookDownloadFormat({ ext: 'fb2' }, 'epub2')).toBeNull();
     expect(resolveBookDownloadFormat({ ext: 'epub', downloadFormats: ['epub'] }, 'epub2')).toBeNull();

@@ -385,7 +385,7 @@ export default function BookDetailsSheet({
         if (isAuthError(e)) onAuthExpired?.();
       })
       .finally(() => { if (!cancelled) setAnnotationLoading(false); });
-    if (String(liveBook.ext || 'fb2').toLowerCase() === 'fb2') {
+    if (normalizeBookExt(liveBook.ext) === 'fb2') {
       fetchBookPublishInfo(serverConfig, liveBook.id)
         .then((info) => { if (!cancelled) setPublishInfo(info); })
         .catch(() => {});

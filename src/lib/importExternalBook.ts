@@ -5,9 +5,16 @@ import { fileNameFromLaunchUri } from './launchIntent';
 import { cleanFileLikeTitle } from './seriesLabel';
 import { t } from '../i18n';
 
-function extFromFileName(name: string): string {
-  const m = name.match(/\.([a-z0-9]+)$/i);
-  return (m?.[1] || 'fb2').toLowerCase();
+export function extFromFileName(name: string): string {
+  const lower = name.toLowerCase();
+  // «Книга.fb2.zip» and a bare «Книга.zip» (Flibusta, Telegram): the reader looks inside the
+  // archive (FB2 → FBZ, EPUB), so both open here instead of «Открыть в другом приложении».
+  // «Книга.djvu.zip» / «Книга.pdf.zip» keep their format (opened elsewhere, as before).
+  const inner = lower.match(/\.(pdf|djvu|djv|txt|rtf|docx|doc|epub|mobi|azw3|cbr)\.zip$/);
+  if (inner) return `${inner[1]}.zip`;
+  if (lower.endsWith('.zip')) return 'fb2.zip';
+  const m = lower.match(/\.([a-z0-9]+)$/);
+  return m?.[1] || 'fb2';
 }
 
 function titleFromFileName(name: string): string {
@@ -26,7 +33,7 @@ function localImportBookId(relativePath: string): string {
   return `local:import:${relativePath.length.toString(36)}-${(h1 >>> 0).toString(36)}-${(h2 >>> 0).toString(36)}`;
 }
 
-/** Импорт fb2/epub из content:// или file:// в папку Imports/. */
+/** Импорт fb2 / fb2.zip / fbz / epub … из content:// или file:// в папку Imports/. */
 export async function importExternalBookFromUri(
   directory: StorageDirectory,
   contentUri: string,

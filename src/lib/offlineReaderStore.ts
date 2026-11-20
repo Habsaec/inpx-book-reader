@@ -486,7 +486,8 @@ export function applyIframeReaderStore(
 export function migrateOfflineReaderPositionForFormat(bookId: string, format: string): boolean {
   const data = readOfflineReaderData(bookId);
   if ((data.positionVersion ?? 1) >= 4) return false;
-  const ext = String(format || '').replace(/^\./, '').toLowerCase();
+  // `fb2.zip` (downloaded as FB2.ZIP, found in a library folder) is the same FB2 text.
+  const ext = String(format || '').replace(/^\./, '').toLowerCase().replace(/\.zip$/, '');
   const reset = ext === 'fb2' || ext === 'fbz';
   const compatiblePosition = reset ? null : (data.position?.trim() || null);
   const migrated: OfflineReaderData = {

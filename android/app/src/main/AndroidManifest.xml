@@ -68,6 +68,12 @@
                 <data android:mimeType="application/fb2" />
                 <data android:mimeType="application/x-fictionbook+xml" />
                 <data android:mimeType="application/epub+zip" />
+                <!-- fb2.zip / fbz: file managers and Telegram send them as a plain ZIP -->
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/x-fictionbook+zip" />
+                <data android:mimeType="application/x-fbz" />
                 <data android:scheme="file" />
                 <data android:scheme="content" />
             </intent-filter>
