@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, Tag, Library, User, Inbox } from 'lucide-react';
+import { ChevronRight, Library, User, Inbox } from 'lucide-react';
 import { ServerConfig } from '../../types';
 import { theme } from '../../lib/appTheme';
 import type { StorageDirectory } from '../../lib/storageDirectory';
@@ -13,6 +13,7 @@ import type { CatalogSubTab } from './catalogTypes';
 import { motion, textStyles } from '../../ui/tokens';
 import EmptyState from '../../ui/EmptyState';
 import { t, tn } from '../../i18n';
+import { genrePatternStyle } from '../../lib/genrePattern';
 
 export interface CatalogEntityAuthor {
   key?: string;
@@ -298,9 +299,11 @@ export default function CatalogEntityLists({
                 className={`w-full min-h-[3.75rem] py-2.5 px-0.5 flex items-center justify-between gap-3 text-left border-b ${theme.divider} ${theme.rowPress} ${theme.focusRing} ${motion.press}`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className={`w-6 flex items-center justify-center shrink-0 ${theme.textMuted}`}>
-                    <Tag className="w-5 h-5" aria-hidden />
-                  </span>
+                  <span
+                    className="w-6 h-6 shrink-0 rounded-md"
+                    style={genrePatternStyle(genreItem.name)}
+                    aria-hidden
+                  />
                   <div>
                     <h3 className={`${textStyles.bodyBold}`}>{genreItem.name}</h3>
                     <p className={`${textStyles.caption} ${theme.textMuted} mt-0.5`}>
