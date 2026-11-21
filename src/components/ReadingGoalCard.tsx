@@ -5,6 +5,7 @@ import type { ServerConfig } from '../types';
 import { radii, textStyles } from '../ui/tokens';
 import Button from '../ui/Button';
 import { t } from '../i18n';
+import YearReviewSheet from './YearReviewSheet';
 
 const MONTHS_SHORT = [t('readingGoalCard.jan'), t('readingGoalCard.feb'), t('readingGoalCard.mar'), t('readingGoalCard.apr'), t('readingGoalCard.may'), t('readingGoalCard.jun'), t('readingGoalCard.jul'), t('readingGoalCard.aug'), t('readingGoalCard.sep'), t('readingGoalCard.oct'), t('readingGoalCard.nov'), t('readingGoalCard.dec')];
 
@@ -23,6 +24,8 @@ export default function ReadingGoalCard({ serverConfig, isOnline, refreshKey = 0
   const [draft, setDraft] = React.useState('');
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [reviewOpen, setReviewOpen] = React.useState(false);
+  const closeReview = React.useCallback(() => setReviewOpen(false), []);
 
   React.useEffect(() => {
     if (!isOnline) return;
@@ -116,6 +119,18 @@ export default function ReadingGoalCard({ serverConfig, isOnline, refreshKey = 0
         </div>
       ) : null}
       {error ? <p className={`mt-2 ${textStyles.caption} text-[var(--app-danger)]`} role="alert">{error}</p> : null}
+      {readThisYear > 0 || stats.readByYear.length > 0 ? (
+        <div className="mt-4">
+          <Button variant="secondary" onClick={() => setReviewOpen(true)}>{t('readingGoalCard.yearReview', { year })}</Button>
+        </div>
+      ) : null}
+      <YearReviewSheet
+        open={reviewOpen}
+        initialYear={readThisYear > 0 ? year : Number(stats.readByYear[0]?.year) || year}
+        serverConfig={serverConfig}
+        onClose={closeReview}
+        onAuthExpired={onAuthExpired}
+      />
     </section>
   );
 }

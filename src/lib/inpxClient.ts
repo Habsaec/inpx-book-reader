@@ -918,6 +918,75 @@ export async function fetchReadingStats(config: ServerConfig): Promise<ReadingSt
   }
 }
 
+export interface YearReviewBook {
+  id: string;
+  title: string;
+  authors: string;
+  coverColor?: string;
+  coverLqip?: string;
+}
+
+/** «Итоги года»: `GET /api/reading-stats/year?year=` (server with cover tones). */
+export interface YearReview {
+  year: number;
+  total: number;
+  goal: number;
+  byMonth: number[];
+  busiestMonth: number | null;
+  first: YearReviewBook | null;
+  last: YearReviewBook | null;
+  favorite: YearReviewBook | null;
+  covers: YearReviewBook[];
+  topAuthors: Array<{ name: string; displayName?: string; count: number }>;
+  topGenres: Array<{ name: string; displayName?: string; displayNameEn?: string; count: number }>;
+  topSeries: Array<{ name: string; displayName?: string; count: number }>;
+  ratedCount: number;
+  averageRating: number | null;
+  years: number[];
+}
+
+function normalizeYearReviewBook(raw: unknown): YearReviewBook | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (!o.id) return null;
+  return {
+    id: toLocalBookId(String(o.id)),
+    title: String(o.title ?? ''),
+    authors: String(o.authors ?? ''),
+    ...coverTonesFromItem(o as Pick<InpxBookItem, 'coverColor' | 'coverLqip'>),
+  };
+}
+
+/** `null` on servers without the route (older than the year review). */
+export async function fetchYearReview(config: ServerConfig, year?: number): Promise<YearReview | null> {
+  let data: Record<string, unknown>;
+  try {
+    data = await apiJson<Record<string, unknown>>(config, `/api/reading-stats/year${year ? `?year=${encodeURIComponent(String(year))}` : ''}`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+  const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+  const byMonth = list<number>(data.byMonth).map((n) => Number(n) || 0);
+  return {
+    year: Number(data.year) || new Date().getFullYear(),
+    total: Number(data.total) || 0,
+    goal: Number(data.goal) || 0,
+    byMonth: byMonth.length === 12 ? byMonth : Array.from({ length: 12 }, (_, i) => byMonth[i] || 0),
+    busiestMonth: Number(data.busiestMonth) || null,
+    first: normalizeYearReviewBook(data.first),
+    last: normalizeYearReviewBook(data.last),
+    favorite: normalizeYearReviewBook(data.favorite),
+    covers: list<unknown>(data.covers).map(normalizeYearReviewBook).filter((b): b is YearReviewBook => Boolean(b)),
+    topAuthors: list(data.topAuthors),
+    topGenres: list(data.topGenres),
+    topSeries: list(data.topSeries),
+    ratedCount: Number(data.ratedCount) || 0,
+    averageRating: data.averageRating == null ? null : Number(data.averageRating),
+    years: list<number>(data.years).map(Number).filter(Boolean),
+  };
+}
+
 /** goal ≤ 0 removes it. */
 export async function saveReadingGoal(config: ServerConfig, goal: number, year?: number): Promise<ReadingStats> {
   return normalizeReadingStats(await apiPostJson<Partial<ReadingStats>>(config, '/api/reading-goal', { goal, year }));
