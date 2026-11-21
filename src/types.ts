@@ -37,6 +37,10 @@ export interface Book {
   shelves?: string[]; // IDs of shelves this book belongs to
   contentUrl?: string; // Real OPDS download URL
   readProgress?: number; // 0–100, from server or local sync
+  /** Server cover tones (additive, once the server has seen the cover): dominant `#rrggbb`. */
+  coverColor?: string;
+  /** 8×12 WebP data URI shown while the real cover loads. */
+  coverLqip?: string;
 }
 
 export interface Author {

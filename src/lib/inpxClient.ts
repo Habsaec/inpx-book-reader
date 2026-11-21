@@ -116,6 +116,9 @@ export interface InpxBookItem {
   readProgress?: number;
   /** Additive: `[{ format, label }]` in lists and `/meta`. */
   downloadFormats?: unknown;
+  /** Additive cover tones: dominant color + blurred 8×12 placeholder (data URI). */
+  coverColor?: string;
+  coverLqip?: string;
 }
 
 export interface Paginated<T> {
@@ -2440,7 +2443,19 @@ export function mapServerBook(
     coverUrl: displayCoverUrl(config, item.id),
     contentUrl: bookContentUrl(config, item.id),
     readProgress: item.readProgress != null ? Math.round(Number(item.readProgress)) : undefined,
+    ...coverTonesFromItem(item),
   };
+}
+
+const COVER_COLOR_RE = /^#[0-9a-f]{6}$/i;
+const COVER_LQIP_RE = /^data:image\/webp;base64,[A-Za-z0-9+/=]+$/;
+
+/** Only well-formed tones reach the UI (they end up in inline styles). */
+export function coverTonesFromItem(item: Pick<InpxBookItem, 'coverColor' | 'coverLqip'>): { coverColor?: string; coverLqip?: string } {
+  const out: { coverColor?: string; coverLqip?: string } = {};
+  if (COVER_COLOR_RE.test(String(item.coverColor || ''))) out.coverColor = String(item.coverColor);
+  if (COVER_LQIP_RE.test(String(item.coverLqip || ''))) out.coverLqip = String(item.coverLqip);
+  return out;
 }
 
 export interface DeviceTokenExchange {

@@ -111,6 +111,7 @@ export default function LiteBookRow({
               serverConfig={serverConfig}
               storageDirectory={storageDirectory}
               variant="thumb"
+              placeholder={book.coverLqip}
               title={book.title}
               author={book.author}
               width={coverW}

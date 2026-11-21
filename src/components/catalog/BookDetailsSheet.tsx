@@ -212,6 +212,7 @@ function SeriesVolumeCard({
             storageDirectory={storageDirectory}
             title={bookTitleWithoutVolume(book)}
             author={book.author}
+            placeholder={book.coverLqip}
             width={56}
             height={84}
             className="absolute inset-0 w-full h-full !rounded-none !border-0"
@@ -231,6 +232,18 @@ function SeriesVolumeCard({
       </span>
     </button>
   );
+}
+
+/**
+ * A soft wash of the cover's dominant color behind the cover and title (server cover tones, like the
+ * web book page). 8-digit hex, not color-mix(): Chrome 83 WebViews still run the app.
+ */
+function coverToneWash(color?: string): React.CSSProperties | undefined {
+  if (!color || !/^#[0-9a-f]{6}$/i.test(color)) return undefined;
+  return {
+    backgroundImage: `radial-gradient(ellipse 85% 55% at 18% 0%, ${color}33 0%, ${color}00 70%)`,
+    backgroundRepeat: 'no-repeat',
+  };
 }
 
 export interface BookDetailsSheetProps {
@@ -542,7 +555,10 @@ export default function BookDetailsSheet({
               </button>
             </header>
 
-            <div className="mx-auto w-full max-w-[45rem] px-5 min-[600px]:px-8 pb-8 flex min-w-0 flex-col">
+            <div
+              className="mx-auto w-full max-w-[45rem] px-5 min-[600px]:px-8 pb-8 flex min-w-0 flex-col"
+              style={coverToneWash(book.coverColor ?? detail.coverColor)}
+            >
               <div className="flex w-full min-w-0 items-start gap-5">
                 <div className="book-cover w-32 min-[600px]:w-[11.25rem] shrink-0">
                   <span className="book-cover-inner">
@@ -553,6 +569,7 @@ export default function BookDetailsSheet({
                       variant="full"
                       title={bookTitleWithoutVolume(detail)}
                       author={book.author}
+                      placeholder={book.coverLqip ?? detail.coverLqip}
                       width={120}
                       height={180}
                       className="absolute inset-0 w-full h-full !rounded-none !border-0"

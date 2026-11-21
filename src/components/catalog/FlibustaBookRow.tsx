@@ -109,6 +109,7 @@ function FlibustaBookRow({
               bookId={book.id}
               title={titleText}
               author={authorText}
+              placeholder={book.coverLqip}
               serverConfig={serverConfig}
               storageDirectory={storageDirectory}
               variant="thumb"

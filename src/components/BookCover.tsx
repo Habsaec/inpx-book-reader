@@ -27,7 +27,11 @@ interface BookCoverProps {
   className?: string;
   width?: number;
   height?: number;
+  /** Server `coverLqip` (8×12 WebP data URI): shown while the real cover loads, instead of the plate. */
+  placeholder?: string;
 }
+
+const LQIP_RE = /^data:image\/webp;base64,[A-Za-z0-9+/=]+$/;
 
 function CoverFallback({
   title,
@@ -142,6 +146,7 @@ export default function BookCover({
   className = '',
   width,
   height,
+  placeholder,
 }: BookCoverProps) {
   const [src, setSrc] = React.useState<string | null>(() => peekCoverMemory(bookId, variant));
   const [failed, setFailed] = React.useState(false);
@@ -216,6 +221,24 @@ export default function BookCover({
         onError={() => {
           setFailed(true);
           setSrc(null);
+        }}
+      />
+    );
+  }
+
+  // Still loading and the server knows what the cover looks like: a blurred preview (smooth upscale
+  // of 8×12 pixels, no CSS filter) instead of the leather plate flashing its title.
+  if (!failed && placeholder && LQIP_RE.test(placeholder)) {
+    const fill = fillsParent(className);
+    return (
+      <div
+        aria-hidden
+        className={`block border rounded pointer-events-none ${fill ? 'w-full h-full' : 'flex-shrink-0'} ${className}`}
+        style={{
+          ...(fill ? undefined : { width: width ?? (variant === 'full' ? 180 : 72), height: height ?? (variant === 'full' ? 270 : 108) }),
+          backgroundImage: `url(${placeholder})`,
+          backgroundSize: '100% 100%',
+          backgroundRepeat: 'no-repeat',
         }}
       />
     );

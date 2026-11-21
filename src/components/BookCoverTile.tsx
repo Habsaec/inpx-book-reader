@@ -185,6 +185,7 @@ function BookCoverTile({
             bookId={book.id}
             title={titleText}
             author={authorText}
+            placeholder={book.coverLqip}
             serverConfig={serverConfig}
             storageDirectory={storageDirectory}
             width={isShelf ? shelfW : undefined}
