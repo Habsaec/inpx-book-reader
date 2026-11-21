@@ -1,6 +1,7 @@
 import React from 'react';
 import { ServerConfig } from '../types';
 import type { StorageDirectory } from '../lib/storageDirectory';
+import BookCover from './BookCover';
 import {
   peekCoverMemory,
   peekPortraitMemory,
@@ -37,6 +38,69 @@ interface AuthorPortraitProps {
   coverBookId?: string | null;
   /** Skip network when server says author has no portrait (grouped endpoint). */
   hasPortrait?: boolean;
+  /**
+   * No portrait: up to three of the author's covers fanned out instead of the initials (author page,
+   * like the web hero). Books with a server placeholder (`coverLqip`) should come first.
+   */
+  fanBooks?: Array<{ id: string; title?: string; coverLqip?: string }>;
+}
+
+/** Three small covers tilted around the bottom centre, inside the avatar's square (not clipped round). */
+function AuthorCoverFan({
+  books,
+  size,
+  className,
+  serverConfig,
+  storageDirectory,
+}: {
+  books: Array<{ id: string; title?: string; coverLqip?: string }>;
+  size: number;
+  className: string;
+  serverConfig: ServerConfig;
+  storageDirectory?: StorageDirectory | null;
+}) {
+  const picked = books.slice(0, 3);
+  const n = picked.length;
+  const w = Math.round(size * (n === 1 ? 0.62 : 0.5));
+  const h = Math.round(w * 1.5);
+  return (
+    <span
+      className={`relative inline-block shrink-0 ${className}`}
+      style={{ width: size, height: size, minWidth: size, minHeight: size }}
+      aria-hidden
+    >
+      {picked.map((book, i) => {
+        const off = i - (n - 1) / 2;
+        return (
+          <span
+            key={book.id}
+            className="absolute overflow-hidden rounded-[3px] shadow-md"
+            style={{
+              width: w,
+              height: h,
+              left: '50%',
+              bottom: Math.max(0, Math.round((size - h) / 2)),
+              transformOrigin: '50% 110%',
+              transform: `translateX(calc(-50% + ${off * 22}%)) rotate(${off * 10}deg)`,
+              zIndex: 10 - Math.abs(off) * 2,
+            }}
+          >
+            <BookCover
+              bookId={book.id}
+              serverConfig={serverConfig}
+              storageDirectory={storageDirectory}
+              variant="thumb"
+              title={book.title || ''}
+              placeholder={book.coverLqip}
+              width={w}
+              height={h}
+              className="absolute inset-0 w-full h-full !rounded-none !border-0"
+            />
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 function AvatarFrame({
@@ -67,6 +131,7 @@ export default function AuthorPortrait({
   size = 48,
   coverBookId,
   hasPortrait,
+  fanBooks,
 }: AuthorPortraitProps) {
   const coverId = coverBookId != null && String(coverBookId).trim() ? String(coverBookId) : '';
   const skipPortraitFetch = hasPortrait === false || isPortraitMissCached(authorName);
@@ -194,6 +259,18 @@ export default function AuthorPortrait({
           }}
         />
       </AvatarFrame>
+    );
+  }
+
+  if (portraitFailed && fanBooks && fanBooks.length > 0) {
+    return (
+      <AuthorCoverFan
+        books={fanBooks}
+        size={size}
+        className={className}
+        serverConfig={serverConfig}
+        storageDirectory={storageDirectory}
+      />
     );
   }
 

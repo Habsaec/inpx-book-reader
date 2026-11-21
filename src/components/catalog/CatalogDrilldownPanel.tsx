@@ -15,6 +15,15 @@ import ShelfPicker from '../ShelfPicker';
 import { textStyles, radii, elevation, motion as motionTokens } from '../../ui/tokens';
 import { t, tn, formatNumber, getLocale } from '../../i18n';
 
+/** Author header without a portrait: three covers, the ones the server has a placeholder for first. */
+function authorFanBooks(grouped: AuthorGroupedState | null): Book[] {
+  if (!grouped) return [];
+  const all = [...grouped.standaloneBooks, ...grouped.series.flatMap((s) => s.books ?? [])];
+  const seen = new Set<string>();
+  const unique = all.filter((book) => (seen.has(book.id) ? false : (seen.add(book.id), true)));
+  return [...unique.filter((b) => b.coverLqip), ...unique.filter((b) => !b.coverLqip)].slice(0, 3);
+}
+
 interface CatalogDrilldownPanelProps {
   selectedAuthor: string | null;
   selectedSeries: string | null;
@@ -420,6 +429,7 @@ export default function CatalogDrilldownPanel({
                   serverConfig={serverConfig}
                   storageDirectory={storageDirectory}
                   hasPortrait={authorGrouped?.hasPortrait}
+                  fanBooks={authorFanBooks(authorGrouped)}
                   size={80}
                   className="landscape:max-[500px]:!w-12 landscape:max-[500px]:!h-12"
                 />
