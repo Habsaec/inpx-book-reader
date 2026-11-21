@@ -928,11 +928,15 @@ export interface YearReviewBook {
 
 /** «Итоги года»: `GET /api/reading-stats/year?year=` (server with cover tones). */
 export interface YearReview {
-  year: number;
+  /** A year, or 'all' for every year (then `byYear` instead of `byMonth`). */
+  year: number | 'all';
+  allTime: boolean;
   total: number;
   goal: number;
   byMonth: number[];
   busiestMonth: number | null;
+  byYear: Array<{ year: number; count: number }>;
+  busiestYear: number | null;
   first: YearReviewBook | null;
   last: YearReviewBook | null;
   favorite: YearReviewBook | null;
@@ -958,7 +962,7 @@ function normalizeYearReviewBook(raw: unknown): YearReviewBook | null {
 }
 
 /** `null` on servers without the route (older than the year review). */
-export async function fetchYearReview(config: ServerConfig, year?: number): Promise<YearReview | null> {
+export async function fetchYearReview(config: ServerConfig, year?: number | 'all'): Promise<YearReview | null> {
   let data: Record<string, unknown>;
   try {
     data = await apiJson<Record<string, unknown>>(config, `/api/reading-stats/year${year ? `?year=${encodeURIComponent(String(year))}` : ''}`);
@@ -968,12 +972,16 @@ export async function fetchYearReview(config: ServerConfig, year?: number): Prom
   }
   const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
   const byMonth = list<number>(data.byMonth).map((n) => Number(n) || 0);
+  const allTime = data.allTime === true || data.year === 'all';
   return {
-    year: Number(data.year) || new Date().getFullYear(),
+    year: allTime ? 'all' : (Number(data.year) || new Date().getFullYear()),
+    allTime,
     total: Number(data.total) || 0,
     goal: Number(data.goal) || 0,
     byMonth: byMonth.length === 12 ? byMonth : Array.from({ length: 12 }, (_, i) => byMonth[i] || 0),
     busiestMonth: Number(data.busiestMonth) || null,
+    byYear: list<{ year: unknown; count: unknown }>(data.byYear).map((r) => ({ year: Number(r.year) || 0, count: Number(r.count) || 0 })).filter((r) => r.year),
+    busiestYear: Number(data.busiestYear) || null,
     first: normalizeYearReviewBook(data.first),
     last: normalizeYearReviewBook(data.last),
     favorite: normalizeYearReviewBook(data.favorite),

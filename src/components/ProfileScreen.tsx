@@ -9,7 +9,7 @@ import type { EinkModePref } from '../lib/einkMode';
 import type { StorageDirectory } from '../lib/storageDirectory';
 import { textStyles, semantic, radii, motion } from '../ui/tokens';
 import type { LibrarySeg } from './mybooks/LibraryCollections';
-import ReadingGoalCard from './ReadingGoalCard';
+import ProfileYearReview from './ProfileYearReview';
 import AccountSwitcherSheet from './AccountSwitcherSheet';
 import { listSavedAccounts, rememberAccount } from '../lib/accounts';
 import { clearServerCredentials } from '../lib/secureServerConfig';
@@ -250,9 +250,9 @@ export default function ProfileScreen({
         </div>
       ) : null}
       {stats && isOnline ? (
-        <ReadingGoalCard
+        <ProfileYearReview
           serverConfig={serverConfig}
-          isOnline={isOnline}
+          storageDirectory={storageDirectory}
           refreshKey={(isTabActive ? 1 : 0) + rootEpoch * 2 + (stats.readBooksCount || 0) * 1000}
           onAuthExpired={onAuthExpired}
         />

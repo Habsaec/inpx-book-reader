@@ -46,3 +46,17 @@ describe('year review API', () => {
     expect(await fetchYearReview(config)).toBeNull();
   });
 });
+
+describe('year review: all time', () => {
+  it('asks for year=all and reads the per-year bars', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      expect(decodeURIComponent(String(input))).toContain('/api/reading-stats/year?year=all');
+      return json({ year: 'all', allTime: true, total: 3, byMonth: null, byYear: [{ year: 2024, count: 1 }, { year: '2025', count: 2 }], busiestYear: 2025, covers: [], years: [2025, 2024] });
+    }));
+    const r = await vi.importActual<typeof import('../inpxClient')>('../inpxClient').then((m) => m.fetchYearReview(config, 'all'));
+    expect(r?.allTime).toBe(true);
+    expect(r?.year).toBe('all');
+    expect(r?.byYear).toEqual([{ year: 2024, count: 1 }, { year: 2025, count: 2 }]);
+    expect(r?.busiestYear).toBe(2025);
+  });
+});
