@@ -214,7 +214,7 @@ export default function BookCover({
         alt=""
         width={fill ? undefined : width}
         height={fill ? undefined : height}
-        className={`block object-cover border rounded pointer-events-none ${fill ? 'w-full h-full max-w-full max-h-full' : ''} ${className}`}
+        className={`inpx-cover-img block object-cover border rounded pointer-events-none ${fill ? 'w-full h-full max-w-full max-h-full' : ''} ${className}`}
         style={fill ? { objectFit: 'cover', width: '100%', height: '100%' } : undefined}
         loading="lazy"
         draggable={false}

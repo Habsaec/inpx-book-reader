@@ -264,3 +264,11 @@ describe('«Цвет: Сервер» applies the whole library palette', () => {
     expect(css('--app-bg')).toBe('');
   });
 });
+
+describe('server cover dimming', () => {
+  it('is on unless the server says coverDim: false (older servers send nothing)', () => {
+    expect(parseServerUiTheme({}, 'Lib', null).coverDim).toBe(true);
+    expect(parseServerUiTheme({ coverDim: true }, 'Lib', null).coverDim).toBe(true);
+    expect(parseServerUiTheme({ coverDim: false }, 'Lib', null).coverDim).toBe(false);
+  });
+});

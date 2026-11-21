@@ -35,6 +35,8 @@ export interface ServerUiTheme {
   siteName: string;
   /** Placeholder cover from the server admin; absent in caches written before 1.8.1. */
   coverFallback?: CoverFallbackStyle | null;
+  /** Server Admin → Effects «dim covers in the dark theme»; absent (older servers) = on. */
+  coverDim?: boolean;
   logoUrl: string | null;
   themeVersion: string;
   fontFamily: string;
@@ -269,6 +271,7 @@ export function parseServerUiTheme(raw: Record<string, unknown>, siteName: strin
     surfaceBlur: clampUiInt(raw.surfaceBlur, 0, 24, 0),
     paletteDark,
     paletteLight,
+    coverDim: raw.coverDim !== false,
     glassColorDark: glassDark,
     glassColorLight: glassLight,
     glassTextDark: textDark,

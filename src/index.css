@@ -536,6 +536,12 @@ input[type="search"]::-webkit-search-decoration {
   --inpx-cover-fallback-bg: linear-gradient(180deg, #181410 0%, #100e0b 100%);
 }
 .inpx-cover-fallback-light { display: none; }
+
+/* Dark theme: covers a touch darker so bright ones do not glare in a dark grid (server Admin → Effects
+   «dim covers», `coverDim` in /api/settings/ui; off on E-Ink). */
+html[data-theme="dark"]:not([data-cover-dim="0"]):not([data-eink="1"]) .inpx-cover-img {
+  filter: brightness(0.9);
+}
 .inpx-cover-fallback-overlay {
   background: linear-gradient(180deg, rgba(13, 13, 20, 0.18) 0%, rgba(13, 13, 20, 0.48) 100%);
 }

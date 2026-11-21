@@ -539,6 +539,8 @@ export default function App() {
   // The site's placeholder cover (image, title colour…) follows the library like its branding.
   React.useEffect(() => {
     applyCoverFallbackStyle(serverUiTheme?.coverFallback ?? null);
+    // index.css dims cover images a little in the dark theme unless the server turned it off.
+    document.documentElement.dataset.coverDim = serverUiTheme?.coverDim === false ? '0' : '1';
   }, [serverUiTheme]);
 
   React.useEffect(() => {
