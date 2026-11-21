@@ -23,6 +23,12 @@ export interface AppThemePalette {
   topbarBg: string;
   topbarBorder: string;
   coverBorder: string;
+  /** Text on a solid link fill (newer servers; the app's buttons are filled with the link color). */
+  linkOn?: string;
+  /** Text on a solid accent fill (newer servers). */
+  accentOn?: string;
+  /** The accent when used as a text color, AA on the surface (newer servers). */
+  accentText?: string;
 }
 
 export interface ServerUiTheme {
@@ -118,8 +124,13 @@ function paletteFromApi(raw: Record<string, unknown>, mode: 'dark' | 'light'): A
     topbarBg: req('topbarBg', req('surface')),
     topbarBorder: req('topbarBorder', req('border')),
     coverBorder: req('coverBorder', req('border')),
+    ...(HEX6_RE.test(req('linkOn')) ? { linkOn: req('linkOn') } : {}),
+    ...(HEX6_RE.test(req('accentOn')) ? { accentOn: req('accentOn') } : {}),
+    ...(HEX6_RE.test(req('accentText')) ? { accentText: req('accentText') } : {}),
   };
 }
+
+const HEX6_RE = /^#[0-9a-f]{6}$/i;
 
 function legacyPalette(
   surface: string,
@@ -340,7 +351,11 @@ export function applyAccentVars(palette: AppThemePalette, isDark: boolean, surfa
   root.style.setProperty('--app-link-hover', hover);
   root.style.setProperty('--app-button-bg', accent);
   root.style.setProperty('--app-button-bg-hover', hover);
-  root.style.setProperty('--app-button-fg', contrastingInk(accent, isDark));
+  // The server computes the ink for its own link color; when the app had to change the color, pick it here.
+  const serverInk = accent === raw && palette.linkOn && (contrastRatio(palette.linkOn, accent) ?? 0) >= MIN_ACCENT_CONTRAST
+    ? palette.linkOn
+    : '';
+  root.style.setProperty('--app-button-fg', serverInk || contrastingInk(accent, isDark));
 }
 
 const PALETTE_CSS_KEYS = [
@@ -458,12 +473,21 @@ function mixToward(hex: string, target: number, weight: number): string {
   return `#${ch(16)}${ch(8)}${ch(0)}`;
 }
 
+/**
+ * True when light text reads better than dark text on `hex` (white beats black in WCAG contrast,
+ * crossover at luminance ≈ 0.18) — same rule as the server's `isDarkSurface`. A `luminance < 0.45`
+ * split sent colors toward white on mid-tone surfaces, where only black could pass.
+ */
+function prefersLightInk(hex: string): boolean {
+  return (contrastRatio('#ffffff', hex) ?? 0) >= (contrastRatio('#000000', hex) ?? 0);
+}
+
 /** Lighten (dark surface) or darken (light surface) a color until it reaches 4.5:1 on `surface`. */
 export function ensureReadableOn(color: string, surface: string): string {
   const hex = color.trim().toLowerCase();
   const ratio = contrastRatio(hex, surface);
   if (ratio == null || ratio >= MIN_ACCENT_CONTRAST) return color;
-  const target = (relativeLuminance(surface) ?? 0) < 0.45 ? 255 : 0;
+  const target = prefersLightInk(surface) ? 255 : 0;
   for (let step = 1; step <= 20; step += 1) {
     const next = mixToward(hex, target, step * 0.05);
     if ((contrastRatio(next, surface) ?? 0) >= MIN_ACCENT_CONTRAST) return next;
@@ -471,11 +495,10 @@ export function ensureReadableOn(color: string, surface: string): string {
   return target === 255 ? '#ffffff' : '#000000';
 }
 
-/** Dark ink on a light fill, light ink on a dark fill. */
+/** Dark ink on a light fill, light ink on a dark fill; nudged to 4.5:1 when the warm tone falls short. */
 export function contrastingInk(fill: string, isDark: boolean): string {
-  const lum = relativeLuminance(fill);
-  if (lum == null) return isDark ? '#1a1612' : '#fffdf8';
-  return lum >= 0.2 ? '#1a1612' : '#fffdf8';
+  if (relativeLuminance(fill) == null) return isDark ? '#1a1612' : '#fffdf8';
+  return ensureReadableOn(prefersLightInk(fill) ? '#fffdf8' : '#1a1612', fill);
 }
 
 export function applyAppThemeMode(isDark: boolean): void {

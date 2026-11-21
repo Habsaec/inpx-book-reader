@@ -100,6 +100,48 @@ describe('contrastingInk', () => {
     expect(contrastingInk('#1e1a16', false)).toBe('#fffdf8');
     expect(contrastingInk('#cfae8c', true)).toBe('#1a1612');
   });
+
+  it('reaches 4.5:1 on mid-tone fills (the built-in light accent took dark ink at 3.3:1)', () => {
+    for (const fill of ['#8a6230', '#808080', '#767676', '#d0490a', '#984ccd', '#2060c0']) {
+      expect(contrastRatio(contrastingInk(fill, false), fill)!).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe('ensureReadableOn on mid-tone surfaces', () => {
+  it('goes toward black when only black can pass (a < 0.45 luminance split sent it toward white)', () => {
+    for (const surface of ['#808080', '#9a8c7a', '#b0a090', '#6a7f8e']) {
+      expect(contrastRatio(ensureReadableOn('#ece6dc', surface), surface)!).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('uses the server ink for its own link color, own ink when the app changed the color', () => {
+    const base = {
+      bg: '#1a1612', surface: '#1a1612', surfaceHover: '#241f19', text: '#f2ebe0', muted: '#a89884',
+      accent: '#c4a35a', link: '#d4b06a', linkHover: '#e8c984', accentHover: '#d4b56e', border: '', fieldBg: '',
+      cardBg: '', cardBgHover: '', panelSoft: '', topbarBg: '', topbarBorder: '', coverBorder: '',
+    };
+    const style = document.documentElement.style;
+    applyAccentVars({ ...base, linkOn: '#000000' }, true, '#1a1612');
+    expect(style.getPropertyValue('--app-button-fg')).toBe('#000000');
+    clearAccentVars();
+    // An unreadable server ink is ignored.
+    applyAccentVars({ ...base, linkOn: '#d0b070' }, true, '#1a1612');
+    expect(style.getPropertyValue('--app-button-fg')).toBe('#1a1612');
+    clearAccentVars();
+  });
+
+  it('reads the additive ink fields from /api/settings/ui', () => {
+    const theme = parseServerUiTheme(
+      { appPaletteDark: { surface: '#1a1612', text: '#f2ebe0', link: '#d4b06a', linkOn: '#1a1612', accentOn: '#1a1612', accentText: '#c4a35a' } },
+      'Lib',
+      null,
+    );
+    expect(theme.paletteDark?.linkOn).toBe('#1a1612');
+    expect(theme.paletteDark?.accentText).toBe('#c4a35a');
+    const old = parseServerUiTheme({ appPaletteDark: { surface: '#1a1612', text: '#f2ebe0', link: '#d4b06a' } }, 'Lib', null);
+    expect(old.paletteDark?.linkOn).toBeUndefined();
+  });
 });
 
 describe('resolveIsDark', () => {
